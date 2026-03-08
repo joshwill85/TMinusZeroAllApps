@@ -1,0 +1,217 @@
+{
+  "schemaVersion": 1,
+  "seed": "ar-replay-bench-v2-fixed-seed",
+  "notes": "Deterministic synthetic replay fixture covering multiple launch families/sites for strict CI gating.",
+  "cases": [
+    {
+      "id": "falcon9-cape-low-drift",
+      "observer": { "latDeg": 28.5733, "lonDeg": -80.6469, "altMeters": 4 },
+      "predictedSamples": [
+        { "tPlusSec": 0, "azDeg": 84.4, "elDeg": 7.8 },
+        { "tPlusSec": 10, "azDeg": 85.1, "elDeg": 8.35 },
+        { "tPlusSec": 20, "azDeg": 85.9, "elDeg": 8.9 },
+        { "tPlusSec": 30, "azDeg": 86.7, "elDeg": 9.4 },
+        { "tPlusSec": 40, "azDeg": 87.5, "elDeg": 9.95 },
+        { "tPlusSec": 50, "azDeg": 88.25, "elDeg": 10.45 },
+        { "tPlusSec": 60, "azDeg": 89.05, "elDeg": 10.95 },
+        { "tPlusSec": 70, "azDeg": 89.85, "elDeg": 11.4 },
+        { "tPlusSec": 80, "azDeg": 90.65, "elDeg": 11.9 },
+        { "tPlusSec": 90, "azDeg": 91.45, "elDeg": 12.35 },
+        { "tPlusSec": 100, "azDeg": 92.2, "elDeg": 12.85 }
+      ],
+      "referenceSamples": [
+        { "tPlusSec": 0, "azDeg": 84.0, "elDeg": 8.0 },
+        { "tPlusSec": 10, "azDeg": 84.8, "elDeg": 8.5 },
+        { "tPlusSec": 20, "azDeg": 85.6, "elDeg": 9.0 },
+        { "tPlusSec": 30, "azDeg": 86.4, "elDeg": 9.5 },
+        { "tPlusSec": 40, "azDeg": 87.2, "elDeg": 10.0 },
+        { "tPlusSec": 50, "azDeg": 88.0, "elDeg": 10.5 },
+        { "tPlusSec": 60, "azDeg": 88.8, "elDeg": 11.0 },
+        { "tPlusSec": 70, "azDeg": 89.6, "elDeg": 11.5 },
+        { "tPlusSec": 80, "azDeg": 90.4, "elDeg": 12.0 },
+        { "tPlusSec": 90, "azDeg": 91.2, "elDeg": 12.5 },
+        { "tPlusSec": 100, "azDeg": 92.0, "elDeg": 13.0 }
+      ]
+    },
+    {
+      "id": "falcon9-vandenberg-growing-drift",
+      "observer": { "latDeg": 34.742, "lonDeg": -120.5724, "altMeters": 85 },
+      "predictedSamples": [
+        { "tPlusSec": 0, "azDeg": 118.2, "elDeg": 14.1 },
+        { "tPlusSec": 10, "azDeg": 119.5, "elDeg": 14.45 },
+        { "tPlusSec": 20, "azDeg": 120.9, "elDeg": 14.85 },
+        { "tPlusSec": 30, "azDeg": 122.3, "elDeg": 15.25 },
+        { "tPlusSec": 40, "azDeg": 123.8, "elDeg": 15.55 },
+        { "tPlusSec": 50, "azDeg": 125.4, "elDeg": 15.85 },
+        { "tPlusSec": 60, "azDeg": 127.0, "elDeg": 16.1 },
+        { "tPlusSec": 70, "azDeg": 128.7, "elDeg": 16.3 },
+        { "tPlusSec": 80, "azDeg": 130.5, "elDeg": 16.45 },
+        { "tPlusSec": 90, "azDeg": 132.4, "elDeg": 16.55 },
+        { "tPlusSec": 100, "azDeg": 134.3, "elDeg": 16.6 }
+      ],
+      "referenceSamples": [
+        { "tPlusSec": 0, "azDeg": 118.0, "elDeg": 14.0 },
+        { "tPlusSec": 10, "azDeg": 119.2, "elDeg": 14.4 },
+        { "tPlusSec": 20, "azDeg": 120.4, "elDeg": 14.8 },
+        { "tPlusSec": 30, "azDeg": 121.6, "elDeg": 15.2 },
+        { "tPlusSec": 40, "azDeg": 122.8, "elDeg": 15.6 },
+        { "tPlusSec": 50, "azDeg": 124.0, "elDeg": 16.0 },
+        { "tPlusSec": 60, "azDeg": 125.2, "elDeg": 16.4 },
+        { "tPlusSec": 70, "azDeg": 126.4, "elDeg": 16.8 },
+        { "tPlusSec": 80, "azDeg": 127.6, "elDeg": 17.2 },
+        { "tPlusSec": 90, "azDeg": 128.8, "elDeg": 17.6 },
+        { "tPlusSec": 100, "azDeg": 130.0, "elDeg": 18.0 }
+      ]
+    },
+    {
+      "id": "starship-boca-moderate-drift",
+      "observer": { "latDeg": 25.997, "lonDeg": -97.156, "altMeters": 7 },
+      "predictedSamples": [
+        { "tPlusSec": 0, "azDeg": 45.2, "elDeg": 19.6 },
+        { "tPlusSec": 10, "azDeg": 46.0, "elDeg": 20.4 },
+        { "tPlusSec": 20, "azDeg": 46.9, "elDeg": 21.2 },
+        { "tPlusSec": 30, "azDeg": 47.8, "elDeg": 21.9 },
+        { "tPlusSec": 40, "azDeg": 48.9, "elDeg": 22.5 },
+        { "tPlusSec": 50, "azDeg": 50.0, "elDeg": 23.0 },
+        { "tPlusSec": 60, "azDeg": 51.2, "elDeg": 23.4 },
+        { "tPlusSec": 70, "azDeg": 52.4, "elDeg": 23.7 },
+        { "tPlusSec": 80, "azDeg": 53.7, "elDeg": 23.8 },
+        { "tPlusSec": 90, "azDeg": 55.1, "elDeg": 23.8 },
+        { "tPlusSec": 100, "azDeg": 56.5, "elDeg": 23.7 }
+      ],
+      "referenceSamples": [
+        { "tPlusSec": 0, "azDeg": 46.0, "elDeg": 20.0 },
+        { "tPlusSec": 10, "azDeg": 46.8, "elDeg": 20.7 },
+        { "tPlusSec": 20, "azDeg": 47.6, "elDeg": 21.4 },
+        { "tPlusSec": 30, "azDeg": 48.4, "elDeg": 22.1 },
+        { "tPlusSec": 40, "azDeg": 49.2, "elDeg": 22.8 },
+        { "tPlusSec": 50, "azDeg": 50.0, "elDeg": 23.4 },
+        { "tPlusSec": 60, "azDeg": 50.8, "elDeg": 24.0 },
+        { "tPlusSec": 70, "azDeg": 51.6, "elDeg": 24.5 },
+        { "tPlusSec": 80, "azDeg": 52.4, "elDeg": 24.9 },
+        { "tPlusSec": 90, "azDeg": 53.2, "elDeg": 25.2 },
+        { "tPlusSec": 100, "azDeg": 54.0, "elDeg": 25.4 }
+      ]
+    },
+    {
+      "id": "newglenn-cape-eastbound",
+      "observer": { "latDeg": 28.5619, "lonDeg": -80.5772, "altMeters": 4 },
+      "predictedSamples": [
+        { "tPlusSec": 0, "azDeg": 82.4, "elDeg": 9.0 },
+        { "tPlusSec": 10, "azDeg": 83.3, "elDeg": 9.6 },
+        { "tPlusSec": 20, "azDeg": 84.2, "elDeg": 10.3 },
+        { "tPlusSec": 30, "azDeg": 85.3, "elDeg": 10.9 },
+        { "tPlusSec": 40, "azDeg": 86.5, "elDeg": 11.5 },
+        { "tPlusSec": 50, "azDeg": 87.7, "elDeg": 12.1 },
+        { "tPlusSec": 60, "azDeg": 89.0, "elDeg": 12.7 },
+        { "tPlusSec": 70, "azDeg": 90.4, "elDeg": 13.1 },
+        { "tPlusSec": 80, "azDeg": 91.8, "elDeg": 13.5 },
+        { "tPlusSec": 90, "azDeg": 93.3, "elDeg": 13.8 },
+        { "tPlusSec": 100, "azDeg": 94.8, "elDeg": 14.1 }
+      ],
+      "referenceSamples": [
+        { "tPlusSec": 0, "azDeg": 82.0, "elDeg": 9.2 },
+        { "tPlusSec": 10, "azDeg": 82.8, "elDeg": 9.8 },
+        { "tPlusSec": 20, "azDeg": 83.7, "elDeg": 10.5 },
+        { "tPlusSec": 30, "azDeg": 84.7, "elDeg": 11.1 },
+        { "tPlusSec": 40, "azDeg": 85.8, "elDeg": 11.8 },
+        { "tPlusSec": 50, "azDeg": 86.9, "elDeg": 12.4 },
+        { "tPlusSec": 60, "azDeg": 88.1, "elDeg": 13.0 },
+        { "tPlusSec": 70, "azDeg": 89.3, "elDeg": 13.5 },
+        { "tPlusSec": 80, "azDeg": 90.6, "elDeg": 14.0 },
+        { "tPlusSec": 90, "azDeg": 91.9, "elDeg": 14.4 },
+        { "tPlusSec": 100, "azDeg": 93.2, "elDeg": 14.8 }
+      ]
+    },
+    {
+      "id": "electron-mahia-steady",
+      "observer": { "latDeg": -39.2606, "lonDeg": 177.8643, "altMeters": 20 },
+      "predictedSamples": [
+        { "tPlusSec": 0, "azDeg": 135.3, "elDeg": 11.3 },
+        { "tPlusSec": 10, "azDeg": 136.1, "elDeg": 12.1 },
+        { "tPlusSec": 20, "azDeg": 136.9, "elDeg": 12.9 },
+        { "tPlusSec": 30, "azDeg": 137.8, "elDeg": 13.8 },
+        { "tPlusSec": 40, "azDeg": 138.8, "elDeg": 14.7 },
+        { "tPlusSec": 50, "azDeg": 139.9, "elDeg": 15.6 },
+        { "tPlusSec": 60, "azDeg": 141.1, "elDeg": 16.5 },
+        { "tPlusSec": 70, "azDeg": 142.4, "elDeg": 17.3 },
+        { "tPlusSec": 80, "azDeg": 143.8, "elDeg": 18.1 },
+        { "tPlusSec": 90, "azDeg": 145.3, "elDeg": 18.8 },
+        { "tPlusSec": 100, "azDeg": 146.9, "elDeg": 19.4 }
+      ],
+      "referenceSamples": [
+        { "tPlusSec": 0, "azDeg": 136.0, "elDeg": 11.0 },
+        { "tPlusSec": 10, "azDeg": 136.8, "elDeg": 11.8 },
+        { "tPlusSec": 20, "azDeg": 137.7, "elDeg": 12.6 },
+        { "tPlusSec": 30, "azDeg": 138.7, "elDeg": 13.5 },
+        { "tPlusSec": 40, "azDeg": 139.8, "elDeg": 14.4 },
+        { "tPlusSec": 50, "azDeg": 141.0, "elDeg": 15.3 },
+        { "tPlusSec": 60, "azDeg": 142.3, "elDeg": 16.2 },
+        { "tPlusSec": 70, "azDeg": 143.7, "elDeg": 17.0 },
+        { "tPlusSec": 80, "azDeg": 145.2, "elDeg": 17.8 },
+        { "tPlusSec": 90, "azDeg": 146.8, "elDeg": 18.5 },
+        { "tPlusSec": 100, "azDeg": 148.5, "elDeg": 19.1 }
+      ]
+    },
+    {
+      "id": "vulcan-cape-clean",
+      "observer": { "latDeg": 28.6084, "lonDeg": -80.6043, "altMeters": 3 },
+      "predictedSamples": [
+        { "tPlusSec": 0, "azDeg": 87.2, "elDeg": 6.9 },
+        { "tPlusSec": 10, "azDeg": 88.0, "elDeg": 7.6 },
+        { "tPlusSec": 20, "azDeg": 88.9, "elDeg": 8.4 },
+        { "tPlusSec": 30, "azDeg": 90.0, "elDeg": 9.1 },
+        { "tPlusSec": 40, "azDeg": 91.1, "elDeg": 9.8 },
+        { "tPlusSec": 50, "azDeg": 92.3, "elDeg": 10.6 },
+        { "tPlusSec": 60, "azDeg": 93.7, "elDeg": 11.3 },
+        { "tPlusSec": 70, "azDeg": 95.1, "elDeg": 12.0 },
+        { "tPlusSec": 80, "azDeg": 96.7, "elDeg": 12.6 },
+        { "tPlusSec": 90, "azDeg": 98.3, "elDeg": 13.1 },
+        { "tPlusSec": 100, "azDeg": 100.1, "elDeg": 13.6 }
+      ],
+      "referenceSamples": [
+        { "tPlusSec": 0, "azDeg": 87.0, "elDeg": 7.0 },
+        { "tPlusSec": 10, "azDeg": 87.8, "elDeg": 7.7 },
+        { "tPlusSec": 20, "azDeg": 88.7, "elDeg": 8.5 },
+        { "tPlusSec": 30, "azDeg": 89.7, "elDeg": 9.2 },
+        { "tPlusSec": 40, "azDeg": 90.8, "elDeg": 10.0 },
+        { "tPlusSec": 50, "azDeg": 92.0, "elDeg": 10.8 },
+        { "tPlusSec": 60, "azDeg": 93.3, "elDeg": 11.5 },
+        { "tPlusSec": 70, "azDeg": 94.7, "elDeg": 12.2 },
+        { "tPlusSec": 80, "azDeg": 96.2, "elDeg": 12.9 },
+        { "tPlusSec": 90, "azDeg": 97.8, "elDeg": 13.5 },
+        { "tPlusSec": 100, "azDeg": 99.5, "elDeg": 14.1 }
+      ]
+    },
+    {
+      "id": "ariane6-kourou-nominal",
+      "observer": { "latDeg": 5.236, "lonDeg": -52.775, "altMeters": 15 },
+      "predictedSamples": [
+        { "tPlusSec": 0, "azDeg": 70.6, "elDeg": 8.2 },
+        { "tPlusSec": 10, "azDeg": 71.2, "elDeg": 9.0 },
+        { "tPlusSec": 20, "azDeg": 71.9, "elDeg": 9.8 },
+        { "tPlusSec": 30, "azDeg": 72.7, "elDeg": 10.6 },
+        { "tPlusSec": 40, "azDeg": 73.6, "elDeg": 11.4 },
+        { "tPlusSec": 50, "azDeg": 74.6, "elDeg": 12.2 },
+        { "tPlusSec": 60, "azDeg": 75.7, "elDeg": 13.0 },
+        { "tPlusSec": 70, "azDeg": 76.9, "elDeg": 13.7 },
+        { "tPlusSec": 80, "azDeg": 78.2, "elDeg": 14.3 },
+        { "tPlusSec": 90, "azDeg": 79.6, "elDeg": 14.9 },
+        { "tPlusSec": 100, "azDeg": 81.1, "elDeg": 15.4 }
+      ],
+      "referenceSamples": [
+        { "tPlusSec": 0, "azDeg": 71.0, "elDeg": 8.0 },
+        { "tPlusSec": 10, "azDeg": 71.7, "elDeg": 8.8 },
+        { "tPlusSec": 20, "azDeg": 72.5, "elDeg": 9.6 },
+        { "tPlusSec": 30, "azDeg": 73.4, "elDeg": 10.5 },
+        { "tPlusSec": 40, "azDeg": 74.4, "elDeg": 11.4 },
+        { "tPlusSec": 50, "azDeg": 75.5, "elDeg": 12.2 },
+        { "tPlusSec": 60, "azDeg": 76.7, "elDeg": 13.0 },
+        { "tPlusSec": 70, "azDeg": 78.0, "elDeg": 13.8 },
+        { "tPlusSec": 80, "azDeg": 79.4, "elDeg": 14.5 },
+        { "tPlusSec": 90, "azDeg": 80.9, "elDeg": 15.2 },
+        { "tPlusSec": 100, "azDeg": 82.5, "elDeg": 15.8 }
+      ]
+    }
+  ]
+}

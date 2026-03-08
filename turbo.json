@@ -1,0 +1,24 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "dist/**"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "lint": {
+      "outputs": [".eslintcache"]
+    },
+    "type-check": {
+      "dependsOn": ["^type-check"],
+      "outputs": [".next/cache/tsc/**", "dist/**/*.d.ts", "dist/**/*.d.ts.map"]
+    },
+    "type-check:ci": {
+      "dependsOn": ["^type-check:ci"],
+      "outputs": [".next/cache/tsc/**"]
+    }
+  }
+}

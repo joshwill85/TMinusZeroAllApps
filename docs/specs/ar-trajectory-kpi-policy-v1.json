@@ -1,0 +1,50 @@
+{
+  "policyVersion": "ar_trajectory_kpi_policy_v1",
+  "updatedAt": "2026-02-10T00:00:00.000Z",
+  "telemetry": {
+    "windowDays": 14,
+    "sampleLimit": 5000,
+    "minSampledSessions": 40,
+    "lock": {
+      "minAttemptRate": 0.75,
+      "minAcquisitionRate": 0.65,
+      "minLockLe5Rate": 0.6,
+      "minAutoModeShare": 0.95,
+      "maxAvgLossCount": 2.0,
+      "minStabilityRate": 0.7,
+      "stabilityMaxLossCount": 2
+    },
+    "fallback": {
+      "maxFallbackRate": 0.25
+    },
+    "precision": {
+      "sigmaGoodThresholdDeg": 1.0,
+      "minTrajectoryCoverageRate": 0.7,
+      "minSigmaGoodRate": 0.55,
+      "minContractTierABRate": 0.6
+    },
+    "frameBudget": {
+      "minLowDropRate": 0.75,
+      "maxHighDropRate": 0.1,
+      "minHealthyPoseRate": 0.8
+    }
+  },
+  "replay": {
+    "minCases": 6,
+    "minSamples": 60,
+    "maxOverallP95Deg": 3.5,
+    "maxOverallDriftDeg": 2.0,
+    "maxOverallSlopeDegPerMin": 1.8,
+    "maxCaseP95Deg": 4.25,
+    "maxCaseDriftDeg": 3.4
+  },
+  "comparative": {
+    "baselineReportPath": "scripts/fixtures/ar-trajectory-replay-baseline-v1.json",
+    "maxOverallP95RegressionDeg": 0.2,
+    "maxOverallAbsDriftRegressionDeg": 0.2,
+    "maxOverallAbsSlopeRegressionDegPerMin": 0.2,
+    "maxWorstCaseP95RegressionDeg": 0.25,
+    "maxWorstCaseAbsDriftRegressionDeg": 0.25,
+    "maxSkippedCaseIncrease": 0
+  }
+}

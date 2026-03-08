@@ -1,0 +1,16 @@
+{
+  "policyVersion": "ar_trajectory_coverage_policy_v1",
+  "updatedAt": "2026-02-10T00:00:00.000Z",
+  "windowDefaults": {
+    "lookaheadLaunches": 8,
+    "lookaheadDays": 50
+  },
+  "thresholds": {
+    "minLaunchesEvaluated": 4,
+    "minTruthTierOrbitCoverageRate": 0.35,
+    "maxDerivedOnlyOrbitCoverageRate": 0.5,
+    "maxNoDirectionalConstraintRate": 0.4,
+    "maxMissingOrStaleProductRate": 0.35,
+    "maxPadOnlyProductRate": 0
+  }
+}

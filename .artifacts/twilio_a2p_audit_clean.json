@@ -1,0 +1,63 @@
+{
+  "siteUrl": "https://www.tminuszero.app",
+  "expectedInboundUrl": "https://www.tminuszero.app/api/notifications/sms/inbound",
+  "expectedCtaProofUrl": "https://www.tminuszero.app/docs/sms-opt-in",
+  "code": {
+    "brandName": "T-Minus Zero",
+    "supportEmail": "support@tminuszero.app",
+    "stopKeywords": [
+      "cancel",
+      "end",
+      "optout",
+      "quit",
+      "revoke",
+      "stop",
+      "stopall",
+      "unsubscribe"
+    ],
+    "startKeywords": [
+      "start",
+      "unstop"
+    ],
+    "helpKeywords": [
+      "help",
+      "info"
+    ],
+    "messages": {
+      "optInConfirmation": "T-Minus Zero SMS alerts enabled. Msg freq varies. Message and data rates may apply. Reply STOP to cancel, HELP for help. Support: support@tminuszero.app.",
+      "stop": "You are unsubscribed from T-Minus Zero alerts. You will not receive any more messages. Reply START to resubscribe.",
+      "start": "T-Minus Zero alerts: subscribed. Message and data rates may apply. Reply STOP to cancel, HELP for help. Manage: https://www.tminuszero.app/me/preferences.",
+      "help": "T-Minus Zero alerts. Msg freq varies. Message and data rates may apply. Reply STOP to cancel. Support: support@tminuszero.app."
+    },
+    "sendsLinks": true,
+    "optOutMode": "twilio"
+  },
+  "env": {
+    "hasMessagingServiceSid": false,
+    "hasFromNumber": false,
+    "verifyServiceSid": "<unset>"
+  },
+  "findings": [
+    {
+      "level": "error",
+      "code": "missing_env",
+      "message": "Missing `TWILIO_ACCOUNT_SID`."
+    },
+    {
+      "level": "error",
+      "code": "missing_env",
+      "message": "Missing `TWILIO_AUTH_TOKEN`."
+    },
+    {
+      "level": "error",
+      "code": "missing_env",
+      "message": "Missing `TWILIO_MESSAGING_SERVICE_SID` (or `TWILIO_FROM_NUMBER` for auto-discovery)."
+    },
+    {
+      "level": "info",
+      "code": "missing_messaging_service_sid",
+      "message": "Env is missing `TWILIO_MESSAGING_SERVICE_SID`. For A2P + Advanced Opt-Out, outbound SMS should be sent via the Messaging Service (not just a raw `From` number).",
+      "details": {}
+    }
+  ]
+}

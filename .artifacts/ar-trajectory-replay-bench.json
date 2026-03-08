@@ -1,0 +1,104 @@
+{
+  "generatedAt": "2026-02-10T02:37:51.861Z",
+  "fixtureSeed": "ar-replay-bench-v2-fixed-seed",
+  "fixtureCaseCount": 7,
+  "evaluatedCaseCount": 7,
+  "sampleCount": 77,
+  "overall": {
+    "meanErrorDeg": 0.9240515508201741,
+    "p50ErrorDeg": 0.7476568420489494,
+    "p90ErrorDeg": 1.6498809590136263,
+    "p95ErrorDeg": 2.376357571017259,
+    "startMeanErrorDeg": 0.5095146094589673,
+    "endMeanErrorDeg": 1.4751213220297306,
+    "driftDeg": 0.9656067125707632,
+    "slopeDegPerMin": 0.795836255602695
+  },
+  "cases": [
+    {
+      "id": "falcon9-cape-low-drift",
+      "sampleCount": 11,
+      "meanErrorDeg": 0.296714632558421,
+      "p50ErrorDeg": 0.28654241089647337,
+      "p90ErrorDeg": 0.33251759773773654,
+      "p95ErrorDeg": 0.3881693995828668,
+      "startMeanErrorDeg": 0.3630344793660422,
+      "endMeanErrorDeg": 0.26558095563095324,
+      "driftDeg": -0.09745352373508898,
+      "slopeDegPerMin": -0.07982248546082185
+    },
+    {
+      "id": "falcon9-vandenberg-growing-drift",
+      "sampleCount": 11,
+      "meanErrorDeg": 1.7109700090273527,
+      "p50ErrorDeg": 1.354598016472369,
+      "p90ErrorDeg": 3.597832302997347,
+      "p95ErrorDeg": 3.9676204290576598,
+      "startMeanErrorDeg": 0.3330066410070889,
+      "endMeanErrorDeg": 3.6035294799791573,
+      "driftDeg": 3.2705228389720684,
+      "slopeDegPerMin": 2.4508447121935304
+    },
+    {
+      "id": "starship-boca-moderate-drift",
+      "sampleCount": 11,
+      "meanErrorDeg": 1.109731872911758,
+      "p50ErrorDeg": 0.8069308146938311,
+      "p90ErrorDeg": 2.22461188430984,
+      "p95ErrorDeg": 2.5318398910805904,
+      "startMeanErrorDeg": 0.7804919459485241,
+      "endMeanErrorDeg": 2.2266801304401853,
+      "driftDeg": 1.4461881844916613,
+      "slopeDegPerMin": 1.0737537709877032
+    },
+    {
+      "id": "newglenn-cape-eastbound",
+      "sampleCount": 11,
+      "meanErrorDeg": 0.9305709449552027,
+      "p50ErrorDeg": 0.8373682378914741,
+      "p90ErrorDeg": 1.4844702424849872,
+      "p95ErrorDeg": 1.5923158631399938,
+      "startMeanErrorDeg": 0.5018333808816507,
+      "endMeanErrorDeg": 1.4843171370239912,
+      "driftDeg": 0.9824837561423404,
+      "slopeDegPerMin": 0.7380199776058104
+    },
+    {
+      "id": "electron-mahia-steady",
+      "sampleCount": 11,
+      "meanErrorDeg": 1.108955186888832,
+      "p50ErrorDeg": 1.1018727969672109,
+      "p90ErrorDeg": 1.4525459288531217,
+      "p95ErrorDeg": 1.4962916658480356,
+      "startMeanErrorDeg": 0.777688089889367,
+      "endMeanErrorDeg": 1.4526012873083394,
+      "driftDeg": 0.6749131974189724,
+      "slopeDegPerMin": 0.5041880753910671
+    },
+    {
+      "id": "vulcan-cape-clean",
+      "sampleCount": 11,
+      "meanErrorDeg": 0.41284240452258464,
+      "p50ErrorDeg": 0.3568466504226382,
+      "p90ErrorDeg": 0.6298952906741152,
+      "p95ErrorDeg": 0.6987992209629015,
+      "startMeanErrorDeg": 0.22199213122564923,
+      "endMeanErrorDeg": 0.656718754845159,
+      "driftDeg": 0.43472662361950976,
+      "slopeDegPerMin": 0.3135223357853739
+    },
+    {
+      "id": "ariane6-kourou-nominal",
+      "sampleCount": 11,
+      "meanErrorDeg": 0.8985758048770662,
+      "p50ErrorDeg": 0.8796739009691102,
+      "p90ErrorDeg": 1.290753272190529,
+      "p95ErrorDeg": 1.348626470810839,
+      "startMeanErrorDeg": 0.5336341482254926,
+      "endMeanErrorDeg": 1.292210829038914,
+      "driftDeg": 0.7585766808134214,
+      "slopeDegPerMin": 0.5703474027162
+    }
+  ],
+  "skippedCases": []
+}

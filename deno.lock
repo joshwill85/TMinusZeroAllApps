@@ -1,0 +1,53 @@
+{
+  "version": "4",
+  "redirects": {
+    "https://esm.sh/@supabase/supabase-js@2": "https://esm.sh/@supabase/supabase-js@2.98.0"
+  },
+  "remote": {
+    "https://deno.land/std@0.224.0/async/delay.ts": "f90dd685b97c2f142b8069082993e437b1602b8e2561134827eeb7c12b95c499",
+    "https://deno.land/std@0.224.0/http/server.ts": "f9313804bf6467a1704f45f76cb6cd0a3396a3b31c316035e6a4c2035d1ea514",
+    "https://esm.sh/@supabase/supabase-js@2.98.0": "7c91584aa8d7c3b272be04122a907e00a7028a20d0eaf5e40b2eb1eed10f06b3"
+  },
+  "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:@react-three/drei@^9.122.0",
+        "npm:@react-three/fiber@^8.18.0",
+        "npm:@stripe/react-stripe-js@^2.9.0",
+        "npm:@stripe/stripe-js@^4.10.0",
+        "npm:@supabase/ssr@0.8",
+        "npm:@supabase/supabase-js@^2.43.1",
+        "npm:@types/node@20.19.27",
+        "npm:@types/pg@^8.16.0",
+        "npm:@types/react-dom@^18.2.17",
+        "npm:@types/react@^18.2.46",
+        "npm:autoprefixer@^10.4.16",
+        "npm:clsx@^2.1.0",
+        "npm:date-fns-tz@2",
+        "npm:date-fns@^2.30.0",
+        "npm:dotenv@^16.3.1",
+        "npm:eslint-config-next@14.2.35",
+        "npm:eslint@8.57.1",
+        "npm:framer-motion@^12.24.0",
+        "npm:next-safe-action@^5.0.2",
+        "npm:next@^14.2.35",
+        "npm:pdfjs-dist@^4.0.379",
+        "npm:pg@^8.11.3",
+        "npm:postcss@^8.4.32",
+        "npm:prettier@^3.1.1",
+        "npm:react-dom@^18.2.0",
+        "npm:react-globe.gl@^2.37.0",
+        "npm:react@^18.2.0",
+        "npm:sharp@~0.33.2",
+        "npm:stripe@^14.6.0",
+        "npm:tailwindcss@^3.4.1",
+        "npm:three@0.182",
+        "npm:ts-node@^10.9.2",
+        "npm:tsconfig-paths@^4.2.0",
+        "npm:twilio@^5.11.1",
+        "npm:typescript@5.9.3",
+        "npm:zod@^3.22.4"
+      ]
+    }
+  }
+}

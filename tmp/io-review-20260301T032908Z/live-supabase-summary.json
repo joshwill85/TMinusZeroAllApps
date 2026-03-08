@@ -1,0 +1,479 @@
+{
+  "project_ref": "lixuhtyqprseulhdvynq",
+  "settings": [
+    {
+      "key": "ll2_incremental_calls_per_minute",
+      "value": 4,
+      "updated_at": "2026-01-09T17:54:23.722272+00:00"
+    },
+    {
+      "key": "ll2_incremental_interval_seconds",
+      "value": 15,
+      "updated_at": "2026-01-09T17:54:23.722272+00:00"
+    },
+    {
+      "key": "ll2_incremental_job_enabled",
+      "value": true,
+      "updated_at": "2026-01-14T03:42:31.565+00:00"
+    },
+    {
+      "key": "ll2_incremental_use_edge_burst",
+      "value": true,
+      "updated_at": "2026-02-12T23:56:26.806303+00:00"
+    },
+    {
+      "key": "ops_metrics_collection_enabled",
+      "value": false,
+      "updated_at": "2026-03-01T03:19:48.62546+00:00"
+    },
+    {
+      "key": "ops_metrics_scrape_timeout_ms",
+      "value": 8000,
+      "updated_at": "2026-03-01T03:19:48.62546+00:00"
+    }
+  ],
+  "cron_count": 50,
+  "cron_active_count": 50,
+  "cron_top_high_freq": [
+    {
+      "jobname": "artemis_bootstrap",
+      "schedule": "4,19,34,49 * * * *",
+      "command": "select public.invoke_edge_job('artemis-bootstrap');"
+    },
+    {
+      "jobname": "artemis_budget_ingest",
+      "schedule": "17 4 * * 1",
+      "command": "select public.invoke_edge_job('artemis-budget-ingest');"
+    },
+    {
+      "jobname": "artemis_components_ingest",
+      "schedule": "55 5 * * 0",
+      "command": "select public.invoke_edge_job('artemis-components-ingest');"
+    },
+    {
+      "jobname": "artemis_content_ingest",
+      "schedule": "32 */12 * * *",
+      "command": "select public.invoke_edge_job('artemis-content-ingest');"
+    },
+    {
+      "jobname": "artemis_contracts_ingest",
+      "schedule": "17 5 * * *",
+      "command": "select public.invoke_edge_job('artemis-contracts-ingest');"
+    },
+    {
+      "jobname": "artemis_crew_ingest",
+      "schedule": "35 5 * * 0",
+      "command": "select public.invoke_edge_job('artemis-crew-ingest');"
+    },
+    {
+      "jobname": "artemis_nasa_blog_backfill",
+      "schedule": "15 5 * * 0",
+      "command": "select public.invoke_edge_job('artemis-nasa-blog-backfill');"
+    },
+    {
+      "jobname": "artemis_nasa_ingest",
+      "schedule": "7 2 */3 * *",
+      "command": "select public.invoke_edge_job('artemis-nasa-ingest');"
+    },
+    {
+      "jobname": "artemis_oversight_ingest",
+      "schedule": "35 */12 * * *",
+      "command": "select public.invoke_edge_job('artemis-oversight-ingest');"
+    },
+    {
+      "jobname": "artemis_procurement_ingest",
+      "schedule": "47 4 * * 1",
+      "command": "select public.invoke_edge_job('artemis-procurement-ingest');"
+    },
+    {
+      "jobname": "artemis_snapshot_build",
+      "schedule": "37 2 */3 * *",
+      "command": "select public.invoke_edge_job('artemis-snapshot-build');"
+    },
+    {
+      "jobname": "billing_reconcile",
+      "schedule": "52 * * * *",
+      "command": "select public.invoke_edge_job('billing-reconcile');"
+    },
+    {
+      "jobname": "blue_origin_bootstrap",
+      "schedule": "0 0 * * 1",
+      "command": "select public.invoke_edge_job('blue-origin-bootstrap');"
+    },
+    {
+      "jobname": "blue_origin_contracts_ingest",
+      "schedule": "0 12 * * 1",
+      "command": "select public.invoke_edge_job('blue-origin-contracts-ingest');"
+    },
+    {
+      "jobname": "blue_origin_engines_ingest",
+      "schedule": "0 3 * * 1",
+      "command": "select public.invoke_edge_job('blue-origin-engines-ingest');"
+    },
+    {
+      "jobname": "blue_origin_media_ingest",
+      "schedule": "30 7 * * 1",
+      "command": "select public.invoke_edge_job('blue-origin-media-ingest');"
+    },
+    {
+      "jobname": "blue_origin_missions_ingest",
+      "schedule": "30 4 * * 1",
+      "command": "select public.invoke_edge_job('blue-origin-missions-ingest');"
+    },
+    {
+      "jobname": "blue_origin_news_ingest",
+      "schedule": "0 6 * * 1",
+      "command": "select public.invoke_edge_job('blue-origin-news-ingest');"
+    },
+    {
+      "jobname": "blue_origin_passengers_ingest",
+      "schedule": "0 9 * * 1",
+      "command": "select public.invoke_edge_job('blue-origin-passengers-ingest');"
+    },
+    {
+      "jobname": "blue_origin_payloads_ingest",
+      "schedule": "30 10 * * 1",
+      "command": "select public.invoke_edge_job('blue-origin-payloads-ingest');"
+    },
+    {
+      "jobname": "blue_origin_snapshot_build",
+      "schedule": "0 15 * * 1",
+      "command": "select public.invoke_edge_job('blue-origin-snapshot-build');"
+    },
+    {
+      "jobname": "blue_origin_social_ingest",
+      "schedule": "30 13 * * 1",
+      "command": "select public.invoke_edge_job('blue-origin-social-ingest');"
+    },
+    {
+      "jobname": "blue_origin_vehicles_ingest",
+      "schedule": "30 1 * * 1",
+      "command": "select public.invoke_edge_job('blue-origin-vehicles-ingest');"
+    },
+    {
+      "jobname": "celestrak_gp_groups_sync",
+      "schedule": "12 4 * * *",
+      "command": "select public.invoke_edge_job('celestrak-gp-groups-sync');"
+    },
+    {
+      "jobname": "celestrak_ingest",
+      "schedule": "11 */6 * * *",
+      "command": "select public.invoke_edge_job('celestrak-ingest');"
+    },
+    {
+      "jobname": "celestrak_retention_cleanup",
+      "schedule": "42 4 * * *",
+      "command": "select public.invoke_edge_job('celestrak-retention-cleanup');"
+    },
+    {
+      "jobname": "cleanup_ar_camera_guide_sessions",
+      "schedule": "17 4 * * *",
+      "command": "select public.cleanup_ar_camera_guide_sessions(90);"
+    },
+    {
+      "jobname": "faa_launch_match",
+      "schedule": "27 * * * *",
+      "command": "select public.invoke_edge_job('faa-launch-match');"
+    },
+    {
+      "jobname": "faa_notam_detail_ingest",
+      "schedule": "17 * * * *",
+      "command": "select public.invoke_edge_job('faa-notam-detail-ingest');"
+    },
+    {
+      "jobname": "faa_tfr_ingest",
+      "schedule": "7 * * * *",
+      "command": "select public.invoke_edge_job('faa-tfr-ingest');"
+    }
+  ],
+  "ingestion_24h_total_runs": 1000,
+  "ingestion_top_runtime_24h": [
+    {
+      "job": "trajectory_constraints_ingest",
+      "runs": 122,
+      "success": 122,
+      "failed": 0,
+      "avg_s": 32.27,
+      "p95_s": 61.33,
+      "max_s": 112.79,
+      "total_runtime_s": 3937.45
+    },
+    {
+      "job": "monitoring_check",
+      "runs": 123,
+      "success": 123,
+      "failed": 0,
+      "avg_s": 16.63,
+      "p95_s": 25.72,
+      "max_s": 90.93,
+      "total_runtime_s": 2045.38
+    },
+    {
+      "job": "trajectory_orbit_ingest",
+      "runs": 122,
+      "success": 122,
+      "failed": 0,
+      "avg_s": 6.84,
+      "p95_s": 14.44,
+      "max_s": 21.16,
+      "total_runtime_s": 834.32
+    },
+    {
+      "job": "ingestion_cycle",
+      "runs": 44,
+      "success": 43,
+      "failed": 1,
+      "avg_s": 18.43,
+      "p95_s": 29.88,
+      "max_s": 119.84,
+      "total_runtime_s": 811.04
+    },
+    {
+      "job": "faa_notam_detail_ingest",
+      "runs": 12,
+      "success": 12,
+      "failed": 0,
+      "avg_s": 38.13,
+      "p95_s": 44.58,
+      "max_s": 45.26,
+      "total_runtime_s": 457.51
+    },
+    {
+      "job": "navcen_bnm_ingest",
+      "runs": 11,
+      "success": 9,
+      "failed": 1,
+      "avg_s": 37.51,
+      "p95_s": 52.8,
+      "max_s": 105.06,
+      "total_runtime_s": 375.07
+    },
+    {
+      "job": "public_cache_refresh",
+      "runs": 45,
+      "success": 44,
+      "failed": 1,
+      "avg_s": 5.8,
+      "p95_s": 13.02,
+      "max_s": 87.12,
+      "total_runtime_s": 261.11
+    },
+    {
+      "job": "trajectory_products_generate",
+      "runs": 122,
+      "success": 122,
+      "failed": 0,
+      "avg_s": 2.05,
+      "p95_s": 4.96,
+      "max_s": 13.35,
+      "total_runtime_s": 250.68
+    },
+    {
+      "job": "social_posts_dispatch",
+      "runs": 41,
+      "success": 40,
+      "failed": 0,
+      "avg_s": 5.41,
+      "p95_s": 19.96,
+      "max_s": 26.17,
+      "total_runtime_s": 216.54
+    },
+    {
+      "job": "ll2_catalog",
+      "runs": 6,
+      "success": 6,
+      "failed": 0,
+      "avg_s": 34.25,
+      "p95_s": 45.31,
+      "max_s": 46.94,
+      "total_runtime_s": 205.51
+    },
+    {
+      "job": "snapi_ingest",
+      "runs": 44,
+      "success": 44,
+      "failed": 0,
+      "avg_s": 3.88,
+      "p95_s": 7.71,
+      "max_s": 18.61,
+      "total_runtime_s": 170.73
+    },
+    {
+      "job": "celestrak_ingest",
+      "runs": 2,
+      "success": 2,
+      "failed": 0,
+      "avg_s": 62.36,
+      "p95_s": 40.4,
+      "max_s": 84.32,
+      "total_runtime_s": 124.72
+    },
+    {
+      "job": "ll2_event_ingest",
+      "runs": 45,
+      "success": 45,
+      "failed": 0,
+      "avg_s": 2.51,
+      "p95_s": 8.87,
+      "max_s": 18.38,
+      "total_runtime_s": 112.87
+    },
+    {
+      "job": "nws_refresh",
+      "runs": 31,
+      "success": 31,
+      "failed": 0,
+      "avg_s": 3.32,
+      "p95_s": 10.06,
+      "max_s": 16.56,
+      "total_runtime_s": 103.02
+    },
+    {
+      "job": "launch_social_refresh",
+      "runs": 42,
+      "success": 42,
+      "failed": 0,
+      "avg_s": 2.27,
+      "p95_s": 3.66,
+      "max_s": 13.15,
+      "total_runtime_s": 95.39
+    },
+    {
+      "job": "artemis_nasa_ingest",
+      "runs": 10,
+      "success": 10,
+      "failed": 0,
+      "avg_s": 5.74,
+      "p95_s": 6.17,
+      "max_s": 11.67,
+      "total_runtime_s": 57.39
+    },
+    {
+      "job": "artemis_bootstrap",
+      "runs": 44,
+      "success": 44,
+      "failed": 0,
+      "avg_s": 1.09,
+      "p95_s": 2.97,
+      "max_s": 4.98,
+      "total_runtime_s": 47.87
+    },
+    {
+      "job": "artemis_snapshot_build",
+      "runs": 12,
+      "success": 12,
+      "failed": 0,
+      "avg_s": 3.54,
+      "p95_s": 4.57,
+      "max_s": 5.3,
+      "total_runtime_s": 42.45
+    },
+    {
+      "job": "og_prewarm",
+      "runs": 2,
+      "success": 2,
+      "failed": 0,
+      "avg_s": 16.78,
+      "p95_s": 16.1,
+      "max_s": 17.46,
+      "total_runtime_s": 33.56
+    },
+    {
+      "job": "ws45_forecasts_ingest",
+      "runs": 20,
+      "success": 20,
+      "failed": 0,
+      "avg_s": 1.63,
+      "p95_s": 2.7,
+      "max_s": 7.48,
+      "total_runtime_s": 32.64
+    }
+  ],
+  "ingestion_top_frequency_24h": [
+    {
+      "job": "monitoring_check",
+      "runs": 123
+    },
+    {
+      "job": "trajectory_constraints_ingest",
+      "runs": 122
+    },
+    {
+      "job": "trajectory_orbit_ingest",
+      "runs": 122
+    },
+    {
+      "job": "trajectory_products_generate",
+      "runs": 122
+    },
+    {
+      "job": "public_cache_refresh",
+      "runs": 45
+    },
+    {
+      "job": "ll2_event_ingest",
+      "runs": 45
+    },
+    {
+      "job": "snapi_ingest",
+      "runs": 44
+    },
+    {
+      "job": "ingestion_cycle",
+      "runs": 44
+    },
+    {
+      "job": "spacex_x_post_snapshot",
+      "runs": 44
+    },
+    {
+      "job": "artemis_bootstrap",
+      "runs": 44
+    },
+    {
+      "job": "launch_social_refresh",
+      "runs": 42
+    },
+    {
+      "job": "social_posts_dispatch",
+      "runs": 41
+    },
+    {
+      "job": "nws_refresh",
+      "runs": 31
+    },
+    {
+      "job": "ws45_forecasts_ingest",
+      "runs": 20
+    },
+    {
+      "job": "ops_metrics_collect",
+      "runs": 12
+    },
+    {
+      "job": "faa_notam_detail_ingest",
+      "runs": 12
+    },
+    {
+      "job": "billing_reconcile",
+      "runs": 12
+    },
+    {
+      "job": "artemis_snapshot_build",
+      "runs": 12
+    },
+    {
+      "job": "faa_launch_match",
+      "runs": 11
+    },
+    {
+      "job": "faa_tfr_ingest",
+      "runs": 11
+    }
+  ],
+  "ops_metrics_1m_disk_summary": {
+    "rows": 0,
+    "latest_sampled_at": null,
+    "keys": []
+  }
+}

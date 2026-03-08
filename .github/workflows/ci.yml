@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: "true"
+      NEXT_TELEMETRY_DISABLED: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node (from .nvmrc)
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Toolchain doctor
+        run: npm run doctor
+
+      - name: Restore Next.js + ESLint caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            apps/web/.next/cache
+            apps/web/.eslintcache
+          key: ${{ runner.os }}-next-eslint-${{ hashFiles('package-lock.json', 'apps/web/next.config.mjs', 'apps/web/tsconfig.json', 'apps/web/.eslintrc.json', 'turbo.json') }}
+          restore-keys: |
+            ${{ runner.os }}-next-eslint-
+
+      - name: Install (npm ci)
+        run: npm ci
+
+      - name: Three-platform boundary check
+        run: npm run check:three-platform:boundaries
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check
+        run: npm run type-check:ci
+
+      - name: Smoke tests
+        run: npm run test:smoke
+
+      - name: Blue Origin dossier smoke tests
+        run: npm run test:blue-origin-dossier
+
+      - name: Trajectory replay benchmark
+        run: npm run trajectory:replay-bench -- --output=.artifacts/ar-trajectory-replay-bench.json
+
+      - name: Trajectory replay gate (strict)
+        run: npm run trajectory:replay-gate -- --report=.artifacts/ar-trajectory-replay-bench.json
+
+      - name: Trajectory replay family check
+        run: |
+          npm run trajectory:replay:family-check -- \
+            --report=.artifacts/ar-trajectory-replay-bench.json \
+            --output=.artifacts/ar-trajectory-family-replay-check.json \
+            --markdown=.artifacts/ar-trajectory-family-replay-check.md
+
+      - name: Trajectory KPI policy check + comparative artifact
+        run: |
+          npm run trajectory:kpi:check -- \
+            --skip-db \
+            --exceptions=docs/specs/ar-trajectory-kpi-exceptions-v1.json \
+            --report=.artifacts/ar-trajectory-replay-bench.json \
+            --output=.artifacts/ar-trajectory-kpi-eval.json \
+            --compare-output=.artifacts/ar-trajectory-benchmark-compare.json \
+            --compare-markdown=.artifacts/ar-trajectory-benchmark-compare.md
+
+      - name: Trajectory KPI trend history artifact
+        run: |
+          npm run trajectory:kpi:history -- \
+            --kpi=.artifacts/ar-trajectory-kpi-eval.json \
+            --compare=.artifacts/ar-trajectory-benchmark-compare.json \
+            --history-in=scripts/fixtures/ar-trajectory-kpi-history-v1.json \
+            --history-out=.artifacts/ar-trajectory-kpi-history.json \
+            --markdown=.artifacts/ar-trajectory-kpi-history.md \
+            --run-id=${{ github.run_id }} \
+            --commit=${{ github.sha }} \
+            --branch=${{ github.ref_name }} \
+            --source=ci
+
+      - name: Upload trajectory replay benchmark artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ar-trajectory-replay-bench
+          path: .artifacts/ar-trajectory-replay-bench.json
+          if-no-files-found: ignore
+
+      - name: Upload trajectory KPI/comparative artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ar-trajectory-kpi-artifacts
+          path: |
+            .artifacts/ar-trajectory-kpi-eval.json
+            .artifacts/ar-trajectory-benchmark-compare.json
+            .artifacts/ar-trajectory-benchmark-compare.md
+            .artifacts/ar-trajectory-family-replay-check.json
+            .artifacts/ar-trajectory-family-replay-check.md
+            .artifacts/ar-trajectory-kpi-history.json
+            .artifacts/ar-trajectory-kpi-history.md
+          if-no-files-found: ignore
+
+      - name: Build
+        run: npm run build
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Docker build (ensures Dockerfile parity)
+        run: docker build -t tminusnow:ci .

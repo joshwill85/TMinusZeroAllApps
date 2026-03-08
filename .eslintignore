@@ -1,0 +1,10 @@
+supabase/
+scripts/
+.next/
+node_modules/
+*.tsbuildinfo
+.vercel/
+out/
+build/
+dist/
+.eslintcache

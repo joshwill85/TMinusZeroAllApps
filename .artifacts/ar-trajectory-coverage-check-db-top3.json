@@ -1,0 +1,99 @@
+{
+  "generatedAt": "2026-02-10T02:38:47.543Z",
+  "policyVersion": "ar_trajectory_coverage_policy_v1",
+  "policyPath": "docs/specs/ar-trajectory-coverage-policy-v1.json",
+  "window": {
+    "lookaheadLaunches": 3,
+    "lookaheadDays": 50
+  },
+  "pass": false,
+  "checks": [
+    {
+      "id": "coverage.min_launches",
+      "label": "Evaluated launch count",
+      "status": "fail",
+      "value": 3,
+      "threshold": ">= 4"
+    },
+    {
+      "id": "coverage.truth_tier_orbit_rate",
+      "label": "Truth-tier orbit coverage rate",
+      "status": "fail",
+      "value": 0,
+      "threshold": ">= 0.35"
+    },
+    {
+      "id": "coverage.derived_only_orbit_rate",
+      "label": "Derived-only orbit rate",
+      "status": "pass",
+      "value": 0.3333333333333333,
+      "threshold": "<= 0.5"
+    },
+    {
+      "id": "coverage.no_directional_constraint_rate",
+      "label": "No directional-constraint rate",
+      "status": "fail",
+      "value": 0.6666666666666666,
+      "threshold": "<= 0.4"
+    },
+    {
+      "id": "coverage.missing_or_stale_product_rate",
+      "label": "Missing/stale product rate",
+      "status": "pass",
+      "value": 0,
+      "threshold": "<= 0.35"
+    }
+  ],
+  "summary": {
+    "launchesEvaluated": 3,
+    "launchesWithTruthTierOrbit": 0,
+    "launchesWithDerivedOnlyOrbit": 1,
+    "launchesWithoutDirectionalConstraint": 2,
+    "launchesMissingOrStaleProduct": 0,
+    "truthTierOrbitCoverageRate": 0,
+    "derivedOnlyOrbitCoverageRate": 0.3333333333333333,
+    "noDirectionalConstraintRate": 0.6666666666666666,
+    "missingOrStaleProductRate": 0
+  },
+  "launches": [
+    {
+      "launchId": "8e5e9fe2-0787-4c4c-b9d1-63858d6ee12f",
+      "title": "Starlink Group 17-34",
+      "net": "2026-02-11T14:07:00+00:00",
+      "productQuality": 0,
+      "productGeneratedAt": "2026-02-10T02:35:02.863+00:00",
+      "productMissingOrStale": false,
+      "hasTruthTierOrbit": false,
+      "hasDerivedOnlyOrbit": true,
+      "hasDirectionalConstraint": true,
+      "hasLandingLatLon": false,
+      "hasHazardGeometry": false
+    },
+    {
+      "launchId": "d089fbee-08d0-4bce-8a1f-e04d5df997fb",
+      "title": "Unknown Payload",
+      "net": "2026-02-12T06:30:00+00:00",
+      "productQuality": 0,
+      "productGeneratedAt": "2026-02-10T02:35:02.864+00:00",
+      "productMissingOrStale": false,
+      "hasTruthTierOrbit": false,
+      "hasDerivedOnlyOrbit": false,
+      "hasDirectionalConstraint": false,
+      "hasLandingLatLon": false,
+      "hasHazardGeometry": false
+    },
+    {
+      "launchId": "f482136a-16ce-4563-aaef-0248aef968b4",
+      "title": "USSF-87",
+      "net": "2026-02-12T08:30:00+00:00",
+      "productQuality": 0,
+      "productGeneratedAt": "2026-02-10T02:35:02.868+00:00",
+      "productMissingOrStale": false,
+      "hasTruthTierOrbit": false,
+      "hasDerivedOnlyOrbit": false,
+      "hasDirectionalConstraint": false,
+      "hasLandingLatLon": false,
+      "hasHazardGeometry": false
+    }
+  ]
+}

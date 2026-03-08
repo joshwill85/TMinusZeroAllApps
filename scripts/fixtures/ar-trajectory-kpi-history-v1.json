@@ -1,0 +1,40 @@
+{
+  "schemaVersion": "v1",
+  "policyVersion": "ar_trajectory_kpi_policy_v1",
+  "updatedAt": "2026-02-10T02:13:42.850Z",
+  "entries": [
+    {
+      "runId": "baseline-v1",
+      "generatedAt": "2026-02-10T02:13:42.850Z",
+      "source": "baseline",
+      "commit": null,
+      "branch": null,
+      "policyVersion": "ar_trajectory_kpi_policy_v1",
+      "pass": true,
+      "checks": {
+        "pass": 13,
+        "fail": 0,
+        "exception": 0,
+        "skip": 1
+      },
+      "replay": {
+        "sampleCount": 77,
+        "evaluatedCaseCount": 7,
+        "overallP95Deg": 2.376357571017259,
+        "overallDriftDeg": 0.9656067125707632,
+        "overallSlopeDegPerMin": 0.795836255602695,
+        "worstCaseP95Deg": 3.9676204290576598,
+        "worstCaseAbsDriftDeg": 3.2705228389720684
+      },
+      "comparative": {
+        "overallP95DeltaDeg": 0,
+        "overallAbsDriftDeltaDeg": 0,
+        "overallAbsSlopeDeltaDegPerMin": 0,
+        "worstCaseP95DeltaDeg": 0,
+        "worstCaseAbsDriftDeltaDeg": 0,
+        "skippedCaseDelta": 0
+      },
+      "telemetry": null
+    }
+  ]
+}

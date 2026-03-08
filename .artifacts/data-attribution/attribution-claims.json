@@ -1,0 +1,130 @@
+{
+  "generatedAt": "2026-03-05T01:31:34.042Z",
+  "auditDate": "2026-03-05",
+  "summary": {
+    "totalClaims": 20,
+    "uniqueSourceKeys": 11
+  },
+  "claims": [
+    {
+      "key": "legal_data_ll2",
+      "sourceKey": "ll2_launch_library",
+      "file": "app/legal/data/page.tsx",
+      "claim": "Launch data provided by The Space Devs (Launch Library 2)."
+    },
+    {
+      "key": "legal_data_snapi",
+      "sourceKey": "snapi_news",
+      "file": "app/legal/data/page.tsx",
+      "claim": "News metadata powered by Spaceflight News API (The Space Devs)."
+    },
+    {
+      "key": "legal_data_nws",
+      "sourceKey": "nws_weather",
+      "file": "app/legal/data/page.tsx",
+      "claim": "Weather forecasts (US-only): National Weather Service (NWS) API."
+    },
+    {
+      "key": "legal_data_ws45",
+      "sourceKey": "ws45_forecast",
+      "file": "app/legal/data/page.tsx",
+      "claim": "Feature-specific sources list includes 45th Weather Squadron forecast documents."
+    },
+    {
+      "key": "legal_data_open_meteo",
+      "sourceKey": "open_meteo_weather",
+      "file": "app/legal/data/page.tsx",
+      "claim": "Feature-specific sources list includes Open-Meteo forecast API for visibility scoring."
+    },
+    {
+      "key": "legal_data_faa",
+      "sourceKey": "faa_tfr_notam",
+      "file": "app/legal/data/page.tsx",
+      "claim": "Feature-specific sources list includes FAA TFR/NOTAM feeds."
+    },
+    {
+      "key": "legal_data_celestrak",
+      "sourceKey": "celestrak_orbit_satcat",
+      "file": "app/legal/data/page.tsx",
+      "claim": "Feature-specific sources list includes CelesTrak satellite/orbit datasets."
+    },
+    {
+      "key": "legal_data_navcen",
+      "sourceKey": "navcen_bnm",
+      "file": "app/legal/data/page.tsx",
+      "claim": "Feature-specific sources list includes U.S. Coast Guard NAVCEN BNM feed."
+    },
+    {
+      "key": "legal_data_artemis",
+      "sourceKey": "artemis_nasa_public_data",
+      "file": "app/legal/data/page.tsx",
+      "claim": "Feature-specific sources list includes NASA Artemis + U.S. public-sector program data."
+    },
+    {
+      "key": "faq_source_ll2_snapi",
+      "sourceKey": "ll2_launch_library",
+      "file": "app/docs/faq/page.tsx",
+      "claim": "Launch schedule and metadata come from LL2; news from SNAPI."
+    },
+    {
+      "key": "news_page_snapi",
+      "sourceKey": "snapi_news",
+      "file": "app/news/page.tsx",
+      "claim": "Incoming coverage packets pulled from Spaceflight News API."
+    },
+    {
+      "key": "provider_page_snapi",
+      "sourceKey": "snapi_news",
+      "file": "app/providers/[slug]/page.tsx",
+      "claim": "Latest coverage tied to provider launches from Spaceflight News API."
+    },
+    {
+      "key": "launch_page_snapi",
+      "sourceKey": "snapi_news",
+      "file": "app/launches/[id]/page.tsx",
+      "claim": "Related coverage linked via Spaceflight News API."
+    },
+    {
+      "key": "launch_page_nws",
+      "sourceKey": "nws_weather",
+      "file": "app/launches/[id]/page.tsx",
+      "claim": "NWS forecast for the pad location at T-0 (api.weather.gov)."
+    },
+    {
+      "key": "launch_page_faa",
+      "sourceKey": "faa_tfr_notam",
+      "file": "app/launches/[id]/page.tsx",
+      "claim": "FAA airspace advisories section with source links."
+    },
+    {
+      "key": "launch_page_spacex",
+      "sourceKey": "spacex_website_content",
+      "file": "app/launches/[id]/page.tsx",
+      "claim": "Mission profile section displays Source: SpaceX and links media to the SpaceX launch page."
+    },
+    {
+      "key": "ws45_panel_source",
+      "sourceKey": "ws45_forecast",
+      "file": "components/Ws45ForecastPanel.tsx",
+      "claim": "Forecast panel labels source as 45th Weather Squadron PDFs."
+    },
+    {
+      "key": "jep_panel_open_meteo_source",
+      "sourceKey": "open_meteo_weather",
+      "file": "components/JepScorePanel.tsx",
+      "claim": "JEP panel labels weather input as Open-Meteo with NWS fallback."
+    },
+    {
+      "key": "blue_origin_program_status_source",
+      "sourceKey": "blue_origin_official_channels",
+      "file": "app/blue-origin/page.tsx",
+      "claim": "New Shepard snapshot status links to Blue Origin official pause-flights update."
+    },
+    {
+      "key": "footer_ll2",
+      "sourceKey": "ll2_launch_library",
+      "file": "components/Footer.tsx",
+      "claim": "Footer includes LL2 attribution line."
+    }
+  ]
+}

@@ -1,0 +1,242 @@
+{
+  "generatedAt": "2026-02-10T02:20:53.801Z",
+  "policyVersion": "ar_trajectory_kpi_policy_v1",
+  "policyPath": "docs/specs/ar-trajectory-kpi-policy-v1.json",
+  "exceptionsPath": "/tmp/kpi-exc-test.json",
+  "currentReplayReportPath": "/tmp/replay-high-p95.json",
+  "baselineReplayReportPath": "scripts/fixtures/ar-trajectory-replay-baseline-v1.json",
+  "pass": false,
+  "checks": [
+    {
+      "id": "exceptions.policy_version_match",
+      "label": "KPI exception policy version matches KPI policy",
+      "status": "pass",
+      "value": "ar_trajectory_kpi_policy_v1",
+      "threshold": "== ar_trajectory_kpi_policy_v1"
+    },
+    {
+      "id": "exceptions.rows_valid",
+      "label": "KPI exception rows valid",
+      "status": "pass",
+      "value": 1,
+      "threshold": "all 1 valid"
+    },
+    {
+      "id": "exceptions.none_expired",
+      "label": "KPI exception rows not expired",
+      "status": "pass",
+      "value": 1,
+      "threshold": "all 1 active"
+    },
+    {
+      "id": "replay.min_samples",
+      "label": "Replay sample count",
+      "status": "pass",
+      "value": 77,
+      "threshold": ">= 60"
+    },
+    {
+      "id": "replay.min_cases",
+      "label": "Replay evaluated case count",
+      "status": "pass",
+      "value": 7,
+      "threshold": ">= 6"
+    },
+    {
+      "id": "replay.overall_p95",
+      "label": "Replay overall p95",
+      "status": "exception",
+      "value": 10,
+      "threshold": "<= 3.5",
+      "details": "Exception AR-TEST approved by ci until 2026-12-31T00:00:00.000Z: test waiver"
+    },
+    {
+      "id": "replay.overall_abs_drift",
+      "label": "Replay overall |drift|",
+      "status": "pass",
+      "value": 0.9656067125707632,
+      "threshold": "<= 2"
+    },
+    {
+      "id": "replay.overall_abs_slope",
+      "label": "Replay overall |slope|",
+      "status": "pass",
+      "value": 0.795836255602695,
+      "threshold": "<= 1.8"
+    },
+    {
+      "id": "replay.case_worst_p95",
+      "label": "Replay worst-case p95",
+      "status": "pass",
+      "value": 3.9676204290576598,
+      "threshold": "<= 4.25"
+    },
+    {
+      "id": "replay.case_worst_abs_drift",
+      "label": "Replay worst-case |drift|",
+      "status": "pass",
+      "value": 3.2705228389720684,
+      "threshold": "<= 3.4"
+    },
+    {
+      "id": "comparative.overall_p95_regression",
+      "label": "Comparative overall p95 regression",
+      "status": "fail",
+      "value": 7.623642428982741,
+      "threshold": "<= 0.2"
+    },
+    {
+      "id": "comparative.overall_abs_drift_regression",
+      "label": "Comparative overall |drift| regression",
+      "status": "pass",
+      "value": 0,
+      "threshold": "<= 0.2"
+    },
+    {
+      "id": "comparative.overall_abs_slope_regression",
+      "label": "Comparative overall |slope| regression",
+      "status": "pass",
+      "value": 0,
+      "threshold": "<= 0.2"
+    },
+    {
+      "id": "comparative.worst_case_p95_regression",
+      "label": "Comparative worst-case p95 regression",
+      "status": "pass",
+      "value": 0,
+      "threshold": "<= 0.25"
+    },
+    {
+      "id": "comparative.worst_case_abs_drift_regression",
+      "label": "Comparative worst-case |drift| regression",
+      "status": "pass",
+      "value": 0,
+      "threshold": "<= 0.25"
+    },
+    {
+      "id": "comparative.skipped_case_increase",
+      "label": "Comparative skipped case increase",
+      "status": "pass",
+      "value": 0,
+      "threshold": "<= 0"
+    },
+    {
+      "id": "telemetry.window",
+      "label": "Telemetry checks",
+      "status": "skip",
+      "details": "Skipped by --skip-db."
+    }
+  ],
+  "exceptionsApplied": [
+    {
+      "checkId": "replay.overall_p95",
+      "expiresAt": "2026-12-31T00:00:00.000Z",
+      "reason": "test waiver",
+      "ticket": "AR-TEST",
+      "approvedBy": "ci"
+    }
+  ],
+  "replay": {
+    "sampleCount": 77,
+    "evaluatedCaseCount": 7,
+    "overallP95Deg": 10,
+    "overallDriftDeg": 0.9656067125707632,
+    "overallSlopeDegPerMin": 0.795836255602695,
+    "worstCaseP95Deg": 3.9676204290576598,
+    "worstCaseAbsDriftDeg": 3.2705228389720684
+  },
+  "telemetry": null,
+  "comparative": {
+    "baselineReportPath": "scripts/fixtures/ar-trajectory-replay-baseline-v1.json",
+    "currentReportPath": "/tmp/replay-high-p95.json",
+    "overall": {
+      "baselineP95Deg": 2.376357571017259,
+      "currentP95Deg": 10,
+      "p95DeltaDeg": 7.623642428982741,
+      "baselineAbsDriftDeg": 0.9656067125707632,
+      "currentAbsDriftDeg": 0.9656067125707632,
+      "absDriftDeltaDeg": 0,
+      "baselineAbsSlopeDegPerMin": 0.795836255602695,
+      "currentAbsSlopeDegPerMin": 0.795836255602695,
+      "absSlopeDeltaDegPerMin": 0
+    },
+    "worstCase": {
+      "baselineP95Deg": 3.9676204290576598,
+      "currentP95Deg": 3.9676204290576598,
+      "p95DeltaDeg": 0,
+      "baselineAbsDriftDeg": 3.2705228389720684,
+      "currentAbsDriftDeg": 3.2705228389720684,
+      "absDriftDeltaDeg": 0
+    },
+    "skippedCases": {
+      "baseline": 0,
+      "current": 0,
+      "delta": 0
+    },
+    "perCaseDeltas": [
+      {
+        "id": "falcon9-cape-low-drift",
+        "baselineP95Deg": 0.3881693995828668,
+        "currentP95Deg": 0.3881693995828668,
+        "p95DeltaDeg": 0,
+        "baselineAbsDriftDeg": 0.09745352373508898,
+        "currentAbsDriftDeg": 0.09745352373508898,
+        "absDriftDeltaDeg": 0
+      },
+      {
+        "id": "falcon9-vandenberg-growing-drift",
+        "baselineP95Deg": 3.9676204290576598,
+        "currentP95Deg": 3.9676204290576598,
+        "p95DeltaDeg": 0,
+        "baselineAbsDriftDeg": 3.2705228389720684,
+        "currentAbsDriftDeg": 3.2705228389720684,
+        "absDriftDeltaDeg": 0
+      },
+      {
+        "id": "starship-boca-moderate-drift",
+        "baselineP95Deg": 2.5318398910805904,
+        "currentP95Deg": 2.5318398910805904,
+        "p95DeltaDeg": 0,
+        "baselineAbsDriftDeg": 1.4461881844916613,
+        "currentAbsDriftDeg": 1.4461881844916613,
+        "absDriftDeltaDeg": 0
+      },
+      {
+        "id": "newglenn-cape-eastbound",
+        "baselineP95Deg": 1.5923158631399938,
+        "currentP95Deg": 1.5923158631399938,
+        "p95DeltaDeg": 0,
+        "baselineAbsDriftDeg": 0.9824837561423404,
+        "currentAbsDriftDeg": 0.9824837561423404,
+        "absDriftDeltaDeg": 0
+      },
+      {
+        "id": "electron-mahia-steady",
+        "baselineP95Deg": 1.4962916658480356,
+        "currentP95Deg": 1.4962916658480356,
+        "p95DeltaDeg": 0,
+        "baselineAbsDriftDeg": 0.6749131974189724,
+        "currentAbsDriftDeg": 0.6749131974189724,
+        "absDriftDeltaDeg": 0
+      },
+      {
+        "id": "vulcan-cape-clean",
+        "baselineP95Deg": 0.6987992209629015,
+        "currentP95Deg": 0.6987992209629015,
+        "p95DeltaDeg": 0,
+        "baselineAbsDriftDeg": 0.43472662361950976,
+        "currentAbsDriftDeg": 0.43472662361950976,
+        "absDriftDeltaDeg": 0
+      },
+      {
+        "id": "ariane6-kourou-nominal",
+        "baselineP95Deg": 1.348626470810839,
+        "currentP95Deg": 1.348626470810839,
+        "p95DeltaDeg": 0,
+        "baselineAbsDriftDeg": 0.7585766808134214,
+        "currentAbsDriftDeg": 0.7585766808134214,
+        "absDriftDeltaDeg": 0
+      }
+    ]
+  }
+}

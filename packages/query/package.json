@@ -1,0 +1,12 @@
+{
+  "name": "@tminuszero/query",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.90.21"
+  }
+}

@@ -1,0 +1,122 @@
+name,last_vacuum,last_autovacuum,last_analyze,last_autoanalyze,rowcount,dead_rowcount,autovacuum_threshold,expect_autovacuum,autoanalyze_threshold,expect_autoanalyze
+public.api_rate_counters,"","","",2026-03-01 03:18,"         2,829",            29,            78,no,           107,no
+public.ar_camera_guide_sessions,"","","","",            64,             0,            63,no,            56,no
+public.artemis_budget_lines,"","","","",           186,             0,            87,no,            69,no
+public.artemis_content_items,"","","","",           916,             0,           233,no,           142,no
+public.artemis_contract_actions,"","","","","         1,950",             0,           440,no,           245,no
+public.artemis_contract_budget_map,"","","","","         2,560",             0,           562,no,           306,no
+public.artemis_contracts,"","","","",           859,             0,           222,no,           136,no
+public.artemis_ingest_checkpoints,"","","","",            20,             1,            54,no,            52,no
+public.artemis_mission_components,"","","","",             9,             0,            52,no,            51,no
+public.artemis_mission_snapshots,"","","","",             8,             5,            52,no,            51,no
+public.artemis_opportunity_notices,"","","","","         3,077",             0,           665,no,           358,no
+public.artemis_people,"","","","",             4,             0,            51,no,            50,no
+public.artemis_procurement_awards,"","","","",           859,             0,           222,no,           136,no
+public.artemis_sam_contract_award_rows,"","","","",           165,             0,            83,no,            66,no
+public.artemis_source_documents,"","","","","         2,355",             0,           521,no,           286,no
+public.artemis_spending_timeseries,"","","","",           839,             0,           218,no,           134,no
+public.artemis_timeline_events,"","","","",            90,             0,            68,no,            59,no
+public.blue_origin_contract_actions,"","","","",           254,             0,           101,no,            75,no
+public.blue_origin_contract_vehicle_map,"","","","",            92,             0,            68,no,            59,no
+public.blue_origin_contracts,"","","","",           254,             0,           101,no,            75,no
+public.blue_origin_flights,"","","","",            45,             0,            59,no,            54,no
+public.blue_origin_ingest_checkpoints,"","","","",            11,             0,            52,no,            51,no
+public.blue_origin_mission_snapshots,"","","","",             6,             0,            51,no,            51,no
+public.blue_origin_passengers,"","","","",           121,             0,            74,no,            62,no
+public.blue_origin_payloads,"","","","",             3,             0,            51,no,            50,no
+public.blue_origin_source_documents,"","","","","         3,562",             0,           762,no,           406,no
+public.blue_origin_spending_timeseries,"","","","",           243,             0,            99,no,            74,no
+public.blue_origin_timeline_events,"","","","",           816,             0,           213,no,           132,no
+public.blue_origin_traveler_sources,"","","","",           963,             0,           243,no,           146,no
+public.blue_origin_travelers,"","","","",           293,             0,           109,no,            79,no
+public.celestrak_datasets,"","","","",           105,             0,            71,no,            60,no
+public.celestrak_intdes_datasets,"","","","","         6,758",             0,"         1,402",no,           726,no
+public.faa_launch_matches,"",2026-03-01 03:27,"",2026-03-01 03:27,           506,             0,           151,no,           101,no
+public.faa_notam_details,"","","","",           247,             0,            99,no,            75,no
+public.faa_tfr_records,"","","",2026-03-01 03:07,           520,            48,           154,no,           102,no
+public.faa_tfr_shapes,"","","","",           250,             0,           100,no,            75,no
+public.ingestion_runs,"","","","","       181,014",            44,"         3,720",no,"         3,720",no
+public.job_locks,"",2026-03-01 03:23,"",2026-03-01 03:23,             3,            12,            51,no,            50,no
+public.launch_social_candidates,"","","","",           640,            76,           178,no,           114,no
+public.launch_trajectory_constraints,"","","","","         1,445",            10,           339,no,           194,no
+public.launch_trajectory_products,"","","","",            37,             3,            57,no,            54,no
+public.launch_updates,"","","","","         2,490",             0,           548,no,           299,no
+public.launch_weather,"","","","",            36,             0,            57,no,            54,no
+public.launches,"","","","","         7,813",             3,"         1,613",no,           831,no
+public.launches_public_cache,"","","","","         7,813",             6,"         1,613",no,           831,no
+public.ll2_agencies,"","","","",           348,             0,           120,no,            85,no
+public.ll2_astronaut_launches,"","","","",           259,             0,           102,no,            76,no
+public.ll2_astronauts,"",2026-03-01 02:37,"",2026-03-01 02:37,           853,             0,           221,no,           135,no
+public.ll2_catalog_public_cache,"","","","","         4,483",             0,           290,no,           290,no
+public.ll2_docking_events,"","","","",           432,             0,           136,no,            93,no
+public.ll2_event_launches,"","","","",            51,             0,            60,no,            55,no
+public.ll2_events,"","","","","         1,099",             0,           270,no,           160,no
+public.ll2_expeditions,"","","","",           163,             0,            83,no,            66,no
+public.ll2_landings,"","","","",           838,             0,           218,no,           134,no
+public.ll2_launcher_launches,"","","","",           773,             0,           205,no,           127,no
+public.ll2_launchers,"",2026-03-01 02:37,"",2026-03-01 02:37,           183,             0,            87,no,            68,no
+public.ll2_locations,"",2026-03-01 02:37,"",2026-03-01 02:37,            67,             0,            63,no,            57,no
+public.ll2_pads,"",2026-03-01 02:37,"",2026-03-01 02:37,           244,             0,            99,no,            74,no
+public.ll2_payload_flights,"","","","",            50,             0,            60,no,            55,no
+public.ll2_rocket_configs,"",2026-03-01 02:37,"",2026-03-01 02:37,           529,             0,           156,no,           103,no
+public.ll2_space_stations,"","","","",            15,             0,            53,no,            52,no
+public.ll2_spacecraft_configs,"","","","",            45,             0,            59,no,            54,no
+public.ll2_spacecraft_configurations,"","","","",            46,            46,            59,no,            55,no
+public.ll2_spacecraft_flight_docking_events,"","","","",           525,             0,           155,no,           102,no
+public.ll2_spacecraft_flights,"","","","",           826,             0,           215,no,           133,no
+public.ll2_spacecraft_types,"","","","",             6,             0,            51,no,            51,no
+public.ll2_spacecrafts,"","","","",           580,             0,           166,no,           108,no
+public.navcen_bnm_hazard_areas,"","","","","         9,857",             0,"         2,021",no,"         1,036",no
+public.navcen_bnm_messages,"","","","","         7,980",             0,"         1,646",no,           848,no
+public.notifications_outbox,"","","","",            10,             0,            52,no,            51,no
+public.nws_points,"","","","",             7,             0,            51,no,            51,no
+public.ops_alerts,"","","","",            80,            34,            66,no,            58,no
+public.orbit_elements,"","","","","     1,273,033",             0,"       254,657",no,"       127,353",no
+public.profiles,"","","","",             1,             0,            50,no,            50,no
+public.providers_public_cache,"","","","",           106,             0,            71,no,            61,no
+public.satellite_group_memberships,"","","","","        32,484",             0,"         6,547",no,"         3,298",no
+public.satellites,"","","","","        68,386",             0,"        13,727",no,"         6,889",no
+public.snapi_item_events,"","","","","         1,854",             0,           421,no,           235,no
+public.snapi_item_launches,"","","","","        12,379",             0,"         2,526",no,"         1,288",no
+public.snapi_items,"","","","","        36,178",             1,"         7,286",no,"         3,668",no
+public.social_accounts,"","","","",             7,             1,            51,no,            51,no
+public.social_posts,"","","","",           328,             2,           116,no,            83,no
+public.stripe_customers,"","","","",             2,             2,            50,no,            50,no
+public.subscriptions,"","","","",             2,             2,            50,no,            50,no
+public.system_settings,"",2026-03-01 03:12,"",2026-03-01 03:17,           299,            46,           110,no,            80,no
+public.trajectory_product_lineage,"","","","","        14,540",             0,"         2,958",no,"         1,504",no
+public.trajectory_source_contracts,"","","","","        15,948",             0,"         3,240",no,"         1,645",no
+public.trajectory_source_documents,"","","","","        10,310",             0,"         2,112",no,"         1,081",no
+public.webhook_events,"","","","",             8,             0,            52,no,            51,no
+public.artemis_content_scores,"","","","",            -1,             0,            50,no,            50,no
+public.artemis_entities,"","","","",            -1,             0,            50,no,            50,no
+public.artemis_social_accounts,"","","","",            -1,             0,            50,no,            50,no
+public.artemis_source_registry,"","","","",            -1,             0,            50,no,            50,no
+public.billing_events,"","","","",            -1,             0,            50,no,            50,no
+public.blue_origin_engines,"","","","",            -1,             0,            50,no,            50,no
+public.blue_origin_opportunity_notices,"","","","",            -1,             0,            50,no,            50,no
+public.blue_origin_people_profiles,"","","","",            -1,             0,            50,no,            50,no
+public.blue_origin_vehicle_engine_map,"","","","",            -1,             0,            50,no,            50,no
+public.blue_origin_vehicles,"","","","",            -1,             0,            50,no,            50,no
+public.calendar_feeds,"","","","",            -1,             0,            50,no,            50,no
+public.embed_widgets,"","","","",            -1,             0,            50,no,            50,no
+public.feedback_submissions,"","","","",            -1,             0,            50,no,            50,no
+public.launch_expected_satellite_payloads,"","","","",            -1,             0,            50,no,            50,no
+public.launch_filter_presets,"","","","",            -1,             0,            50,no,            50,no
+public.launch_notification_preferences,"","","","",            -1,             0,            50,no,            50,no
+public.launch_social_matches,"","","","",            -1,             0,            50,no,            50,no
+public.ll2_payload_flight_docking_events,"","","","",            -1,             0,            50,no,            50,no
+public.ll2_payload_types,"","","","",            -1,             0,            50,no,            50,no
+public.ll2_payloads,"","","","",            -1,             0,            50,no,            50,no
+public.notification_preferences,"","","","",            -1,             0,            50,no,            50,no
+public.notification_usage_monthly,"","","","",            -1,             0,            50,no,            50,no
+public.ops_metrics_samples_1m,"","","","",            -1,             0,            50,no,            50,no
+public.ops_metrics_samples_5m,"","","","",            -1,             0,            50,no,            50,no
+public.privacy_preferences,"","","","",            -1,             0,            50,no,            50,no
+public.push_subscriptions,"","","","",            -1,             0,            50,no,            50,no
+public.rss_feeds,"","","","",            -1,             0,            50,no,            50,no
+public.sms_consent_events,"","","","",            -1,             0,            50,no,            50,no
+public.tipjar_customers,"","","","",            -1,             0,            50,no,            50,no
+public.watchlist_rules,"","","","",            -1,             0,            50,no,            50,no
+public.watchlists,"","","","",            -1,             0,            50,no,            50,no
+public.ws45_launch_forecasts,"","","","",            -1,             0,            50,no,            50,no

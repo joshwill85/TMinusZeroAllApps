@@ -1,0 +1,172 @@
+{
+  "generatedAt": "2026-02-28T00:19:22.028Z",
+  "flightsScanned": 20,
+  "missingImageFlights": 0,
+  "missingProfileFlights": 0,
+  "summary": [
+    {
+      "flightCode": "ns-7",
+      "travelers": 1,
+      "withImage": 1,
+      "withProfile": 1,
+      "missingImage": 0,
+      "missingProfile": 0
+    },
+    {
+      "flightCode": "ns-14",
+      "travelers": 1,
+      "withImage": 1,
+      "withProfile": 1,
+      "missingImage": 0,
+      "missingProfile": 0
+    },
+    {
+      "flightCode": "ns-15",
+      "travelers": 1,
+      "withImage": 1,
+      "withProfile": 1,
+      "missingImage": 0,
+      "missingProfile": 0
+    },
+    {
+      "flightCode": "ns-16",
+      "travelers": 4,
+      "withImage": 4,
+      "withProfile": 4,
+      "missingImage": 0,
+      "missingProfile": 0
+    },
+    {
+      "flightCode": "ns-18",
+      "travelers": 4,
+      "withImage": 4,
+      "withProfile": 4,
+      "missingImage": 0,
+      "missingProfile": 0
+    },
+    {
+      "flightCode": "ns-19",
+      "travelers": 6,
+      "withImage": 6,
+      "withProfile": 6,
+      "missingImage": 0,
+      "missingProfile": 0
+    },
+    {
+      "flightCode": "ns-20",
+      "travelers": 6,
+      "withImage": 6,
+      "withProfile": 6,
+      "missingImage": 0,
+      "missingProfile": 0
+    },
+    {
+      "flightCode": "ns-21",
+      "travelers": 6,
+      "withImage": 6,
+      "withProfile": 6,
+      "missingImage": 0,
+      "missingProfile": 0
+    },
+    {
+      "flightCode": "ns-22",
+      "travelers": 6,
+      "withImage": 6,
+      "withProfile": 6,
+      "missingImage": 0,
+      "missingProfile": 0
+    },
+    {
+      "flightCode": "ns-25",
+      "travelers": 6,
+      "withImage": 6,
+      "withProfile": 6,
+      "missingImage": 0,
+      "missingProfile": 0
+    },
+    {
+      "flightCode": "ns-26",
+      "travelers": 6,
+      "withImage": 6,
+      "withProfile": 6,
+      "missingImage": 0,
+      "missingProfile": 0
+    },
+    {
+      "flightCode": "ns-28",
+      "travelers": 6,
+      "withImage": 6,
+      "withProfile": 6,
+      "missingImage": 0,
+      "missingProfile": 0
+    },
+    {
+      "flightCode": "ns-30",
+      "travelers": 4,
+      "withImage": 4,
+      "withProfile": 4,
+      "missingImage": 0,
+      "missingProfile": 0
+    },
+    {
+      "flightCode": "ns-31",
+      "travelers": 6,
+      "withImage": 6,
+      "withProfile": 6,
+      "missingImage": 0,
+      "missingProfile": 0
+    },
+    {
+      "flightCode": "ns-32",
+      "travelers": 6,
+      "withImage": 6,
+      "withProfile": 6,
+      "missingImage": 0,
+      "missingProfile": 0
+    },
+    {
+      "flightCode": "ns-33",
+      "travelers": 6,
+      "withImage": 6,
+      "withProfile": 6,
+      "missingImage": 0,
+      "missingProfile": 0
+    },
+    {
+      "flightCode": "ns-34",
+      "travelers": 4,
+      "withImage": 4,
+      "withProfile": 4,
+      "missingImage": 0,
+      "missingProfile": 0
+    },
+    {
+      "flightCode": "ns-36",
+      "travelers": 6,
+      "withImage": 6,
+      "withProfile": 6,
+      "missingImage": 0,
+      "missingProfile": 0
+    },
+    {
+      "flightCode": "ns-37",
+      "travelers": 6,
+      "withImage": 6,
+      "withProfile": 6,
+      "missingImage": 0,
+      "missingProfile": 0
+    },
+    {
+      "flightCode": "ns-38",
+      "travelers": 6,
+      "withImage": 6,
+      "withProfile": 6,
+      "missingImage": 0,
+      "missingProfile": 0
+    }
+  ],
+  "samples": {
+    "firstMissingImage": null,
+    "firstMissingProfile": null
+  }
+}

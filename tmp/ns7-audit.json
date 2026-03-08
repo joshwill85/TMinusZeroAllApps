@@ -1,0 +1,43 @@
+{
+  "generatedAt": "2026-02-27T23:33:38.956Z",
+  "launches": [
+    {
+      "launchId": "c00293f1-09cc-473b-9208-cd5d98f11d7f",
+      "ll2LaunchUuid": "63aac5af-4c4e-4819-aa85-98e85a689869",
+      "flightCode": "ns-7",
+      "name": "New Shepard | NS-7",
+      "missionName": "NS-7",
+      "net": "2017-12-12T16:59:00+00:00",
+      "passengers": {
+        "total": 1,
+        "verifiedForManifest": 0,
+        "verifiedForLaunchDetail": 0,
+        "sample": [
+          {
+            "name": "Mannequin Skywalker",
+            "role": "anthropomorphic test device",
+            "source": "ll2_api.launch_detailed",
+            "confidence": "high"
+          }
+        ]
+      },
+      "payloads": {
+        "total": 0,
+        "verifiedForManifest": 2,
+        "verifiedForLaunchDetail": 1,
+        "sample": []
+      },
+      "enhancements": {
+        "missionSummary": "NS-7 is Blue Origins first commercial flight. The payloads included 12 experiments conducted in 3 minutes of microgravity dedicated to medical and earth science.",
+        "failureReason": null,
+        "officialSourcePages": []
+      },
+      "officialSourceHealth": {
+        "checked": 0,
+        "broken": 0,
+        "errors": 0
+      },
+      "anomalies": []
+    }
+  ]
+}

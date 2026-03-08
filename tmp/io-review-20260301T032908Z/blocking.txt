@@ -1,0 +1,7 @@
+Initialising login role...
+Connecting to remote database...
+
+  
+   blocked pid | blocking statement | blocking duration | blocking pid | blocked statement | blocked duration 
+  -------------|--------------------|-------------------|--------------|-------------------|------------------
+

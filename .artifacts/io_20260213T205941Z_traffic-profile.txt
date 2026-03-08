@@ -1,0 +1,95 @@
+Initialising login role...
+Connecting to remote database...
+
+  
+   Schema              | Table                                | Blocks Read | Write Tuples | Blocks Write | Activity Ratio        
+  ---------------------|--------------------------------------|-------------|--------------|--------------|-----------------------
+   public              | orbit_elements                       | 1864667     | 926555       | 84016.4      | 1:22.2 (Read-Heavy)   
+   net                 | _http_response                       | 44057       | 221109       | 1361682.2    | 30.9:1 (Write-Heavy)  
+   public              | satellites                           | 227087      | 7430963      | 671222.4     | 3.0:1 (Write-Heavy)   
+   public              | ll2_catalog_public_cache             | 160040      | 2134804      | 621661.8     | 3.9:1 (Write-Heavy)   
+   public              | ll2_agencies                         | 49265       | 688922       | 506793.2     | 10.3:1 (Write-Heavy)  
+   public              | snapi_items                          | 400656      | 6833         | 629.1        | 1:636.9 (Read-Heavy)  
+   public              | ll2_locations                        | 22941       | 288178       | 361297.8     | 15.7:1 (Write-Heavy)  
+   public              | launches                             | 332871      | 24024        | 7425.6       | 1:44.8 (Read-Heavy)   
+   public              | ll2_launchers                        | 43981       | 275150       | 294696.2     | 6.7:1 (Write-Heavy)   
+   public              | ingestion_runs                       | 270100      | 246078       | 14306.0      | 1:18.9 (Read-Heavy)   
+   public              | ll2_pads                             | 25784       | 484141       | 224212.8     | 8.7:1 (Write-Heavy)   
+   public              | satellite_group_memberships          | 123696      | 6703983      | 93365.5      | 0.8:1 (Write-Heavy)   
+   public              | ll2_astronauts                       | 68779       | 206280       | 85849.2      | 1.2:1 (Write-Heavy)   
+   public              | navcen_bnm_hazard_areas              | 114566      | 108565       | 19317.1      | 1:5.9 (Read-Heavy)    
+   public              | ll2_rocket_configs                   | 9943        | 522781       | 94871.4      | 9.5:1 (Write-Heavy)   
+   public              | launches_public_cache                | 46712       | 44220        | 20803.4      | 0.4:1 (Write-Heavy)   
+   public              | ll2_spacecraft_configurations        | 8487        | 43654        | 43654.0      | 5.1:1 (Write-Heavy)   
+   cron                | job_run_details                      | 31311       | 303822       | 6912.8       | 0.2:1 (Write-Heavy)   
+   public              | job_locks                            | 163         | 57801        | 19267.0      | 118.2:1 (Write-Heavy) 
+   public              | launch_trajectory_constraints        | 10771       | 31604        | 6563.9       | 0.6:1 (Write-Heavy)   
+   public              | navcen_bnm_messages                  | 15992       | 3994         | 973.7        | 1:16.4 (Read-Heavy)   
+   public              | snapi_item_launches                  | 16492       | 3315         | 28.4         | 1:581.3 (Read-Heavy)  
+   public              | ll2_events                           | 12449       | 400          | 118.3        | 1:105.2 (Read-Heavy)  
+   public              | faa_launch_matches                   | 1955        | 36108        | 8534.6       | 4.4:1 (Write-Heavy)   
+   public              | celestrak_intdes_datasets            | 9898        | 20285        | 255.1        | 1:38.8 (Read-Heavy)   
+   public              | trajectory_source_contracts          | 8592        | 5313         | 848.6        | 1:10.1 (Read-Heavy)   
+   public              | ll2_expeditions                      | 4053        | 6420         | 2796.4       | 0.7:1 (Write-Heavy)   
+   public              | api_rate_counters                    | 5050        | 224407       | 1709.0       | 0.3:1 (Write-Heavy)   
+   public              | launch_updates                       | 6125        | 726          | 83.2         | 1:73.6 (Read-Heavy)   
+   public              | ops_alerts                           | 514         | 50288        | 5511.0       | 10.7:1 (Write-Heavy)  
+   public              | launch_weather                       | 1619        | 14679        | 3543.2       | 2.2:1 (Write-Heavy)   
+   public              | faa_tfr_shapes                       | 2205        | 7619         | 2705.8       | 1.2:1 (Write-Heavy)   
+   public              | system_settings                      | 299         | 242888       | 4169.8       | 13.9:1 (Write-Heavy)  
+   public              | trajectory_source_documents          | 3645        | 2366         | 240.1        | 1:15.2 (Read-Heavy)   
+   public              | ll2_landings                         | 3273        | 929          | 115.3        | 1:28.4 (Read-Heavy)   
+   public              | artemis_timeline_events              | 1713        | 4484         | 1401.2       | 0.8:1 (Write-Heavy)   
+   public              | ll2_space_stations                   | 1314        | 2205         | 1617.0       | 1.2:1 (Write-Heavy)   
+   public              | faa_tfr_records                      | 733         | 19636        | 2115.9       | 2.9:1 (Write-Heavy)   
+   auth                | sessions                             | 556         | 10191        | 2038.2       | 3.7:1 (Write-Heavy)   
+   public              | ll2_spacecraft_flights               | 2521        | 918          | 55.6         | 1:45.4 (Read-Heavy)   
+   public              | ll2_spacecrafts                      | 2472        | 735          | 67.2         | 1:36.8 (Read-Heavy)   
+   public              | ll2_spacecraft_flight_docking_events | 2234        | 560          | 85.3         | 1:26.2 (Read-Heavy)   
+   public              | celestrak_datasets                   | 637         | 28026        | 1334.6       | 2.1:1 (Write-Heavy)   
+   public              | artemis_source_documents             | 1793        | 708          | 174.3        | 1:10.3 (Read-Heavy)   
+   public              | ll2_docking_events                   | 1708        | 966          | 230.8        | 1:7.4 (Read-Heavy)    
+   public              | snapi_item_events                    | 1696        | 592          | 6.3          | 1:270.5 (Read-Heavy)  
+   public              | launch_trajectory_products           | 678         | 5946         | 849.4        | 1.3:1 (Write-Heavy)   
+   public              | nws_points                           | 1390        | 92           | 69.0         | 1:20.1 (Read-Heavy)   
+   auth                | refresh_tokens                       | 1363        | 476          | 11.9         | 1:114.5 (Read-Heavy)  
+   public              | stripe_customers                     | 1209        | 133          | 66.5         | 1:18.2 (Read-Heavy)   
+   auth                | users                                | 1098        | 233          | 77.7         | 1:14.1 (Read-Heavy)   
+   public              | faa_notam_details                    | 1000        | 117          | 19.0         | 1:52.6 (Read-Heavy)   
+   public              | social_posts                         | 599         | 4548         | 371.8        | 0.6:1 (Write-Heavy)   
+   public              | artemis_mission_snapshots            | 211         | 1296         | 648.0        | 3.1:1 (Write-Heavy)   
+   public              | trajectory_product_lineage           | 729         | 1630         | 103.1        | 1:7.1 (Read-Heavy)    
+   public              | launch_social_candidates             | 421         | 1914         | 223.1        | 0.5:1 (Write-Heavy)   
+   supabase_migrations | schema_migrations                    | 407         | 148          | 17.1         | 1:23.8 (Read-Heavy)   
+   auth                | identities                           | 393         | 12           | -0.0         | Read-Only             
+   public              | ll2_payloads                         | 328         | 45           | -0.0         | Read-Only             
+   public              | watchlist_rules                      | 293         | 6            | -0.0         | Read-Only             
+   public              | ar_camera_guide_sessions             | 278         | 133          | 4.2          | 1:66.9 (Read-Heavy)   
+   public              | launch_social_matches                | 273         | 45           | -0.0         | Read-Only             
+   auth                | mfa_amr_claims                       | 254         | 35           | -0.0         | Read-Only             
+   public              | watchlists                           | 235         | 1            | -0.0         | Read-Only             
+   public              | artemis_budget_lines                 | 206         | 96           | 3.4          | 1:60.1 (Read-Heavy)   
+   public              | ll2_payload_types                    | 205         | 35           | -0.0         | Read-Only             
+   cron                | job                                  | 176         | 109          | 3.1          | 1:56.5 (Read-Heavy)   
+   public              | ll2_payload_flights                  | 168         | 50           | 3.0          | 1:56.0 (Read-Heavy)   
+   public              | artemis_ingest_checkpoints           | 39          | 1576         | 131.3        | 3.4:1 (Write-Heavy)   
+   public              | subscriptions                        | 103         | 132          | 66.0         | 0.6:1 (Write-Heavy)   
+   public              | ws45_launch_forecasts                | 157         | 20           | -0.0         | Read-Only             
+   public              | social_accounts                      | 7           | 894          | 127.7        | 18.2:1 (Write-Heavy)  
+   public              | ll2_payload_flight_docking_events    | 133         | 6            | -0.0         | Read-Only             
+   public              | privacy_preferences                  | 119         | 1            | -0.0         | Read-Only             
+   public              | providers_public_cache               | 55          | 107          | 7.1          | 1:7.8 (Read-Heavy)    
+   public              | ll2_spacecraft_configs               | 31          | 346          | 30.8         | 1.0:1 (Write-Heavy)   
+   public              | webhook_events                       | 57          | 22           | 2.8          | 1:20.7 (Read-Heavy)   
+   public              | profiles                             | 39          | 18           | 18.0         | 0.5:1 (Write-Heavy)   
+   public              | ll2_spacecraft_types                 | 13          | 183          | 30.5         | 2.3:1 (Write-Heavy)   
+   public              | notifications_outbox                 | 38          | 20           | 2.0          | 1:19.0 (Read-Heavy)   
+   auth                | one_time_tokens                      | 25          | 8            | -0.0         | Read-Only             
+   auth                | flow_state                           | 24          | 12           | -0.0         | Read-Only             
+   public              | notification_usage_monthly           | 21          | 2            | -0.0         | Read-Only             
+   public              | notification_preferences             | 20          | 2            | -0.0         | Read-Only             
+   auth                | schema_migrations                    | 19          | 2            | 0.0          | 1:684.0 (Read-Heavy)  
+   storage             | migrations                           | 14          | 29           | -0.0         | Read-Only             
+   public              | embed_widgets                        | 13          | 3            | -0.0         | Read-Only             
+   realtime            | schema_migrations                    | 12          | 2            | 0.0          | 1:390.0 (Read-Heavy)  
+

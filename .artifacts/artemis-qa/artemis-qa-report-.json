@@ -1,0 +1,76 @@
+{
+  "generatedAt": "2026-02-19T03:17:53.356Z",
+  "envTarget": "prod-readonly",
+  "windowDays": 30,
+  "status": "pass",
+  "findings": [
+    {
+      "id": "db-timeline-semantic-duplicate",
+      "severity": "p2",
+      "category": "semantic_content_duplicate",
+      "layer": "db",
+      "surface": "artemis_timeline_events",
+      "summary": "Found 2 semantic duplicate timeline event group(s) among non-superseded rows.",
+      "recommendation": "Ensure timeline supersession links are applied before publishing event feed rows.",
+      "owner": "backend",
+      "evidence": {
+        "duplicateGroups": [
+          {
+            "key": "strict:program|artemis procurement data refreshed|usaspending award and obligation data was refreshed for artemis context.|update|procurement|https://api.usaspending.gov/docs|2026-02-07",
+            "count": 3,
+            "sampleIds": [
+              "2c7c8393-980e-4c96-aefc-ce82c9c5e123",
+              "4632c5c5-84cf-4d57-a78c-6b70fed80f8c",
+              "8408623a-a859-4425-ad24-67984bd23f3c"
+            ]
+          },
+          {
+            "key": "strict:program|artemis budget context refreshed|budget source documents and extracted funding lines were refreshed.|update|budget|https://www.nasa.gov/news-release/nasa-releases-fiscal-year-2026-budget-request|2026-02-07",
+            "count": 2,
+            "sampleIds": [
+              "52e73186-0944-43f7-b262-2c88454ac800",
+              "7be4e38f-5207-41db-a4cf-45087c4bfec3"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "ui-timeline-collapsed-duplicates",
+      "severity": "p2",
+      "category": "ui_projection_duplicate",
+      "layer": "server",
+      "surface": "/artemis?view=timeline",
+      "summary": "Timeline projection collapsed 3 duplicate row(s) before render.",
+      "recommendation": "Keep projection dedupe and address repeated timeline refresh records in upstream event ingestion.",
+      "owner": "backend",
+      "evidence": {
+        "inputRows": 62,
+        "renderedRows": 59
+      }
+    }
+  ],
+  "summary": {
+    "totalFindings": 2,
+    "p0": 0,
+    "p1": 0,
+    "p2": 2,
+    "exactKeyDuplicates": 0,
+    "semanticDuplicates": 1,
+    "uiProjectionDuplicates": 1,
+    "scannedRowsBySurface": {
+      "artemis_content_items": 222,
+      "artemis_budget_lines": 186,
+      "artemis_procurement_awards": 318,
+      "artemis_timeline_events": 62,
+      "artemis_source_documents": 1403,
+      "ui_intel_items": 222,
+      "ui_budget_rows": 186,
+      "ui_procurement_rows": 318,
+      "ui_timeline_rows": 59
+    }
+  },
+  "notes": [
+    "UI checks use strict identity keys that mirror dashboard projection dedupe behavior; pair with manual screenshot review for visual validation."
+  ]
+}

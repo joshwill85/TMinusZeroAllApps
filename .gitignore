@@ -1,0 +1,40 @@
+node_modules
+.next
+out
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+public/assets/video/*.mp4
+.DS_Store
+
+# Supabase local state (do not commit)
+supabase/.temp/
+
+# Local git metadata directory used by tooling sandbox
+.git-meta/
+# Git internal backups (do not commit)
+.git.backup*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.tsbuildinfo
+
+# ESLint cache
+.eslintcache
+
+# Local-only docs cache (do not commit)
+docs/ll2/
+
+# Local diagnostics (do not commit)
+.diagnostics/
+
+# npm cache (do not commit)
+.npm-cache/
+
+# Local ingestion logs (do not commit)
+ingestion.log
+.vercel
+.env*.local

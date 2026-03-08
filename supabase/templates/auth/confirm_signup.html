@@ -1,0 +1,46 @@
+<!--
+Subject: Confirm your email for T-minus Zero
+-->
+
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Welcome to Mission Control</title>
+  </head>
+  <body style="margin:0;background:#0b0f14;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#e5e7eb;">
+    <div style="max-width:520px;margin:0 auto;padding:28px 18px;">
+      <div style="background:#111827;border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:22px;">
+        <div style="font-size:18px;font-weight:700;letter-spacing:-0.01em;">Welcome to Mission Control, Commander.</div>
+        <div style="margin-top:10px;font-size:14px;line-height:1.45;color:#cbd5e1;">
+          We’ve received your request to join the T-minus Zero fleet. Before we can clear you for flight and grant access
+          to the global launch schedule, we need to verify your comms.
+          <br /><br />
+          Please confirm your orbital coordinates (email address) by clicking the button below.
+        </div>
+
+        <div style="margin-top:18px;">
+          <a
+            href="{{ .SiteURL }}/auth/verify?confirmation_url={{ .ConfirmationURL | urlquery }}"
+            style="display:inline-block;background:#22d3ee;color:#001018;text-decoration:none;font-weight:700;padding:10px 14px;border-radius:10px;"
+          >
+            Verify Systems
+          </a>
+        </div>
+
+        <div style="margin-top:14px;font-size:12px;line-height:1.4;color:#94a3b8;">
+          Or paste this link into your browser:<br />
+          <span style="word-break:break-all;">{{ .SiteURL }}/auth/verify?confirmation_url={{ .ConfirmationURL | urlquery }}</span>
+        </div>
+      </div>
+
+      <div style="margin-top:14px;font-size:12px;line-height:1.4;color:#94a3b8;">
+        Standing by for liftoff,<br />
+        The T-minus Zero Ground Crew
+        <br /><br />
+        If you didn’t request this, you can ignore this transmission.
+      </div>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "T-Minus Zero",
+    "slug": "tminuszero-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "tminuszero",
+    "userInterfaceStyle": "automatic",
+    "plugins": [
+      "expo-router",
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

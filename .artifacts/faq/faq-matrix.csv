@@ -1,0 +1,50 @@
+id,question,topic,claim_class,verification_status,risk,surfaces,owner,last_verified_at,evidence_count
+docs-refresh-cadence,How often is the data refreshed?,refresh-cadence,code_behavior,verified,high,docs-faq,content-platform,2026-02-16,3
+docs-data-sources,Where does the data come from?,data-sources,policy,verified,high,docs-faq,content-platform,2026-02-16,4
+docs-location-coverage,Which locations are covered?,location-coverage,code_behavior,verified,medium,docs-faq,content-platform,2026-02-16,3
+docs-net-time-tbd,What does NET mean and why is the time sometimes TBD?,net-time-precision,static_fact,verified,low,docs-faq,content-platform,2026-02-16,2
+docs-timezone,What timezone are launch times shown in?,timezone-display,code_behavior,verified,low,docs-faq,content-platform,2026-02-16,3
+docs-status-changes,"What happens when a launch slips, holds, or scrubs?",launch-state-changes,code_behavior,verified,medium,docs-faq,content-platform,2026-02-16,3
+docs-notifications,How do notifications work right now?,notification-availability,policy,verified,high,docs-faq,content-platform,2026-02-16,4
+docs-quiet-hours,Can I mute alerts during quiet hours?,notification-quiet-hours,code_behavior,verified,medium,docs-faq,content-platform,2026-02-16,2
+docs-sms-terms,Where can I read the SMS program terms?,sms-terms,policy,verified,high,docs-faq,content-platform,2026-02-16,2
+docs-sms-guardrails,How are SMS costs controlled?,sms-guardrails,code_behavior,verified,high,docs-faq,content-platform,2026-02-16,3
+home-net-definition,What does NET mean for a rocket launch?,net-definition,static_fact,verified,low,home,content-platform,2026-02-16,1
+home-launch-time-variability,Why do launch times change?,launch-time-variability,static_fact,verified,low,home,content-platform,2026-02-16,1
+home-refresh-summary,How often is this US launch schedule updated?,refresh-cadence,code_behavior,verified,medium,home,content-platform,2026-02-16,3
+home-watch-links,Where can I watch rocket launches?,watch-links,code_behavior,verified,low,home,content-platform,2026-02-16,2
+home-launch-window,What is a launch window?,launch-window-definition,static_fact,verified,low,home,content-platform,2026-02-16,1
+home-alerts-access,How do I get launch alerts?,alerts-access,policy,verified,high,home,content-platform,2026-02-16,3
+artemis-program-overview,What is Artemis?,artemis-overview,static_fact,verified,medium,artemis-program,content-platform,2026-02-16,2
+artemis-program-vs-apollo,How is Artemis different from Apollo?,artemis-vs-apollo,static_fact,verified,medium,artemis-program,content-platform,2026-02-16,2
+artemis-program-schedule,Where can I track the latest Artemis launch schedule?,artemis-schedule-tracking,code_behavior,verified,medium,artemis-program,content-platform,2026-02-16,3
+artemis-mission-name-variant,Is Artemis II the same as Artemis 2?,artemis-name-variant,static_fact,verified,low,artemis-mission,content-platform,2026-02-16,1
+artemis-mission-date,When is the Artemis II launch date?,artemis-ii-date,time_sensitive,verified,high,artemis-mission,content-platform,2026-02-16,2
+artemis-mission-watch,Where can I watch Artemis II live?,artemis-ii-watch,code_behavior,verified,medium,artemis-mission,content-platform,2026-02-16,2
+artemis-mission-crew,Who is on the Artemis II crew?,artemis-ii-crew,code_behavior,verified,medium,artemis-mission,content-platform,2026-02-16,2
+artemis-i-page-crewed,Was Artemis I crewed?,artemis-i-crewed,static_fact,verified,low,artemis-i-page,content-platform,2026-02-16,2
+artemis-i-page-purpose,Why keep an Artemis I page if the mission is complete?,artemis-i-page-purpose,policy,verified,low,artemis-i-page,content-platform,2026-02-16,1
+artemis-i-page-follow-up,Where should I track upcoming crewed Artemis launches?,artemis-follow-up,code_behavior,verified,low,artemis-i-page,content-platform,2026-02-16,1
+artemis-iii-page-overview,What is Artemis III?,artemis-iii-overview,static_fact,verified,medium,artemis-iii-page,content-platform,2026-02-16,2
+artemis-iii-page-date,Is there a confirmed Artemis III launch date?,artemis-iii-date-certainty,time_sensitive,verified,high,artemis-iii-page,content-platform,2026-02-16,1
+artemis-iii-page-near-term,Where can I track near-term Artemis launch timing?,artemis-iii-near-term,code_behavior,verified,low,artemis-iii-page,content-platform,2026-02-16,1
+artemis-workbench-i-crewed,Was Artemis I crewed?,artemis-i-crewed,static_fact,verified,low,artemis-workbench-artemis-i,content-platform,2026-02-16,1
+artemis-workbench-i-baseline,Why track Artemis I in the workbench?,artemis-i-page-purpose,policy,verified,low,artemis-workbench-artemis-i,content-platform,2026-02-16,1
+artemis-workbench-iii-role,What does Artemis III represent in the timeline?,artemis-iii-workbench-role,static_fact,verified,low,artemis-workbench-artemis-iii,content-platform,2026-02-16,1
+artemis-workbench-iii-timing,Is Artemis III timing final?,artemis-iii-date-certainty,time_sensitive,verified,medium,artemis-workbench-artemis-iii,content-platform,2026-02-16,1
+starship-program-overview,What is the Starship program hub?,starship-program-overview,code_behavior,verified,medium,starship-program,content-platform,2026-02-16,2
+starship-program-route-format,What does flight-<number> mean?,starship-route-canonical,code_behavior,verified,medium,starship-program,content-platform,2026-02-16,2
+starship-program-cadence,How often does the Starship workbench update?,starship-cadence,code_behavior,verified,medium,starship-program,content-platform,2026-02-16,2
+starship-flight-alias,Is Starship Flight {{flightNumber}} the same as IFT-{{flightNumber}}?,starship-flight-alias,code_behavior,verified,medium,starship-flight,content-platform,2026-02-16,2
+starship-flight-schedule,Where can I find the latest schedule updates for Flight {{flightNumber}}?,starship-flight-schedule,code_behavior,verified,medium,starship-flight,content-platform,2026-02-16,2
+starship-flight-empty,Why can a flight page be empty?,starship-flight-empty-state,code_behavior,verified,low,starship-flight,content-platform,2026-02-16,2
+contracts-index-sources,What sources feed the contract data on this site?,contracts-data-sources,policy,verified,high,contracts-canonical-index | contracts-canonical-detail,content-platform,2026-02-16,5
+contracts-index-canonical-route,Why is there a canonical /contracts URL when program pages already exist?,contracts-canonical-routing,code_behavior,verified,medium,contracts-canonical-index | contracts-canonical-detail,content-platform,2026-02-16,5
+contracts-index-identifier-search,Which identifiers should I search to find a specific government contract?,contracts-identifier-search,code_behavior,verified,medium,contracts-canonical-index | contracts-canonical-detail,content-platform,2026-02-16,3
+contracts-index-cadence,How often do contract pages update?,contracts-update-cadence,code_behavior,verified,high,contracts-canonical-index | contracts-canonical-detail,content-platform,2026-02-16,3
+contracts-index-sam-vs-usaspending,What is the difference between SAM.gov and USAspending in these records?,contracts-sam-vs-usaspending,static_fact,verified,medium,contracts-canonical-index | contracts-canonical-detail,content-platform,2026-02-16,3
+contracts-index-amount-variance,Why can the contract amount differ from another source?,contracts-award-amount-variance,static_fact,verified,medium,contracts-canonical-index | contracts-canonical-detail,content-platform,2026-02-16,3
+contracts-index-program-overlap,Can one contract appear in more than one program section?,contracts-program-overlap,code_behavior,verified,medium,contracts-canonical-index | contracts-canonical-detail,content-platform,2026-02-16,2
+contracts-detail-piid,What is a PIID on a contract detail page?,contracts-piid-definition,static_fact,verified,low,contracts-canonical-detail,content-platform,2026-02-16,2
+contracts-detail-evidence-links,Where should I verify the official source record for this contract?,contracts-evidence-links,code_behavior,verified,medium,contracts-canonical-detail,content-platform,2026-02-16,2
+contracts-detail-empty-signals,"Why are actions, notices, or spending rows sometimes missing?",contracts-empty-signals,code_behavior,verified,low,contracts-canonical-detail,content-platform,2026-02-16,2

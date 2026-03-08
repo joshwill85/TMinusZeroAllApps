@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "noEmit": true,
+    "plugins": []
+  },
+  "include": [
+    "scripts/**/*.ts",
+    "apps/web/app/**/*.ts",
+    "apps/web/app/**/*.tsx",
+    "apps/web/components/**/*.ts",
+    "apps/web/components/**/*.tsx",
+    "apps/web/lib/**/*.ts",
+    "apps/web/lib/**/*.tsx"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "policyVersion": "ar_trajectory_family_replay_policy_v1",
+  "updatedAt": "2026-02-10T00:00:00.000Z",
+  "maxSkippedCases": 0,
+  "requiredCases": [
+    {
+      "id": "falcon9-cape-low-drift",
+      "label": "Falcon 9 reference",
+      "minSamples": 10,
+      "maxP95Deg": 1.25,
+      "maxAbsDriftDeg": 0.5
+    },
+    {
+      "id": "falcon9-vandenberg-growing-drift",
+      "label": "Falcon 9 drift-heavy profile",
+      "minSamples": 10,
+      "maxP95Deg": 4.25,
+      "maxAbsDriftDeg": 3.4
+    },
+    {
+      "id": "starship-boca-moderate-drift",
+      "label": "Starship reference",
+      "minSamples": 10,
+      "maxP95Deg": 2.8,
+      "maxAbsDriftDeg": 1.8
+    },
+    {
+      "id": "newglenn-cape-eastbound",
+      "label": "New Glenn reference",
+      "minSamples": 10,
+      "maxP95Deg": 2.0,
+      "maxAbsDriftDeg": 1.2
+    },
+    {
+      "id": "electron-mahia-steady",
+      "label": "Electron reference",
+      "minSamples": 10,
+      "maxP95Deg": 1.8,
+      "maxAbsDriftDeg": 1.0
+    },
+    {
+      "id": "vulcan-cape-clean",
+      "label": "Vulcan reference",
+      "minSamples": 10,
+      "maxP95Deg": 1.0,
+      "maxAbsDriftDeg": 0.8
+    },
+    {
+      "id": "ariane6-kourou-nominal",
+      "label": "Ariane 6 reference",
+      "minSamples": 10,
+      "maxP95Deg": 1.7,
+      "maxAbsDriftDeg": 1.0
+    }
+  ]
+}

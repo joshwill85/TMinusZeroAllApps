@@ -1,0 +1,164 @@
+{
+  "generatedAt": "2026-02-10T02:37:59.311Z",
+  "policyVersion": "ar_trajectory_coverage_policy_v1",
+  "policyPath": "docs/specs/ar-trajectory-coverage-policy-v1.json",
+  "window": {
+    "lookaheadLaunches": 8,
+    "lookaheadDays": 50
+  },
+  "pass": false,
+  "checks": [
+    {
+      "id": "coverage.min_launches",
+      "label": "Evaluated launch count",
+      "status": "pass",
+      "value": 8,
+      "threshold": ">= 4"
+    },
+    {
+      "id": "coverage.truth_tier_orbit_rate",
+      "label": "Truth-tier orbit coverage rate",
+      "status": "fail",
+      "value": 0,
+      "threshold": ">= 0.35"
+    },
+    {
+      "id": "coverage.derived_only_orbit_rate",
+      "label": "Derived-only orbit rate",
+      "status": "pass",
+      "value": 0.5,
+      "threshold": "<= 0.5"
+    },
+    {
+      "id": "coverage.no_directional_constraint_rate",
+      "label": "No directional-constraint rate",
+      "status": "fail",
+      "value": 0.5,
+      "threshold": "<= 0.4"
+    },
+    {
+      "id": "coverage.missing_or_stale_product_rate",
+      "label": "Missing/stale product rate",
+      "status": "fail",
+      "value": 0.625,
+      "threshold": "<= 0.35"
+    }
+  ],
+  "summary": {
+    "launchesEvaluated": 8,
+    "launchesWithTruthTierOrbit": 0,
+    "launchesWithDerivedOnlyOrbit": 4,
+    "launchesWithoutDirectionalConstraint": 4,
+    "launchesMissingOrStaleProduct": 5,
+    "truthTierOrbitCoverageRate": 0,
+    "derivedOnlyOrbitCoverageRate": 0.5,
+    "noDirectionalConstraintRate": 0.5,
+    "missingOrStaleProductRate": 0.625
+  },
+  "launches": [
+    {
+      "launchId": "8e5e9fe2-0787-4c4c-b9d1-63858d6ee12f",
+      "title": "Starlink Group 17-34",
+      "net": "2026-02-11T14:07:00+00:00",
+      "productQuality": 0,
+      "productGeneratedAt": "2026-02-10T02:35:02.863+00:00",
+      "productMissingOrStale": false,
+      "hasTruthTierOrbit": false,
+      "hasDerivedOnlyOrbit": true,
+      "hasDirectionalConstraint": true,
+      "hasLandingLatLon": false,
+      "hasHazardGeometry": false
+    },
+    {
+      "launchId": "d089fbee-08d0-4bce-8a1f-e04d5df997fb",
+      "title": "Unknown Payload",
+      "net": "2026-02-12T06:30:00+00:00",
+      "productQuality": 0,
+      "productGeneratedAt": "2026-02-10T02:35:02.864+00:00",
+      "productMissingOrStale": false,
+      "hasTruthTierOrbit": false,
+      "hasDerivedOnlyOrbit": false,
+      "hasDirectionalConstraint": false,
+      "hasLandingLatLon": false,
+      "hasHazardGeometry": false
+    },
+    {
+      "launchId": "f482136a-16ce-4563-aaef-0248aef968b4",
+      "title": "USSF-87",
+      "net": "2026-02-12T08:30:00+00:00",
+      "productQuality": 0,
+      "productGeneratedAt": "2026-02-10T02:35:02.868+00:00",
+      "productMissingOrStale": false,
+      "hasTruthTierOrbit": false,
+      "hasDerivedOnlyOrbit": false,
+      "hasDirectionalConstraint": false,
+      "hasLandingLatLon": false,
+      "hasHazardGeometry": false
+    },
+    {
+      "launchId": "5566560a-390a-4a97-bb98-8c73416266da",
+      "title": "Elektro-L No.5",
+      "net": "2026-02-12T08:52:15+00:00",
+      "productQuality": null,
+      "productGeneratedAt": null,
+      "productMissingOrStale": true,
+      "hasTruthTierOrbit": false,
+      "hasDerivedOnlyOrbit": false,
+      "hasDirectionalConstraint": false,
+      "hasLandingLatLon": false,
+      "hasHazardGeometry": false
+    },
+    {
+      "launchId": "62830e45-fb03-4b5e-bf72-4434c47180a8",
+      "title": "Crew-12",
+      "net": "2026-02-12T10:38:00+00:00",
+      "productQuality": 0,
+      "productGeneratedAt": "2026-02-09T15:00:01.503+00:00",
+      "productMissingOrStale": true,
+      "hasTruthTierOrbit": false,
+      "hasDerivedOnlyOrbit": true,
+      "hasDirectionalConstraint": true,
+      "hasLandingLatLon": true,
+      "hasHazardGeometry": false
+    },
+    {
+      "launchId": "d46bc079-6ce7-4ae1-abf6-ae165924fc3a",
+      "title": "Amazon Leo (LE-01)",
+      "net": "2026-02-12T16:45:00+00:00",
+      "productQuality": null,
+      "productGeneratedAt": null,
+      "productMissingOrStale": true,
+      "hasTruthTierOrbit": false,
+      "hasDerivedOnlyOrbit": false,
+      "hasDirectionalConstraint": false,
+      "hasLandingLatLon": false,
+      "hasHazardGeometry": false
+    },
+    {
+      "launchId": "aa902047-94a1-4c60-b2ed-6d488dcd0027",
+      "title": "Starlink Group 6-103",
+      "net": "2026-02-14T05:00:00+00:00",
+      "productQuality": 2,
+      "productGeneratedAt": "2026-02-03T12:27:02.837+00:00",
+      "productMissingOrStale": true,
+      "hasTruthTierOrbit": false,
+      "hasDerivedOnlyOrbit": true,
+      "hasDirectionalConstraint": true,
+      "hasLandingLatLon": false,
+      "hasHazardGeometry": true
+    },
+    {
+      "launchId": "c79f37cf-556d-4ab1-b5c0-35b28573a0e4",
+      "title": "Starlink Group 17-13",
+      "net": "2026-02-14T22:00:00+00:00",
+      "productQuality": null,
+      "productGeneratedAt": null,
+      "productMissingOrStale": true,
+      "hasTruthTierOrbit": false,
+      "hasDerivedOnlyOrbit": true,
+      "hasDirectionalConstraint": true,
+      "hasLandingLatLon": false,
+      "hasHazardGeometry": false
+    }
+  ]
+}

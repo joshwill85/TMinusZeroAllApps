@@ -1,0 +1,212 @@
+{
+  "generatedAt": "2026-03-05T20:59:34.541Z",
+  "policyVersion": "ar_trajectory_family_replay_policy_v1",
+  "policyPath": "docs/specs/ar-trajectory-family-replay-policy-v1.json",
+  "replayReportPath": ".artifacts/ar-trajectory-replay-bench.json",
+  "pass": true,
+  "checks": [
+    {
+      "id": "replay.skipped_cases",
+      "label": "Skipped replay case count",
+      "status": "pass",
+      "value": 0,
+      "threshold": "<= 0"
+    },
+    {
+      "id": "case.falcon9-cape-low-drift.present",
+      "label": "Falcon 9 reference present",
+      "status": "pass",
+      "value": "yes",
+      "threshold": "yes"
+    },
+    {
+      "id": "case.falcon9-cape-low-drift.samples",
+      "label": "Falcon 9 reference sample count",
+      "status": "pass",
+      "value": 11,
+      "threshold": ">= 10"
+    },
+    {
+      "id": "case.falcon9-cape-low-drift.p95",
+      "label": "Falcon 9 reference p95",
+      "status": "pass",
+      "value": 0.3881693995828668,
+      "threshold": "<= 1.25"
+    },
+    {
+      "id": "case.falcon9-cape-low-drift.abs_drift",
+      "label": "Falcon 9 reference |drift|",
+      "status": "pass",
+      "value": 0.09745352373508898,
+      "threshold": "<= 0.5"
+    },
+    {
+      "id": "case.falcon9-vandenberg-growing-drift.present",
+      "label": "Falcon 9 drift-heavy profile present",
+      "status": "pass",
+      "value": "yes",
+      "threshold": "yes"
+    },
+    {
+      "id": "case.falcon9-vandenberg-growing-drift.samples",
+      "label": "Falcon 9 drift-heavy profile sample count",
+      "status": "pass",
+      "value": 11,
+      "threshold": ">= 10"
+    },
+    {
+      "id": "case.falcon9-vandenberg-growing-drift.p95",
+      "label": "Falcon 9 drift-heavy profile p95",
+      "status": "pass",
+      "value": 3.9676204290576598,
+      "threshold": "<= 4.25"
+    },
+    {
+      "id": "case.falcon9-vandenberg-growing-drift.abs_drift",
+      "label": "Falcon 9 drift-heavy profile |drift|",
+      "status": "pass",
+      "value": 3.2705228389720684,
+      "threshold": "<= 3.4"
+    },
+    {
+      "id": "case.starship-boca-moderate-drift.present",
+      "label": "Starship reference present",
+      "status": "pass",
+      "value": "yes",
+      "threshold": "yes"
+    },
+    {
+      "id": "case.starship-boca-moderate-drift.samples",
+      "label": "Starship reference sample count",
+      "status": "pass",
+      "value": 11,
+      "threshold": ">= 10"
+    },
+    {
+      "id": "case.starship-boca-moderate-drift.p95",
+      "label": "Starship reference p95",
+      "status": "pass",
+      "value": 2.5318398910805904,
+      "threshold": "<= 2.8"
+    },
+    {
+      "id": "case.starship-boca-moderate-drift.abs_drift",
+      "label": "Starship reference |drift|",
+      "status": "pass",
+      "value": 1.4461881844916613,
+      "threshold": "<= 1.8"
+    },
+    {
+      "id": "case.newglenn-cape-eastbound.present",
+      "label": "New Glenn reference present",
+      "status": "pass",
+      "value": "yes",
+      "threshold": "yes"
+    },
+    {
+      "id": "case.newglenn-cape-eastbound.samples",
+      "label": "New Glenn reference sample count",
+      "status": "pass",
+      "value": 11,
+      "threshold": ">= 10"
+    },
+    {
+      "id": "case.newglenn-cape-eastbound.p95",
+      "label": "New Glenn reference p95",
+      "status": "pass",
+      "value": 1.5923158631399938,
+      "threshold": "<= 2"
+    },
+    {
+      "id": "case.newglenn-cape-eastbound.abs_drift",
+      "label": "New Glenn reference |drift|",
+      "status": "pass",
+      "value": 0.9824837561423404,
+      "threshold": "<= 1.2"
+    },
+    {
+      "id": "case.electron-mahia-steady.present",
+      "label": "Electron reference present",
+      "status": "pass",
+      "value": "yes",
+      "threshold": "yes"
+    },
+    {
+      "id": "case.electron-mahia-steady.samples",
+      "label": "Electron reference sample count",
+      "status": "pass",
+      "value": 11,
+      "threshold": ">= 10"
+    },
+    {
+      "id": "case.electron-mahia-steady.p95",
+      "label": "Electron reference p95",
+      "status": "pass",
+      "value": 1.4962916658480356,
+      "threshold": "<= 1.8"
+    },
+    {
+      "id": "case.electron-mahia-steady.abs_drift",
+      "label": "Electron reference |drift|",
+      "status": "pass",
+      "value": 0.6749131974189724,
+      "threshold": "<= 1"
+    },
+    {
+      "id": "case.vulcan-cape-clean.present",
+      "label": "Vulcan reference present",
+      "status": "pass",
+      "value": "yes",
+      "threshold": "yes"
+    },
+    {
+      "id": "case.vulcan-cape-clean.samples",
+      "label": "Vulcan reference sample count",
+      "status": "pass",
+      "value": 11,
+      "threshold": ">= 10"
+    },
+    {
+      "id": "case.vulcan-cape-clean.p95",
+      "label": "Vulcan reference p95",
+      "status": "pass",
+      "value": 0.6987992209629015,
+      "threshold": "<= 1"
+    },
+    {
+      "id": "case.vulcan-cape-clean.abs_drift",
+      "label": "Vulcan reference |drift|",
+      "status": "pass",
+      "value": 0.43472662361950976,
+      "threshold": "<= 0.8"
+    },
+    {
+      "id": "case.ariane6-kourou-nominal.present",
+      "label": "Ariane 6 reference present",
+      "status": "pass",
+      "value": "yes",
+      "threshold": "yes"
+    },
+    {
+      "id": "case.ariane6-kourou-nominal.samples",
+      "label": "Ariane 6 reference sample count",
+      "status": "pass",
+      "value": 11,
+      "threshold": ">= 10"
+    },
+    {
+      "id": "case.ariane6-kourou-nominal.p95",
+      "label": "Ariane 6 reference p95",
+      "status": "pass",
+      "value": 1.348626470810839,
+      "threshold": "<= 1.7"
+    },
+    {
+      "id": "case.ariane6-kourou-nominal.abs_drift",
+      "label": "Ariane 6 reference |drift|",
+      "status": "pass",
+      "value": 0.7585766808134214,
+      "threshold": "<= 1"
+    }
+  ]
+}

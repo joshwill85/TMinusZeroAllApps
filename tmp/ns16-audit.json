@@ -1,0 +1,61 @@
+{
+  "generatedAt": "2026-02-27T23:33:44.000Z",
+  "launches": [
+    {
+      "launchId": "c2cda252-e82e-449c-9759-6821df6c38c4",
+      "ll2LaunchUuid": "d0f9cb4e-8efe-4b70-a675-3f087acd6f74",
+      "flightCode": "ns-16",
+      "name": "New Shepard | NS-16",
+      "missionName": "NS-16",
+      "net": "2021-07-20T13:12:00+00:00",
+      "passengers": {
+        "total": 4,
+        "verifiedForManifest": 4,
+        "verifiedForLaunchDetail": 4,
+        "sample": [
+          {
+            "name": "Wally Funk",
+            "role": "passenger",
+            "source": "ll2_api.launch_detailed",
+            "confidence": "high"
+          },
+          {
+            "name": "Jeff Bezos",
+            "role": "passenger",
+            "source": "ll2_api.launch_detailed",
+            "confidence": "high"
+          },
+          {
+            "name": "Oliver Daemen",
+            "role": "passenger",
+            "source": "ll2_api.launch_detailed",
+            "confidence": "high"
+          },
+          {
+            "name": "Mark Bezos",
+            "role": "passenger",
+            "source": "ll2_api.launch_detailed",
+            "confidence": "high"
+          }
+        ]
+      },
+      "payloads": {
+        "total": 0,
+        "verifiedForManifest": 0,
+        "verifiedForLaunchDetail": 0,
+        "sample": []
+      },
+      "enhancements": {
+        "missionSummary": "First crewed flight of Blue Origin's New Shepard rocket.",
+        "failureReason": null,
+        "officialSourcePages": []
+      },
+      "officialSourceHealth": {
+        "checked": 0,
+        "broken": 0,
+        "errors": 0
+      },
+      "anomalies": []
+    }
+  ]
+}

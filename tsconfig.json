@@ -1,0 +1,28 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
+    "baseUrl": ".",
+    "paths": {
+      "@/components/*": [
+        "./apps/web/components/*"
+      ],
+      "@/lib/*": [
+        "./apps/web/lib/*"
+      ],
+      "@/app/*": [
+        "./apps/web/app/*"
+      ]
+    }
+  },
+  "exclude": [
+    "node_modules",
+    "scripts",
+    "supabase",
+    "supabase/functions"
+  ]
+}

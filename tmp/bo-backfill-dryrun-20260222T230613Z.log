@@ -1,0 +1,28 @@
+
+> tminuszero@0.1.0 backfill:blue-origin:launch-details
+> ts-node --project tsconfig.scripts.json --transpile-only -r tsconfig-paths/register scripts/blue-origin-launch-details-backfill.ts --skipJobs --dryRun --maxLaunches 1600 --maxPagesPerLaunch 80
+
+[blue-origin-launch-details-backfill] start
+{
+  "skipJobs": true,
+  "dryRun": true,
+  "timeoutSeconds": 120,
+  "maxLaunches": 1600,
+  "maxPagesPerLaunch": 80,
+  "jobs": [
+    "blue-origin-bootstrap",
+    "blue-origin-vehicles-ingest",
+    "blue-origin-engines-ingest",
+    "blue-origin-missions-ingest",
+    "blue-origin-news-ingest",
+    "blue-origin-media-ingest",
+    "blue-origin-passengers-ingest",
+    "blue-origin-payloads-ingest",
+    "blue-origin-contracts-ingest",
+    "blue-origin-social-ingest",
+    "blue-origin-snapshot-build"
+  ]
+}
+[launches] scanned=45
+[flights] seeded=38 (dry-run)
+[flights] link updates=0 unresolved_after_resolver=0 (dry-run)

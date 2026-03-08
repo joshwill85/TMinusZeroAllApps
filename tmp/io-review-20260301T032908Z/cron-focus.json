@@ -1,0 +1,116 @@
+[
+  {
+    "jobname": "blue_origin_social_ingest",
+    "schedule": "30 13 * * 1",
+    "active": true,
+    "command": "select public.invoke_edge_job('blue-origin-social-ingest');"
+  },
+  {
+    "jobname": "faa_launch_match",
+    "schedule": "27 * * * *",
+    "active": true,
+    "command": "select public.invoke_edge_job('faa-launch-match');"
+  },
+  {
+    "jobname": "faa_notam_detail_ingest",
+    "schedule": "17 * * * *",
+    "active": true,
+    "command": "select public.invoke_edge_job('faa-notam-detail-ingest');"
+  },
+  {
+    "jobname": "faa_tfr_ingest",
+    "schedule": "7 * * * *",
+    "active": true,
+    "command": "select public.invoke_edge_job('faa-tfr-ingest');"
+  },
+  {
+    "jobname": "ingestion_cycle",
+    "schedule": "1,16,31,46 * * * *",
+    "active": true,
+    "command": "select public.invoke_edge_job('ingestion-cycle');"
+  },
+  {
+    "jobname": "launch_social_link_backfill",
+    "schedule": "29 */4 * * *",
+    "active": true,
+    "command": "select public.invoke_edge_job('launch-social-link-backfill');"
+  },
+  {
+    "jobname": "launch_social_refresh",
+    "schedule": "9 * * * *",
+    "active": true,
+    "command": "select public.invoke_edge_job('launch-social-refresh');"
+  },
+  {
+    "jobname": "ll2_catalog",
+    "schedule": "37 */2 * * *",
+    "active": true,
+    "command": "select public.invoke_edge_job('ll2-catalog');"
+  },
+  {
+    "jobname": "ll2_catalog_agencies",
+    "schedule": "53 */6 * * *",
+    "active": true,
+    "command": "select public.invoke_edge_job('ll2-catalog-agencies');"
+  },
+  {
+    "jobname": "ll2_incremental_burst",
+    "schedule": "15 seconds",
+    "active": true,
+    "command": "select public.ll2_incremental_burst_guarded();"
+  },
+  {
+    "jobname": "monitoring_check",
+    "schedule": "14,44 * * * *",
+    "active": true,
+    "command": "select public.invoke_edge_job('monitoring-check');"
+  },
+  {
+    "jobname": "nws_refresh",
+    "schedule": "6 */8 * * *",
+    "active": true,
+    "command": "select public.invoke_edge_job('nws-refresh');"
+  },
+  {
+    "jobname": "ops_metrics_collect",
+    "schedule": "* * * * *",
+    "active": true,
+    "command": "select public.invoke_edge_job('ops-metrics-collect');"
+  },
+  {
+    "jobname": "social_posts_dispatch",
+    "schedule": "38 * * * *",
+    "active": true,
+    "command": "select public.invoke_edge_job('social-posts-dispatch');"
+  },
+  {
+    "jobname": "trajectory_constraints_ingest",
+    "schedule": "20 * * * *",
+    "active": true,
+    "command": "select public.invoke_edge_job('trajectory-constraints-ingest');"
+  },
+  {
+    "jobname": "trajectory_orbit_ingest",
+    "schedule": "0 * * * *",
+    "active": true,
+    "command": "select public.invoke_edge_job('trajectory-orbit-ingest');"
+  },
+  {
+    "jobname": "trajectory_products_generate",
+    "schedule": "40 * * * *",
+    "active": true,
+    "command": "select public.invoke_edge_job('trajectory-products-generate');"
+  },
+  {
+    "jobname": "trajectory_templates_generate",
+    "schedule": "15 3 * * *",
+    "active": true,
+    "command": "select public.invoke_edge_job('trajectory-templates-generate');"
+  },
+  {
+    "jobname": "ws45_forecasts_ingest",
+    "schedule": "24 */8 * * *",
+    "active": true,
+    "command": "select public.invoke_edge_job('ws45-forecast-ingest');"
+  }
+]

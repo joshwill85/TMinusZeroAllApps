@@ -1,0 +1,181 @@
+{
+  "generatedAt": "2026-03-05T21:07:27.613Z",
+  "policyVersion": "ar_trajectory_coverage_policy_v1",
+  "policyPath": "docs/specs/ar-trajectory-coverage-policy-v1.json",
+  "window": {
+    "lookaheadLaunches": 8,
+    "lookaheadDays": 50
+  },
+  "pass": false,
+  "checks": [
+    {
+      "id": "coverage.min_launches",
+      "label": "Evaluated launch count",
+      "status": "pass",
+      "value": 8,
+      "threshold": ">= 4"
+    },
+    {
+      "id": "coverage.truth_tier_orbit_rate",
+      "label": "Truth-tier orbit coverage rate",
+      "status": "fail",
+      "value": 0.125,
+      "threshold": ">= 0.35"
+    },
+    {
+      "id": "coverage.derived_only_orbit_rate",
+      "label": "Derived-only orbit rate",
+      "status": "fail",
+      "value": 0.625,
+      "threshold": "<= 0.5"
+    },
+    {
+      "id": "coverage.no_directional_constraint_rate",
+      "label": "No directional-constraint rate",
+      "status": "pass",
+      "value": 0.25,
+      "threshold": "<= 0.4"
+    },
+    {
+      "id": "coverage.missing_or_stale_product_rate",
+      "label": "Missing/stale product rate",
+      "status": "fail",
+      "value": 0.75,
+      "threshold": "<= 0.35"
+    },
+    {
+      "id": "coverage.pad_only_product_rate",
+      "label": "Pad-only product rate",
+      "status": "pass",
+      "value": 0,
+      "threshold": "<= 0"
+    }
+  ],
+  "summary": {
+    "launchesEvaluated": 8,
+    "launchesWithTruthTierOrbit": 1,
+    "launchesWithDerivedOnlyOrbit": 5,
+    "launchesWithoutDirectionalConstraint": 2,
+    "launchesMissingOrStaleProduct": 6,
+    "launchesPadOnlyProduct": 0,
+    "truthTierOrbitCoverageRate": 0.125,
+    "derivedOnlyOrbitCoverageRate": 0.625,
+    "noDirectionalConstraintRate": 0.25,
+    "missingOrStaleProductRate": 0.75,
+    "padOnlyProductRate": 0
+  },
+  "launches": [
+    {
+      "launchId": "f68f8e8c-8bdb-439a-9540-3ae3adefe953",
+      "title": "Insight At Speed Is A Friend Indeed (BlackSky Gen-3 4)",
+      "net": "2026-03-05T23:53:00+00:00",
+      "productQuality": 2,
+      "productGeneratedAt": "2026-03-05T20:40:05.626+00:00",
+      "productMissingOrStale": true,
+      "productPadOnly": false,
+      "hasTruthTierOrbit": true,
+      "hasDerivedOnlyOrbit": false,
+      "hasDirectionalConstraint": true,
+      "hasLandingLatLon": false,
+      "hasHazardGeometry": false
+    },
+    {
+      "launchId": "ace3ada4-1a69-4d00-90c0-33e0b0337db2",
+      "title": "Starlink Group 17-18",
+      "net": "2026-03-07T10:58:00+00:00",
+      "productQuality": 2,
+      "productGeneratedAt": "2026-03-05T20:40:05.629+00:00",
+      "productMissingOrStale": true,
+      "productPadOnly": false,
+      "hasTruthTierOrbit": false,
+      "hasDerivedOnlyOrbit": true,
+      "hasDirectionalConstraint": true,
+      "hasLandingLatLon": false,
+      "hasHazardGeometry": false
+    },
+    {
+      "launchId": "c92dc1fb-0b9b-415a-90bf-31469bfd1ce8",
+      "title": "Stairway to Seven",
+      "net": "2026-03-10T00:50:00+00:00",
+      "productQuality": 2,
+      "productGeneratedAt": "2026-03-05T20:40:05.631+00:00",
+      "productMissingOrStale": false,
+      "productPadOnly": false,
+      "hasTruthTierOrbit": false,
+      "hasDerivedOnlyOrbit": false,
+      "hasDirectionalConstraint": false,
+      "hasLandingLatLon": false,
+      "hasHazardGeometry": false
+    },
+    {
+      "launchId": "99322ee4-4e0e-40ba-8bf0-6b933fec5ff4",
+      "title": "EchoStar 25",
+      "net": "2026-03-10T03:14:00+00:00",
+      "productQuality": 2,
+      "productGeneratedAt": "2026-03-05T20:40:05.631+00:00",
+      "productMissingOrStale": false,
+      "productPadOnly": false,
+      "hasTruthTierOrbit": false,
+      "hasDerivedOnlyOrbit": false,
+      "hasDirectionalConstraint": false,
+      "hasLandingLatLon": false,
+      "hasHazardGeometry": false
+    },
+    {
+      "launchId": "92a0a37d-e7b0-48e7-9f1f-06f9f00e2c3d",
+      "title": "Starlink Group 17-31",
+      "net": "2026-03-11T10:58:00+00:00",
+      "productQuality": 2,
+      "productGeneratedAt": "2026-03-05T20:40:05.633+00:00",
+      "productMissingOrStale": true,
+      "productPadOnly": false,
+      "hasTruthTierOrbit": false,
+      "hasDerivedOnlyOrbit": true,
+      "hasDirectionalConstraint": true,
+      "hasLandingLatLon": false,
+      "hasHazardGeometry": false
+    },
+    {
+      "launchId": "df09744d-9a7b-465d-a1bc-55ee43d8e5c6",
+      "title": "Starlink Group 10-48",
+      "net": "2026-03-12T10:00:00+00:00",
+      "productQuality": 2,
+      "productGeneratedAt": "2026-03-05T20:40:05.634+00:00",
+      "productMissingOrStale": true,
+      "productPadOnly": false,
+      "hasTruthTierOrbit": false,
+      "hasDerivedOnlyOrbit": true,
+      "hasDirectionalConstraint": true,
+      "hasLandingLatLon": false,
+      "hasHazardGeometry": false
+    },
+    {
+      "launchId": "821f3585-dca0-474c-8010-b58facbde99e",
+      "title": "Starlink Group 17-24",
+      "net": "2026-03-15T02:37:00+00:00",
+      "productQuality": 2,
+      "productGeneratedAt": "2026-03-05T20:40:05.635+00:00",
+      "productMissingOrStale": true,
+      "productPadOnly": false,
+      "hasTruthTierOrbit": false,
+      "hasDerivedOnlyOrbit": true,
+      "hasDirectionalConstraint": true,
+      "hasLandingLatLon": false,
+      "hasHazardGeometry": false
+    },
+    {
+      "launchId": "29116810-10c3-422a-baad-b7ba1cfe4228",
+      "title": "Starlink Group 10-46",
+      "net": "2026-03-15T11:11:00+00:00",
+      "productQuality": 2,
+      "productGeneratedAt": "2026-03-05T20:40:05.636+00:00",
+      "productMissingOrStale": true,
+      "productPadOnly": false,
+      "hasTruthTierOrbit": false,
+      "hasDerivedOnlyOrbit": true,
+      "hasDirectionalConstraint": true,
+      "hasLandingLatLon": false,
+      "hasHazardGeometry": false
+    }
+  ]
+}

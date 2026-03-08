@@ -1,0 +1,19 @@
+
+> @tminuszero/web@0.0.0 type-check
+> node -e "require('fs').mkdirSync('.next/cache/tsc',{recursive:true})" && tsc --noEmit -p tsconfig.json
+
+app/api/billing/cancel/route.ts(116,5): error TS2322: Type 'Response<Subscription>' is not assignable to type '{ id?: string | null | undefined; status?: string | null | undefined; cancel_at_period_end?: boolean | null | undefined; current_period_end?: number | null | undefined; items?: { data?: { ...; }[] | ... 1 more ... | undefined; } | null | undefined; customer?: string | ... 1 more ... | undefined; metadata?: Record<.....'.
+  Types of property 'customer' are incompatible.
+    Type 'string | Customer | DeletedCustomer' is not assignable to type 'string | null | undefined'.
+      Type 'Customer' is not assignable to type 'string'.
+app/api/billing/resume/route.ts(117,5): error TS2322: Type 'Response<Subscription>' is not assignable to type '{ id?: string | null | undefined; status?: string | null | undefined; cancel_at_period_end?: boolean | null | undefined; current_period_end?: number | null | undefined; items?: { data?: { ...; }[] | ... 1 more ... | undefined; } | null | undefined; customer?: string | ... 1 more ... | undefined; metadata?: Record<.....'.
+  Types of property 'customer' are incompatible.
+    Type 'string | Customer | DeletedCustomer' is not assignable to type 'string | null | undefined'.
+      Type 'Customer' is not assignable to type 'string'.
+npm error Lifecycle script `type-check` failed with error:
+npm error code 2
+npm error path /workspace/apps/web
+npm error workspace @tminuszero/web@0.0.0
+npm error location /workspace/apps/web
+npm error command failed
+npm error command sh -c node -e "require('fs').mkdirSync('.next/cache/tsc',{recursive:true})" && tsc --noEmit -p tsconfig.json

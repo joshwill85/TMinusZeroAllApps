@@ -1,0 +1,5 @@
+
+> @tminuszero/web@0.0.0 lint
+> next lint --cache-location .eslintcache
+
+✔ No ESLint warnings or errors

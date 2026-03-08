@@ -1,0 +1,415 @@
+{
+  "generatedAt": "2026-03-05T20:38:32.902Z",
+  "window": {
+    "fromIso": "2026-03-05T19:38:32.902Z",
+    "horizonIso": "2026-03-21T20:38:32.902Z",
+    "horizonDays": 16
+  },
+  "settings": {
+    "trajectory_products_eligible_limit": 8,
+    "trajectory_products_lookahead_limit": 80,
+    "trajectory_products_top3_ids": [
+      "f68f8e8c-8bdb-439a-9540-3ae3adefe953",
+      "ace3ada4-1a69-4d00-90c0-33e0b0337db2",
+      "c92dc1fb-0b9b-415a-90bf-31469bfd1ce8",
+      "99322ee4-4e0e-40ba-8bf0-6b933fec5ff4",
+      "92a0a37d-e7b0-48e7-9f1f-06f9f00e2c3d",
+      "df09744d-9a7b-465d-a1bc-55ee43d8e5c6",
+      "821f3585-dca0-474c-8010-b58facbde99e",
+      "29116810-10c3-422a-baad-b7ba1cfe4228"
+    ],
+    "jep_score_model_version": "jep_v3",
+    "jep_score_open_meteo_us_models": [
+      "best_match",
+      "gfs_seamless"
+    ],
+    "jep_score_weather_cache_minutes": 10,
+    "jep_score_max_launches_per_run": 120
+  },
+  "launches": {
+    "eligibleCount": 9,
+    "usEligibleCount": 7,
+    "falcon9EligibleCount": 6
+  },
+  "trajectoryReadiness": {
+    "coverageRate": 100,
+    "arReadyRate": 100,
+    "freshRate": 55.6,
+    "lineageCompleteRate": 100,
+    "confidenceABRate": 55.6
+  },
+  "jepReadiness": {
+    "padCoverageRate": 100,
+    "modelV3Rate": 100,
+    "notExpiredRate": 100,
+    "computedWithin24hRate": 100,
+    "weatherReadyRate": 100,
+    "weatherSourceNoneRate": 0,
+    "geometryOnlyFallbackRate": 0
+  },
+  "weatherReadiness": {
+    "usNwsCoverageRate": 100,
+    "usNwsRecent24hRate": 100,
+    "usNwsCloudSignalRate": 0
+  },
+  "falcon9Readiness": {
+    "eligibleCount": 6,
+    "trajectoryCoverageRate": 100,
+    "arReadyRate": 100,
+    "jepPadCoverageRate": 100,
+    "jepWeatherReadyRate": 100,
+    "jepWeatherNoneRate": 0
+  },
+  "latestRuns": {
+    "trajectory_orbit_ingest": {
+      "job_name": "trajectory_orbit_ingest",
+      "started_at": "2026-03-05T20:00:08.168728+00:00",
+      "ended_at": "2026-03-05T20:00:13.707+00:00",
+      "success": true,
+      "stats": {
+        "errors": [],
+        "docsFetched": 10,
+        "docsInserted": 3,
+        "docsNotFound": 0,
+        "launchesFound": 10,
+        "launchCoverage": [
+          {
+            "launchId": "54f2f2df-46d9-4c3e-a89c-18ac44c84a29",
+            "usedSupgp": false,
+            "usedHazard": false,
+            "urlCandidates": 0,
+            "usedHeuristic": true,
+            "selectedCandidates": 0,
+            "constraintsPrepared": 1,
+            "docsWithParsedOrbit": 0
+          },
+          {
+            "launchId": "f68f8e8c-8bdb-439a-9540-3ae3adefe953",
+            "usedSupgp": false,
+            "usedHazard": false,
+            "urlCandidates": 2,
+            "usedHeuristic": false,
+            "selectedCandidates": 2,
+            "constraintsPrepared": 0,
+            "docsWithParsedOrbit": 0
+          },
+          {
+            "launchId": "ace3ada4-1a69-4d00-90c0-33e0b0337db2",
+            "usedSupgp": false,
+            "usedHazard": false,
+            "urlCandidates": 3,
+            "usedHeuristic": true,
+            "selectedCandidates": 2,
+            "constraintsPrepared": 1,
+            "docsWithParsedOrbit": 0
+          },
+          {
+            "launchId": "c92dc1fb-0b9b-415a-90bf-31469bfd1ce8",
+            "usedSupgp": false,
+            "usedHazard": false,
+            "urlCandidates": 1,
+            "usedHeuristic": false,
+            "selectedCandidates": 1,
+            "constraintsPrepared": 0,
+            "docsWithParsedOrbit": 0
+          },
+          {
+            "launchId": "99322ee4-4e0e-40ba-8bf0-6b933fec5ff4",
+            "usedSupgp": false,
+            "usedHazard": false,
+            "urlCandidates": 1,
+            "usedHeuristic": false,
+            "selectedCandidates": 1,
+            "constraintsPrepared": 0,
+            "docsWithParsedOrbit": 0
+          },
+          {
+            "launchId": "92a0a37d-e7b0-48e7-9f1f-06f9f00e2c3d",
+            "usedSupgp": false,
+            "usedHazard": false,
+            "urlCandidates": 3,
+            "usedHeuristic": true,
+            "selectedCandidates": 2,
+            "constraintsPrepared": 1,
+            "docsWithParsedOrbit": 0
+          },
+          {
+            "launchId": "df09744d-9a7b-465d-a1bc-55ee43d8e5c6",
+            "usedSupgp": false,
+            "usedHazard": false,
+            "urlCandidates": 3,
+            "usedHeuristic": true,
+            "selectedCandidates": 2,
+            "constraintsPrepared": 1,
+            "docsWithParsedOrbit": 0
+          },
+          {
+            "launchId": "821f3585-dca0-474c-8010-b58facbde99e",
+            "usedSupgp": false,
+            "usedHazard": false,
+            "urlCandidates": 3,
+            "usedHeuristic": true,
+            "selectedCandidates": 2,
+            "constraintsPrepared": 1,
+            "docsWithParsedOrbit": 0
+          },
+          {
+            "launchId": "29116810-10c3-422a-baad-b7ba1cfe4228",
+            "usedSupgp": false,
+            "usedHazard": false,
+            "urlCandidates": 3,
+            "usedHeuristic": true,
+            "selectedCandidates": 2,
+            "constraintsPrepared": 1,
+            "docsWithParsedOrbit": 0
+          },
+          {
+            "launchId": "f3c5a48a-7a6f-4eb8-9f9d-eff10105b1d2",
+            "usedSupgp": false,
+            "usedHazard": false,
+            "urlCandidates": 1,
+            "usedHeuristic": true,
+            "selectedCandidates": 1,
+            "constraintsPrepared": 1,
+            "docsWithParsedOrbit": 0
+          }
+        ],
+        "urlsConsidered": 20,
+        "docsNotModified": 1,
+        "docsAlreadyStored": 7,
+        "constraintsDerived": 7,
+        "launchesConsidered": 10,
+        "constraintsUpserted": 7,
+        "constraintsSupgpDerived": 0,
+        "constraintsHazardDerived": 0,
+        "constraintsSkippedNoData": 15
+      },
+      "error": null
+    },
+    "trajectory_constraints_ingest": {
+      "job_name": "trajectory_constraints_ingest",
+      "started_at": "2026-03-05T20:20:05.314283+00:00",
+      "ended_at": "2026-03-05T20:20:47.304+00:00",
+      "success": true,
+      "stats": {
+        "ll2Calls": 6,
+        "rowsUpserted": 1,
+        "launchCoverage": [
+          {
+            "launchId": "f68f8e8c-8bdb-439a-9540-3ae3adefe953",
+            "rowsPrepared": 0,
+            "ll2LaunchUuid": "3de97847-11cd-40e3-ba7f-e16b276612de",
+            "skippedNoLl2Id": false,
+            "landingsFetched": 0
+          },
+          {
+            "launchId": "ace3ada4-1a69-4d00-90c0-33e0b0337db2",
+            "rowsPrepared": 1,
+            "ll2LaunchUuid": "12e62caf-f4aa-4f28-a3bd-f9c8a44b707d",
+            "skippedNoLl2Id": false,
+            "landingsFetched": 1
+          },
+          {
+            "launchId": "c92dc1fb-0b9b-415a-90bf-31469bfd1ce8",
+            "rowsPrepared": 0,
+            "ll2LaunchUuid": "3f6de963-7197-48aa-a49f-6c944cbf85e9",
+            "skippedNoLl2Id": false,
+            "landingsFetched": 0
+          }
+        ],
+        "ll2RateLimited": false,
+        "landingsFetched": 1,
+        "eligibleLaunchIds": [
+          "f68f8e8c-8bdb-439a-9540-3ae3adefe953",
+          "ace3ada4-1a69-4d00-90c0-33e0b0337db2",
+          "c92dc1fb-0b9b-415a-90bf-31469bfd1ce8"
+        ],
+        "launchesConsidered": 3,
+        "ll2RemoteRateLimited": false,
+        "launchesSkippedNoLl2Id": 0
+      },
+      "error": null
+    },
+    "trajectory_products_generate": {
+      "job_name": "trajectory_products_generate",
+      "started_at": "2026-03-05T19:40:05.388213+00:00",
+      "ended_at": "2026-03-05T19:40:06.529+00:00",
+      "success": true,
+      "stats": {
+        "changed": true,
+        "upserted": 8,
+        "eligibleIds": [
+          "f68f8e8c-8bdb-439a-9540-3ae3adefe953",
+          "ace3ada4-1a69-4d00-90c0-33e0b0337db2",
+          "c92dc1fb-0b9b-415a-90bf-31469bfd1ce8",
+          "99322ee4-4e0e-40ba-8bf0-6b933fec5ff4",
+          "92a0a37d-e7b0-48e7-9f1f-06f9f00e2c3d",
+          "df09744d-9a7b-465d-a1bc-55ee43d8e5c6",
+          "821f3585-dca0-474c-8010-b58facbde99e",
+          "29116810-10c3-422a-baad-b7ba1cfe4228"
+        ],
+        "hazardsUsed": 0,
+        "previousIds": [
+          "ace3ada4-1a69-4d00-90c0-33e0b0337db2",
+          "c92dc1fb-0b9b-415a-90bf-31469bfd1ce8",
+          "99322ee4-4e0e-40ba-8bf0-6b933fec5ff4",
+          "92a0a37d-e7b0-48e7-9f1f-06f9f00e2c3d",
+          "df09744d-9a7b-465d-a1bc-55ee43d8e5c6",
+          "821f3585-dca0-474c-8010-b58facbde99e",
+          "29116810-10c3-422a-baad-b7ba1cfe4228",
+          "f3c5a48a-7a6f-4eb8-9f9d-eff10105b1d2"
+        ],
+        "staleProducts": [
+          "ace3ada4-1a69-4d00-90c0-33e0b0337db2",
+          "92a0a37d-e7b0-48e7-9f1f-06f9f00e2c3d",
+          "df09744d-9a7b-465d-a1bc-55ee43d8e5c6",
+          "821f3585-dca0-474c-8010-b58facbde99e",
+          "29116810-10c3-422a-baad-b7ba1cfe4228"
+        ],
+        "templatesUsed": 0,
+        "missingProducts": [
+          "f68f8e8c-8bdb-439a-9540-3ae3adefe953"
+        ],
+        "hazardsConsidered": 0,
+        "downgradedLaunches": [],
+        "hazardsUsedByLaunch": {},
+        "lineageRowsInserted": 5,
+        "templatesUsedByLaunch": {},
+        "confidenceTierByLaunch": {
+          "29116810-10c3-422a-baad-b7ba1cfe4228": "B",
+          "821f3585-dca0-474c-8010-b58facbde99e": "B",
+          "92a0a37d-e7b0-48e7-9f1f-06f9f00e2c3d": "B",
+          "99322ee4-4e0e-40ba-8bf0-6b933fec5ff4": "C",
+          "ace3ada4-1a69-4d00-90c0-33e0b0337db2": "B",
+          "c92dc1fb-0b9b-415a-90bf-31469bfd1ce8": "C",
+          "df09744d-9a7b-465d-a1bc-55ee43d8e5c6": "B",
+          "f68f8e8c-8bdb-439a-9540-3ae3adefe953": "C"
+        },
+        "sourceContractsInserted": 8,
+        "hazardsConsideredByLaunch": {
+          "99322ee4-4e0e-40ba-8bf0-6b933fec5ff4": 0,
+          "c92dc1fb-0b9b-415a-90bf-31469bfd1ce8": 0,
+          "f68f8e8c-8bdb-439a-9540-3ae3adefe953": 0
+        }
+      },
+      "error": null
+    },
+    "jep_score_refresh": {
+      "job_name": "jep_score_refresh",
+      "started_at": "2026-03-05T20:38:05.289009+00:00",
+      "ended_at": "2026-03-05T20:38:05.482+00:00",
+      "success": true,
+      "stats": {
+        "errors": [],
+        "reason": "no_due_launches",
+        "skipped": true,
+        "dueLaunches": 0,
+        "horizonDays": 16,
+        "modelVersion": "jep_v3",
+        "weatherFetches": 0,
+        "candidatesLoaded": 9,
+        "launchesComputed": 0,
+        "launchesUpserted": 0,
+        "unchangedSkipped": 0,
+        "weatherFallbacks": 0,
+        "maxLaunchesPerRun": 120,
+        "openMeteoUsModels": [
+          "best_match",
+          "gfs_seamless"
+        ],
+        "candidatesEligible": 9,
+        "dueObserverVariants": 0,
+        "weatherCacheMinutes": 10,
+        "observerLookbackDays": 14,
+        "maxObserverDistanceKm": 1800,
+        "maxObserversPerLaunch": 12,
+        "observerRegistryLimit": 128,
+        "observerRegistryLoaded": 2,
+        "observerVariantsComputed": 0,
+        "weatherSourceResolvedNws": 0,
+        "weatherSourceUpsertedNws": 0,
+        "weatherSourceResolvedNone": 0,
+        "weatherSourceUpsertedNone": 0,
+        "weatherSourceResolvedTotal": 0,
+        "weatherSourceUpsertedTotal": 0,
+        "launchesSkippedNoTrajectory": 0,
+        "weatherSourceResolvedOpenMeteo": 0,
+        "weatherSourceUpsertedOpenMeteo": 0
+      },
+      "error": null
+    },
+    "nws_refresh": {
+      "job_name": "nws_refresh",
+      "started_at": "2026-03-05T16:06:00.487882+00:00",
+      "ended_at": "2026-03-05T16:06:08.319+00:00",
+      "success": true,
+      "stats": {
+        "errors": [],
+        "horizonDays": 14,
+        "pointsFetched": 1,
+        "forecastMisses": 0,
+        "pointsUpserted": 1,
+        "forecastFetches": 6,
+        "forecastMatches": 7,
+        "launchesSkipped": 0,
+        "launchesUpdated": 7,
+        "pointsCacheHits": 6,
+        "pointsCacheHours": 24,
+        "maxLaunchesPerRun": 80,
+        "launchesConsidered": 7
+      },
+      "error": null
+    }
+  },
+  "scheduler": [
+    {
+      "cron_job_name": "jep_score_refresh",
+      "edge_job_slug": "jep-score-refresh",
+      "interval_seconds": 300,
+      "offset_seconds": 150,
+      "enabled": true,
+      "next_run_at": "2026-03-05T20:42:30+00:00",
+      "updated_at": "2026-03-05T20:38:00.023949+00:00"
+    },
+    {
+      "cron_job_name": "nws_refresh",
+      "edge_job_slug": "nws-refresh",
+      "interval_seconds": 28800,
+      "offset_seconds": 360,
+      "enabled": true,
+      "next_run_at": "2026-03-06T00:06:00+00:00",
+      "updated_at": "2026-03-05T16:06:00.022688+00:00"
+    },
+    {
+      "cron_job_name": "trajectory_constraints_ingest",
+      "edge_job_slug": "trajectory-constraints-ingest",
+      "interval_seconds": 3600,
+      "offset_seconds": 1200,
+      "enabled": true,
+      "next_run_at": "2026-03-05T21:20:00+00:00",
+      "updated_at": "2026-03-05T20:20:00.020578+00:00"
+    },
+    {
+      "cron_job_name": "trajectory_orbit_ingest",
+      "edge_job_slug": "trajectory-orbit-ingest",
+      "interval_seconds": 3600,
+      "offset_seconds": 0,
+      "enabled": true,
+      "next_run_at": "2026-03-05T21:00:00+00:00",
+      "updated_at": "2026-03-05T20:00:00.031716+00:00"
+    },
+    {
+      "cron_job_name": "trajectory_products_generate",
+      "edge_job_slug": "trajectory-products-generate",
+      "interval_seconds": 3600,
+      "offset_seconds": 2400,
+      "enabled": true,
+      "next_run_at": "2026-03-05T20:40:00+00:00",
+      "updated_at": "2026-03-05T19:40:00.02429+00:00"
+    }
+  ],
+  "verdict": {
+    "arTrajectory": "GO",
+    "jep": "GO"
+  }
+}

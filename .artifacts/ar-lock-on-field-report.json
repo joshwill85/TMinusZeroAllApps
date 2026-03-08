@@ -1,0 +1,61 @@
+{
+  "generatedAt": "2026-03-05T20:59:35.328Z",
+  "windowDays": 14,
+  "windowStart": "2026-02-19T20:59:34.771Z",
+  "attemptedSessions": 0,
+  "acquiredSessions": 0,
+  "metrics": [
+    {
+      "key": "lock_acquire_rate",
+      "label": "Lock acquisition rate",
+      "value": null,
+      "threshold": ">= 0.65",
+      "pass": false
+    },
+    {
+      "key": "lock_le5_rate",
+      "label": "Lock <=5s rate",
+      "value": null,
+      "threshold": ">= 0.6",
+      "pass": false
+    },
+    {
+      "key": "stable_lock_rate",
+      "label": "Stable lock rate (<=2 losses)",
+      "value": null,
+      "threshold": ">= 0.8",
+      "pass": false
+    },
+    {
+      "key": "low_drop_rate",
+      "label": "Low drop-frame rate",
+      "value": null,
+      "threshold": ">= 0.75",
+      "pass": false
+    },
+    {
+      "key": "high_drop_rate",
+      "label": "High drop-frame rate",
+      "value": null,
+      "threshold": "<= 0.1",
+      "pass": false
+    },
+    {
+      "key": "healthy_pose_rate",
+      "label": "Healthy pose update rate",
+      "value": null,
+      "threshold": ">= 0.8",
+      "pass": false
+    }
+  ],
+  "overallPass": false,
+  "thresholds": {
+    "minLockAcquireRate": 0.65,
+    "minLockLe5Rate": 0.6,
+    "minStableLockRateAmongAcquired": 0.8,
+    "minLowDropRate": 0.75,
+    "maxHighDropRate": 0.1,
+    "minHealthyPoseRate": 0.8
+  },
+  "recentSessions": []
+}

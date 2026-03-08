@@ -1,0 +1,73 @@
+{
+  "generatedAt": "2026-03-07T15:39:15.014Z",
+  "launches": [
+    {
+      "launchId": "ec4fc9eb-e660-4367-93b9-adc78fdae411",
+      "ll2LaunchUuid": "a7d60abb-c22d-41fe-9c17-35dbdd7f8029",
+      "flightCode": "ns-36",
+      "name": "New Shepard | NS-36",
+      "missionName": "NS-36",
+      "net": "2025-10-08T13:40:27+00:00",
+      "passengers": {
+        "total": 6,
+        "verifiedForManifest": 6,
+        "verifiedForLaunchDetail": 6,
+        "sample": [
+          {
+            "name": "Vitalii Ostrovskyi",
+            "role": "Passenger",
+            "source": "blue-origin-wayback:new-shepard-astronaut-directory",
+            "confidence": "high"
+          },
+          {
+            "name": "Aaron Newman",
+            "role": "Passenger",
+            "source": "blue-origin-wayback:new-shepard-astronaut-directory",
+            "confidence": "high"
+          },
+          {
+            "name": "Jeff Elgin",
+            "role": "Passenger",
+            "source": "blue-origin-wayback:new-shepard-astronaut-directory",
+            "confidence": "high"
+          },
+          {
+            "name": "Clint Kelly III",
+            "role": "Crew",
+            "source": "ll2-api:new-shepard-detailed",
+            "confidence": "high"
+          },
+          {
+            "name": "Danna Karagussova",
+            "role": "Passenger",
+            "source": "blue-origin-wayback:new-shepard-astronaut-directory",
+            "confidence": "high"
+          },
+          {
+            "name": "Will Lewis",
+            "role": "Passenger",
+            "source": "blue-origin-wayback:new-shepard-astronaut-directory",
+            "confidence": "high"
+          }
+        ]
+      },
+      "payloads": {
+        "total": 0,
+        "verifiedForManifest": 0,
+        "verifiedForLaunchDetail": 0,
+        "sample": []
+      },
+      "enhancements": {
+        "missionSummary": "NS-36 is the 15th crewed flight for the New Shepard program and the 36th in the New Shepard program's history.",
+        "failureReason": null,
+        "officialSourcePages": []
+      },
+      "officialSourceHealth": {
+        "checked": 0,
+        "broken": 0,
+        "errors": 0
+      },
+      "anomalies": []
+    }
+  ]
+}

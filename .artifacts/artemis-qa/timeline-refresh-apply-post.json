@@ -1,0 +1,90 @@
+{
+  "generatedAt": "2026-02-19T03:21:52.230Z",
+  "appliedRows": 3,
+  "groups": [
+    {
+      "key": "program|artemis procurement data refreshed|procurement|2026-02-07|usaspending award and obligation data was refreshed for artemis context.|https://api.usaspending.gov/docs",
+      "keepId": "4632c5c5-84cf-4d57-a78c-6b70fed80f8c",
+      "supersedeIds": [
+        "2c7c8393-980e-4c96-aefc-ce82c9c5e123",
+        "8408623a-a859-4425-ad24-67984bd23f3c"
+      ],
+      "count": 3
+    },
+    {
+      "key": "program|artemis budget context refreshed|budget|2026-02-07|budget source documents and extracted funding lines were refreshed.|https://www.nasa.gov/news-release/nasa-releases-fiscal-year-2026-budget-request",
+      "keepId": "52e73186-0944-43f7-b262-2c88454ac800",
+      "supersedeIds": [
+        "7be4e38f-5207-41db-a4cf-45087c4bfec3"
+      ],
+      "count": 2
+    }
+  ],
+  "afterRows": [
+    {
+      "id": "4632c5c5-84cf-4d57-a78c-6b70fed80f8c",
+      "mission_key": "program",
+      "title": "Artemis procurement data refreshed",
+      "summary": "USASpending award and obligation data was refreshed for Artemis context.",
+      "source_type": "procurement",
+      "source_url": "https://api.usaspending.gov/docs/",
+      "event_time": null,
+      "announced_time": "2026-02-07T04:02:13.804+00:00",
+      "updated_at": "2026-02-07T04:02:13.804+00:00",
+      "is_superseded": false,
+      "supersedes_event_id": null
+    },
+    {
+      "id": "52e73186-0944-43f7-b262-2c88454ac800",
+      "mission_key": "program",
+      "title": "Artemis budget context refreshed",
+      "summary": "Budget source documents and extracted funding lines were refreshed.",
+      "source_type": "budget",
+      "source_url": "https://www.nasa.gov/news-release/nasa-releases-fiscal-year-2026-budget-request/",
+      "event_time": null,
+      "announced_time": "2026-02-07T04:02:11.384+00:00",
+      "updated_at": "2026-02-07T04:02:11.384+00:00",
+      "is_superseded": false,
+      "supersedes_event_id": null
+    },
+    {
+      "id": "2c7c8393-980e-4c96-aefc-ce82c9c5e123",
+      "mission_key": "program",
+      "title": "Artemis procurement data refreshed",
+      "summary": "USASpending award and obligation data was refreshed for Artemis context.",
+      "source_type": "procurement",
+      "source_url": "https://api.usaspending.gov/docs/",
+      "event_time": null,
+      "announced_time": "2026-02-07T03:15:03.004+00:00",
+      "updated_at": "2026-02-19T03:21:50.776+00:00",
+      "is_superseded": true,
+      "supersedes_event_id": "4632c5c5-84cf-4d57-a78c-6b70fed80f8c"
+    },
+    {
+      "id": "7be4e38f-5207-41db-a4cf-45087c4bfec3",
+      "mission_key": "program",
+      "title": "Artemis budget context refreshed",
+      "summary": "Budget source documents and extracted funding lines were refreshed.",
+      "source_type": "budget",
+      "source_url": "https://www.nasa.gov/news-release/nasa-releases-fiscal-year-2026-budget-request/",
+      "event_time": null,
+      "announced_time": "2026-02-07T02:50:07.162+00:00",
+      "updated_at": "2026-02-19T03:21:51.498+00:00",
+      "is_superseded": true,
+      "supersedes_event_id": "52e73186-0944-43f7-b262-2c88454ac800"
+    },
+    {
+      "id": "8408623a-a859-4425-ad24-67984bd23f3c",
+      "mission_key": "program",
+      "title": "Artemis procurement data refreshed",
+      "summary": "USASpending award and obligation data was refreshed for Artemis context.",
+      "source_type": "procurement",
+      "source_url": "https://api.usaspending.gov/docs/",
+      "event_time": null,
+      "announced_time": "2026-02-07T02:35:14.316+00:00",
+      "updated_at": "2026-02-19T03:21:51.206+00:00",
+      "is_superseded": true,
+      "supersedes_event_id": "4632c5c5-84cf-4d57-a78c-6b70fed80f8c"
+    }
+  ]
+}

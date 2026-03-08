@@ -1,0 +1,20 @@
+{
+  "generatedAt": "2026-02-25T02:21:41.702Z",
+  "envTarget": "prod-readonly",
+  "windowDays": 30,
+  "status": "skipped",
+  "findings": [],
+  "summary": {
+    "totalFindings": 0,
+    "p0": 0,
+    "p1": 0,
+    "p2": 0,
+    "exactKeyDuplicates": 0,
+    "semanticDuplicates": 0,
+    "uiProjectionDuplicates": 0,
+    "scannedRowsBySurface": {}
+  },
+  "notes": [
+    "Supabase environment variables are missing. Expected NEXT_PUBLIC_SUPABASE_URL/SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY."
+  ]
+}

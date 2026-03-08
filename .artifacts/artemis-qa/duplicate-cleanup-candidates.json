@@ -1,0 +1,41 @@
+{
+  "generatedAt": "2026-02-19T03:09:31.641Z",
+  "expectedBudgetRowsToDelete": 0,
+  "expectedTimelineRowsToSupersede": 5,
+  "budgetGroups": [],
+  "timelineRefreshGroups": [
+    {
+      "key": "program|artemis procurement data refreshed|procurement|2026-02-16",
+      "keepId": "9645fe13-5a05-4c27-a86d-3d9bf1087bfe",
+      "supersedeIds": [
+        "9300cb1d-2ff5-4522-b896-2f757f00c25e"
+      ],
+      "count": 2
+    },
+    {
+      "key": "program|artemis budget context refreshed|budget|2026-02-16",
+      "keepId": "400a05cb-ed14-42a4-9d78-f78dd91708b4",
+      "supersedeIds": [
+        "8da228b4-bab4-459a-a808-de99a88747fa"
+      ],
+      "count": 2
+    },
+    {
+      "key": "program|artemis procurement data refreshed|procurement|2026-02-07",
+      "keepId": "4632c5c5-84cf-4d57-a78c-6b70fed80f8c",
+      "supersedeIds": [
+        "2c7c8393-980e-4c96-aefc-ce82c9c5e123",
+        "8408623a-a859-4425-ad24-67984bd23f3c"
+      ],
+      "count": 3
+    },
+    {
+      "key": "program|artemis budget context refreshed|budget|2026-02-07",
+      "keepId": "52e73186-0944-43f7-b262-2c88454ac800",
+      "supersedeIds": [
+        "7be4e38f-5207-41db-a4cf-45087c4bfec3"
+      ],
+      "count": 2
+    }
+  ]
+}

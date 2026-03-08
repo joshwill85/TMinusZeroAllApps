@@ -1,0 +1,49 @@
+{
+  "generatedAt": "2026-02-10T02:41:11.056Z",
+  "dryRun": true,
+  "jobs": [
+    "trajectory-orbit-ingest",
+    "trajectory-constraints-ingest",
+    "navcen-bnm-ingest",
+    "trajectory-products-generate"
+  ],
+  "pass": true,
+  "results": [
+    {
+      "job": "trajectory-orbit-ingest",
+      "ok": true,
+      "httpStatus": null,
+      "elapsedMs": 0,
+      "skipped": true,
+      "reason": "dry_run",
+      "error": null
+    },
+    {
+      "job": "trajectory-constraints-ingest",
+      "ok": true,
+      "httpStatus": null,
+      "elapsedMs": 0,
+      "skipped": true,
+      "reason": "dry_run",
+      "error": null
+    },
+    {
+      "job": "navcen-bnm-ingest",
+      "ok": true,
+      "httpStatus": null,
+      "elapsedMs": 0,
+      "skipped": true,
+      "reason": "dry_run",
+      "error": null
+    },
+    {
+      "job": "trajectory-products-generate",
+      "ok": true,
+      "httpStatus": null,
+      "elapsedMs": 0,
+      "skipped": true,
+      "reason": "dry_run",
+      "error": null
+    }
+  ]
+}

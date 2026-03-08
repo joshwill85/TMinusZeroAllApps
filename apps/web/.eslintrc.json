@@ -1,0 +1,10 @@
+{
+  "root": true,
+  "extends": ["next/core-web-vitals"],
+  "ignorePatterns": [".next/**", "node_modules/**"],
+  "rules": {
+    "prefer-const": "warn",
+    "@next/next/no-img-element": "off",
+    "jsx-a11y/*": "off"
+  }
+}

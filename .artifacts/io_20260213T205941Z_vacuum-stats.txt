@@ -1,0 +1,96 @@
+Initialising login role...
+Connecting to remote database...
+
+  
+   Table                                       | Last Vacuum | Last Auto Vacuum | Last Analyze | Last Auto Analyze | Row count            | Dead row count | Expect autovacuum? | Expect autoanalyze? 
+  ---------------------------------------------|-------------|------------------|--------------|-------------------|----------------------|----------------|--------------------|---------------------
+   public.api_rate_counters                    |             | 2026-01-19 06:07 |              | 2026-02-13 20:24  |          2,101       |            136 | no                 | no                  
+   public.ar_camera_guide_sessions             |             |                  |              | 2026-02-12 01:29  |             64       |              3 | no                 | no                  
+   public.artemis_budget_lines                 |             |                  |              | 2026-02-09 02:50  |             84       |              0 | no                 | no                  
+   public.artemis_ingest_checkpoints           |             |                  |              | 2026-02-13 16:07  |             12       |             26 | no                 | no                  
+   public.artemis_mission_snapshots            |             |                  |              | 2026-02-13 19:21  |              8       |             28 | no                 | no                  
+   public.artemis_source_documents             |             |                  |              | 2026-02-12 16:07  |            601       |              0 | no                 | no                  
+   public.artemis_timeline_events              |             | 2026-02-13 19:08 |              | 2026-02-13 19:08  |             48       |             28 | no                 | no                  
+   public.celestrak_datasets                   |             | 2026-02-13 20:17 |              | 2026-02-13 17:17  |            105       |             15 | no                 | no                  
+   public.celestrak_intdes_datasets            |             | 2026-02-02 18:01 |              | 2026-02-02 19:15  |          6,758       |            523 | no                 | no                  
+   public.faa_launch_matches                   |             | 2026-02-13 20:28 |              | 2026-02-13 20:28  |            220       |              0 | no                 | no                  
+   public.faa_notam_details                    |             |                  |              | 2026-02-13 20:18  |            117       |              0 | no                 | no                  
+   public.faa_tfr_records                      |             | 2026-02-13 20:08 |              | 2026-02-13 20:07  |            232       |             12 | no                 | no                  
+   public.faa_tfr_shapes                       |             | 2026-02-13 20:07 |              | 2026-02-13 20:07  |            107       |             36 | no                 | no                  
+   public.ingestion_runs                       |             | 2026-02-12 15:24 |              | 2026-02-13 09:17  |        149,339       |          5,418 | no                 | no                  
+   public.job_locks                            |             | 2026-02-13 20:48 |              | 2026-02-13 20:47  |              3       |             51 | yes                | yes                 
+   public.launch_social_candidates             |             | 2026-02-12 23:36 |              | 2026-02-12 23:36  |            163       |              0 | no                 | no                  
+   public.launch_trajectory_constraints        |             | 2026-02-13 20:21 |              | 2026-02-13 20:36  |            650       |            143 | no                 | yes                 
+   public.launch_trajectory_products           |             | 2026-02-13 20:30 |              | 2026-02-13 20:40  |             28       |             18 | no                 | no                  
+   public.launch_updates                       |             |                  |              | 2026-01-30 11:13  |          2,338       |              1 | no                 | no                  
+   public.launch_weather                       |             | 2026-02-13 20:21 |              | 2026-02-13 20:21  |             29       |             11 | no                 | no                  
+   public.launches                             |             | 2026-02-13 15:40 |              | 2026-02-13 05:40  |          7,810       |            166 | no                 | no                  
+   public.launches_public_cache                |             | 2026-01-30 18:16 |              | 2026-02-13 04:30  |          7,801       |            598 | no                 | no                  
+   public.ll2_agencies                         |             | 2026-02-13 20:41 |              | 2026-02-13 20:41  |            348       |              1 | no                 | no                  
+   public.ll2_astronaut_launches               |             |                  |              |                   |            259       |              0 | no                 | no                  
+   public.ll2_astronauts                       |             | 2026-02-13 20:21 |              | 2026-02-13 20:21  |            853       |              0 | no                 | no                  
+   public.ll2_catalog_public_cache             |             | 2026-02-11 00:40 |              | 2026-02-12 18:01  |          3,956       |            721 | no                 | yes                 
+   public.ll2_docking_events                   |             | 2026-02-10 22:41 |              | 2026-02-10 22:41  |            427       |              0 | no                 | no                  
+   public.ll2_event_launches                   |             |                  |              |                   |             51       |              0 | no                 | no                  
+   public.ll2_events                           |             | 2026-01-18 22:20 |              | 2026-01-18 22:20  |          1,082       |             92 | no                 | no                  
+   public.ll2_expeditions                      |             | 2026-02-12 15:41 |              | 2026-02-12 15:41  |            163       |             63 | no                 | no                  
+   public.ll2_landings                         |             |                  |              | 2026-01-31 05:01  |            838       |              4 | no                 | no                  
+   public.ll2_launcher_launches                |             |                  |              |                   |            773       |              0 | no                 | no                  
+   public.ll2_launchers                        |             | 2026-02-13 20:41 |              | 2026-02-13 20:41  |            183       |              2 | no                 | no                  
+   public.ll2_locations                        |             | 2026-02-13 20:41 |              | 2026-02-13 20:41  |             67       |              0 | no                 | no                  
+   public.ll2_pads                             |             | 2026-02-13 20:41 |              | 2026-02-13 20:41  |            244       |              0 | no                 | no                  
+   public.ll2_payload_flights                  |             |                  |              |                   |             50       |              0 | no                 | no                  
+   public.ll2_rocket_configs                   |             | 2026-02-13 20:41 |              | 2026-02-13 20:41  |            529       |              0 | no                 | no                  
+   public.ll2_space_stations                   |             | 2026-01-18 11:01 |              | 2026-02-12 17:41  |             15       |             42 | no                 | no                  
+   public.ll2_spacecraft_configs               |             |                  |              | 2026-02-12 23:36  |             45       |             24 | no                 | no                  
+   public.ll2_spacecraft_configurations        |             | 2026-02-13 19:41 |              | 2026-02-13 19:41  |             46       |             46 | no                 | no                  
+   public.ll2_spacecraft_flight_docking_events |             |                  |              | 2026-01-31 04:59  |            525       |              0 | no                 | no                  
+   public.ll2_spacecraft_flights               |             |                  |              | 2026-01-31 05:01  |            826       |              7 | no                 | no                  
+   public.ll2_spacecraft_types                 |             | 2026-02-06 17:04 |              | 2026-01-31 05:12  |              6       |             19 | no                 | no                  
+   public.ll2_spacecrafts                      |             |                  |              | 2026-01-31 05:08  |            580       |             47 | no                 | no                  
+   public.navcen_bnm_hazard_areas              |             | 2026-02-13 16:54 |              | 2026-02-13 20:57  |          4,794       |            876 | no                 | yes                 
+   public.navcen_bnm_messages                  |             | 2026-02-11 09:28 |              | 2026-02-13 15:38  |          3,782       |              2 | no                 | no                  
+   public.notifications_outbox                 |             |                  |              |                   |             10       |             18 | no                 | no                  
+   public.nws_points                           |             | 2026-02-02 16:01 |              | 2026-02-02 16:00  |              4       |             38 | no                 | no                  
+   public.ops_alerts                           |             | 2026-02-13 20:42 |              | 2026-02-13 20:46  |             73       |             18 | no                 | no                  
+   public.orbit_elements                       |             | 2026-02-12 07:18 |              | 2026-02-12 07:18  |        860,756       |            519 | no                 | no                  
+   public.profiles                             |             |                  |              |                   |              1       |              1 | no                 | no                  
+   public.providers_public_cache               |             |                  |              | 2026-02-11 04:15  |            106       |              1 | no                 | no                  
+   public.satellite_group_memberships          |             | 2026-02-13 06:17 |              | 2026-02-13 09:17  |         31,809       |          5,668 | no                 | yes                 
+   public.satellites                           |             | 2026-02-10 18:45 |              | 2026-02-13 12:17  |         68,185       |          8,730 | no                 | yes                 
+   public.snapi_item_events                    |             | 2026-02-10 16:00 |              | 2026-02-04 12:15  |          1,794       |             17 | no                 | no                  
+   public.snapi_item_launches                  |             | 2026-02-04 11:15 |              | 2026-02-09 08:45  |         12,151       |            543 | no                 | no                  
+   public.snapi_items                          |             |                  |              | 2026-02-02 08:45  |         35,454       |          1,574 | no                 | no                  
+   public.social_accounts                      |             |                  |              | 2026-02-13 08:52  |              7       |             43 | no                 | no                  
+   public.social_posts                         |             | 2026-02-13 12:15 |              | 2026-02-11 16:45  |            159       |             44 | no                 | no                  
+   public.stripe_customers                     |             | 2026-02-10 03:17 |              | 2026-02-09 14:17  |              2       |             26 | no                 | no                  
+   public.subscriptions                        |             | 2026-02-10 03:17 |              | 2026-02-09 20:18  |              2       |             26 | no                 | no                  
+   public.system_settings                      |             | 2026-02-13 00:30 |              | 2026-02-13 20:59  |            233       |             43 | no                 | no                  
+   public.trajectory_product_lineage           |             | 2026-02-13 12:25 |              | 2026-02-13 17:15  |          1,454       |              0 | no                 | no                  
+   public.trajectory_source_contracts          |             | 2026-02-13 03:25 |              | 2026-02-13 17:10  |          5,178       |              0 | no                 | no                  
+   public.trajectory_source_documents          |             | 2026-02-11 10:40 |              | 2026-02-13 19:21  |          2,326       |              0 | no                 | no                  
+   public.webhook_events                       |             |                  |              |                   |              8       |              7 | no                 | no                  
+   public.artemis_entities                     |             |                  |              |                   |             No stats |              0 | no                 | no                  
+   public.artemis_procurement_awards           |             |                  |              |                   |             No stats |              0 | no                 | no                  
+   public.billing_events                       |             |                  |              |                   |             No stats |              0 | no                 | no                  
+   public.calendar_feeds                       |             |                  |              |                   |             No stats |              0 | no                 | no                  
+   public.embed_widgets                        |             |                  |              |                   |             No stats |              2 | no                 | no                  
+   public.feedback_submissions                 |             |                  |              |                   |             No stats |              0 | no                 | no                  
+   public.launch_expected_satellite_payloads   |             |                  |              |                   |             No stats |              0 | no                 | no                  
+   public.launch_filter_presets                |             |                  |              |                   |             No stats |              0 | no                 | no                  
+   public.launch_notification_preferences      |             |                  |              |                   |             No stats |              0 | no                 | no                  
+   public.launch_social_matches                |             |                  |              |                   |             No stats |             38 | no                 | no                  
+   public.ll2_payload_flight_docking_events    |             |                  |              |                   |             No stats |              0 | no                 | no                  
+   public.ll2_payload_types                    |             |                  |              |                   |             No stats |             23 | no                 | no                  
+   public.ll2_payloads                         |             |                  |              |                   |             No stats |              1 | no                 | no                  
+   public.notification_preferences             |             |                  |              |                   |             No stats |              2 | no                 | no                  
+   public.notification_usage_monthly           |             |                  |              |                   |             No stats |              1 | no                 | no                  
+   public.privacy_preferences                  |             |                  |              |                   |             No stats |              0 | no                 | no                  
+   public.push_subscriptions                   |             |                  |              |                   |             No stats |              0 | no                 | no                  
+   public.rss_feeds                            |             |                  |              |                   |             No stats |              0 | no                 | no                  
+   public.sms_consent_events                   |             |                  |              |                   |             No stats |              0 | no                 | no                  
+   public.tipjar_customers                     |             |                  |              |                   |             No stats |              0 | no                 | no                  
+   public.watchlist_rules                      |             |                  |              |                   |             No stats |              2 | no                 | no                  
+   public.watchlists                           |             |                  |              |                   |             No stats |              0 | no                 | no                  
+   public.ws45_launch_forecasts                |             |                  |              |                   |             No stats |              3 | no                 | no                  
+

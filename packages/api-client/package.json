@@ -1,0 +1,12 @@
+{
+  "name": "@tminuszero/api-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@tminuszero/contracts": "0.0.0"
+  }
+}

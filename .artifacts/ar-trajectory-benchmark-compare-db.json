@@ -1,0 +1,93 @@
+{
+  "baselineReportPath": "scripts/fixtures/ar-trajectory-replay-baseline-v1.json",
+  "currentReportPath": ".artifacts/ar-trajectory-replay-bench.json",
+  "overall": {
+    "baselineP95Deg": 2.376357571017259,
+    "currentP95Deg": 2.376357571017259,
+    "p95DeltaDeg": 0,
+    "baselineAbsDriftDeg": 0.9656067125707632,
+    "currentAbsDriftDeg": 0.9656067125707632,
+    "absDriftDeltaDeg": 0,
+    "baselineAbsSlopeDegPerMin": 0.795836255602695,
+    "currentAbsSlopeDegPerMin": 0.795836255602695,
+    "absSlopeDeltaDegPerMin": 0
+  },
+  "worstCase": {
+    "baselineP95Deg": 3.9676204290576598,
+    "currentP95Deg": 3.9676204290576598,
+    "p95DeltaDeg": 0,
+    "baselineAbsDriftDeg": 3.2705228389720684,
+    "currentAbsDriftDeg": 3.2705228389720684,
+    "absDriftDeltaDeg": 0
+  },
+  "skippedCases": {
+    "baseline": 0,
+    "current": 0,
+    "delta": 0
+  },
+  "perCaseDeltas": [
+    {
+      "id": "falcon9-cape-low-drift",
+      "baselineP95Deg": 0.3881693995828668,
+      "currentP95Deg": 0.3881693995828668,
+      "p95DeltaDeg": 0,
+      "baselineAbsDriftDeg": 0.09745352373508898,
+      "currentAbsDriftDeg": 0.09745352373508898,
+      "absDriftDeltaDeg": 0
+    },
+    {
+      "id": "falcon9-vandenberg-growing-drift",
+      "baselineP95Deg": 3.9676204290576598,
+      "currentP95Deg": 3.9676204290576598,
+      "p95DeltaDeg": 0,
+      "baselineAbsDriftDeg": 3.2705228389720684,
+      "currentAbsDriftDeg": 3.2705228389720684,
+      "absDriftDeltaDeg": 0
+    },
+    {
+      "id": "starship-boca-moderate-drift",
+      "baselineP95Deg": 2.5318398910805904,
+      "currentP95Deg": 2.5318398910805904,
+      "p95DeltaDeg": 0,
+      "baselineAbsDriftDeg": 1.4461881844916613,
+      "currentAbsDriftDeg": 1.4461881844916613,
+      "absDriftDeltaDeg": 0
+    },
+    {
+      "id": "newglenn-cape-eastbound",
+      "baselineP95Deg": 1.5923158631399938,
+      "currentP95Deg": 1.5923158631399938,
+      "p95DeltaDeg": 0,
+      "baselineAbsDriftDeg": 0.9824837561423404,
+      "currentAbsDriftDeg": 0.9824837561423404,
+      "absDriftDeltaDeg": 0
+    },
+    {
+      "id": "electron-mahia-steady",
+      "baselineP95Deg": 1.4962916658480356,
+      "currentP95Deg": 1.4962916658480356,
+      "p95DeltaDeg": 0,
+      "baselineAbsDriftDeg": 0.6749131974189724,
+      "currentAbsDriftDeg": 0.6749131974189724,
+      "absDriftDeltaDeg": 0
+    },
+    {
+      "id": "vulcan-cape-clean",
+      "baselineP95Deg": 0.6987992209629015,
+      "currentP95Deg": 0.6987992209629015,
+      "p95DeltaDeg": 0,
+      "baselineAbsDriftDeg": 0.43472662361950976,
+      "currentAbsDriftDeg": 0.43472662361950976,
+      "absDriftDeltaDeg": 0
+    },
+    {
+      "id": "ariane6-kourou-nominal",
+      "baselineP95Deg": 1.348626470810839,
+      "currentP95Deg": 1.348626470810839,
+      "p95DeltaDeg": 0,
+      "baselineAbsDriftDeg": 0.7585766808134214,
+      "currentAbsDriftDeg": 0.7585766808134214,
+      "absDriftDeltaDeg": 0
+    }
+  ]
+}
