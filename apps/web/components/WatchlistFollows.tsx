@@ -3,19 +3,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import clsx from 'clsx';
 import { useSearchParams } from 'next/navigation';
+import type { WatchlistRuleV1 } from '@tminuszero/api-client';
+import {
+  useCreateWatchlistMutation,
+  useCreateWatchlistRuleMutation,
+  useDeleteWatchlistRuleMutation,
+  useViewerEntitlementsQuery,
+  useWatchlistsQuery
+} from '@/lib/api/queries';
 import { useToast } from './ToastProvider';
-
-type RuleRow = {
-  id: string;
-  rule_type: string;
-  rule_value: string;
-};
-
-type WatchlistRow = {
-  id: string;
-  name: string;
-  watchlist_rules?: RuleRow[] | null;
-};
 
 export function WatchlistFollows({
   isAuthed,
@@ -43,101 +39,86 @@ export function WatchlistFollows({
   const providerFollowLabel = `Follow ${providerFollowTarget}`;
   const padFollowTarget = useMemo(() => resolvePadFollowTarget({ padLabel, padShortCode }), [padLabel, padShortCode]);
   const padFollowLabel = `Follow ${padFollowTarget}`;
+  const entitlementsQuery = useViewerEntitlementsQuery();
+  const watchlistsQuery = useWatchlistsQuery();
+  const createWatchlistMutation = useCreateWatchlistMutation();
+  const createWatchlistRuleMutation = useCreateWatchlistRuleMutation();
+  const deleteWatchlistRuleMutation = useDeleteWatchlistRuleMutation();
 
-  const [watchlistId, setWatchlistId] = useState<string | null>(null);
-  const [providerRuleId, setProviderRuleId] = useState<string | null>(null);
-  const [padRuleId, setPadRuleId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [didAttemptEnsureWatchlist, setDidAttemptEnsureWatchlist] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
 
+  const watchlists = useMemo(() => watchlistsQuery.data?.watchlists ?? [], [watchlistsQuery.data?.watchlists]);
+  const selectedWatchlist = useMemo(
+    () => watchlists.find((watchlist) => String(watchlist.name || '').trim().toLowerCase() === 'my launches') ?? watchlists[0] ?? null,
+    [watchlists]
+  );
+  const watchlistId = selectedWatchlist?.id ?? null;
+  const providerRuleId = useMemo(
+    () => findRuleId(selectedWatchlist?.rules ?? [], 'provider', providerKey),
+    [providerKey, selectedWatchlist?.rules]
+  );
+  const padRuleId = useMemo(
+    () => (padRuleValue ? findRuleId(selectedWatchlist?.rules ?? [], 'pad', padRuleValue) : null),
+    [padRuleValue, selectedWatchlist?.rules]
+  );
+  const loading = watchlistsQuery.isPending || createWatchlistMutation.isPending;
+  const ruleLimit = entitlementsQuery.data?.limits.watchlistRuleLimit ?? null;
+  const queryErrorMessage = watchlistsQuery.error ? getErrorMessage(watchlistsQuery.error, 'Unable to load follows.') : null;
+
   useEffect(() => {
-    if (!isAuthed || !canUseSavedItems) return;
-    if (!providerKey && !padRuleValue) return;
-    let cancelled = false;
+    if (!isAuthed || !canUseSavedItems || (!providerKey && !padRuleValue)) {
+      setDidAttemptEnsureWatchlist(false);
+      return;
+    }
+    if (!watchlists.length) return;
+    setDidAttemptEnsureWatchlist(false);
+  }, [canUseSavedItems, isAuthed, padRuleValue, providerKey, watchlists.length]);
 
-    const load = async () => {
-      setLoading(true);
-      setError(null);
-      try {
+  useEffect(() => {
+    if (!isAuthed || !canUseSavedItems || (!providerKey && !padRuleValue)) return;
+    if (!watchlistsQuery.isSuccess || watchlists.length > 0 || didAttemptEnsureWatchlist || createWatchlistMutation.isPending) return;
+
+    setDidAttemptEnsureWatchlist(true);
+    setError(null);
+    if (debugEnabled) console.log('[WatchlistFollows] load_no_watchlist_creating');
+    void createWatchlistMutation
+      .mutateAsync({})
+      .then((payload) => {
         if (debugEnabled) {
-          console.log('[WatchlistFollows] load_start', {
-            providerKey,
-            padRuleValue,
-            isAuthed,
-            canUseSavedItems
+          console.log('[WatchlistFollows] create_response', {
+            ok: true,
+            watchlistId: payload.watchlist.id ? `${payload.watchlist.id.slice(0, 8)}…` : null
           });
         }
-        const startedAt = Date.now();
-        const res = await fetch('/api/me/watchlists', { cache: 'no-store' });
-        if (debugEnabled) console.log('[WatchlistFollows] load_response', { status: res.status, ok: res.ok, ms: Date.now() - startedAt });
-        const json = await res.json().catch(() => ({}));
-        if (cancelled) return;
-        if (!res.ok) throw new Error(json?.error || `watchlists_http_${res.status}`);
-
-        const watchlists = Array.isArray(json?.watchlists) ? (json.watchlists as WatchlistRow[]) : [];
-        const selected =
-          watchlists.find((w) => String(w?.name || '').trim().toLowerCase() === 'my launches') ?? watchlists[0] ?? null;
-
-        if (!selected) {
-          if (debugEnabled) console.log('[WatchlistFollows] load_no_watchlist_creating');
-          const createRes = await fetch('/api/me/watchlists', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: '{}',
-            cache: 'no-store'
-          });
-          if (debugEnabled) console.log('[WatchlistFollows] create_response', { status: createRes.status, ok: createRes.ok });
-          const createJson = await createRes.json().catch(() => ({}));
-          if (cancelled) return;
-          if (!createRes.ok) throw new Error(createJson?.error || `watchlists_create_http_${createRes.status}`);
-
-          const created = createJson?.watchlist ?? null;
-          const createdId = created?.id ? String(created.id) : null;
-          setWatchlistId(createdId);
-          setProviderRuleId(null);
-          setPadRuleId(null);
-          return;
-        }
-
-        const selectedId = selected?.id ? String(selected.id) : null;
-        setWatchlistId(selectedId);
-        if (debugEnabled) console.log('[WatchlistFollows] load_selected', { watchlistId: selectedId ? `${selectedId.slice(0, 8)}…` : null });
-
-        const rules = Array.isArray(selected.watchlist_rules) ? selected.watchlist_rules : [];
-        const nextProviderRuleId = findRuleId(rules, 'provider', providerKey);
-        const nextPadRuleId = padRuleValue ? findRuleId(rules, 'pad', padRuleValue) : null;
-        setProviderRuleId(nextProviderRuleId);
-        setPadRuleId(nextPadRuleId);
-        if (debugEnabled) {
-          console.log('[WatchlistFollows] load_rules', {
-            providerFollowing: Boolean(nextProviderRuleId),
-            padFollowing: Boolean(nextPadRuleId),
-            providerRuleId: nextProviderRuleId ? `${nextProviderRuleId.slice(0, 8)}…` : null,
-            padRuleId: nextPadRuleId ? `${nextPadRuleId.slice(0, 8)}…` : null
-          });
-        }
-      } catch (err: any) {
-        if (cancelled) return;
-        console.error('watchlist follows load error', err);
-        setError(err?.message || 'Unable to load follows.');
-      } finally {
-        if (cancelled) return;
-        setLoading(false);
-      }
-    };
-
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [canUseSavedItems, debugEnabled, isAuthed, padRuleValue, providerKey]);
+      })
+      .catch((createError: unknown) => {
+        console.error('watchlist follows create error', createError);
+        setError(getErrorMessage(createError, 'Unable to load follows.'));
+      });
+  }, [
+    canUseSavedItems,
+    createWatchlistMutation,
+    debugEnabled,
+    didAttemptEnsureWatchlist,
+    isAuthed,
+    padRuleValue,
+    providerKey,
+    watchlists.length,
+    watchlistsQuery.isSuccess
+  ]);
 
   if (!isAuthed || !canUseSavedItems) return null;
   if (!providerKey && !padRuleValue) return null;
 
   const providerFollowing = Boolean(providerRuleId);
   const padFollowing = Boolean(padRuleId);
+  const activeError = error ?? queryErrorMessage;
+
+  function resolveRuleLimitMessage() {
+    return ruleLimit ? `My Launches limit reached (${ruleLimit} rules).` : 'My Launches limit reached.';
+  }
 
   async function toggleProvider(options?: { skipToast?: boolean }) {
     if (!watchlistId || !providerKey) return;
@@ -154,14 +135,8 @@ export function WatchlistFollows({
         });
       }
       if (providerRuleId) {
-        const res = await fetch(`/api/me/watchlists/${encodeURIComponent(watchlistId)}/rules/${encodeURIComponent(providerRuleId)}`, {
-          method: 'DELETE',
-          cache: 'no-store'
-        });
-        if (debugEnabled) console.log('[WatchlistFollows] toggle_provider_delete_response', { status: res.status, ok: res.ok });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(json?.error || `unfollow_http_${res.status}`);
-        setProviderRuleId(null);
+        await deleteWatchlistRuleMutation.mutateAsync({ watchlistId, ruleId: providerRuleId });
+        if (debugEnabled) console.log('[WatchlistFollows] toggle_provider_delete_response', { ok: true });
         if (debugEnabled) console.log('[WatchlistFollows] toggle_provider_deleted');
         if (!options?.skipToast) {
           pushToast({
@@ -169,26 +144,14 @@ export function WatchlistFollows({
             tone: 'info',
             onUndo: async () => {
               try {
-                const res = await fetch(`/api/me/watchlists/${encodeURIComponent(watchlistId)}/rules`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ rule_type: 'provider', rule_value: providerKey }),
-                  cache: 'no-store'
+                await createWatchlistRuleMutation.mutateAsync({
+                  watchlistId,
+                  payload: { ruleType: 'provider', ruleValue: providerKey }
                 });
-                const json = await res.json().catch(() => ({}));
-                if (!res.ok) {
-                  const limit = typeof json?.limit === 'number' ? json.limit : null;
-                  if (json?.error === 'limit_reached' && limit) throw new Error(`My Launches limit reached (${limit} rules).`);
-                  throw new Error(json?.error || `follow_http_${res.status}`);
-                }
-                const nextId = json?.rule?.id ? String(json.rule.id) : null;
-                if (!nextId) throw new Error('follow_failed');
-                setProviderRuleId(nextId);
               } catch (err: any) {
                 console.error('provider follow undo error', err);
-                setError(err?.message || 'Unable to undo provider follow.');
-                // Ensure UI reflects the last successful action (unfollow) if undo failed.
-                setProviderRuleId(null);
+                const nextError = getErrorCode(err) === 'limit_reached' ? resolveRuleLimitMessage() : getErrorMessage(err, 'Unable to undo provider follow.');
+                setError(nextError);
               }
             }
           });
@@ -196,22 +159,12 @@ export function WatchlistFollows({
         return;
       }
 
-      const res = await fetch(`/api/me/watchlists/${encodeURIComponent(watchlistId)}/rules`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rule_type: 'provider', rule_value: providerKey }),
-        cache: 'no-store'
+      const created = await createWatchlistRuleMutation.mutateAsync({
+        watchlistId,
+        payload: { ruleType: 'provider', ruleValue: providerKey }
       });
-      if (debugEnabled) console.log('[WatchlistFollows] toggle_provider_post_response', { status: res.status, ok: res.ok });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const limit = typeof json?.limit === 'number' ? json.limit : null;
-        if (json?.error === 'limit_reached' && limit) throw new Error(`My Launches limit reached (${limit} rules).`);
-        throw new Error(json?.error || `follow_http_${res.status}`);
-      }
-      const nextId = json?.rule?.id ? String(json.rule.id) : null;
-      if (!nextId) throw new Error('follow_failed');
-      setProviderRuleId(nextId);
+      const nextId = created.rule.id;
+      if (debugEnabled) console.log('[WatchlistFollows] toggle_provider_post_response', { ok: true });
       if (debugEnabled) console.log('[WatchlistFollows] toggle_provider_added', { providerRuleId: `${nextId.slice(0, 8)}…` });
       if (!options?.skipToast) {
         pushToast({
@@ -219,25 +172,18 @@ export function WatchlistFollows({
           tone: 'success',
           onUndo: async () => {
             try {
-              const res = await fetch(
-                `/api/me/watchlists/${encodeURIComponent(watchlistId)}/rules/${encodeURIComponent(nextId)}`,
-                { method: 'DELETE', cache: 'no-store' }
-              );
-              const json = await res.json().catch(() => ({}));
-              if (!res.ok) throw new Error(json?.error || `unfollow_http_${res.status}`);
-              setProviderRuleId(null);
+              await deleteWatchlistRuleMutation.mutateAsync({ watchlistId, ruleId: nextId });
             } catch (err: any) {
               console.error('provider unfollow undo error', err);
-              setError(err?.message || 'Unable to undo provider unfollow.');
-              // Ensure UI reflects the last successful action (follow) if undo failed.
-              setProviderRuleId(nextId);
+              setError(getErrorMessage(err, 'Unable to undo provider unfollow.'));
             }
           }
         });
       }
     } catch (err: any) {
       console.error('provider follow toggle error', err);
-      setError(err?.message || 'Unable to update provider follow.');
+      const nextError = getErrorCode(err) === 'limit_reached' ? resolveRuleLimitMessage() : getErrorMessage(err, 'Unable to update provider follow.');
+      setError(nextError);
       if (debugEnabled) console.log('[WatchlistFollows] toggle_provider_error', { error: String(err?.message || err) });
     } finally {
       setBusy((prev) => ({ ...prev, [key]: false }));
@@ -259,14 +205,8 @@ export function WatchlistFollows({
         });
       }
       if (padRuleId) {
-        const res = await fetch(`/api/me/watchlists/${encodeURIComponent(watchlistId)}/rules/${encodeURIComponent(padRuleId)}`, {
-          method: 'DELETE',
-          cache: 'no-store'
-        });
-        if (debugEnabled) console.log('[WatchlistFollows] toggle_pad_delete_response', { status: res.status, ok: res.ok });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(json?.error || `unfollow_http_${res.status}`);
-        setPadRuleId(null);
+        await deleteWatchlistRuleMutation.mutateAsync({ watchlistId, ruleId: padRuleId });
+        if (debugEnabled) console.log('[WatchlistFollows] toggle_pad_delete_response', { ok: true });
         if (debugEnabled) console.log('[WatchlistFollows] toggle_pad_deleted');
         if (!options?.skipToast) {
           pushToast({
@@ -274,25 +214,14 @@ export function WatchlistFollows({
             tone: 'info',
             onUndo: async () => {
               try {
-                const res = await fetch(`/api/me/watchlists/${encodeURIComponent(watchlistId)}/rules`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ rule_type: 'pad', rule_value: padRuleValue }),
-                  cache: 'no-store'
+                await createWatchlistRuleMutation.mutateAsync({
+                  watchlistId,
+                  payload: { ruleType: 'pad', ruleValue: padRuleValue }
                 });
-                const json = await res.json().catch(() => ({}));
-                if (!res.ok) {
-                  const limit = typeof json?.limit === 'number' ? json.limit : null;
-                  if (json?.error === 'limit_reached' && limit) throw new Error(`My Launches limit reached (${limit} rules).`);
-                  throw new Error(json?.error || `follow_http_${res.status}`);
-                }
-                const nextId = json?.rule?.id ? String(json.rule.id) : null;
-                if (!nextId) throw new Error('follow_failed');
-                setPadRuleId(nextId);
               } catch (err: any) {
                 console.error('pad follow undo error', err);
-                setError(err?.message || 'Unable to undo pad follow.');
-                setPadRuleId(null);
+                const nextError = getErrorCode(err) === 'limit_reached' ? resolveRuleLimitMessage() : getErrorMessage(err, 'Unable to undo pad follow.');
+                setError(nextError);
               }
             }
           });
@@ -300,22 +229,12 @@ export function WatchlistFollows({
         return;
       }
 
-      const res = await fetch(`/api/me/watchlists/${encodeURIComponent(watchlistId)}/rules`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rule_type: 'pad', rule_value: padRuleValue }),
-        cache: 'no-store'
+      const created = await createWatchlistRuleMutation.mutateAsync({
+        watchlistId,
+        payload: { ruleType: 'pad', ruleValue: padRuleValue }
       });
-      if (debugEnabled) console.log('[WatchlistFollows] toggle_pad_post_response', { status: res.status, ok: res.ok });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const limit = typeof json?.limit === 'number' ? json.limit : null;
-        if (json?.error === 'limit_reached' && limit) throw new Error(`My Launches limit reached (${limit} rules).`);
-        throw new Error(json?.error || `follow_http_${res.status}`);
-      }
-      const nextId = json?.rule?.id ? String(json.rule.id) : null;
-      if (!nextId) throw new Error('follow_failed');
-      setPadRuleId(nextId);
+      const nextId = created.rule.id;
+      if (debugEnabled) console.log('[WatchlistFollows] toggle_pad_post_response', { ok: true });
       if (debugEnabled) console.log('[WatchlistFollows] toggle_pad_added', { padRuleId: `${nextId.slice(0, 8)}…` });
       if (!options?.skipToast) {
         pushToast({
@@ -323,24 +242,18 @@ export function WatchlistFollows({
           tone: 'success',
           onUndo: async () => {
             try {
-              const res = await fetch(
-                `/api/me/watchlists/${encodeURIComponent(watchlistId)}/rules/${encodeURIComponent(nextId)}`,
-                { method: 'DELETE', cache: 'no-store' }
-              );
-              const json = await res.json().catch(() => ({}));
-              if (!res.ok) throw new Error(json?.error || `unfollow_http_${res.status}`);
-              setPadRuleId(null);
+              await deleteWatchlistRuleMutation.mutateAsync({ watchlistId, ruleId: nextId });
             } catch (err: any) {
               console.error('pad unfollow undo error', err);
-              setError(err?.message || 'Unable to undo pad unfollow.');
-              setPadRuleId(nextId);
+              setError(getErrorMessage(err, 'Unable to undo pad unfollow.'));
             }
           }
         });
       }
     } catch (err: any) {
       console.error('pad follow toggle error', err);
-      setError(err?.message || 'Unable to update pad follow.');
+      const nextError = getErrorCode(err) === 'limit_reached' ? resolveRuleLimitMessage() : getErrorMessage(err, 'Unable to update pad follow.');
+      setError(nextError);
       if (debugEnabled) console.log('[WatchlistFollows] toggle_pad_error', { error: String(err?.message || err) });
     } finally {
       setBusy((prev) => ({ ...prev, [key]: false }));
@@ -349,7 +262,7 @@ export function WatchlistFollows({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {error && <span className="rounded-lg border border-warning/40 bg-warning/10 px-2 py-1 text-xs text-warning">{error}</span>}
+      {activeError && <span className="rounded-lg border border-warning/40 bg-warning/10 px-2 py-1 text-xs text-warning">{activeError}</span>}
       {providerKey && (
         <button
           type="button"
@@ -392,11 +305,11 @@ export function WatchlistFollows({
   );
 }
 
-function findRuleId(rules: RuleRow[], type: string, value: string) {
+function findRuleId(rules: WatchlistRuleV1[], type: string, value: string) {
   const t = type.trim().toLowerCase();
   const v = String(value || '').trim();
   if (!t || !v) return null;
-  const found = rules.find((rule) => String(rule.rule_type || '').trim().toLowerCase() === t && String(rule.rule_value || '').trim() === v);
+  const found = rules.find((rule) => String(rule.ruleType || '').trim().toLowerCase() === t && String(rule.ruleValue || '').trim() === v);
   return found?.id ? String(found.id) : null;
 }
 
@@ -416,6 +329,14 @@ function resolvePadFollowTarget({ padLabel, padShortCode }: { padLabel?: string 
   const shortCode = String(padShortCode || '').trim();
   if (shortCode && shortCode.toLowerCase() !== 'pad') return shortCode;
   return 'Pad';
+}
+
+function getErrorCode(error: unknown) {
+  return typeof (error as { code?: unknown })?.code === 'string' ? (error as { code: string }).code : null;
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 function StarIcon({ className, filled }: { className?: string; filled?: boolean }) {

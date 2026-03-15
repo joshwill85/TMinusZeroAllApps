@@ -1,0 +1,15 @@
+
+> tminuszero@0.1.0 baseline:three-platform
+> ts-node --project tsconfig.scripts.json --transpile-only scripts/three-platform-baseline-capture.ts --out-dir=/Users/petpawlooza/TMinusZero AllApps/.artifacts/local-acceptance-dryrun/preflight/baseline --ttfb-requests=15 --ttfb-warmup=5
+
+mobile-query-guard: ok (6 scenarios)
+phase3-web-closeout-guard: ok (28 files scanned, 37 remaining raw /api fetch call sites in apps/web)
+/api/v1/launches?limit=20&region=all TTFB(ms): p50=8.370 p95=17.115 min=3.850 mean=8.533 max=17.115
+/api/v1/search?q=starlink&limit=8 TTFB(ms): p50=1.487 p95=2.037 min=1.154 mean=1.479 max=2.037
+three-platform-baseline-capture: ok (/Users/petpawlooza/TMinusZero AllApps/.artifacts/local-acceptance-dryrun/preflight/baseline)
+(node:99892) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+--import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("ts-node/esm", pathToFileURL("./"));'
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:99893) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+--import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("ts-node/esm", pathToFileURL("./"));'
+(Use `node --trace-warnings ...` to show where the warning was created)

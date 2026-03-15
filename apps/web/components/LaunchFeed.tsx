@@ -1,16 +1,37 @@
 'use client';
 
+import { ApiClientError } from '@tminuszero/api-client';
+import { getNextAlignedRefreshMs, getTierRefreshSeconds, tierToMode, type ViewerTier } from '@tminuszero/domain';
+import { buildAuthHref, buildUpgradeHref } from '@tminuszero/navigation';
 import clsx from 'clsx';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import {
+  applyGuestViewerState,
+  useCreateFilterPresetMutation,
+  useCreateWatchlistMutation,
+  useCreateWatchlistRuleMutation,
+  useDeleteWatchlistRuleMutation,
+  useArEligibleLaunchIdsQuery,
+  useFeedFilterOptionsQuery,
+  useFilterPresetsQuery,
+  useViewerSessionQuery,
+  useUpdateFilterPresetMutation,
+  useViewerEntitlementsQuery,
+  useWatchlistsQuery,
+  fetchLiveLaunchVersion,
+  getChangedLaunchesQueryOptions,
+  getLaunchFeedPageQueryOptions,
+  invalidateLaunchFeedQueries,
+  invalidateViewerScopedQueries
+} from '@/lib/api/queries';
 import { Launch, LaunchFilter, LaunchFilterOptions } from '@/lib/types/launch';
 import { LAUNCH_FEED_PAGE_SIZE } from '@/lib/constants/launchFeed';
 import { NEXT_LAUNCH_RETENTION_MS } from '@/lib/constants/launchTimeline';
-import { getBrowserClient } from '@/lib/api/supabase';
 import { useDismissed } from '@/lib/hooks/useDismissed';
 import { PRIVACY_COOKIES } from '@/lib/privacy/choices';
-import { getNextAlignedRefreshMs, getTierRefreshSeconds, tierToMode, type ViewerTier } from '@/lib/tiers';
 import { formatDateOnly, formatNetLabel, isDateOnlyNet } from '@/lib/time';
 import { buildLaunchHref } from '@/lib/utils/launchLinks';
 import { isArtemisLaunch } from '@/lib/utils/launchArtemis';
@@ -175,6 +196,7 @@ export function LaunchFeed({
   initialBlockThirdPartyEmbeds = false
 }: LaunchFeedProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const filtersPanelId = useId();
   const { pushToast } = useToast();
@@ -191,37 +213,12 @@ export function LaunchFeed({
   const [loading, setLoading] = useState(() => !initialMatchesPage);
   const [loadingMore, setLoadingMore] = useState(false);
   const [filters, setFilters] = useState<LaunchFilter>({ ...DEFAULT_LAUNCH_FILTERS });
-  const [filterOptions, setFilterOptions] = useState<LaunchFilterOptions>({
-    providers: [],
-    locations: [],
-    states: [],
-    pads: [],
-    statuses: []
-  });
-  const [filtersLoading, setFiltersLoading] = useState(true);
-  const [filtersError, setFiltersError] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [authStatus, setAuthStatus] = useState<'loading' | 'authed' | 'guest'>(() => initialAuthStatus ?? 'loading');
-  const [viewerTier, setViewerTier] = useState<ViewerTier>(() => initialViewerTier ?? 'anon');
-  const [arEligibleLaunchIds, setArEligibleLaunchIds] = useState<string[]>(() => initialArEligibleLaunchIds);
-  const [isPaid, setIsPaid] = useState(() => {
-    if (typeof initialIsPaid === 'boolean') return initialIsPaid;
-    return initialViewerTier === 'premium';
-  });
-  const [presetList, setPresetList] = useState<Array<{ id: string; name: string; filters: LaunchFilter; is_default?: boolean }>>([]);
-  const [presetsLoading, setPresetsLoading] = useState(false);
   const [presetSaving, setPresetSaving] = useState(false);
   const [presetDefaulting, setPresetDefaulting] = useState(false);
-  const [presetsError, setPresetsError] = useState<string | null>(null);
   const [activePresetId, setActivePresetId] = useState<string>('');
   const [myLaunchesEnabled, setMyLaunchesEnabled] = useState(false);
-  const [watchlistsLoading, setWatchlistsLoading] = useState(false);
-  const [watchlistsError, setWatchlistsError] = useState<string | null>(null);
-  const [myWatchlistId, setMyWatchlistId] = useState<string | null>(null);
-  const [myLaunchRulesByLaunchId, setMyLaunchRulesByLaunchId] = useState<Record<string, string>>({});
   const [watchToggleBusy, setWatchToggleBusy] = useState<Record<string, boolean>>({});
-  const [myProviderRulesByProvider, setMyProviderRulesByProvider] = useState<Record<string, string>>({});
-  const [myPadRulesByValue, setMyPadRulesByValue] = useState<Record<string, string>>({});
   const [followToggleBusy, setFollowToggleBusy] = useState<Record<string, boolean>>({});
   const [launches, setLaunches] = useState<Launch[]>(() => (initialMatchesPage ? initialLaunches : []));
   const [nextOffset, setNextOffset] = useState(() =>
@@ -255,33 +252,149 @@ export function LaunchFeed({
   const [upsellOpen, setUpsellOpen] = useState(false);
   const [upsellFeatureLabel, setUpsellFeatureLabel] = useState<string | undefined>(undefined);
   const [blockThirdPartyEmbeds, setBlockThirdPartyEmbeds] = useState(() => Boolean(initialBlockThirdPartyEmbeds));
+  const [modeOverride, setModeOverride] = useState<'public' | null>(null);
   const [infiniteScrollArmed, setInfiniteScrollArmed] = useState(false);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
   const fetchSeqRef = useRef(0);
   const lastSeenLiveVersionRef = useRef<string | null>(null);
   const initialLaunchesRef = useRef(initialLaunches);
   const initialOffsetRef = useRef(initialOffset);
   const didInitialFetchRef = useRef(false);
   const didApplyInitialDefaultPresetRef = useRef(false);
+  const didRequestMyWatchlistRef = useRef(false);
   const lastRouterReplaceRef = useRef<{ url: string; at: number } | null>(null);
+  const viewerSessionQuery = useViewerSessionQuery();
+  const viewerEntitlementsQuery = useViewerEntitlementsQuery();
+  const filterPresetsQuery = useFilterPresetsQuery();
+  const watchlistsQuery = useWatchlistsQuery();
+  const createFilterPresetMutation = useCreateFilterPresetMutation();
+  const updateFilterPresetMutation = useUpdateFilterPresetMutation();
+  const createWatchlistMutation = useCreateWatchlistMutation();
+  const createWatchlistRuleMutation = useCreateWatchlistRuleMutation();
+  const deleteWatchlistRuleMutation = useDeleteWatchlistRuleMutation();
 
   const { dismissed: unlocksDismissed, dismiss: dismissUnlocks } = useDismissed(HOME_UPSELL_KEYS.onboardingDismissedAt, 14 * DAY_MS);
 
   const query = useMemo(() => (searchParams.get('q') || '').trim(), [searchParams]);
   const currentPage = useMemo(() => getPageFromSearchParams(searchParams), [searchParams]);
   const pageOffset = useMemo(() => (currentPage - 1) * PAGE_SIZE, [currentPage]);
+  const authStatus: 'loading' | 'authed' | 'guest' =
+    viewerSessionQuery.isPending && !viewerSessionQuery.data
+      ? (initialAuthStatus ?? 'loading')
+      : viewerSessionQuery.data?.viewerId
+        ? 'authed'
+        : 'guest';
+  const baseViewerTier = normalizeViewerTier(viewerEntitlementsQuery.data?.tier) ?? initialViewerTier ?? 'anon';
+  const viewerTier: ViewerTier =
+    modeOverride === 'public'
+      ? authStatus === 'authed'
+        ? 'free'
+        : 'anon'
+      : baseViewerTier;
+  const isPaid =
+    modeOverride == null
+      ? (typeof viewerEntitlementsQuery.data?.isPaid === 'boolean'
+          ? viewerEntitlementsQuery.data.isPaid
+          : typeof initialIsPaid === 'boolean'
+            ? initialIsPaid
+            : initialViewerTier === 'premium')
+      : false;
   const isAuthed = authStatus === 'authed';
-  const arEligibleLaunchIdSet = useMemo(() => new Set(arEligibleLaunchIds), [arEligibleLaunchIds]);
-  const mode = useMemo(() => tierToMode(viewerTier), [viewerTier]);
-  const refreshIntervalSeconds = getTierRefreshSeconds(viewerTier);
-  const refreshIntervalMs = refreshIntervalSeconds * 1000;
-  const recentChanges = useMemo(() => changed.slice(0, 6), [changed]);
+  const viewerCapabilities = viewerEntitlementsQuery.data?.capabilities;
+  const canUseSavedItems = isAuthed && Boolean(viewerCapabilities?.canUseSavedItems);
+  const canManageFilterPresets = isAuthed && Boolean(viewerCapabilities?.canManageFilterPresets);
+  const canUseBasicAlertRules = isAuthed && Boolean(viewerCapabilities?.canUseBasicAlertRules);
+  const canUseBrowserLaunchAlerts = isAuthed && Boolean(viewerCapabilities?.canUseBrowserLaunchAlerts);
+  const canUseOneOffCalendar = isAuthed && Boolean(viewerCapabilities?.canUseOneOffCalendar);
+  const mode = useMemo(() => modeOverride ?? tierToMode(viewerTier), [modeOverride, viewerTier]);
+  const arEligibleLaunchIdsQuery = useArEligibleLaunchIdsQuery({
+    initialData: initialArEligibleLaunchIds
+  });
+  const arEligibleLaunchIdSet = useMemo(
+    () => new Set(arEligibleLaunchIdsQuery.data ?? initialArEligibleLaunchIds),
+    [arEligibleLaunchIdsQuery.data, initialArEligibleLaunchIds]
+  );
+  const filterOptionsQuery = useFeedFilterOptionsQuery(
+    {
+      mode: mode === 'live' ? 'live' : 'public',
+      range: filters.range ?? 'year',
+      region: filters.region ?? 'us',
+      location: filters.location ?? null,
+      state: filters.state ?? null,
+      pad: filters.pad ?? null,
+      provider: filters.provider ?? null,
+      status: filters.status && filters.status !== 'all' ? filters.status : null
+    },
+    { enabled: isAuthed }
+  );
+  const filterOptions = useMemo<LaunchFilterOptions>(
+    () =>
+      filterOptionsQuery.data ?? {
+        providers: [],
+        locations: [],
+        states: [],
+        pads: [],
+        statuses: []
+      },
+    [filterOptionsQuery.data]
+  );
+  const filtersLoading = isAuthed ? filterOptionsQuery.isPending : false;
+  const filtersError =
+    isAuthed && filterOptionsQuery.isError
+      ? filterOptionsQuery.error instanceof Error
+        ? filterOptionsQuery.error.message
+        : 'filters_failed'
+      : null;
+  const presetList = useMemo<Array<{ id: string; name: string; filters: LaunchFilter; is_default: boolean }>>(() => {
+    if (!canManageFilterPresets || !filterPresetsQuery.data) return [];
+    return filterPresetsQuery.data.presets
+      .map((preset) => {
+        const id = String(preset.id || '').trim();
+        const name = String(preset.name || '').trim() || 'Saved view';
+        if (!id) return null;
+        return {
+          id,
+          name,
+          filters: normalizeLaunchFilter(preset.filters),
+          is_default: preset.isDefault === true
+        };
+      })
+      .filter((preset): preset is { id: string; name: string; filters: LaunchFilter; is_default: boolean } => preset !== null);
+  }, [canManageFilterPresets, filterPresetsQuery.data]);
+  const presetsLoading = canManageFilterPresets && filterPresetsQuery.isPending;
+  const presetsError =
+    canManageFilterPresets && filterPresetsQuery.isError
+      ? filterPresetsQuery.error instanceof Error
+        ? filterPresetsQuery.error.message
+        : 'failed_to_load'
+      : null;
   const activePreset = useMemo(
     () => presetList.find((preset) => preset.id === activePresetId) ?? null,
     [activePresetId, presetList]
   );
   const activePresetIsDefault = activePreset?.is_default === true;
+  const selectedWatchlist = useMemo(() => {
+    if (!canUseSavedItems || !watchlistsQuery.data) return null;
+    return (
+      watchlistsQuery.data.watchlists.find((watchlist) => String(watchlist.name || '').trim().toLowerCase() === 'my launches') ??
+      watchlistsQuery.data.watchlists[0] ??
+      null
+    );
+  }, [canUseSavedItems, watchlistsQuery.data]);
+  const watchlistsLoading = canUseSavedItems && (watchlistsQuery.isPending || createWatchlistMutation.isPending);
+  const watchlistsError =
+    canUseSavedItems && watchlistsQuery.isError
+      ? watchlistsQuery.error instanceof Error
+        ? watchlistsQuery.error.message
+        : 'failed_to_load'
+      : null;
+  const myWatchlistId = selectedWatchlist?.id ? String(selectedWatchlist.id) : null;
+  const myLaunchRulesByLaunchId = useMemo(() => extractLaunchRuleMap(selectedWatchlist?.rules), [selectedWatchlist?.rules]);
+  const myProviderRulesByProvider = useMemo(() => extractProviderRuleMap(selectedWatchlist?.rules), [selectedWatchlist?.rules]);
+  const myPadRulesByValue = useMemo(() => extractPadRuleMap(selectedWatchlist?.rules), [selectedWatchlist?.rules]);
+  const refreshIntervalSeconds = getTierRefreshSeconds(viewerTier);
+  const refreshIntervalMs = refreshIntervalSeconds * 1000;
+  const recentChanges = useMemo(() => changed.slice(0, 6), [changed]);
   useWhyDidYouUpdate(
     debugName,
     {
@@ -498,6 +611,10 @@ export function LaunchFeed({
   }, [viewerTier]);
 
   useEffect(() => {
+    setModeOverride(null);
+  }, [authStatus, baseViewerTier]);
+
+  useEffect(() => {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (tz) setUserTz(tz);
   }, []);
@@ -506,33 +623,6 @@ export function LaunchFeed({
     const value = readCookieValue(PRIVACY_COOKIES.blockEmbeds);
     if (value === '1') setBlockThirdPartyEmbeds(true);
     if (value === '0') setBlockThirdPartyEmbeds(false);
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = async () => {
-      try {
-        const res = await fetch('/api/public/launches/ar-eligible', { cache: 'no-store' });
-        const json = await res.json().catch(() => ({}));
-        if (cancelled) return;
-        if (!res.ok) return;
-        const launches = Array.isArray(json?.launches) ? json.launches : [];
-        const ids = launches
-          .map((entry: any) => (entry?.launchId ? String(entry.launchId) : null))
-          .filter((id: any): id is string => typeof id === 'string' && id.trim().length > 0);
-        setArEligibleLaunchIds(ids);
-      } catch (err) {
-        // ignore
-      }
-    };
-
-    void load();
-    const id = window.setInterval(load, 5 * 60 * 1000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
   }, []);
 
   useEffect(() => {
@@ -551,84 +641,6 @@ export function LaunchFeed({
     safeRouterReplace(queryString ? `/?${queryString}` : '/');
   }, [safeRouterReplace, searchParams]);
 
-  useEffect(() => {
-    const supabase = getBrowserClient();
-    if (!supabase) {
-      setAuthStatus('guest');
-      return;
-    }
-
-    let active = true;
-    const updateStatus = async () => {
-      const { data } = await supabase.auth.getUser();
-      if (!active) return;
-      setAuthStatus(data.user ? 'authed' : 'guest');
-    };
-    updateStatus();
-
-    const { data: subscriptionData } = supabase.auth.onAuthStateChange(() => {
-      updateStatus();
-    });
-
-    return () => {
-      active = false;
-      subscriptionData.subscription.unsubscribe();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (authStatus === 'loading') return;
-    if (authStatus === 'guest') {
-      setIsPaid(false);
-      setViewerTier('anon');
-      return;
-    }
-    setViewerTier((prev) => (prev === 'anon' ? 'free' : prev));
-  }, [authStatus]);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (authStatus !== 'authed') {
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const syncSubscriptionTier = async () => {
-      try {
-        const res = await fetch('/api/me/subscription', { cache: 'no-store' });
-        const json = (await res.json().catch(() => ({}))) as {
-          isAuthed?: unknown;
-          isPaid?: unknown;
-          tier?: unknown;
-        };
-        if (cancelled) return;
-
-        if (res.status === 401 || json.isAuthed === false) {
-          setAuthStatus('guest');
-          setIsPaid(false);
-          setViewerTier('anon');
-          return;
-        }
-
-        if (!res.ok) return;
-
-        const nextTier = normalizeViewerTier(json.tier);
-        const nextIsPaid = Boolean(json.isPaid);
-        setIsPaid(nextIsPaid);
-        setViewerTier(nextTier ?? (nextIsPaid ? 'premium' : 'free'));
-      } catch (err) {
-        if (cancelled) return;
-        console.error('subscription fetch error', err);
-      }
-    };
-
-    void syncSubscriptionTier();
-    return () => {
-      cancelled = true;
-    };
-  }, [authStatus]);
-
   const resetPageToFirst = useCallback(() => {
     const qs = new URLSearchParams(searchParams.toString());
     qs.delete('page');
@@ -637,72 +649,23 @@ export function LaunchFeed({
   }, [safeRouterReplace, searchParams]);
 
   useEffect(() => {
-    let cancelled = false;
-    if (!isAuthed || viewerTier === 'anon') {
-      setPresetList([]);
+    if (!canManageFilterPresets) {
       setActivePresetId('');
-      setPresetsLoading(false);
       setPresetDefaulting(false);
-      setPresetsError(null);
       didApplyInitialDefaultPresetRef.current = false;
-      return () => {
-        cancelled = true;
-      };
+      return;
     }
-
-    setPresetsLoading(true);
-    setPresetsError(null);
-    fetch('/api/me/filter-presets', { cache: 'no-store' })
-      .then(async (res) => ({ ok: res.ok, status: res.status, body: await res.json().catch(() => ({})) }))
-      .then(({ ok, status, body }) => {
-        if (cancelled) return;
-        if (!ok) {
-          if (status === 402) {
-            setPresetList([]);
-            setActivePresetId('');
-            didApplyInitialDefaultPresetRef.current = false;
-            return;
-          }
-          setPresetsError(body?.error || 'failed_to_load');
-          return;
-        }
-        const presets = (Array.isArray(body?.presets) ? body.presets : [])
-          .map((preset: any) => {
-            const id = String(preset?.id || '').trim();
-            const name = String(preset?.name || '').trim() || 'Saved view';
-            if (!id) return null;
-            return {
-              id,
-              name,
-              filters: normalizeLaunchFilter(preset?.filters),
-              is_default: preset?.is_default === true
-            };
-          })
-          .filter((preset: any): preset is { id: string; name: string; filters: LaunchFilter; is_default?: boolean } => Boolean(preset));
-        setPresetList(presets);
-        const defaultPreset = presets.find((preset: any) => preset?.is_default === true) ?? null;
-        if (defaultPreset?.id) setActivePresetId(String(defaultPreset.id));
-        if (!didApplyInitialDefaultPresetRef.current) {
-          if (defaultPreset?.filters) {
-            setFilters((prev) => (areLaunchFiltersEqual(prev, defaultPreset.filters) ? prev : defaultPreset.filters));
-          }
-          didApplyInitialDefaultPresetRef.current = true;
-        }
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        console.error('filter presets fetch error', err);
-        setPresetsError('failed_to_load');
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setPresetsLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isAuthed, viewerTier]);
+    const defaultPreset = presetList.find((preset) => preset.is_default === true) ?? null;
+    if (defaultPreset?.id) {
+      setActivePresetId(defaultPreset.id);
+    }
+    if (!didApplyInitialDefaultPresetRef.current) {
+      if (defaultPreset?.filters) {
+        setFilters((prev) => (areLaunchFiltersEqual(prev, defaultPreset.filters) ? prev : defaultPreset.filters));
+      }
+      didApplyInitialDefaultPresetRef.current = true;
+    }
+  }, [canManageFilterPresets, presetList]);
 
   useEffect(() => {
     if (!activePresetId) return;
@@ -717,189 +680,75 @@ export function LaunchFeed({
   }, [activePresetId, filters, presetList]);
 
   useEffect(() => {
-    let cancelled = false;
-    if (!isAuthed || viewerTier === 'anon') {
-      setWatchlistsLoading(false);
-      setWatchlistsError(null);
+    if (!canUseSavedItems) {
       setMyLaunchesEnabled(false);
-      setMyWatchlistId(null);
-      setMyLaunchRulesByLaunchId({});
-      setMyProviderRulesByProvider({});
-      setMyPadRulesByValue({});
       setFollowToggleBusy({});
-      return () => {
-        cancelled = true;
-      };
+      didRequestMyWatchlistRef.current = false;
+      return;
     }
 
-    const load = async () => {
-      setWatchlistsLoading(true);
-      setWatchlistsError(null);
-
-      const res = await fetch('/api/me/watchlists', { cache: 'no-store' });
-      const json = await res.json().catch(() => ({}));
-
-      if (cancelled) return;
-
-      if (!res.ok) {
-        setWatchlistsError(json?.error || 'failed_to_load');
-        setMyWatchlistId(null);
-        setMyLaunchRulesByLaunchId({});
-        setMyProviderRulesByProvider({});
-        setMyPadRulesByValue({});
-        setWatchlistsLoading(false);
-        return;
+    if (!selectedWatchlist) {
+      if (!didRequestMyWatchlistRef.current && !createWatchlistMutation.isPending) {
+        didRequestMyWatchlistRef.current = true;
+        createWatchlistMutation.mutate(
+          {},
+          {
+            onError: (error) => {
+              didRequestMyWatchlistRef.current = false;
+              setNotice({ tone: 'warning', message: error instanceof Error ? error.message : 'failed_to_create' });
+            }
+          }
+        );
       }
+      return;
+    }
 
-      const watchlists = Array.isArray(json?.watchlists) ? json.watchlists : [];
-      const selected =
-        watchlists.find((w: any) => String(w?.name || '').trim().toLowerCase() === 'my launches') ?? watchlists[0] ?? null;
-
-      if (!selected) {
-        const createRes = await fetch('/api/me/watchlists', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: '{}',
-          cache: 'no-store'
-        });
-
-        const createJson = await createRes.json().catch(() => ({}));
-        if (cancelled) return;
-
-        if (!createRes.ok) {
-          setWatchlistsError(createJson?.error || 'failed_to_create');
-          setMyWatchlistId(null);
-          setMyLaunchRulesByLaunchId({});
-          setMyProviderRulesByProvider({});
-          setMyPadRulesByValue({});
-          setWatchlistsLoading(false);
-          return;
-        }
-
-        const created = createJson?.watchlist ?? null;
-        const createdId = created?.id ? String(created.id) : null;
-        setMyWatchlistId(createdId);
-        setMyLaunchRulesByLaunchId({});
-        setMyProviderRulesByProvider({});
-        setMyPadRulesByValue({});
-        setWatchlistsLoading(false);
-        return;
-      }
-
-      const selectedId = selected?.id ? String(selected.id) : null;
-      setMyWatchlistId(selectedId);
-      setMyLaunchRulesByLaunchId(extractLaunchRuleMap(selected?.watchlist_rules));
-      setMyProviderRulesByProvider(extractProviderRuleMap(selected?.watchlist_rules));
-      setMyPadRulesByValue(extractPadRuleMap(selected?.watchlist_rules));
-      setWatchlistsLoading(false);
-    };
-
-    load().catch((err) => {
-      if (cancelled) return;
-      console.error('watchlists fetch error', err);
-      setWatchlistsError('failed_to_load');
-      setMyWatchlistId(null);
-      setMyLaunchRulesByLaunchId({});
-      setMyProviderRulesByProvider({});
-      setMyPadRulesByValue({});
-      setWatchlistsLoading(false);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isAuthed, viewerTier]);
+    didRequestMyWatchlistRef.current = false;
+  }, [canUseSavedItems, createWatchlistMutation, selectedWatchlist]);
 
   useEffect(() => {
-    let cancelled = false;
     if (!isAuthed) {
-      setFiltersLoading(false);
-      setFiltersError(null);
-      setFilterOptions({ providers: [], locations: [], states: [], pads: [], statuses: [] });
-      return () => {
-        cancelled = true;
-      };
+      return;
     }
+    if (!filterOptionsQuery.data) return;
 
-    setFiltersLoading(true);
-    setFiltersError(null);
-    const qs = new URLSearchParams();
-    qs.set('mode', mode);
-    qs.set('region', filters.region ?? 'us');
-    qs.set('range', filters.range ?? 'year');
-    if (filters.location) qs.set('location', filters.location);
-    if (filters.state) qs.set('state', filters.state);
-    if (filters.pad) qs.set('pad', filters.pad);
-    if (filters.provider) qs.set('provider', filters.provider);
-    if (filters.status && filters.status !== 'all') qs.set('status', filters.status);
-    fetch(`/api/filters?${qs.toString()}`, { cache: 'no-store' })
-      .then(async (res) => ({ ok: res.ok, body: await res.json().catch(() => ({})) }))
-      .then(({ ok, body }) => {
-        if (cancelled) return;
-        if (!ok) {
-          setFiltersError(body?.error || 'filters_failed');
-          return;
-        }
-        const providers = Array.isArray(body?.providers) ? body.providers : [];
-        const locations = Array.isArray(body?.locations) ? body.locations : [];
-        const states = Array.isArray(body?.states) ? body.states : [];
-        const pads = Array.isArray(body?.pads) ? body.pads : [];
-        const statuses = Array.isArray(body?.statuses) ? body.statuses : [];
-        setFilterOptions({
-          providers,
-          locations,
-          states,
-          pads,
-          statuses
-        });
-        setFilters((prev) => {
-          let changed = false;
-          const next: LaunchFilter = { ...prev };
+    setFilters((prev) => {
+      let changed = false;
+      const next: LaunchFilter = { ...prev };
 
-          if (prev.location && !locations.includes(prev.location)) {
-            next.location = undefined;
-            changed = true;
-          }
-          if (prev.state && !states.includes(prev.state)) {
-            next.state = undefined;
-            changed = true;
-          }
-          if (prev.pad && !pads.includes(prev.pad)) {
-            next.pad = undefined;
-            changed = true;
-          }
-          if (prev.provider && !providers.includes(prev.provider)) {
-            next.provider = undefined;
-            changed = true;
-          }
-          if (prev.status && prev.status !== 'all' && !statuses.includes(prev.status)) {
-            next.status = 'all';
-            changed = true;
-          }
+      if (prev.location && !filterOptions.locations.includes(prev.location)) {
+        next.location = undefined;
+        changed = true;
+      }
+      if (prev.state && !filterOptions.states.includes(prev.state)) {
+        next.state = undefined;
+        changed = true;
+      }
+      if (prev.pad && !filterOptions.pads.includes(prev.pad)) {
+        next.pad = undefined;
+        changed = true;
+      }
+      if (prev.provider && !filterOptions.providers.includes(prev.provider)) {
+        next.provider = undefined;
+        changed = true;
+      }
+      if (prev.status && prev.status !== 'all' && !filterOptions.statuses.includes(prev.status)) {
+        next.status = 'all';
+        changed = true;
+      }
 
-          return changed ? next : prev;
-        });
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        console.error('filters fetch error', err);
-        setFiltersError('filters_failed');
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setFiltersLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [filters.location, filters.pad, filters.provider, filters.range, filters.region, filters.state, filters.status, isAuthed, mode]);
+      return changed ? next : prev;
+    });
+  }, [filterOptions, filterOptionsQuery.data, isAuthed]);
 
   const fetchPage = useCallback(
     async ({ offset, replace, reason }: { offset: number; replace: boolean; reason: string }) => {
       fetchSeqRef.current += 1;
       const seq = fetchSeqRef.current;
       const snapshot = latestRef.current;
+      const filtersNow = snapshot.filters;
+      const modeNow = snapshot.mode;
+      const watchlistId = snapshot.myLaunchesEnabled && snapshot.viewerTier !== 'anon' ? snapshot.myWatchlistId : null;
       debugLog('fetchPage_start', {
         reason,
         offset,
@@ -918,10 +767,6 @@ export function LaunchFeed({
         console.trace(`[${debugName}] fetchPage trace (${reason})`);
       }
 
-      if (abortRef.current) abortRef.current.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
-
       if (replace) {
         setLoading(true);
         setLoadingMore(false);
@@ -930,65 +775,28 @@ export function LaunchFeed({
       }
 
       try {
-        const filtersNow = snapshot.filters;
-        const modeNow = snapshot.mode;
-        const qs = new URLSearchParams();
-        qs.set('range', filtersNow.range || '7d');
-        qs.set('sort', filtersNow.sort || 'soonest');
-        qs.set('region', filtersNow.region ?? 'us');
-        qs.set('limit', String(PAGE_SIZE));
-        qs.set('offset', String(offset));
-        if (filtersNow.location) qs.set('location', filtersNow.location);
-        if (filtersNow.state) qs.set('state', filtersNow.state);
-        if (filtersNow.pad) qs.set('pad', filtersNow.pad);
-        if (filtersNow.provider) qs.set('provider', filtersNow.provider);
-        if (filtersNow.status && filtersNow.status !== 'all') qs.set('status', filtersNow.status);
-
-        const watchlistId = snapshot.myLaunchesEnabled && snapshot.viewerTier !== 'anon' ? snapshot.myWatchlistId : null;
-        const url = watchlistId
-          ? `/api/me/watchlists/${encodeURIComponent(watchlistId)}/launches?${qs.toString()}`
-          : `/api/${modeNow === 'public' ? 'public' : 'live'}/launches?${qs.toString()}`;
-        debugLog('fetchPage_request', { reason, url });
-        const res = await fetch(url, {
-          signal: controller.signal
-        });
-        debugLog('fetchPage_response', { reason, status: res.status, ok: res.ok });
-        if (res.status === 401) {
-          setAuthStatus('guest');
-          setIsPaid(false);
-          setViewerTier('anon');
-          setNotice({ tone: 'warning', message: 'Sign in to view the live feed. Falling back to the public cache.' });
-          debugLog('fetchPage_fallback_401', { reason });
-          return;
-        }
-        if (res.status === 402) {
-          if (snapshot.viewerTier === 'premium') {
-            console.warn('[LaunchFeed] entitlement_mismatch_402', { reason, url });
-          }
-          setIsPaid(false);
-          setViewerTier(snapshot.isAuthed ? 'free' : 'anon');
-          setNotice({ tone: 'warning', message: 'Live feed is a Premium feature. Showing the public cache.' });
-          debugLog('fetchPage_fallback_402', { reason });
-          return;
-        }
-        if (!res.ok) {
-          const errorBody = await res.json().catch(() => null);
-          const message =
-            errorBody?.error === 'supabase_not_configured'
-              ? 'Data source not configured. Add Supabase env vars in Vercel.'
-              : errorBody?.error
-                ? `Feed error: ${errorBody.error}`
-                : `Feed error: ${res.status}`;
-          setNotice({ tone: 'warning', message });
-          throw new Error(message);
-        }
-        const json = await res.json();
-        const rows = (json.launches || []) as Launch[];
-        debugLog('fetchPage_success', { reason, rows: rows.length });
+        const request = {
+          scope: watchlistId ? ('watchlist' as const) : modeNow,
+          watchlistId,
+          range: filtersNow.range || '7d',
+          sort: filtersNow.sort || 'soonest',
+          region: filtersNow.region ?? 'us',
+          limit: PAGE_SIZE,
+          offset,
+          location: filtersNow.location ?? null,
+          state: filtersNow.state ?? null,
+          pad: filtersNow.pad ?? null,
+          provider: filtersNow.provider ?? null,
+          status: filtersNow.status && filtersNow.status !== 'all' ? filtersNow.status : null
+        };
+        debugLog('fetchPage_request', { reason, request });
+        const payload = await queryClient.fetchQuery(getLaunchFeedPageQueryOptions(request));
+        const rows = payload.launches as Launch[];
+        debugLog('fetchPage_response', { reason, scope: payload.scope ?? request.scope, rows: rows.length, hasMore: payload.hasMore });
         setLastCheckedAtMs(Date.now());
         setLaunches((prev) => {
           if (replace) return rows;
-          const existing = new Set(prev.map((l) => l.id));
+          const existing = new Set(prev.map((launch) => launch.id));
           const merged = [...prev];
           rows.forEach((row) => {
             if (!existing.has(row.id)) merged.push(row);
@@ -996,14 +804,52 @@ export function LaunchFeed({
           return merged;
         });
         setNextOffset(offset + rows.length);
-        const hasMoreValue = typeof json?.hasMore === 'boolean' ? json.hasMore : rows.length === PAGE_SIZE;
+        const hasMoreValue = typeof payload?.hasMore === 'boolean' ? payload.hasMore : rows.length === PAGE_SIZE;
         setHasMore(hasMoreValue);
-        if (modeNow === 'live' || watchlistId) setNotice(null);
-      } catch (err) {
-        if ((err as any)?.name !== 'AbortError') {
-          console.error('feed fetch error', reason, err);
-          debugLog('fetchPage_error', { reason, error: String((err as any)?.message || err) });
+        if (modeNow === 'live' || watchlistId) {
+          setNotice(null);
+          setModeOverride(null);
         }
+      } catch (err) {
+        const status = err instanceof ApiClientError ? err.status : typeof (err as any)?.status === 'number' ? (err as any).status : null;
+        const code = err instanceof ApiClientError ? err.code : typeof (err as any)?.code === 'string' ? (err as any).code : null;
+        if (status === 401) {
+          applyGuestViewerState(queryClient);
+          setMyLaunchesEnabled(false);
+          setModeOverride('public');
+          setNotice({
+            tone: 'warning',
+            message: watchlistId ? 'Sign in to keep using Following. Showing the public feed.' : 'Sign in to view the live feed. Showing the public cache.'
+          });
+          debugLog('fetchPage_fallback_401', { reason, code });
+          return;
+        }
+        if (status === 402) {
+          if (snapshot.viewerTier === 'premium') {
+            console.warn('[LaunchFeed] entitlement_mismatch_402', { reason, code });
+          }
+          invalidateViewerScopedQueries(queryClient);
+          setMyLaunchesEnabled(false);
+          setModeOverride('public');
+          setNotice({
+            tone: 'warning',
+            message: watchlistId ? 'Following is not available on this plan. Showing the public feed.' : 'Live feed is a Premium feature. Showing the public cache.'
+          });
+          debugLog('fetchPage_fallback_402', { reason, code });
+          return;
+        }
+
+        const message =
+          code === 'supabase_not_configured'
+            ? 'Data source not configured. Add Supabase env vars in Vercel.'
+            : code
+              ? `Feed error: ${code}`
+              : err instanceof Error && err.message
+                ? err.message
+                : 'Feed error: failed_to_load';
+        setNotice({ tone: 'warning', message });
+        console.error('feed fetch error', reason, err);
+        debugLog('fetchPage_error', { reason, error: message });
       } finally {
         if (fetchSeqRef.current !== seq) return;
         setLoading(false);
@@ -1011,7 +857,7 @@ export function LaunchFeed({
         debugLog('fetchPage_done', { reason });
       }
     },
-    [debug, debugLog, debugName]
+    [debug, debugLog, debugName, queryClient]
   );
 
   useEffect(() => {
@@ -1024,8 +870,7 @@ export function LaunchFeed({
     }
 
     didInitialFetchRef.current = true;
-    fetchPage({ offset: pageOffset, replace: true, reason: 'page_or_filters_change' });
-    return () => abortRef.current?.abort();
+    void fetchPage({ offset: pageOffset, replace: true, reason: 'page_or_filters_change' });
   }, [fetchPage, filters, mode, myLaunchesEnabled, launchFeedWatchlistDependency, pageOffset]);
 
   const fetchRecentChanges = useCallback(async () => {
@@ -1034,41 +879,42 @@ export function LaunchFeed({
       return;
     }
     try {
-      const qs = new URLSearchParams();
-      qs.set('hours', '24');
-      qs.set('region', filters.region ?? 'us');
-      const res = await fetch(`/api/live/launches/changed?${qs.toString()}`, { cache: 'no-store' });
-      if (res.status === 401) {
-        setAuthStatus('guest');
-        setIsPaid(false);
-        setViewerTier('anon');
-        setNotice({ tone: 'warning', message: 'Sign in to view live changes. Falling back to the public cache.' });
-        return;
-      }
-      if (res.status === 402) {
-        if (viewerTier === 'premium') {
-          console.warn('[LaunchFeed] entitlement_mismatch_402', { source: 'recent_changes' });
-        }
-        setIsPaid(false);
-        setViewerTier(isAuthed ? 'free' : 'anon');
-        setNotice({ tone: 'warning', message: 'Live changes are a Premium feature. Showing the public cache.' });
-        return;
-      }
-      if (!res.ok) {
-        const errorBody = await res.json().catch(() => null);
-        const message = errorBody?.error ? `Changes error: ${errorBody.error}` : `Changes error: ${res.status}`;
-        setNotice({ tone: 'warning', message });
-        return;
-      }
-      const json = await res.json().catch(() => ({}));
-      setChanged(Array.isArray(json.results) ? json.results : []);
+      const payload = await queryClient.fetchQuery(
+        getChangedLaunchesQueryOptions({
+          hours: 24,
+          region: filters.region ?? 'us'
+        })
+      );
+      setChanged(Array.isArray(payload.results) ? payload.results : []);
     } catch (err) {
+      const status = err instanceof ApiClientError ? err.status : typeof (err as any)?.status === 'number' ? (err as any).status : null;
+      const code = err instanceof ApiClientError ? err.code : typeof (err as any)?.code === 'string' ? (err as any).code : null;
+      if (status === 401) {
+        applyGuestViewerState(queryClient);
+        setModeOverride('public');
+        setNotice({ tone: 'warning', message: 'Sign in to view live changes. Showing the public cache.' });
+        setChanged([]);
+        return;
+      }
+      if (status === 402) {
+        if (viewerTier === 'premium') {
+          console.warn('[LaunchFeed] entitlement_mismatch_402', { source: 'recent_changes', code });
+        }
+        invalidateViewerScopedQueries(queryClient);
+        setModeOverride('public');
+        setNotice({ tone: 'warning', message: 'Live changes are a Premium feature. Showing the public cache.' });
+        setChanged([]);
+        return;
+      }
       console.error('changed fetch error', err);
+      if (code) {
+        setNotice({ tone: 'warning', message: `Changes error: ${code}` });
+      }
     }
-  }, [filters.region, isAuthed, viewerTier]);
+  }, [filters.region, queryClient, viewerTier]);
 
   useEffect(() => {
-    fetchRecentChanges();
+    void fetchRecentChanges();
   }, [fetchRecentChanges]);
 
   useEffect(() => {
@@ -1112,46 +958,44 @@ export function LaunchFeed({
         if (!loading && !loadingMore) {
           try {
             const versionFilters = latestRef.current.filters;
-            const versionParams = new URLSearchParams();
-            versionParams.set('range', versionFilters.range || '7d');
-            versionParams.set('region', versionFilters.region ?? 'us');
-            if (versionFilters.location) versionParams.set('location', versionFilters.location);
-            if (versionFilters.state) versionParams.set('state', versionFilters.state);
-            if (versionFilters.pad) versionParams.set('pad', versionFilters.pad);
-            if (versionFilters.provider) versionParams.set('provider', versionFilters.provider);
-            if (versionFilters.status && versionFilters.status !== 'all') {
-              versionParams.set('status', versionFilters.status);
-            }
-            const versionUrl = `/api/live/launches/version?${versionParams.toString()}`;
-            debugLog('refresh_tick_premium_check', { url: versionUrl });
-            const res = await fetch(versionUrl, { cache: 'no-store' });
-            if (res.status === 401 || res.status === 402) {
-              debugLog('refresh_tick_premium_version_unauthorized', { status: res.status });
-              await fetchPage({ offset: latestRef.current.pageOffset, replace: true, reason: 'scheduled_refresh_version_unauthorized' });
-              await fetchRecentChanges();
-            } else if (res.ok) {
-              const json = await res.json().catch(() => ({}));
-              debugLog('refresh_tick_premium_version_payload', json);
-              const nextVersion = typeof json?.version === 'string' ? json.version : null;
-              if (nextVersion) {
-                if (!lastSeenLiveVersionRef.current) {
-                  lastSeenLiveVersionRef.current = nextVersion;
-                  debugLog('refresh_tick_premium_version_baseline', { version: nextVersion });
-                } else if (nextVersion !== lastSeenLiveVersionRef.current) {
-                  debugLog('refresh_tick_premium_version_changed', {
-                    prev: lastSeenLiveVersionRef.current,
-                    next: nextVersion
-                  });
-                  lastSeenLiveVersionRef.current = nextVersion;
-                  await fetchPage({ offset: latestRef.current.pageOffset, replace: true, reason: 'scheduled_refresh_version_changed' });
-                  await fetchRecentChanges();
-                } else {
-                  debugLog('refresh_tick_premium_version_unchanged', { version: nextVersion });
-                }
+            const versionRequest = {
+              range: versionFilters.range || '7d',
+              region: versionFilters.region ?? 'us',
+              location: versionFilters.location ?? null,
+              state: versionFilters.state ?? null,
+              pad: versionFilters.pad ?? null,
+              provider: versionFilters.provider ?? null,
+              status: versionFilters.status && versionFilters.status !== 'all' ? versionFilters.status : null
+            };
+            debugLog('refresh_tick_premium_check', versionRequest);
+            const payload = await fetchLiveLaunchVersion(queryClient, versionRequest);
+            debugLog('refresh_tick_premium_version_payload', payload);
+            const nextVersion = typeof payload?.version === 'string' ? payload.version : null;
+            if (nextVersion) {
+              if (!lastSeenLiveVersionRef.current) {
+                lastSeenLiveVersionRef.current = nextVersion;
+                debugLog('refresh_tick_premium_version_baseline', { version: nextVersion });
+              } else if (nextVersion !== lastSeenLiveVersionRef.current) {
+                debugLog('refresh_tick_premium_version_changed', {
+                  prev: lastSeenLiveVersionRef.current,
+                  next: nextVersion
+                });
+                lastSeenLiveVersionRef.current = nextVersion;
+                await fetchPage({ offset: latestRef.current.pageOffset, replace: true, reason: 'scheduled_refresh_version_changed' });
+                await fetchRecentChanges();
+              } else {
+                debugLog('refresh_tick_premium_version_unchanged', { version: nextVersion });
               }
             }
           } catch (err) {
-            console.error('live refresh check error', err);
+            const status = err instanceof ApiClientError ? err.status : typeof (err as any)?.status === 'number' ? (err as any).status : null;
+            if (status === 401 || status === 402) {
+              debugLog('refresh_tick_premium_version_unauthorized', { status });
+              await fetchPage({ offset: latestRef.current.pageOffset, replace: true, reason: 'scheduled_refresh_version_unauthorized' });
+              await fetchRecentChanges();
+            } else {
+              console.error('live refresh check error', err);
+            }
           }
         } else {
           debugLog('refresh_tick_skipped_loading', { loading, loadingMore });
@@ -1165,7 +1009,7 @@ export function LaunchFeed({
       cancelled = true;
       if (timeout) clearTimeout(timeout);
     };
-  }, [debugLog, fetchPage, fetchRecentChanges, loading, loadingMore, refreshIntervalMs, setNextRefreshAt, viewerTier]);
+  }, [debugLog, fetchPage, fetchRecentChanges, loading, loadingMore, queryClient, refreshIntervalMs, setNextRefreshAt, viewerTier]);
 
   const nextArtemis = useMemo(() => findNextProgramLaunch(launches, nowMs, isArtemisLaunch), [launches, nowMs]);
   const nextStarship = useMemo(() => findNextProgramLaunch(launches, nowMs, isStarshipLaunch), [launches, nowMs]);
@@ -1278,7 +1122,6 @@ export function LaunchFeed({
     return count;
   }, [filters]);
   const hasActiveFilters = activeFilterCount > 0;
-  const canUseSavedItems = isAuthed && viewerTier !== 'anon';
 
   const includeSeconds = viewerTier === 'premium';
   const lastCheckedLabel = lastCheckedAtMs ? formatRefreshTime(lastCheckedAtMs, includeSeconds) : null;
@@ -1288,24 +1131,24 @@ export function LaunchFeed({
       ? `Live checks every ${refreshIntervalSeconds}s${lastCheckedLabel ? ` • Last checked ${lastCheckedLabel}` : ''}${nextCheckLabel ? ` • Next check ${nextCheckLabel}` : ''}`
       : null;
   const nonPremiumPriceLine = 'Premium is $3.99/mo • cancel anytime';
-  const homeSignInHref = '/auth/sign-in?return_to=%2F';
-  const homeSignUpHref = '/auth/sign-up?return_to=%2F';
-  const homeUpgradeHref = '/upgrade?return_to=%2F';
+  const homeSignInHref = buildAuthHref('sign-in', { returnTo: '/' });
+  const homeSignUpHref = buildAuthHref('sign-up', { returnTo: '/' });
+  const homeUpgradeHref = buildUpgradeHref({ returnTo: '/' });
   const showModeStatusCard = authStatus !== 'loading' && !query && !unlocksDismissed;
   const showAlertsNudge = false;
-  const modeStatusEyebrow = viewerTier === 'premium' ? 'Live mode' : viewerTier === 'free' ? 'Free account' : 'Free account';
+  const modeStatusEyebrow = viewerTier === 'premium' ? 'Live mode' : viewerTier === 'free' ? 'Free account' : 'Browse mode';
   const modeStatusTitle =
     viewerTier === 'premium'
       ? 'Live updates are active.'
       : viewerTier === 'free'
-        ? 'Your free account is set up for the basics.'
-        : 'Save your view without turning the site into a signup wall.';
+        ? 'Your signed-in feed has the faster free refresh.'
+        : 'Browse publicly, then sign in for the faster free tier.';
   const modeStatusBody =
     viewerTier === 'premium'
       ? premiumFreshnessLine || 'Premium keeps the feed on live checks with the fastest refresh cadence.'
       : viewerTier === 'free'
-        ? `You can keep 1 saved view, 1 My Launches list, and up to 10 follow rules. Premium adds live updates, the change log, alerts, and recurring feeds.`
-        : 'Create a free account to save one view, build a My Launches list, and sync your preferences across devices. Browsing stays open either way.';
+        ? 'Filters, the launch calendar, one-off calendar adds, and basic mobile push alerts are included. Premium adds saved/default filters, follows, browser alerts, recurring feeds, and the live change log.'
+        : 'Create a free account to unlock filters, the launch calendar, one-off calendar adds, and faster refreshes across web, iOS, and Android.';
   const modePrimaryHref = viewerTier === 'premium' ? '/account' : viewerTier === 'free' ? homeUpgradeHref : homeSignUpHref;
   const modePrimaryLabel = viewerTier === 'premium' ? 'Open account' : viewerTier === 'free' ? 'See Premium' : 'Create free account';
 
@@ -1336,7 +1179,7 @@ export function LaunchFeed({
       (entries) => {
         if (!entries[0]?.isIntersecting) return;
         debugLog('infinite_scroll_trigger', { nextOffset });
-        fetchPage({ offset: nextOffset, replace: false, reason: 'infinite_scroll' });
+        void fetchPage({ offset: nextOffset, replace: false, reason: 'infinite_scroll' });
       },
       { rootMargin: '300px' }
     );
@@ -1363,7 +1206,7 @@ export function LaunchFeed({
   );
 
   const savePreset = useCallback(async () => {
-    if (!isAuthed || viewerTier === 'anon') return;
+    if (!canManageFilterPresets) return;
     if (presetSaving) return;
 
     const suggested = activePresetId
@@ -1374,78 +1217,49 @@ export function LaunchFeed({
 
     setPresetSaving(true);
     try {
-      const res = await fetch('/api/me/filter-presets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, filters }),
-        cache: 'no-store'
+      const payload = await createFilterPresetMutation.mutateAsync({
+        name,
+        filters,
+        isDefault: false
       });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const limit = typeof json?.limit === 'number' ? json.limit : null;
-        const message =
-          json?.error === 'limit_reached' && limit
-            ? `Saved view limit reached (${limit}). Remove an older saved view in Account first.`
-            : json?.error
-              ? `Preset error: ${json.error}`
-              : `Preset error: ${res.status}`;
-        setNotice({ tone: 'warning', message });
-        return;
-      }
-
-      const preset = json?.preset;
-      if (preset?.id) {
-        setPresetList((prev) => [preset, ...prev]);
-        setActivePresetId(String(preset.id));
+      if (payload.preset?.id) {
+        setActivePresetId(String(payload.preset.id));
         setNotice({ tone: 'info', message: 'Preset saved.' });
       }
-    } catch (err) {
-      console.error('preset save error', err);
+    } catch (error) {
+      console.error('preset save error', error);
+      if (error instanceof ApiClientError && error.code === 'limit_reached') {
+        setNotice({ tone: 'warning', message: 'Saved view limit reached. Remove an older saved view in Account first.' });
+        return;
+      }
       setNotice({ tone: 'warning', message: 'Unable to save preset.' });
     } finally {
       setPresetSaving(false);
     }
-  }, [activePresetId, filters, isAuthed, presetList, presetSaving, viewerTier]);
+  }, [activePresetId, canManageFilterPresets, createFilterPresetMutation, filters, presetList, presetSaving]);
 
   const setActivePresetAsDefault = useCallback(async () => {
-    if (!isAuthed || viewerTier === 'anon') return;
+    if (!canManageFilterPresets) return;
     const presetId = activePresetId ? String(activePresetId).trim() : '';
     if (!presetId) return;
     if (presetDefaulting) return;
 
     setPresetDefaulting(true);
     try {
-      const res = await fetch(`/api/me/filter-presets/${encodeURIComponent(presetId)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ is_default: true }),
-        cache: 'no-store'
+      const payload = await updateFilterPresetMutation.mutateAsync({
+        presetId,
+        payload: { isDefault: true }
       });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setNotice({
-          tone: 'warning',
-          message: json?.error ? `Preset error: ${json.error}` : `Preset error: ${res.status}`
-        });
-        return;
-      }
-
-      const savedId = json?.preset?.id ? String(json.preset.id) : presetId;
-      setPresetList((prev) =>
-        prev.map((preset) => ({
-          ...preset,
-          is_default: preset.id === savedId
-        }))
-      );
+      const savedId = payload.preset?.id ? String(payload.preset.id) : presetId;
       setActivePresetId(savedId);
       setNotice({ tone: 'info', message: 'Default view updated.' });
-    } catch (err) {
-      console.error('preset default update error', err);
+    } catch (error) {
+      console.error('preset default update error', error);
       setNotice({ tone: 'warning', message: 'Unable to set default view.' });
     } finally {
       setPresetDefaulting(false);
     }
-  }, [activePresetId, isAuthed, presetDefaulting, viewerTier]);
+  }, [activePresetId, canManageFilterPresets, presetDefaulting, updateFilterPresetMutation]);
 
   const clearFiltersToDefault = useCallback(() => {
     setActivePresetId('');
@@ -1475,9 +1289,30 @@ export function LaunchFeed({
     [resetPageToFirst]
   );
 
+  const createWatchlistRule = useCallback(
+    (watchlistId: string, ruleType: 'launch' | 'pad' | 'provider' | 'tier', ruleValue: string) =>
+      createWatchlistRuleMutation.mutateAsync({
+        watchlistId,
+        payload: {
+          ruleType,
+          ruleValue
+        }
+      }),
+    [createWatchlistRuleMutation]
+  );
+
+  const deleteWatchlistRule = useCallback(
+    (watchlistId: string, ruleId: string) =>
+      deleteWatchlistRuleMutation.mutateAsync({
+        watchlistId,
+        ruleId
+      }),
+    [deleteWatchlistRuleMutation]
+  );
+
   const toggleWatchLaunch = useCallback(
     async (launchId: string, options?: { skipToast?: boolean }) => {
-      if (!isAuthed || viewerTier === 'anon') return;
+      if (!canUseSavedItems) return;
       if (!myWatchlistId) {
         setNotice({ tone: 'warning', message: 'My Launches is still loading.' });
         return;
@@ -1495,23 +1330,10 @@ export function LaunchFeed({
           myLaunchesEnabled
         });
         if (existingRuleId) {
-          const url = `/api/me/watchlists/${encodeURIComponent(myWatchlistId)}/rules/${encodeURIComponent(existingRuleId)}`;
-          debugLog('watch_toggle_request', { method: 'DELETE', url });
-          const res = await fetch(url, {
-            method: 'DELETE',
-            cache: 'no-store'
-          });
-          debugLog('watch_toggle_response', { method: 'DELETE', url, status: res.status, ok: res.ok });
-          const json = await res.json().catch(() => ({}));
-          if (!res.ok) {
-            setNotice({ tone: 'warning', message: json?.error ? `My Launches error: ${json.error}` : `My Launches error: ${res.status}` });
-            return;
-          }
-          setMyLaunchRulesByLaunchId((prev) => {
-            const next = { ...prev };
-            delete next[launchId];
-            return next;
-          });
+          debugLog('watch_toggle_request', { method: 'DELETE', watchlistId: myWatchlistId, ruleId: existingRuleId });
+          await deleteWatchlistRule(myWatchlistId, existingRuleId);
+          debugLog('watch_toggle_response', { method: 'DELETE', watchlistId: myWatchlistId, ruleId: existingRuleId, ok: true });
+          invalidateLaunchFeedQueries(queryClient);
           if (myLaunchesEnabled) {
             setLaunches((prev) => prev.filter((launch) => launch.id !== launchId));
           }
@@ -1522,30 +1344,15 @@ export function LaunchFeed({
               onUndo: async () => {
                 const watchlistId = latestRef.current.myWatchlistId;
                 if (!watchlistId) return;
-                const res = await fetch(`/api/me/watchlists/${encodeURIComponent(watchlistId)}/rules`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ rule_type: 'launch', rule_value: launchId }),
-                  cache: 'no-store'
-                });
-                const json = await res.json().catch(() => ({}));
-                if (!res.ok) {
-                  const limit = typeof json?.limit === 'number' ? json.limit : null;
-                  const message =
-                    json?.error === 'limit_reached' && limit
-                      ? `My Launches limit reached (${limit} rules).`
-                      : json?.error
-                        ? `My Launches error: ${json.error}`
-                        : `My Launches error: ${res.status}`;
-                  setNotice({ tone: 'warning', message });
+                try {
+                  await createWatchlistRule(watchlistId, 'launch', launchId);
+                  invalidateLaunchFeedQueries(queryClient);
+                  if (latestRef.current.myLaunchesEnabled) {
+                    void fetchPage({ offset: latestRef.current.pageOffset, replace: true, reason: 'watchlist_rule_undo_launch' });
+                  }
+                } catch (error) {
+                  setNotice({ tone: 'warning', message: buildWatchlistRuleErrorMessage(error, 'My Launches') });
                   return;
-                }
-
-                const nextRuleId = json?.rule?.id ? String(json.rule.id) : null;
-                if (!nextRuleId) return;
-                setMyLaunchRulesByLaunchId((prev) => ({ ...prev, [launchId]: nextRuleId }));
-                if (latestRef.current.myLaunchesEnabled) {
-                  void fetchPage({ offset: latestRef.current.pageOffset, replace: true, reason: 'watchlist_rule_undo_launch' });
                 }
               }
             });
@@ -1554,30 +1361,12 @@ export function LaunchFeed({
           return;
         }
 
-        const url = `/api/me/watchlists/${encodeURIComponent(myWatchlistId)}/rules`;
-        debugLog('watch_toggle_request', { method: 'POST', url });
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rule_type: 'launch', rule_value: launchId }),
-          cache: 'no-store'
-        });
-        debugLog('watch_toggle_response', { method: 'POST', url, status: res.status, ok: res.ok });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          const limit = typeof json?.limit === 'number' ? json.limit : null;
-          const message =
-            json?.error === 'limit_reached' && limit
-              ? `My Launches limit reached (${limit} rules).`
-              : json?.error
-                ? `My Launches error: ${json.error}`
-                : `My Launches error: ${res.status}`;
-          setNotice({ tone: 'warning', message });
-          return;
-        }
-        const ruleId = json?.rule?.id ? String(json.rule.id) : null;
+        debugLog('watch_toggle_request', { method: 'POST', watchlistId: myWatchlistId, launchId });
+        const payload = await createWatchlistRule(myWatchlistId, 'launch', launchId);
+        debugLog('watch_toggle_response', { method: 'POST', watchlistId: myWatchlistId, launchId, ok: true });
+        const ruleId = payload.rule?.id ? String(payload.rule.id) : null;
         if (ruleId) {
-          setMyLaunchRulesByLaunchId((prev) => ({ ...prev, [launchId]: ruleId }));
+          invalidateLaunchFeedQueries(queryClient);
           if (myLaunchesEnabled) {
             void fetchPage({ offset: latestRef.current.pageOffset, replace: true, reason: 'watchlist_rule_change_launch' });
           }
@@ -1588,23 +1377,16 @@ export function LaunchFeed({
               onUndo: async () => {
                 const watchlistId = latestRef.current.myWatchlistId;
                 if (!watchlistId) return;
-                const res = await fetch(
-                  `/api/me/watchlists/${encodeURIComponent(watchlistId)}/rules/${encodeURIComponent(ruleId)}`,
-                  { method: 'DELETE', cache: 'no-store' }
-                );
-                const json = await res.json().catch(() => ({}));
-                if (!res.ok) {
+                try {
+                  await deleteWatchlistRule(watchlistId, ruleId);
+                } catch (error) {
                   setNotice({
                     tone: 'warning',
-                    message: json?.error ? `My Launches error: ${json.error}` : `My Launches error: ${res.status}`
+                    message: buildWatchlistRuleErrorMessage(error, 'My Launches')
                   });
                   return;
                 }
-                setMyLaunchRulesByLaunchId((prev) => {
-                  const next = { ...prev };
-                  delete next[launchId];
-                  return next;
-                });
+                invalidateLaunchFeedQueries(queryClient);
                 if (latestRef.current.myLaunchesEnabled) {
                   setLaunches((prev) => prev.filter((launch) => launch.id !== launchId));
                 }
@@ -1615,20 +1397,32 @@ export function LaunchFeed({
         }
       } catch (err) {
         console.error('watch toggle error', err);
-        setNotice({ tone: 'warning', message: 'Unable to update My Launches.' });
+        setNotice({ tone: 'warning', message: buildWatchlistRuleErrorMessage(err, 'My Launches') });
         debugLog('watch_toggle_error', { launchId, error: String((err as any)?.message || err) });
       } finally {
         setWatchToggleBusy((prev) => ({ ...prev, [launchId]: false }));
       }
     },
-    [debugLog, fetchPage, isAuthed, myLaunchRulesByLaunchId, myLaunchesEnabled, myWatchlistId, pushToast, viewerTier, watchToggleBusy]
+    [
+      createWatchlistRule,
+      debugLog,
+      deleteWatchlistRule,
+      fetchPage,
+      canUseSavedItems,
+      myLaunchRulesByLaunchId,
+      myLaunchesEnabled,
+      myWatchlistId,
+      pushToast,
+      queryClient,
+      watchToggleBusy
+    ]
   );
 
   const toggleFollowProvider = useCallback(
     async (provider: string, options?: { skipToast?: boolean }) => {
       const normalizedProvider = String(provider || '').trim();
       if (!normalizedProvider) return;
-      if (!isAuthed || viewerTier === 'anon') return;
+      if (!canUseSavedItems) return;
       if (!myWatchlistId) {
         setNotice({ tone: 'warning', message: 'My Launches is still loading.' });
         return;
@@ -1647,20 +1441,10 @@ export function LaunchFeed({
           myLaunchesEnabled
         });
         if (existingRuleId) {
-          const url = `/api/me/watchlists/${encodeURIComponent(myWatchlistId)}/rules/${encodeURIComponent(existingRuleId)}`;
-          debugLog('provider_follow_request', { method: 'DELETE', url });
-          const res = await fetch(url, { method: 'DELETE', cache: 'no-store' });
-          debugLog('provider_follow_response', { method: 'DELETE', url, status: res.status, ok: res.ok });
-          const json = await res.json().catch(() => ({}));
-          if (!res.ok) {
-            setNotice({ tone: 'warning', message: json?.error ? `Follow error: ${json.error}` : `Follow error: ${res.status}` });
-            return;
-          }
-          setMyProviderRulesByProvider((prev) => {
-            const next = { ...prev };
-            delete next[normalizedProvider];
-            return next;
-          });
+          debugLog('provider_follow_request', { method: 'DELETE', watchlistId: myWatchlistId, ruleId: existingRuleId });
+          await deleteWatchlistRule(myWatchlistId, existingRuleId);
+          debugLog('provider_follow_response', { method: 'DELETE', watchlistId: myWatchlistId, ruleId: existingRuleId, ok: true });
+          invalidateLaunchFeedQueries(queryClient);
           debugLog('provider_follow_toggle_success', { provider: normalizedProvider, action: 'unfollowed' });
           if (!options?.skipToast) {
             pushToast({
@@ -1669,60 +1453,28 @@ export function LaunchFeed({
               onUndo: async () => {
                 const watchlistId = latestRef.current.myWatchlistId;
                 if (!watchlistId) return;
-                const res = await fetch(`/api/me/watchlists/${encodeURIComponent(watchlistId)}/rules`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ rule_type: 'provider', rule_value: normalizedProvider }),
-                  cache: 'no-store'
-                });
-                const json = await res.json().catch(() => ({}));
-                if (!res.ok) {
-                  const limit = typeof json?.limit === 'number' ? json.limit : null;
-                  const msg =
-                    json?.error === 'limit_reached' && limit
-                      ? `My Launches limit reached (${limit} rules).`
-                      : json?.error
-                        ? `Follow error: ${json.error}`
-                        : `Follow error: ${res.status}`;
-                  setNotice({ tone: 'warning', message: msg });
-                  return;
-                }
-                const nextRuleId = json?.rule?.id ? String(json.rule.id) : null;
-                if (!nextRuleId) return;
-                setMyProviderRulesByProvider((prev) => ({ ...prev, [normalizedProvider]: nextRuleId }));
+                try {
+                  await createWatchlistRule(watchlistId, 'provider', normalizedProvider);
+                  invalidateLaunchFeedQueries(queryClient);
 
-                if (latestRef.current.myLaunchesEnabled) {
-                  resetPageToFirst();
-                  fetchPage({ offset: 0, replace: true, reason: 'watchlist_rule_undo_provider' });
+                  if (latestRef.current.myLaunchesEnabled) {
+                    resetPageToFirst();
+                    void fetchPage({ offset: 0, replace: true, reason: 'watchlist_rule_undo_provider' });
+                  }
+                } catch (error) {
+                  setNotice({ tone: 'warning', message: buildWatchlistRuleErrorMessage(error, 'Follow') });
+                  return;
                 }
               }
             });
           }
         } else {
-          const url = `/api/me/watchlists/${encodeURIComponent(myWatchlistId)}/rules`;
-          debugLog('provider_follow_request', { method: 'POST', url });
-          const res = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ rule_type: 'provider', rule_value: normalizedProvider }),
-            cache: 'no-store'
-          });
-          debugLog('provider_follow_response', { method: 'POST', url, status: res.status, ok: res.ok });
-          const json = await res.json().catch(() => ({}));
-          if (!res.ok) {
-            const limit = typeof json?.limit === 'number' ? json.limit : null;
-            const msg =
-              json?.error === 'limit_reached' && limit
-                ? `My Launches limit reached (${limit} rules).`
-                : json?.error
-                  ? `Follow error: ${json.error}`
-                  : `Follow error: ${res.status}`;
-            setNotice({ tone: 'warning', message: msg });
-            return;
-          }
-          const ruleId = json?.rule?.id ? String(json.rule.id) : null;
+          debugLog('provider_follow_request', { method: 'POST', watchlistId: myWatchlistId, provider: normalizedProvider });
+          const payload = await createWatchlistRule(myWatchlistId, 'provider', normalizedProvider);
+          debugLog('provider_follow_response', { method: 'POST', watchlistId: myWatchlistId, provider: normalizedProvider, ok: true });
+          const ruleId = payload.rule?.id ? String(payload.rule.id) : null;
           if (ruleId) {
-            setMyProviderRulesByProvider((prev) => ({ ...prev, [normalizedProvider]: ruleId }));
+            invalidateLaunchFeedQueries(queryClient);
             debugLog('provider_follow_toggle_success', {
               provider: normalizedProvider,
               action: 'followed',
@@ -1730,32 +1482,25 @@ export function LaunchFeed({
             });
             if (!options?.skipToast) {
               pushToast({
-                message: `Following ${normalizedProvider}.`,
-                tone: 'success',
-                onUndo: async () => {
-                  const watchlistId = latestRef.current.myWatchlistId;
-                  if (!watchlistId) return;
-                  const res = await fetch(
-                    `/api/me/watchlists/${encodeURIComponent(watchlistId)}/rules/${encodeURIComponent(ruleId)}`,
-                    { method: 'DELETE', cache: 'no-store' }
-                  );
-                  const json = await res.json().catch(() => ({}));
-                  if (!res.ok) {
+              message: `Following ${normalizedProvider}.`,
+              tone: 'success',
+              onUndo: async () => {
+                const watchlistId = latestRef.current.myWatchlistId;
+                if (!watchlistId) return;
+                  try {
+                    await deleteWatchlistRule(watchlistId, ruleId);
+                  } catch (error) {
                     setNotice({
                       tone: 'warning',
-                      message: json?.error ? `Follow error: ${json.error}` : `Follow error: ${res.status}`
+                      message: buildWatchlistRuleErrorMessage(error, 'Follow')
                     });
                     return;
                   }
-                  setMyProviderRulesByProvider((prev) => {
-                    const next = { ...prev };
-                    delete next[normalizedProvider];
-                    return next;
-                  });
+                  invalidateLaunchFeedQueries(queryClient);
 
                   if (latestRef.current.myLaunchesEnabled) {
                     resetPageToFirst();
-                    fetchPage({ offset: 0, replace: true, reason: 'watchlist_rule_undo_provider' });
+                    void fetchPage({ offset: 0, replace: true, reason: 'watchlist_rule_undo_provider' });
                   }
                 }
               });
@@ -1765,11 +1510,11 @@ export function LaunchFeed({
 
         if (myLaunchesEnabled) {
           resetPageToFirst();
-          fetchPage({ offset: 0, replace: true, reason: 'watchlist_rule_change_provider' });
+          void fetchPage({ offset: 0, replace: true, reason: 'watchlist_rule_change_provider' });
         }
       } catch (err) {
         console.error('provider follow toggle error', err);
-        setNotice({ tone: 'warning', message: 'Unable to update provider follow.' });
+        setNotice({ tone: 'warning', message: buildWatchlistRuleErrorMessage(err, 'Follow') });
         debugLog('provider_follow_toggle_error', { provider: normalizedProvider, error: String((err as any)?.message || err) });
       } finally {
         setFollowToggleBusy((prev) => ({ ...prev, [busyKey]: false }));
@@ -1779,13 +1524,15 @@ export function LaunchFeed({
       debugLog,
       fetchPage,
       followToggleBusy,
-      isAuthed,
+      canUseSavedItems,
       myLaunchesEnabled,
       myProviderRulesByProvider,
       myWatchlistId,
       pushToast,
+      queryClient,
       resetPageToFirst,
-      viewerTier
+      createWatchlistRule,
+      deleteWatchlistRule
     ]
   );
 
@@ -1793,7 +1540,7 @@ export function LaunchFeed({
     async (padRuleValue: string, options?: { skipToast?: boolean }) => {
       const normalized = String(padRuleValue || '').trim();
       if (!normalized) return;
-      if (!isAuthed || viewerTier === 'anon') return;
+      if (!canUseSavedItems) return;
       if (!myWatchlistId) {
         setNotice({ tone: 'warning', message: 'My Launches is still loading.' });
         return;
@@ -1812,20 +1559,10 @@ export function LaunchFeed({
           myLaunchesEnabled
         });
         if (existingRuleId) {
-          const url = `/api/me/watchlists/${encodeURIComponent(myWatchlistId)}/rules/${encodeURIComponent(existingRuleId)}`;
-          debugLog('pad_follow_request', { method: 'DELETE', url });
-          const res = await fetch(url, { method: 'DELETE', cache: 'no-store' });
-          debugLog('pad_follow_response', { method: 'DELETE', url, status: res.status, ok: res.ok });
-          const json = await res.json().catch(() => ({}));
-          if (!res.ok) {
-            setNotice({ tone: 'warning', message: json?.error ? `Follow error: ${json.error}` : `Follow error: ${res.status}` });
-            return;
-          }
-          setMyPadRulesByValue((prev) => {
-            const next = { ...prev };
-            delete next[normalized];
-            return next;
-          });
+          debugLog('pad_follow_request', { method: 'DELETE', watchlistId: myWatchlistId, ruleId: existingRuleId });
+          await deleteWatchlistRule(myWatchlistId, existingRuleId);
+          debugLog('pad_follow_response', { method: 'DELETE', watchlistId: myWatchlistId, ruleId: existingRuleId, ok: true });
+          invalidateLaunchFeedQueries(queryClient);
           debugLog('pad_follow_toggle_success', { padRuleValue: normalized, action: 'unfollowed' });
           if (!options?.skipToast) {
             pushToast({
@@ -1834,60 +1571,28 @@ export function LaunchFeed({
               onUndo: async () => {
                 const watchlistId = latestRef.current.myWatchlistId;
                 if (!watchlistId) return;
-                const res = await fetch(`/api/me/watchlists/${encodeURIComponent(watchlistId)}/rules`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ rule_type: 'pad', rule_value: normalized }),
-                  cache: 'no-store'
-                });
-                const json = await res.json().catch(() => ({}));
-                if (!res.ok) {
-                  const limit = typeof json?.limit === 'number' ? json.limit : null;
-                  const msg =
-                    json?.error === 'limit_reached' && limit
-                      ? `My Launches limit reached (${limit} rules).`
-                      : json?.error
-                        ? `Follow error: ${json.error}`
-                        : `Follow error: ${res.status}`;
-                  setNotice({ tone: 'warning', message: msg });
-                  return;
-                }
-                const nextRuleId = json?.rule?.id ? String(json.rule.id) : null;
-                if (!nextRuleId) return;
-                setMyPadRulesByValue((prev) => ({ ...prev, [normalized]: nextRuleId }));
+                try {
+                  await createWatchlistRule(watchlistId, 'pad', normalized);
+                  invalidateLaunchFeedQueries(queryClient);
 
-                if (latestRef.current.myLaunchesEnabled) {
-                  resetPageToFirst();
-                  fetchPage({ offset: 0, replace: true, reason: 'watchlist_rule_undo_pad' });
+                  if (latestRef.current.myLaunchesEnabled) {
+                    resetPageToFirst();
+                    void fetchPage({ offset: 0, replace: true, reason: 'watchlist_rule_undo_pad' });
+                  }
+                } catch (error) {
+                  setNotice({ tone: 'warning', message: buildWatchlistRuleErrorMessage(error, 'Follow') });
+                  return;
                 }
               }
             });
           }
         } else {
-          const url = `/api/me/watchlists/${encodeURIComponent(myWatchlistId)}/rules`;
-          debugLog('pad_follow_request', { method: 'POST', url });
-          const res = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ rule_type: 'pad', rule_value: normalized }),
-            cache: 'no-store'
-          });
-          debugLog('pad_follow_response', { method: 'POST', url, status: res.status, ok: res.ok });
-          const json = await res.json().catch(() => ({}));
-          if (!res.ok) {
-            const limit = typeof json?.limit === 'number' ? json.limit : null;
-            const msg =
-              json?.error === 'limit_reached' && limit
-                ? `My Launches limit reached (${limit} rules).`
-                : json?.error
-                  ? `Follow error: ${json.error}`
-                  : `Follow error: ${res.status}`;
-            setNotice({ tone: 'warning', message: msg });
-            return;
-          }
-          const ruleId = json?.rule?.id ? String(json.rule.id) : null;
+          debugLog('pad_follow_request', { method: 'POST', watchlistId: myWatchlistId, padRuleValue: normalized });
+          const payload = await createWatchlistRule(myWatchlistId, 'pad', normalized);
+          debugLog('pad_follow_response', { method: 'POST', watchlistId: myWatchlistId, padRuleValue: normalized, ok: true });
+          const ruleId = payload.rule?.id ? String(payload.rule.id) : null;
           if (ruleId) {
-            setMyPadRulesByValue((prev) => ({ ...prev, [normalized]: ruleId }));
+            invalidateLaunchFeedQueries(queryClient);
             debugLog('pad_follow_toggle_success', { padRuleValue: normalized, action: 'followed', ruleId: `${ruleId.slice(0, 8)}…` });
             if (!options?.skipToast) {
               pushToast({
@@ -1896,27 +1601,20 @@ export function LaunchFeed({
                 onUndo: async () => {
                   const watchlistId = latestRef.current.myWatchlistId;
                   if (!watchlistId) return;
-                  const res = await fetch(
-                    `/api/me/watchlists/${encodeURIComponent(watchlistId)}/rules/${encodeURIComponent(ruleId)}`,
-                    { method: 'DELETE', cache: 'no-store' }
-                  );
-                  const json = await res.json().catch(() => ({}));
-                  if (!res.ok) {
+                  try {
+                    await deleteWatchlistRule(watchlistId, ruleId);
+                  } catch (error) {
                     setNotice({
                       tone: 'warning',
-                      message: json?.error ? `Follow error: ${json.error}` : `Follow error: ${res.status}`
+                      message: buildWatchlistRuleErrorMessage(error, 'Follow')
                     });
                     return;
                   }
-                  setMyPadRulesByValue((prev) => {
-                    const next = { ...prev };
-                    delete next[normalized];
-                    return next;
-                  });
+                  invalidateLaunchFeedQueries(queryClient);
 
                   if (latestRef.current.myLaunchesEnabled) {
                     resetPageToFirst();
-                    fetchPage({ offset: 0, replace: true, reason: 'watchlist_rule_undo_pad' });
+                    void fetchPage({ offset: 0, replace: true, reason: 'watchlist_rule_undo_pad' });
                   }
                 }
               });
@@ -1926,11 +1624,11 @@ export function LaunchFeed({
 
         if (myLaunchesEnabled) {
           resetPageToFirst();
-          fetchPage({ offset: 0, replace: true, reason: 'watchlist_rule_change_pad' });
+          void fetchPage({ offset: 0, replace: true, reason: 'watchlist_rule_change_pad' });
         }
       } catch (err) {
         console.error('pad follow toggle error', err);
-        setNotice({ tone: 'warning', message: 'Unable to update pad follow.' });
+        setNotice({ tone: 'warning', message: buildWatchlistRuleErrorMessage(err, 'Follow') });
         debugLog('pad_follow_toggle_error', { padRuleValue: normalized, error: String((err as any)?.message || err) });
       } finally {
         setFollowToggleBusy((prev) => ({ ...prev, [busyKey]: false }));
@@ -1940,13 +1638,15 @@ export function LaunchFeed({
       debugLog,
       fetchPage,
       followToggleBusy,
-      isAuthed,
+      canUseSavedItems,
       myLaunchesEnabled,
       myPadRulesByValue,
       myWatchlistId,
       pushToast,
+      queryClient,
       resetPageToFirst,
-      viewerTier
+      createWatchlistRule,
+      deleteWatchlistRule
     ]
   );
 
@@ -1961,6 +1661,9 @@ export function LaunchFeed({
           showAlertsNudge={showAlertsNudge && isNext}
           isAuthed={isAuthed}
           isPaid={isPaid}
+          canUseBasicAlertRules={canUseBasicAlertRules}
+          canUseBrowserLaunchAlerts={canUseBrowserLaunchAlerts}
+          canUseOneOffCalendar={canUseOneOffCalendar}
           isArEligible={arEligibleLaunchIdSet.has(launch.id)}
           onOpenUpsell={openUpsell}
           blockThirdPartyEmbeds={blockThirdPartyEmbeds}
@@ -2002,6 +1705,9 @@ export function LaunchFeed({
       arEligibleLaunchIdSet,
       blockThirdPartyEmbeds,
       canUseSavedItems,
+      canUseBasicAlertRules,
+      canUseBrowserLaunchAlerts,
+      canUseOneOffCalendar,
       followToggleBusy,
       initialNowMs,
       isAuthed,
@@ -2161,7 +1867,7 @@ export function LaunchFeed({
                       ? 'Showing launches from what you follow.'
                       : 'Following is empty. Follow a launch, provider, or pad.'
                     : 'For You shows all launches matching your filters.'
-                  : 'For You shows all launches. Create a free account to use Following.'}
+                  : 'For You shows launches matching your filters. Following and saved items stay on Premium.'}
               </div>
           </div>
           {filtersOpen ? (
@@ -2309,7 +2015,7 @@ export function LaunchFeed({
             </div>
 
             <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
-              {canUseSavedItems ? (
+              {canManageFilterPresets ? (
                 <section className={FILTER_SECTION_CLASS}>
                   <div className={FILTER_GROUP_LABEL_CLASS}>Custom Filters</div>
                   <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
@@ -2555,7 +2261,7 @@ export function LaunchFeed({
                   return;
                 }
                 event.preventDefault();
-                fetchPage({ offset: nextOffset, replace: false, reason: 'load_more_click' });
+                void fetchPage({ offset: nextOffset, replace: false, reason: 'load_more_click' });
               }}
             >
               Load More Launches
@@ -2576,9 +2282,9 @@ function extractLaunchRuleMap(rules: unknown) {
   const map: Record<string, string> = {};
 
   for (const row of rows) {
-    const type = String((row as any)?.rule_type || '').trim().toLowerCase();
+    const type = String((row as any)?.rule_type || (row as any)?.ruleType || '').trim().toLowerCase();
     if (type !== 'launch') continue;
-    const launchId = String((row as any)?.rule_value || '').trim().toLowerCase();
+    const launchId = String((row as any)?.rule_value || (row as any)?.ruleValue || '').trim().toLowerCase();
     const ruleId = String((row as any)?.id || '').trim();
     if (!isUuid(launchId) || !ruleId) continue;
     map[launchId] = ruleId;
@@ -2592,9 +2298,9 @@ function extractProviderRuleMap(rules: unknown) {
   const map: Record<string, string> = {};
 
   for (const row of rows) {
-    const type = String((row as any)?.rule_type || '').trim().toLowerCase();
+    const type = String((row as any)?.rule_type || (row as any)?.ruleType || '').trim().toLowerCase();
     if (type !== 'provider') continue;
-    const provider = String((row as any)?.rule_value || '').trim();
+    const provider = String((row as any)?.rule_value || (row as any)?.ruleValue || '').trim();
     const ruleId = String((row as any)?.id || '').trim();
     if (!provider || !ruleId) continue;
     map[provider] = ruleId;
@@ -2608,9 +2314,9 @@ function extractPadRuleMap(rules: unknown) {
   const map: Record<string, string> = {};
 
   for (const row of rows) {
-    const type = String((row as any)?.rule_type || '').trim().toLowerCase();
+    const type = String((row as any)?.rule_type || (row as any)?.ruleType || '').trim().toLowerCase();
     if (type !== 'pad') continue;
-    const value = String((row as any)?.rule_value || '').trim();
+    const value = String((row as any)?.rule_value || (row as any)?.ruleValue || '').trim();
     const ruleId = String((row as any)?.id || '').trim();
     if (!value || !ruleId) continue;
     map[value] = ruleId;
@@ -2642,6 +2348,23 @@ function formatPadRuleLabel(value: string) {
 
 function isUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function buildWatchlistRuleErrorMessage(error: unknown, label: string) {
+  if (error instanceof ApiClientError) {
+    if (error.code === 'limit_reached') {
+      return 'My Launches limit reached. Remove an older follow rule first.';
+    }
+    if (error.code) {
+      return `${label} error: ${error.code}`;
+    }
+  }
+
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return `Unable to update ${label.toLowerCase()}.`;
 }
 
 function normalizeLaunchFilter(value: unknown): LaunchFilter {

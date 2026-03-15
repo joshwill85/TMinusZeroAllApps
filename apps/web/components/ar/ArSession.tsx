@@ -56,20 +56,18 @@ import { fetchArRuntimePolicyOverride, readCachedArRuntimePolicyOverride } from 
 import { shouldAutoStartWebXr } from '@/lib/ar/runtimeStartupPolicy';
 import { deriveArSessionStatusView, deriveArTelemetryEntryState } from '@/lib/ar/sessionStatus';
 import { selectArRuntime, type ArRuntimeXrLaunchState } from '@/lib/ar/runtimeSelector';
-import type {
+import {
+  dedupeTrajectoryReasonLabels,
+  formatTrajectoryAuthorityTierLabel,
+  formatTrajectoryFieldConfidenceLabel,
+  formatTrajectoryMilestoneOffsetLabel,
+  formatTrajectoryQualityStateLabel,
   TrajectoryAuthorityTier,
   TrajectoryContract,
   TrajectoryMilestonePayload,
   TrajectoryQualityState,
   TrajectoryTrackKind
-} from '@/lib/server/trajectoryContract';
-import { formatTrajectoryMilestoneOffsetLabel } from '@/lib/trajectory/milestones';
-import {
-  dedupeTrajectoryReasonLabels,
-  formatTrajectoryAuthorityTierLabel,
-  formatTrajectoryFieldConfidenceLabel,
-  formatTrajectoryQualityStateLabel
-} from '@/lib/trajectory/trajectoryEvidencePresentation';
+} from '@tminuszero/domain';
 import { ArBottomPanel } from '@/components/ar/ArBottomPanel';
 import { SkyCompass } from '@/components/ar/SkyCompass';
 import { formatTMinus, formatTPlus, useTrajectoryTime } from '@/components/ar/useTrajectoryTime';

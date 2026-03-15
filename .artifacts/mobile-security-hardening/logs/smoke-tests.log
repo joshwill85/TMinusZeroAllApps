@@ -1,0 +1,5 @@
+
+> tminuszero@0.1.0 test:smoke
+> ts-node --project tsconfig.scripts.json --transpile-only -r tsconfig-paths/register scripts/smoke-tests.ts
+
+Smoke tests passed.

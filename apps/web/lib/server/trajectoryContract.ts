@@ -581,7 +581,7 @@ function deriveFieldProvenance({
             ? 'LL2 timeline-backed milestone labels'
             : Number.isFinite(fromTimeline) && fromTimeline > 0
               ? 'timeline-backed milestone labels'
-          : 'modeled milestone timings',
+              : 'modeled milestone timings',
       qualityState,
       freshnessState,
       lineageComplete,

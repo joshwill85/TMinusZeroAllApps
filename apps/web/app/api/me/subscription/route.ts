@@ -5,7 +5,7 @@ import { getViewerEntitlement } from '@/lib/server/entitlements';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
-  const { entitlement, loadError } = await getViewerEntitlement({ request, reconcileStripe: true });
+  const { entitlement, loadError } = await getViewerEntitlement({ request, reconcileStripe: false });
 
   if (loadError && isSupabaseAdminConfigured() && entitlement.isAuthed) {
     return NextResponse.json({ error: 'failed_to_load' }, { status: 500 });

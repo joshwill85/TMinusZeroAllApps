@@ -1,0 +1,8 @@
+
+> tminuszero@0.1.0 doctor
+> node scripts/doctor-toolchain.cjs
+
+toolchain: ok
+node: v20.19.6
+npm: 10.8.2
+pins: Node 20.19.6 / npm 10.8.2

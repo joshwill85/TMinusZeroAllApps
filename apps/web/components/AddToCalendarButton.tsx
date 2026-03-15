@@ -2,18 +2,20 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { addDays } from 'date-fns';
-import { formatInTimeZone } from 'date-fns-tz';
+import { buildCalendarEventLinks } from '@tminuszero/domain';
 import clsx from 'clsx';
 import { Launch } from '@/lib/types/launch';
 import { isCountdownEligible } from '@/lib/time';
 import { buildLaunchHref } from '@/lib/utils/launchLinks';
 import { slugify } from '@/lib/utils/slug';
 import { CalendarBadge } from '@/components/CalendarBadge';
+import { PremiumGateButton } from '@/components/PremiumGateButton';
 import { BRAND_NAME, DEFAULT_SITE_URL } from '@/lib/brand';
 
+type CalendarLaunchInput = Pick<Launch, 'id' | 'name' | 'slug' | 'provider' | 'vehicle' | 'pad' | 'net' | 'netPrecision' | 'windowEnd'>;
+
 type AddToCalendarButtonProps = {
-  launch: Launch;
+  launch: CalendarLaunchInput;
   variant?: 'icon' | 'button';
   showAddBadge?: boolean;
   className?: string;
@@ -25,8 +27,17 @@ type AddToCalendarButtonProps = {
 };
 
 export function AddToCalendarButton(props: AddToCalendarButtonProps) {
-  const { launch, variant = 'icon', showAddBadge = false, className, requiresAuth = false, isAuthed = true, authHref = '/auth/sign-in' } =
-    props;
+  const {
+    launch,
+    variant = 'icon',
+    showAddBadge = false,
+    className,
+    requiresAuth = false,
+    requiresPremium = false,
+    isAuthed = true,
+    isPremium = false,
+    authHref = '/auth/sign-in'
+  } = props;
   const [open, setOpen] = useState(false);
   const [userTz, setUserTz] = useState('UTC');
   const { googleUrl, outlookUrl, detailUrl, icsUrl } = useMemo(
@@ -38,6 +49,24 @@ export function AddToCalendarButton(props: AddToCalendarButtonProps) {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (tz) setUserTz(tz);
   }, []);
+
+  if (requiresPremium && !isPremium) {
+    return (
+      <PremiumGateButton
+        isAuthed={isAuthed}
+        featureLabel="launch calendar"
+        className={clsx(
+          variant === 'icon'
+            ? 'btn-secondary relative flex h-11 w-11 items-center justify-center rounded-lg border border-stroke text-text2 hover:border-primary'
+            : 'btn-secondary rounded-lg px-4 py-2 text-sm',
+          className
+        )}
+        ariaLabel="Add to calendar (Premium)"
+      >
+        {variant === 'icon' ? <CalendarBadge /> : 'Add to calendar'}
+      </PremiumGateButton>
+    );
+  }
 
   if (requiresAuth && !isAuthed) {
     if (variant === 'icon') {
@@ -235,7 +264,7 @@ function PlusIcon({ className }: { className?: string }) {
   );
 }
 
-function buildCalendarLinks(launch: Launch, timeZone?: string) {
+function buildCalendarLinks(launch: CalendarLaunchInput, timeZone?: string) {
   const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || '').trim().replace(/\/+$/, '');
   const baseUrl = siteUrl || (typeof window !== 'undefined' ? window.location.origin : DEFAULT_SITE_URL);
   const detailUrl = `${baseUrl}${buildLaunchHref(launch)}`;
@@ -256,29 +285,16 @@ function buildCalendarLinks(launch: Launch, timeZone?: string) {
     `More: ${detailUrl}`
   ].join('\n');
 
-  const dates = isTimed
-    ? `${formatUtcStamp(net)}/${formatUtcStamp(windowEnd)}`
-    : `${formatUtcDate(net)}/${formatUtcDate(addDays(net, 1))}`;
-
-  const googleUrl =
-    'https://www.google.com/calendar/render?action=TEMPLATE' +
-    `&text=${encodeURIComponent(title)}` +
-    `&dates=${encodeURIComponent(dates)}` +
-    `&details=${encodeURIComponent(description)}` +
-    `&location=${encodeURIComponent(location)}` +
-    `&sprop=${encodeURIComponent(detailUrl)}` +
-    `&sprop=name:${encodeURIComponent(BRAND_NAME)}`;
-
-  const outlookStart = isTimed ? net.toISOString() : formatDateOnlyIso(net);
-  const outlookEnd = isTimed ? windowEnd.toISOString() : formatDateOnlyIso(addDays(net, 1));
-  const outlookUrl =
-    'https://outlook.live.com/calendar/0/deeplink/compose' +
-    `?subject=${encodeURIComponent(title)}` +
-    `&body=${encodeURIComponent(description)}` +
-    `&startdt=${encodeURIComponent(outlookStart)}` +
-    `&enddt=${encodeURIComponent(outlookEnd)}` +
-    `&location=${encodeURIComponent(location)}` +
-    `&allday=${encodeURIComponent(isTimed ? 'false' : 'true')}`;
+  const { googleUrl, outlookUrl } = buildCalendarEventLinks({
+    title,
+    location,
+    description,
+    detailUrl,
+    startIso: net.toISOString(),
+    endIso: windowEnd.toISOString(),
+    allDay: !isTimed,
+    brandName: BRAND_NAME
+  });
 
   return { googleUrl, outlookUrl, detailUrl, icsUrl };
 }
@@ -287,16 +303,4 @@ function safeDate(value?: string | null) {
   if (!value) return null;
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function formatUtcStamp(d: Date) {
-  return formatInTimeZone(d, 'UTC', "yyyyMMdd'T'HHmmss'Z'");
-}
-
-function formatUtcDate(d: Date) {
-  return formatInTimeZone(d, 'UTC', 'yyyyMMdd');
-}
-
-function formatDateOnlyIso(d: Date) {
-  return formatInTimeZone(d, 'UTC', 'yyyy-MM-dd');
 }

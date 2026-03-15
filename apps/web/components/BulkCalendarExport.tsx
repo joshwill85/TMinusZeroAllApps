@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { LaunchFilter } from '@/lib/types/launch';
+import { useCreateCalendarFeedMutation, useRotateCalendarFeedMutation } from '@/lib/api/queries';
 import { PremiumGateButton } from '@/components/PremiumGateButton';
 
 export function BulkCalendarExport({
@@ -13,6 +14,8 @@ export function BulkCalendarExport({
   isAuthed: boolean;
   isPremium: boolean;
 }) {
+  const createCalendarFeedMutation = useCreateCalendarFeedMutation();
+  const rotateCalendarFeedMutation = useRotateCalendarFeedMutation();
   const [open, setOpen] = useState(false);
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
   const [alarmMinutesBefore, setAlarmMinutesBefore] = useState<number | null>(null);
@@ -47,23 +50,20 @@ export function BulkCalendarExport({
 
     setFeedState({ status: 'creating', feed: null });
     try {
-      const res = await fetch('/api/me/calendar-feeds', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, filters, alarm_minutes_before: alarmMinutesBefore }),
-        cache: 'no-store'
+      const payload = await createCalendarFeedMutation.mutateAsync({
+        name,
+        filters,
+        alarmMinutesBefore
       });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setFeedState({ status: 'error', feed: null });
-        return;
-      }
-      const feed = json?.feed;
+      const feed = payload.feed;
       if (!feed?.id || !feed?.token) {
         setFeedState({ status: 'error', feed: null });
         return;
       }
-      setFeedState({ status: 'ready', feed: { id: String(feed.id), name: String(feed.name || ''), token: String(feed.token) } });
+      setFeedState({
+        status: 'ready',
+        feed: { id: String(feed.id), name: String(feed.name || ''), token: String(feed.token) }
+      });
     } catch {
       setFeedState({ status: 'error', feed: null });
     }
@@ -73,16 +73,8 @@ export function BulkCalendarExport({
     if (!feedState.feed?.id) return;
     setFeedState((prev) => ({ ...prev, status: 'creating' }));
     try {
-      const res = await fetch(`/api/me/calendar-feeds/${encodeURIComponent(feedState.feed.id)}/rotate`, {
-        method: 'POST',
-        cache: 'no-store'
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setFeedState((prev) => ({ ...prev, status: 'error' }));
-        return;
-      }
-      const feed = json?.feed;
+      const payload = await rotateCalendarFeedMutation.mutateAsync(feedState.feed.id);
+      const feed = payload.feed;
       if (!feed?.token) {
         setFeedState((prev) => ({ ...prev, status: 'error' }));
         return;
@@ -189,7 +181,7 @@ export function BulkCalendarExport({
                     type="button"
                     className="block w-full rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-left text-sm text-text1 hover:border-primary"
                     onClick={createLiveFeed}
-                    disabled={feedState.status === 'creating'}
+                    disabled={feedState.status === 'creating' || createCalendarFeedMutation.isPending}
                   >
                     {feedState.status === 'creating'
                       ? 'Creating live feed…'
@@ -224,7 +216,7 @@ export function BulkCalendarExport({
                       type="button"
                       className="block w-full rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-left text-sm text-text1 hover:border-primary"
                       onClick={rotateLiveFeed}
-                      disabled={feedState.status === 'creating'}
+                      disabled={feedState.status === 'creating' || rotateCalendarFeedMutation.isPending}
                     >
                       {feedState.status === 'creating' ? 'Rotating live feed…' : 'Rotate live feed link'}
                     </button>

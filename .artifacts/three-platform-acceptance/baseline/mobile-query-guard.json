@@ -1,0 +1,95 @@
+{
+  "generatedAt": "2026-03-09T03:04:32.682Z",
+  "scenarios": [
+    {
+      "name": "viewer bootstrap",
+      "assertions": [
+        "viewer session bootstrap dedupes to one request",
+        "viewer entitlements bootstrap dedupes to one request"
+      ],
+      "counts": {
+        "totalRequests": 2,
+        "requestsByPath": {
+          "GET /api/v1/viewer/entitlements": 1,
+          "GET /api/v1/viewer/session": 1
+        }
+      }
+    },
+    {
+      "name": "feed bootstrap",
+      "assertions": [
+        "feed bootstrap uses one launches request",
+        "feed saved-state bootstrap reuses preset and watchlist cache on repeat reads"
+      ],
+      "counts": {
+        "totalRequests": 5,
+        "requestsByPath": {
+          "GET /api/v1/launches?limit=20&region=all": 1,
+          "GET /api/v1/me/filter-presets": 1,
+          "GET /api/v1/me/watchlists": 1,
+          "GET /api/v1/viewer/entitlements": 1,
+          "GET /api/v1/viewer/session": 1
+        }
+      }
+    },
+    {
+      "name": "search fan-out and cache",
+      "assertions": [
+        "normalized duplicate search queries reuse one /api/v1/search request"
+      ],
+      "counts": {
+        "totalRequests": 1,
+        "requestsByPath": {
+          "GET /api/v1/search?q=starlink": 1
+        }
+      }
+    },
+    {
+      "name": "account bootstrap",
+      "assertions": [
+        "account bootstrap reuses profile, marketing email, notification preferences, and launch-day filter caches"
+      ],
+      "counts": {
+        "totalRequests": 6,
+        "requestsByPath": {
+          "GET /api/filters?mode=live&region=all": 1,
+          "GET /api/v1/me/marketing-email": 1,
+          "GET /api/v1/me/notification-preferences": 1,
+          "GET /api/v1/me/profile": 1,
+          "GET /api/v1/viewer/entitlements": 1,
+          "GET /api/v1/viewer/session": 1
+        }
+      }
+    },
+    {
+      "name": "saved bootstrap",
+      "assertions": [
+        "saved bootstrap uses one preset request",
+        "saved bootstrap uses one watchlist request"
+      ],
+      "counts": {
+        "totalRequests": 4,
+        "requestsByPath": {
+          "GET /api/v1/me/filter-presets": 1,
+          "GET /api/v1/me/watchlists": 1,
+          "GET /api/v1/viewer/entitlements": 1,
+          "GET /api/v1/viewer/session": 1
+        }
+      }
+    },
+    {
+      "name": "preferences bootstrap",
+      "assertions": [
+        "preferences bootstrap keeps notification preferences app-scoped and reusable"
+      ],
+      "counts": {
+        "totalRequests": 3,
+        "requestsByPath": {
+          "GET /api/v1/me/notification-preferences": 1,
+          "GET /api/v1/viewer/entitlements": 1,
+          "GET /api/v1/viewer/session": 1
+        }
+      }
+    }
+  ]
+}

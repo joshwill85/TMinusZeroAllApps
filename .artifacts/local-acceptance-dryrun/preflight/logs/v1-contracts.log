@@ -1,0 +1,8 @@
+
+> tminuszero@0.1.0 test:v1-contracts
+> TS_NODE_TRANSPILE_ONLY=1 node --loader ts-node/esm scripts/v1-contracts-smoke.mts
+
+v1 client contracts passed
+(node:97475) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+--import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("ts-node/esm", pathToFileURL("./"));'
+(Use `node --trace-warnings ...` to show where the warning was created)

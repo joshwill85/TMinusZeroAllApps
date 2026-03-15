@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import { buildIcsCalendar } from '@/lib/calendar/ics';
+import { enforceDurableRateLimit } from '@/lib/server/apiRateLimit';
 import { mapPublicCacheRow } from '@/lib/server/transformers';
-import { createSupabaseServerClient } from '@/lib/server/supabaseServer';
-import { getSiteUrl, isSupabaseConfigured } from '@/lib/server/env';
+import { getUserAccessEntitlementById } from '@/lib/server/entitlements';
+import { createSupabaseAdminClient, createSupabaseServerClient } from '@/lib/server/supabaseServer';
+import { getSiteUrl, isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
 import { getViewerTier } from '@/lib/server/viewerTier';
 import { parseLaunchRegion, US_PAD_COUNTRY_CODES } from '@/lib/server/us';
 export const dynamic = 'force-dynamic';
@@ -15,15 +17,26 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const token = searchParams.get('token');
 
+  const rateLimited = await enforceDurableRateLimit(request, {
+    scope: 'api_launches_ics',
+    limit: 30,
+    windowSeconds: 60,
+    tokenKey: token
+  });
+  if (rateLimited) {
+    return rateLimited;
+  }
+
   const viewer = await getViewerTier();
   const supabase = createSupabaseServerClient();
+  const admin = isSupabaseAdminConfigured() ? createSupabaseAdminClient() : null;
 
   if (viewer.isAuthed) {
     if (viewer.tier !== 'premium') {
       return NextResponse.json({ error: 'payment_required' }, { status: 402 });
     }
   } else {
-    const ok = await validateCalendarToken(supabase, token);
+    const ok = admin ? await validateCalendarToken(admin, token) : false;
     if (!ok) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
@@ -74,16 +87,20 @@ export async function GET(request: Request) {
   });
 }
 
-async function validateCalendarToken(supabase: ReturnType<typeof createSupabaseServerClient>, token: string | null) {
+async function validateCalendarToken(supabase: ReturnType<typeof createSupabaseAdminClient>, token: string | null) {
   if (!token) return false;
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(token)) return false;
 
-  const { data, error } = await supabase.rpc('validate_calendar_token', { token_in: token });
+  const { data, error } = await supabase.from('profiles').select('user_id').eq('calendar_token', token).maybeSingle();
   if (error) {
     console.error('calendar token validation error', error);
     return false;
   }
-  return data === true;
+  const userId = String((data as { user_id?: string } | null)?.user_id || '').trim();
+  if (!userId) return false;
+
+  const access = await getUserAccessEntitlementById({ userId, admin: supabase });
+  return access.loadError == null && access.entitlement?.isPaid === true;
 }
 
 function parseDateParam(value: string | null): string | null {

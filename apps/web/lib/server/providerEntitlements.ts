@@ -72,6 +72,37 @@ export async function loadProviderEntitlement(
   };
 }
 
+export async function loadProviderCustomerUserId(
+  client: QueryClient,
+  {
+    provider,
+    providerCustomerId
+  }: {
+    provider: PurchaseProvider;
+    providerCustomerId: string;
+  }
+): Promise<{ userId: string | null; loadError: string | null }> {
+  const result = await client
+    .from('purchase_provider_customers')
+    .select('user_id')
+    .eq('provider', provider)
+    .eq('provider_customer_id', providerCustomerId)
+    .maybeSingle();
+
+  if (result.error) {
+    if (isMissingRelationError(result.error)) {
+      return { userId: null, loadError: null };
+    }
+    console.error('provider customer mapping fetch error', result.error);
+    return { userId: null, loadError: 'provider_customer_mapping_fetch_failed' };
+  }
+
+  return {
+    userId: typeof result.data?.user_id === 'string' ? result.data.user_id : null,
+    loadError: null
+  };
+}
+
 export async function mirrorStripeCustomerMapping(
   admin: QueryClient,
   {
@@ -84,19 +115,153 @@ export async function mirrorStripeCustomerMapping(
     metadata?: Record<string, unknown>;
   }
 ) {
+  return upsertProviderCustomerMapping(admin, {
+    userId,
+    provider: 'stripe',
+    providerCustomerId: stripeCustomerId,
+    metadata
+  });
+}
+
+export async function upsertProviderCustomerMapping(
+  admin: QueryClient,
+  {
+    userId,
+    provider,
+    providerCustomerId,
+    metadata,
+    strictMissingRelation = false
+  }: {
+    userId: string;
+    provider: PurchaseProvider;
+    providerCustomerId: string;
+    metadata?: Record<string, unknown>;
+    strictMissingRelation?: boolean;
+  }
+) {
   const result = await admin.from('purchase_provider_customers').upsert(
     {
       user_id: userId,
-      provider: 'stripe',
-      provider_customer_id: stripeCustomerId,
+      provider,
+      provider_customer_id: providerCustomerId,
       metadata: metadata ?? {},
       updated_at: new Date().toISOString()
     },
     { onConflict: 'user_id,provider' }
   );
 
-  if (result.error && !isMissingRelationError(result.error)) {
+  if (result.error) {
+    if (isMissingRelationError(result.error)) {
+      if (strictMissingRelation) {
+        throw result.error;
+      }
+      return;
+    }
     throw result.error;
+  }
+}
+
+export async function upsertProviderEntitlement(
+  admin: QueryClient,
+  {
+    userId,
+    provider,
+    providerCustomerId,
+    providerSubscriptionId,
+    providerProductId,
+    status,
+    isActive,
+    cancelAtPeriodEnd,
+    currentPeriodEnd,
+    source,
+    metadata,
+    eventType,
+    providerEventId,
+    eventPayload,
+    strictMissingRelation = false
+  }: {
+    userId: string;
+    provider: PurchaseProvider;
+    providerCustomerId?: string | null;
+    providerSubscriptionId?: string | null;
+    providerProductId?: string | null;
+    status: string;
+    isActive?: boolean;
+    cancelAtPeriodEnd?: boolean;
+    currentPeriodEnd?: string | null;
+    source?: string;
+    metadata?: Record<string, unknown>;
+    eventType?: string | null;
+    providerEventId?: string | null;
+    eventPayload?: Record<string, unknown>;
+    strictMissingRelation?: boolean;
+  }
+) {
+  if (providerCustomerId) {
+    await upsertProviderCustomerMapping(admin, {
+      userId,
+      provider,
+      providerCustomerId,
+      metadata: {
+        source: 'billing_upsert',
+        ...(metadata ?? {})
+      },
+      strictMissingRelation
+    });
+  }
+
+  const entitlementResult = await admin.from('purchase_entitlements').upsert(
+    {
+      user_id: userId,
+      entitlement_key: 'premium',
+      provider,
+      provider_subscription_id: providerSubscriptionId ?? null,
+      provider_product_id: providerProductId ?? null,
+      status,
+      is_active: typeof isActive === 'boolean' ? isActive : isPaidSubscriptionStatus(status),
+      cancel_at_period_end: Boolean(cancelAtPeriodEnd),
+      current_period_end: currentPeriodEnd,
+      source: source ?? 'provider_sync',
+      metadata: metadata ?? {},
+      updated_at: new Date().toISOString()
+    },
+    { onConflict: 'user_id,entitlement_key' }
+  );
+
+  if (entitlementResult.error) {
+    if (isMissingRelationError(entitlementResult.error)) {
+      if (strictMissingRelation) {
+        throw entitlementResult.error;
+      }
+      return;
+    }
+    throw entitlementResult.error;
+  }
+
+  if (!eventType) {
+    return;
+  }
+
+  const eventResult = await admin.from('purchase_events').insert({
+    user_id: userId,
+    provider,
+    entitlement_key: 'premium',
+    event_type: eventType,
+    provider_event_id: providerEventId ?? null,
+    provider_subscription_id: providerSubscriptionId ?? null,
+    provider_product_id: providerProductId ?? null,
+    status,
+    payload: eventPayload ?? {}
+  });
+
+  if (eventResult.error) {
+    if (isMissingRelationError(eventResult.error)) {
+      if (strictMissingRelation) {
+        throw eventResult.error;
+      }
+      return;
+    }
+    throw eventResult.error;
   }
 }
 
@@ -134,9 +299,10 @@ export async function mirrorStripeEntitlement(
         : null);
 
   if (resolvedCustomerId) {
-    await mirrorStripeCustomerMapping(admin, {
+    await upsertProviderCustomerMapping(admin, {
       userId,
-      stripeCustomerId: resolvedCustomerId
+      provider: 'stripe',
+      providerCustomerId: resolvedCustomerId
     });
   }
 
@@ -148,51 +314,26 @@ export async function mirrorStripeEntitlement(
       ? new Date(subscription.current_period_end * 1000).toISOString()
       : null;
 
-  const entitlementResult = await admin.from('purchase_entitlements').upsert(
-    {
-      user_id: userId,
-      entitlement_key: 'premium',
-      provider: 'stripe',
-      provider_subscription_id: subscription.id ?? null,
-      provider_product_id: productId,
-      status,
-      is_active: isPaidSubscriptionStatus(status),
-      cancel_at_period_end: Boolean(subscription.cancel_at_period_end),
-      current_period_end: currentPeriodEnd,
-      source: 'provider_sync',
-      metadata: {
-        livemode: Boolean(subscription.livemode),
-        metadata: subscription.metadata ?? {}
-      },
-      updated_at: new Date().toISOString()
-    },
-    { onConflict: 'user_id,entitlement_key' }
-  );
-
-  if (entitlementResult.error && !isMissingRelationError(entitlementResult.error)) {
-    throw entitlementResult.error;
-  }
-
-  if (!eventType) {
-    return;
-  }
-
-  const eventResult = await admin.from('purchase_events').insert({
-    user_id: userId,
+  await upsertProviderEntitlement(admin, {
+    userId,
     provider: 'stripe',
-    entitlement_key: 'premium',
-    event_type: eventType,
-    provider_event_id: providerEventId ?? null,
-    provider_subscription_id: subscription.id ?? null,
-    provider_product_id: productId,
+    providerCustomerId: resolvedCustomerId,
+    providerSubscriptionId: subscription.id ?? null,
+    providerProductId: productId,
     status,
-    payload: {
+    isActive: isPaidSubscriptionStatus(status),
+    cancelAtPeriodEnd: Boolean(subscription.cancel_at_period_end),
+    currentPeriodEnd,
+    source: 'provider_sync',
+    metadata: {
+      livemode: Boolean(subscription.livemode),
+      metadata: subscription.metadata ?? {}
+    },
+    eventType,
+    providerEventId,
+    eventPayload: {
       cancel_at_period_end: Boolean(subscription.cancel_at_period_end),
       current_period_end: currentPeriodEnd
     }
   });
-
-  if (eventResult.error && !isMissingRelationError(eventResult.error)) {
-    throw eventResult.error;
-  }
 }

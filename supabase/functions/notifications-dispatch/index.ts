@@ -27,6 +27,11 @@ type PrefsRow = {
   sms_enabled: boolean;
   sms_verified: boolean;
   push_enabled?: boolean | null;
+  notify_t_minus_60?: boolean | null;
+  notify_t_minus_10?: boolean | null;
+  notify_t_minus_5?: boolean | null;
+  notify_status_change?: boolean | null;
+  notify_net_change?: boolean | null;
 
   quiet_hours_enabled?: boolean | null;
   quiet_start_local?: string | null;
@@ -44,10 +49,13 @@ type LaunchRow = {
   status_name: string | null;
   tier_auto: string | null;
   tier_override: string | null;
+  ll2_pad_id?: number | null;
   provider?: string | null;
   pad_name?: string | null;
+  pad_location_name?: string | null;
   pad_short_code?: string | null;
   pad_state?: string | null;
+  pad_country_code?: string | null;
 };
 
 type LaunchPrefRow = {
@@ -74,6 +82,16 @@ type LaunchUpdateRow = {
   old_values: Record<string, unknown> | null;
   new_values: Record<string, unknown> | null;
   detected_at: string;
+};
+
+type AlertRuleRow = {
+  user_id: string;
+  kind: 'region_us' | 'state' | 'filter_preset' | 'follow';
+  state?: string | null;
+  filter_preset_id?: string | null;
+  follow_rule_type?: 'launch' | 'pad' | 'provider' | 'tier' | null;
+  follow_rule_value?: string | null;
+  filters?: Record<string, unknown> | null;
 };
 
 type DispatchResult = {
@@ -136,9 +154,14 @@ async function dispatchNotifications(supabase: ReturnType<typeof createSupabaseA
   const dayStart = startOfDayUtc(now).toISOString();
   const monthStart = startOfMonthUtc(now).toISOString().slice(0, 10);
 
-  const premiumUserIds = await loadPremiumUserIds(supabase);
-  if (!premiumUserIds.length) {
-    const empty: DispatchResult = { queued: 0, updated: 0, usageUpdates: 0, reason: 'no_premium_users' };
+  const [premiumUserIds, activeMobilePushUserIds] = await Promise.all([
+    loadPremiumUserIds(supabase),
+    loadActiveMobilePushUserIds(supabase)
+  ]);
+  const notificationUserIds = Array.from(new Set([...premiumUserIds, ...activeMobilePushUserIds]));
+
+  if (!notificationUserIds.length) {
+    const empty: DispatchResult = { queued: 0, updated: 0, usageUpdates: 0, reason: 'no_notification_users' };
     return { queued: 0, updated: 0, usageUpdates: 0, sms: empty, email: empty, push: empty };
   }
 
@@ -146,17 +169,20 @@ async function dispatchNotifications(supabase: ReturnType<typeof createSupabaseA
     supabase
       .from('notification_preferences')
       .select(
-        'user_id, email_enabled, sms_enabled, sms_verified, push_enabled, quiet_hours_enabled, quiet_start_local, quiet_end_local, launch_day_email_enabled, launch_day_email_providers, launch_day_email_states'
+        'user_id, email_enabled, sms_enabled, sms_verified, push_enabled, notify_t_minus_60, notify_t_minus_10, notify_t_minus_5, notify_status_change, notify_net_change, quiet_hours_enabled, quiet_start_local, quiet_end_local, launch_day_email_enabled, launch_day_email_providers, launch_day_email_states'
       )
-      .in('user_id', premiumUserIds),
-    supabase.from('profiles').select('user_id, timezone').in('user_id', premiumUserIds)
+      .in('user_id', notificationUserIds),
+    supabase.from('profiles').select('user_id, timezone').in('user_id', notificationUserIds)
   ]);
   if (prefsRes.error) throw prefsRes.error;
   if (profilesRes.error) throw profilesRes.error;
 
   const prefs = prefsRes.data || [];
+  const premiumUserIdSet = new Set(premiumUserIds);
+  const prefsByUser = new Map<string, PrefsRow>();
   const quietByUser = new Map<string, { enabled: boolean; start: string | null; end: string | null }>();
   prefs.forEach((row: PrefsRow) => {
+    prefsByUser.set(row.user_id, row);
     const start = normalizeLocalTime(String(row.quiet_start_local || ''));
     const end = normalizeLocalTime(String(row.quiet_end_local || ''));
     quietByUser.set(row.user_id, {
@@ -172,7 +198,7 @@ async function dispatchNotifications(supabase: ReturnType<typeof createSupabaseA
   });
 
   const smsEligibleUserIds = (prefs || [])
-    .filter((row: PrefsRow) => row.sms_enabled && row.sms_verified)
+    .filter((row: PrefsRow) => premiumUserIdSet.has(row.user_id) && row.sms_enabled && row.sms_verified)
     .map((row: PrefsRow) => row.user_id);
 
   const pushEligibleUserIds = (prefs || [])
@@ -180,7 +206,7 @@ async function dispatchNotifications(supabase: ReturnType<typeof createSupabaseA
     .map((row: PrefsRow) => row.user_id);
 
   const emailEligiblePrefs = (prefs || []).filter(
-    (row: PrefsRow) => row.email_enabled !== false && row.launch_day_email_enabled === true
+    (row: PrefsRow) => premiumUserIdSet.has(row.user_id) && row.email_enabled !== false && row.launch_day_email_enabled === true
   );
 
   const smsResult: DispatchResult = !settings.sms_enabled
@@ -192,7 +218,17 @@ async function dispatchNotifications(supabase: ReturnType<typeof createSupabaseA
   const pushResult: DispatchResult = !settings.push_enabled
     ? { queued: 0, updated: 0, usageUpdates: 0, reason: 'push_disabled' }
     : pushEligibleUserIds.length
-      ? await dispatchPushNotifications(supabase, { settings, now, dayStart, monthStart, pushEligibleUserIds, quietByUser, timeZoneByUser })
+      ? await dispatchPushNotifications(supabase, {
+          settings,
+          now,
+          dayStart,
+          monthStart,
+          pushEligibleUserIds,
+          webPushEligibleUserIds: premiumUserIds,
+          prefsByUser,
+          quietByUser,
+          timeZoneByUser
+        })
       : { queued: 0, updated: 0, usageUpdates: 0, reason: 'no_push_opted_users' };
 
   const emailResult: DispatchResult = emailEligiblePrefs.length
@@ -221,6 +257,19 @@ async function loadPremiumUserIds(supabase: ReturnType<typeof createSupabaseAdmi
   (subsRes.data || []).forEach((row) => paidUserIds.add(row.user_id));
   (adminsRes.data || []).forEach((row) => paidUserIds.add(row.user_id));
   return Array.from(paidUserIds);
+}
+
+async function loadActiveMobilePushUserIds(supabase: ReturnType<typeof createSupabaseAdminClient>) {
+  const { data, error } = await supabase
+    .from('notification_push_devices')
+    .select('user_id')
+    .eq('is_active', true)
+    .eq('push_provider', 'expo')
+    .in('platform', ['ios', 'android']);
+
+  if (error) throw error;
+
+  return Array.from(new Set((data || []).map((row: any) => String(row.user_id || '').trim()).filter(Boolean)));
 }
 
 async function dispatchSmsNotifications(
@@ -462,6 +511,8 @@ async function dispatchPushNotifications(
     dayStart,
     monthStart,
     pushEligibleUserIds,
+    webPushEligibleUserIds,
+    prefsByUser,
     quietByUser,
     timeZoneByUser
   }: {
@@ -470,55 +521,74 @@ async function dispatchPushNotifications(
     dayStart: string;
     monthStart: string;
     pushEligibleUserIds: string[];
+    webPushEligibleUserIds: string[];
+    prefsByUser: Map<string, PrefsRow>;
     quietByUser: Map<string, { enabled: boolean; start: string | null; end: string | null }>;
     timeZoneByUser: Map<string, string>;
   }
 ): Promise<DispatchResult> {
-  const { data: pushSubs, error: pushSubsError } = await supabase.from('push_subscriptions').select('user_id').in('user_id', pushEligibleUserIds);
-  if (pushSubsError) throw pushSubsError;
+  const [pushSubsRes, pushDevicesRes] = await Promise.all([
+    webPushEligibleUserIds.length
+      ? supabase.from('push_subscriptions').select('user_id').in('user_id', webPushEligibleUserIds)
+      : Promise.resolve({ data: [], error: null }),
+    supabase
+      .from('notification_push_devices')
+      .select('user_id')
+      .eq('is_active', true)
+      .eq('push_provider', 'expo')
+      .in('platform', ['ios', 'android'])
+      .in('user_id', pushEligibleUserIds)
+  ]);
+  if (pushSubsRes.error) throw pushSubsRes.error;
+  if (pushDevicesRes.error) throw pushDevicesRes.error;
 
+  const webPushEligibleUserIdSet = new Set(webPushEligibleUserIds);
+  const mobileSubscribedUserIds = new Set<string>();
   const subscribedUserIds = new Set<string>();
-  (pushSubs || []).forEach((row: any) => {
+  (pushSubsRes.data || []).forEach((row: any) => {
     if (row?.user_id) subscribedUserIds.add(String(row.user_id));
   });
+  (pushDevicesRes.data || []).forEach((row: any) => {
+    if (!row?.user_id) return;
+    const userId = String(row.user_id);
+    mobileSubscribedUserIds.add(userId);
+    subscribedUserIds.add(userId);
+  });
 
-  const eligibleUserIds = pushEligibleUserIds.filter((id) => subscribedUserIds.has(id));
+  const eligibleUserIds = pushEligibleUserIds.filter(
+    (id) => mobileSubscribedUserIds.has(id) || (webPushEligibleUserIdSet.has(id) && subscribedUserIds.has(id))
+  );
   if (!eligibleUserIds.length) {
-    return { queued: 0, updated: 0, usageUpdates: 0, reason: 'no_push_subscriptions' };
+    return { queued: 0, updated: 0, usageUpdates: 0, reason: 'no_push_destinations' };
   }
 
-  const { data: launchPrefs, error: launchPrefsError } = await supabase
-    .from('launch_notification_preferences')
-    .select('user_id, launch_id, channel, mode, timezone, t_minus_minutes, local_times, notify_status_change, notify_net_change')
-    .in('user_id', eligibleUserIds)
-    .eq('channel', 'push');
-  if (launchPrefsError) throw launchPrefsError;
-
-  if (!launchPrefs?.length) {
-    return { queued: 0, updated: 0, usageUpdates: 0, reason: 'no_launch_prefs' };
-  }
-
-  const launchIds = Array.from(new Set(launchPrefs.map((row: LaunchPrefRow) => row.launch_id)));
   const updatesSince = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
 
-  const [launchesRes, updatesRes, existingOutboxRes, usageRes] = await Promise.all([
+  const [launchPrefsRes, alertRulesRes, launchesRes, existingOutboxRes, usageRes] = await Promise.all([
+    supabase
+      .from('launch_notification_preferences')
+      .select('user_id, launch_id, channel, mode, timezone, t_minus_minutes, local_times, notify_status_change, notify_net_change')
+      .in('user_id', eligibleUserIds)
+      .eq('channel', 'push'),
+    supabase
+      .from('notification_alert_rules')
+      .select('user_id, kind, state, filter_preset_id, follow_rule_type, follow_rule_value, launch_filter_presets(filters)')
+      .in('user_id', eligibleUserIds),
     supabase
       .from('launches')
-      .select('id, name, net, net_precision, status_name, tier_auto, tier_override, provider, pad_name, pad_short_code, pad_state')
+      .select(
+        'id, name, net, net_precision, status_name, tier_auto, tier_override, ll2_pad_id, provider, pad_name, pad_location_name, pad_short_code, pad_state, pad_country_code'
+      )
       .eq('hidden', false)
-      .in('id', launchIds),
-    supabase
-      .from('launch_updates')
-      .select('id, launch_id, changed_fields, old_values, new_values, detected_at')
-      .gte('detected_at', updatesSince)
-      .in('launch_id', launchIds)
-      .order('detected_at', { ascending: false })
-      .limit(2000),
+      .gte('net', updatesSince)
+      .order('net', { ascending: true })
+      .limit(3000),
     supabase
       .from('notifications_outbox')
       .select('id, user_id, launch_id, channel, event_type, scheduled_for, status, payload')
       .gte('scheduled_for', updatesSince)
-      .in('launch_id', launchIds),
+      .in('user_id', eligibleUserIds)
+      .eq('channel', 'push'),
     supabase
       .from('notification_usage_monthly')
       .select('user_id, month_start, messages_sent')
@@ -526,21 +596,65 @@ async function dispatchPushNotifications(
       .eq('channel', 'push')
   ]);
 
+  if (launchPrefsRes.error) throw launchPrefsRes.error;
+  if (alertRulesRes.error) throw alertRulesRes.error;
   if (launchesRes.error) throw launchesRes.error;
-  if (updatesRes.error) throw updatesRes.error;
   if (existingOutboxRes.error) throw existingOutboxRes.error;
   if (usageRes.error) throw usageRes.error;
 
+  const launchPrefs = (launchPrefsRes.data || []) as LaunchPrefRow[];
+  const alertRules = (alertRulesRes.data || []) as any[];
+  if (!launchPrefs.length && !alertRules.length) {
+    return { queued: 0, updated: 0, usageUpdates: 0, reason: 'no_alert_rules' };
+  }
+
+  const launches: LaunchRow[] = (launchesRes.data || []) as any;
+  const launchById = new Map<string, LaunchRow>();
+  launches.forEach((launch) => launchById.set(launch.id, launch));
+
+  const explicitLaunchIds = Array.from(new Set(launchPrefs.map((row) => row.launch_id)));
+  const allLaunchIds = Array.from(new Set([...launches.map((launch) => launch.id), ...explicitLaunchIds]));
+
+  const updatesRes = allLaunchIds.length
+    ? await supabase
+        .from('launch_updates')
+        .select('id, launch_id, changed_fields, old_values, new_values, detected_at')
+        .gte('detected_at', updatesSince)
+        .in('launch_id', allLaunchIds)
+        .order('detected_at', { ascending: false })
+        .limit(2000)
+    : { data: [], error: null };
+
+  if (updatesRes.error) throw updatesRes.error;
+
   const prefsByLaunch = new Map<string, LaunchPrefRow[]>();
-  (launchPrefs || []).forEach((row: LaunchPrefRow) => {
+  launchPrefs.forEach((row: LaunchPrefRow) => {
     const list = prefsByLaunch.get(row.launch_id) || [];
     list.push(row);
     prefsByLaunch.set(row.launch_id, list);
   });
 
-  const launches: LaunchRow[] = (launchesRes.data || []) as any;
-  const launchById = new Map<string, LaunchRow>();
-  launches.forEach((launch) => launchById.set(launch.id, launch));
+  for (const row of alertRules) {
+    const alertRule = normalizeAlertRuleRow(row);
+    if (!alertRule) continue;
+    const requiresPremiumAlertRule = alertRule.kind === 'filter_preset' || alertRule.kind === 'follow';
+    if (requiresPremiumAlertRule && !premiumUserIdSet.has(alertRule.user_id)) continue;
+    const pref = prefsByUser.get(alertRule.user_id);
+    if (!pref || pref.push_enabled !== true) continue;
+    const defaultPref = buildDefaultPushAlertPref(alertRule.user_id, pref, timeZoneByUser.get(alertRule.user_id));
+    if (!defaultPref) continue;
+
+    for (const launch of launches) {
+      if (!launchMatchesAlertRule(launch, alertRule)) continue;
+      const list = prefsByLaunch.get(launch.id) || [];
+      list.push({
+        ...defaultPref,
+        launch_id: launch.id
+      });
+      prefsByLaunch.set(launch.id, list);
+    }
+  }
+
   const updates: LaunchUpdateRow[] = (updatesRes.data || []) as any;
   const existingOutbox = existingOutboxRes.data || [];
   const usageByUser = new Map<string, number>();
@@ -550,10 +664,12 @@ async function dispatchPushNotifications(
 
   const existingByKey = new Map<string, any>();
   const existingUpdateKeys = new Set<string>();
+  const queuedKeys = new Set<string>();
   (existingOutbox || []).forEach((row: any) => {
     const key = outboxKey(String(row.user_id || ''), String(row.launch_id || ''), String(row.channel || ''), String(row.event_type || ''));
     if (!key) return;
     if (!existingByKey.has(key)) existingByKey.set(key, row);
+    queuedKeys.add(key);
 
     const updateId = readUpdateId(row.payload);
     if (!updateId) return;
@@ -584,6 +700,7 @@ async function dispatchPushNotifications(
         const quietAdjustedFor = applyQuietHours(scheduledFor, quiet, quietTimeZone);
 
         const key = outboxKey(pref.user_id, launch.id, 'push', evt.type);
+        if (key && queuedKeys.has(key)) continue;
         const existing = key ? existingByKey.get(key) : null;
 
         if (existing) {
@@ -604,6 +721,7 @@ async function dispatchPushNotifications(
 
         if (pushCounters.canSend(pref.user_id, launch.id, quietAdjustedFor, evt.type, settings)) {
           toInsert.push(makeOutboxRow(pref.user_id, launch.id, 'push', evt, quietAdjustedFor, launch, now, tz, settings.push_max_chars));
+          if (key) queuedKeys.add(key);
           pushCounters.increment(pref.user_id, launch.id, quietAdjustedFor, evt.type);
           pushUsageIncrements.set(pref.user_id, (pushUsageIncrements.get(pref.user_id) || 0) + 1);
         }
@@ -897,6 +1015,169 @@ const TIMING_CHANGE_FIELDS = new Set(['net', 'net_precision', 'window_start', 'w
 const CHANGE_EVENT_TYPES = new Set(['status_change', 'net_change', 'status_net_change']);
 
 const ALLOWED_T_MINUS_MINUTES = [5, 10, 15, 20, 30, 45, 60, 120] as const;
+const US_PAD_COUNTRY_CODES = new Set(['US', 'USA']);
+
+function normalizeAlertRuleRow(row: any): AlertRuleRow | null {
+  const kind = String(row?.kind || '').trim();
+  const userId = String(row?.user_id || '').trim();
+  if (!userId) return null;
+
+  const presetRelation = Array.isArray(row?.launch_filter_presets) ? row.launch_filter_presets[0] : row?.launch_filter_presets;
+  const filters =
+    presetRelation && typeof presetRelation === 'object' && presetRelation.filters && typeof presetRelation.filters === 'object'
+      ? (presetRelation.filters as Record<string, unknown>)
+      : null;
+
+  if (kind === 'region_us') {
+    return { user_id: userId, kind: 'region_us' };
+  }
+  if (kind === 'state') {
+    const state = normalizeComparableText(row?.state);
+    if (!state) return null;
+    return { user_id: userId, kind: 'state', state };
+  }
+  if (kind === 'filter_preset') {
+    const presetId = String(row?.filter_preset_id || '').trim();
+    if (!presetId) return null;
+    return { user_id: userId, kind: 'filter_preset', filter_preset_id: presetId, filters };
+  }
+  if (kind === 'follow') {
+    const followRuleType = String(row?.follow_rule_type || '').trim() as AlertRuleRow['follow_rule_type'];
+    const followRuleValue = String(row?.follow_rule_value || '').trim();
+    if (!followRuleType || !followRuleValue) return null;
+    return {
+      user_id: userId,
+      kind: 'follow',
+      follow_rule_type: followRuleType,
+      follow_rule_value: followRuleValue
+    };
+  }
+
+  return null;
+}
+
+function buildDefaultPushAlertPref(userId: string, pref: PrefsRow | undefined, timeZone: string | undefined): LaunchPrefRow | null {
+  if (!pref) return null;
+
+  const tMinusMinutes: number[] = [];
+  if (pref.notify_t_minus_60 !== false) tMinusMinutes.push(60);
+  if (pref.notify_t_minus_10 !== false) tMinusMinutes.push(10);
+  if (tMinusMinutes.length < 2 && pref.notify_t_minus_5 === true) tMinusMinutes.push(5);
+
+  const notifyStatusChange = pref.notify_status_change !== false;
+  const notifyNetChange = pref.notify_net_change !== false;
+  if (!tMinusMinutes.length && !notifyStatusChange && !notifyNetChange) {
+    return null;
+  }
+
+  return {
+    user_id: userId,
+    launch_id: '',
+    channel: 'push',
+    mode: 't_minus',
+    timezone: safeTimeZone(timeZone),
+    t_minus_minutes: tMinusMinutes.slice(0, 2),
+    local_times: [],
+    notify_status_change: notifyStatusChange,
+    notify_net_change: notifyNetChange
+  };
+}
+
+function launchMatchesAlertRule(launch: LaunchRow, rule: AlertRuleRow) {
+  if (rule.kind === 'region_us') {
+    return US_PAD_COUNTRY_CODES.has(String(launch.pad_country_code || '').trim().toUpperCase());
+  }
+
+  if (rule.kind === 'state') {
+    return normalizeComparableText(launch.pad_state) === rule.state;
+  }
+
+  if (rule.kind === 'filter_preset') {
+    return launchMatchesFilterPreset(launch, rule.filters || null);
+  }
+
+  return launchMatchesFollowRule(launch, rule.follow_rule_type, rule.follow_rule_value);
+}
+
+function launchMatchesFilterPreset(launch: LaunchRow, filters: Record<string, unknown> | null) {
+  if (!filters) return false;
+
+  const region = String(filters.region || '').trim().toLowerCase();
+  if (region === 'us' && !US_PAD_COUNTRY_CODES.has(String(launch.pad_country_code || '').trim().toUpperCase())) return false;
+  if (region === 'non-us' && US_PAD_COUNTRY_CODES.has(String(launch.pad_country_code || '').trim().toUpperCase())) return false;
+
+  const location = normalizeComparableText(filters.location);
+  if (location && normalizeComparableText(launch.pad_location_name) !== location) return false;
+
+  const state = normalizeComparableText(filters.state);
+  if (state && normalizeComparableText(launch.pad_state) !== state) return false;
+
+  const pad = normalizeComparableText(filters.pad);
+  if (pad) {
+    const shortCode = normalizeComparableText(launch.pad_short_code);
+    const padName = normalizeComparableText(launch.pad_name);
+    if (pad !== shortCode && pad !== padName) return false;
+  }
+
+  const provider = normalizeComparableText(filters.provider);
+  if (provider && normalizeComparableText(launch.provider) !== provider) return false;
+
+  const status = String(filters.status || '').trim().toLowerCase();
+  if (status && status !== 'all' && normalizeLaunchStatusKey(launch.status_name) !== status) return false;
+
+  return true;
+}
+
+function launchMatchesFollowRule(
+  launch: LaunchRow,
+  ruleType: AlertRuleRow['follow_rule_type'],
+  ruleValue: string | null | undefined
+) {
+  const normalizedRuleValue = String(ruleValue || '').trim();
+  if (!ruleType || !normalizedRuleValue) return false;
+
+  if (ruleType === 'launch') {
+    return launch.id === normalizedRuleValue;
+  }
+
+  if (ruleType === 'provider') {
+    return normalizeComparableText(launch.provider) === normalizeComparableText(normalizedRuleValue);
+  }
+
+  if (ruleType === 'tier') {
+    const launchTier = String(launch.tier_override || launch.tier_auto || '').trim().toLowerCase();
+    return launchTier === normalizedRuleValue.toLowerCase();
+  }
+
+  const lower = normalizedRuleValue.toLowerCase();
+  if (lower.startsWith('ll2:')) {
+    return Number(launch.ll2_pad_id || 0) === Number(lower.slice(4));
+  }
+  if (lower.startsWith('code:')) {
+    return normalizeComparableText(launch.pad_short_code) === normalizeComparableText(normalizedRuleValue.slice(5));
+  }
+  if (/^\d+$/.test(normalizedRuleValue)) {
+    return Number(launch.ll2_pad_id || 0) === Number(normalizedRuleValue);
+  }
+
+  return normalizeComparableText(launch.pad_short_code) === normalizeComparableText(normalizedRuleValue);
+}
+
+function normalizeComparableText(value: unknown) {
+  return String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+function normalizeLaunchStatusKey(statusName: string | null | undefined) {
+  const normalized = normalizeComparableText(statusName);
+  if (normalized.includes('hold')) return 'hold';
+  if (normalized.includes('scrub')) return 'scrubbed';
+  if (normalized.includes('tbd')) return 'tbd';
+  if (normalized.includes('go')) return 'go';
+  return 'unknown';
+}
 
 function buildScheduledEventsForPref(launch: LaunchRow, pref: LaunchPrefRow): LaunchEvent[] {
   const net = new Date(launch.net);

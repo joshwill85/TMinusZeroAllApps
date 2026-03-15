@@ -23,6 +23,7 @@ export function JepScoreClient({ launchId, initialScore, padTimezone }: JepScore
   const [fallbackReason, setFallbackReason] = useState<JepFallbackReason>(null);
   const [isRefining, setIsRefining] = useState(false);
   const attemptedLaunchRef = useRef<string | null>(null);
+  const hasInitialPersonalizedScore = initialScore.observer.personalized;
 
   useEffect(() => {
     if (!launchId || attemptedLaunchRef.current === launchId) return;
@@ -35,7 +36,7 @@ export function JepScoreClient({ launchId, initialScore, padTimezone }: JepScore
       if (typeof window === 'undefined' || typeof navigator === 'undefined') return;
 
       if (!navigator.geolocation) {
-        if (!isCanceled) {
+        if (!isCanceled && !hasInitialPersonalizedScore) {
           setLocationMode('pad_fallback');
           setFallbackReason('unsupported');
         }
@@ -44,7 +45,7 @@ export function JepScoreClient({ launchId, initialScore, padTimezone }: JepScore
 
       const denied = await isGeolocationDenied();
       if (denied) {
-        if (!isCanceled) {
+        if (!isCanceled && !hasInitialPersonalizedScore) {
           setLocationMode('pad_fallback');
           setFallbackReason('denied');
         }
@@ -89,10 +90,16 @@ export function JepScoreClient({ launchId, initialScore, padTimezone }: JepScore
           return;
         }
 
+        setScore(payload);
         setLocationMode('pad_fallback');
         setFallbackReason('unavailable');
       } catch (error) {
         if (isCanceled || isAbortError(error)) return;
+
+        if (hasInitialPersonalizedScore) {
+          setFallbackReason(null);
+          return;
+        }
 
         const geoReason = mapGeolocationFailure(error);
         setLocationMode('pad_fallback');
@@ -116,7 +123,7 @@ export function JepScoreClient({ launchId, initialScore, padTimezone }: JepScore
       isCanceled = true;
       controller.abort();
     };
-  }, [launchId]);
+  }, [launchId, hasInitialPersonalizedScore]);
 
   return (
     <JepScorePanel

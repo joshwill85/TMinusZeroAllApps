@@ -1,19 +1,20 @@
 'use client';
 
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import type { SearchResultV1 } from '@tminuszero/contracts';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import type { SiteSearchResult } from '@/lib/search/shared';
-import { SITE_SEARCH_MIN_QUERY_LENGTH, fetchSiteSearch } from '@/lib/search/client';
+import { useInfiniteSiteSearchQuery } from '@/lib/api/queries';
+import { SITE_SEARCH_MIN_QUERY_LENGTH } from '@/lib/search/client';
 import {
   formatSiteSearchLongDate,
   getSiteSearchBadge,
+  getSiteSearchHref,
   getSiteSearchPreview,
   isExternalSearchUrl
 } from '@/lib/search/presentation';
 
 const PAGE_SIZE = 20;
 const QUERY_URL_DEBOUNCE_MS = 150;
-const QUERY_FETCH_DEBOUNCE_MS = 90;
 
 type SearchStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -26,16 +27,26 @@ export default function SearchPageClient() {
   const initialQuery = searchParamQuery;
   const [query, setQuery] = useState(initialQuery);
   const deferredQuery = useDeferredValue(query);
-  const [results, setResults] = useState<SiteSearchResult[]>([]);
-  const [status, setStatus] = useState<SearchStatus>('idle');
-  const [error, setError] = useState<string | null>(null);
-  const [hasMore, setHasMore] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [tookMs, setTookMs] = useState<number | null>(null);
 
   const trimmedQuery = query.trim();
   const deferredTrimmedQuery = deferredQuery.trim();
   const canSearch = deferredTrimmedQuery.length >= SITE_SEARCH_MIN_QUERY_LENGTH;
+  const searchQuery = useInfiniteSiteSearchQuery(deferredTrimmedQuery, { limit: PAGE_SIZE });
+  const results = useMemo(
+    () => searchQuery.data?.pages.flatMap((page) => page.results) ?? [],
+    [searchQuery.data?.pages]
+  );
+  const status: SearchStatus = trimmedQuery.length < SITE_SEARCH_MIN_QUERY_LENGTH
+    ? 'idle'
+    : searchQuery.isError
+      ? 'error'
+      : searchQuery.isPending
+        ? 'loading'
+        : 'ready';
+  const error = searchQuery.error instanceof Error ? searchQuery.error.message : null;
+  const tookMs = searchQuery.data?.pages[0]?.tookMs ?? null;
+  const hasMore = Boolean(searchQuery.hasNextPage);
+  const loadingMore = searchQuery.isFetchingNextPage;
 
   useEffect(() => {
     setQuery(searchParamQuery);
@@ -57,51 +68,6 @@ export default function SearchPageClient() {
     return () => window.clearTimeout(timeoutId);
   }, [pathname, query, router, searchParamsString, trimmedQuery]);
 
-  useEffect(() => {
-    if (!canSearch) {
-      setResults([]);
-      setStatus('idle');
-      setError(null);
-      setHasMore(false);
-      setTookMs(null);
-      return;
-    }
-
-    const controller = new AbortController();
-    setStatus('loading');
-    setError(null);
-    setHasMore(false);
-    setTookMs(null);
-
-    const timeoutId = window.setTimeout(() => {
-      fetchSiteSearch(deferredTrimmedQuery, {
-        signal: controller.signal,
-        limit: PAGE_SIZE,
-        offset: 0
-      })
-        .then((payload) => {
-          if (controller.signal.aborted) return;
-          setResults(payload.results);
-          setStatus('ready');
-          setHasMore(payload.hasMore);
-          setTookMs(payload.tookMs);
-        })
-        .catch((fetchError) => {
-          if (controller.signal.aborted) return;
-          console.error('search page fetch error', fetchError);
-          setStatus('error');
-          setError(fetchError instanceof Error ? fetchError.message : 'search_query_failed');
-          setHasMore(false);
-          setTookMs(null);
-        });
-    }, QUERY_FETCH_DEBOUNCE_MS);
-
-    return () => {
-      controller.abort();
-      window.clearTimeout(timeoutId);
-    };
-  }, [canSearch, deferredTrimmedQuery]);
-
   const heading = useMemo(() => {
     if (trimmedQuery.length < SITE_SEARCH_MIN_QUERY_LENGTH) return 'Search across launches, programs, guides, and news';
     if (status === 'error') return 'Search is temporarily unavailable';
@@ -109,34 +75,20 @@ export default function SearchPageClient() {
     return `Results for "${trimmedQuery}"`;
   }, [results.length, status, trimmedQuery]);
 
-  const handleOpenResult = (result: SiteSearchResult) => {
-    if (isExternalSearchUrl(result.url)) {
-      const opened = window.open(result.url, '_blank', 'noopener,noreferrer');
-      if (!opened) window.location.assign(result.url);
+  const handleOpenResult = (result: SearchResultV1) => {
+    const href = getSiteSearchHref(result);
+    if (isExternalSearchUrl(href)) {
+      const opened = window.open(href, '_blank', 'noopener,noreferrer');
+      if (!opened) window.location.assign(href);
       return;
     }
 
-    router.push(result.url);
+    router.push(href);
   };
 
   const handleLoadMore = async () => {
     if (!canSearch || loadingMore || !hasMore) return;
-
-    setLoadingMore(true);
-    try {
-      const payload = await fetchSiteSearch(deferredTrimmedQuery, {
-        limit: PAGE_SIZE,
-        offset: results.length,
-        bypassCache: true
-      });
-      setResults((current) => [...current, ...payload.results]);
-      setHasMore(payload.hasMore);
-    } catch (loadMoreError) {
-      console.error('search page load more error', loadMoreError);
-      setError(loadMoreError instanceof Error ? loadMoreError.message : 'search_query_failed');
-    } finally {
-      setLoadingMore(false);
-    }
+    await searchQuery.fetchNextPage();
   };
 
   return (
@@ -211,7 +163,7 @@ export default function SearchPageClient() {
                         <span className="truncate text-base font-semibold text-text1">{result.title}</span>
                       </div>
                       <div className="mt-2 line-clamp-2 text-sm text-text3">{getSiteSearchPreview(result)}</div>
-                      <div className="mt-3 truncate text-[11px] uppercase tracking-[0.12em] text-text4">{result.url}</div>
+                      <div className="mt-3 truncate text-[11px] uppercase tracking-[0.12em] text-text4">{getSiteSearchHref(result)}</div>
                     </div>
                     <div className="shrink-0 text-right text-[11px] uppercase tracking-[0.12em] text-text4">
                       {formatSiteSearchLongDate(result.publishedAt)}

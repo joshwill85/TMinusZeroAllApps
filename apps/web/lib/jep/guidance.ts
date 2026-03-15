@@ -51,6 +51,55 @@ type GuidanceSample = {
   sunlit: boolean;
 };
 
+export type JepGuidanceTrackSample = GuidanceSample;
+
+export function deriveJepGuidanceTrackSamples({
+  trajectory,
+  observer,
+  launchNetIso
+}: {
+  trajectory: TrajectoryContract | null;
+  observer: JepGuidanceObserver | null;
+  launchNetIso: string | null;
+}): JepGuidanceTrackSample[] {
+  if (!trajectory || !observer) return [];
+
+  const coreTrack = trajectory.tracks.find((track) => track.trackKind === 'core_up') ?? trajectory.tracks[0] ?? null;
+  if (!coreTrack || coreTrack.samples.length === 0) return [];
+
+  const launchDate = launchNetIso ? new Date(launchNetIso) : null;
+  const solarDepressionDeg = launchDate ? solarDepressionDegrees(observer.latDeg, observer.lonDeg, launchDate) : null;
+  const shadowHeightKm = solarDepressionDeg != null ? computeShadowHeightKm(solarDepressionDeg) : null;
+  const endTPlusSec = resolveJellyfishEndSeconds(coreTrack.samples, trajectory.milestones);
+
+  return coreTrack.samples
+    .map((sample) => {
+      const position = ecefToGeodetic(sample.ecef[0], sample.ecef[1], sample.ecef[2]);
+      const elevationDeg = elevationFromObserverDeg({
+        observerLatDeg: observer.latDeg,
+        observerLonDeg: observer.lonDeg,
+        targetLatDeg: position.latDeg,
+        targetLonDeg: position.lonDeg,
+        targetAltM: position.altM
+      });
+      const azimuthDeg = bearingDeg(observer.latDeg, observer.lonDeg, position.latDeg, position.lonDeg);
+      const altKm = position.altM / 1000;
+      const sunlit = shadowHeightKm != null ? altKm > shadowHeightKm : false;
+      const visible = sunlit && Number.isFinite(elevationDeg) && elevationDeg >= JEP_LOS_ELEVATION_THRESHOLD_DEG;
+      return {
+        tPlusSec: sample.tPlusSec,
+        latDeg: position.latDeg,
+        lonDeg: position.lonDeg,
+        altM: position.altM,
+        azDeg: azimuthDeg,
+        elDeg: elevationDeg,
+        visible,
+        sunlit
+      } satisfies GuidanceSample;
+    })
+    .filter((sample) => sample.tPlusSec >= JEP_GUIDANCE_START_T_PLUS_SEC && sample.tPlusSec <= endTPlusSec);
+}
+
 export function deriveJepGuidance({
   trajectory,
   observer,
@@ -80,8 +129,12 @@ export function deriveJepGuidance({
     };
   }
 
-  const coreTrack = trajectory.tracks.find((track) => track.trackKind === 'core_up') ?? trajectory.tracks[0] ?? null;
-  if (!coreTrack || coreTrack.samples.length === 0) {
+  const samples = deriveJepGuidanceTrackSamples({
+    trajectory,
+    observer,
+    launchNetIso
+  });
+  if (samples.length === 0) {
     return {
       bestWindow: null,
       directionBand: null,
@@ -91,37 +144,6 @@ export function deriveJepGuidance({
   }
 
   const launchDate = launchNetIso ? new Date(launchNetIso) : null;
-  const solarDepressionDeg = launchDate ? solarDepressionDegrees(observer.latDeg, observer.lonDeg, launchDate) : null;
-  const shadowHeightKm = solarDepressionDeg != null ? computeShadowHeightKm(solarDepressionDeg) : null;
-  const endTPlusSec = resolveJellyfishEndSeconds(coreTrack.samples, trajectory.milestones);
-
-  const samples = coreTrack.samples
-    .map((sample) => {
-      const position = ecefToGeodetic(sample.ecef[0], sample.ecef[1], sample.ecef[2]);
-      const elevationDeg = elevationFromObserverDeg({
-        observerLatDeg: observer.latDeg,
-        observerLonDeg: observer.lonDeg,
-        targetLatDeg: position.latDeg,
-        targetLonDeg: position.lonDeg,
-        targetAltM: position.altM
-      });
-      const azimuthDeg = bearingDeg(observer.latDeg, observer.lonDeg, position.latDeg, position.lonDeg);
-      const altKm = position.altM / 1000;
-      const sunlit = shadowHeightKm != null ? altKm > shadowHeightKm : false;
-      const visible = sunlit && Number.isFinite(elevationDeg) && elevationDeg >= JEP_LOS_ELEVATION_THRESHOLD_DEG;
-      return {
-        tPlusSec: sample.tPlusSec,
-        latDeg: position.latDeg,
-        lonDeg: position.lonDeg,
-        altM: position.altM,
-        azDeg: azimuthDeg,
-        elDeg: elevationDeg,
-        visible,
-        sunlit
-      } satisfies GuidanceSample;
-    })
-    .filter((sample) => sample.tPlusSec >= JEP_GUIDANCE_START_T_PLUS_SEC && sample.tPlusSec <= endTPlusSec);
-
   const visibleSamples = samples.filter((sample) => sample.visible);
   const sunlitSamples = samples.filter((sample) => sample.sunlit);
   const bandSamples = visibleSamples.length > 0 ? visibleSamples : sunlitSamples.length > 0 ? sunlitSamples : samples;

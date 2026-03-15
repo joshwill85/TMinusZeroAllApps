@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { getTierRefreshSeconds } from '@tminuszero/domain';
 import { Launch } from '@/lib/types/launch';
-import { getTierRefreshSeconds } from '@/lib/tiers';
 import { LaunchCard } from '@/components/LaunchCard';
 import { SkeletonLaunchCard } from '@/components/SkeletonLaunchCard';
 

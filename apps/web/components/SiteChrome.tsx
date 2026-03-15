@@ -1,15 +1,13 @@
 'use client';
 
-import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
-import { usePathname } from 'next/navigation';
-import { getBrowserClient } from '@/lib/api/supabase';
-import { browserApiClient } from '@/lib/api/client';
-import type { ViewerTier } from '@/lib/tiers';
+import { Suspense, useEffect, useMemo, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+import type { ViewerTier } from '@tminuszero/domain';
+import { buildCalendarHref } from '@tminuszero/navigation';
+import { useProfileQuery, useViewerEntitlementsQuery } from '@/lib/api/queries';
 import { CommLinkHeader } from '@/components/CommLinkHeader';
 import { DesktopRail, type RailProfile } from '@/components/DesktopRail';
 import { DockingBay } from '@/components/DockingBay';
-import { LaunchCalendar } from '@/components/LaunchCalendar';
 import { LaunchSearchModal } from '@/components/LaunchSearchModal';
 import { TipJarModal } from '@/components/TipJarModal';
 import { FeedbackWidget } from '@/components/FeedbackWidget';
@@ -22,17 +20,27 @@ function isEditableTarget(target: EventTarget | null) {
 }
 
 export function SiteChrome() {
-  const [calendarOpen, setCalendarOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [tipJarOpen, setTipJarOpen] = useState(false);
-  const [profile, setProfile] = useState<RailProfile>(null);
-  const [viewerTier, setViewerTier] = useState<ViewerTier | null>(null);
-  const [isAuthed, setIsAuthed] = useState<boolean | null>(null);
   const pathname = usePathname();
+  const router = useRouter();
   const { pushToast } = useToast();
+  const entitlementsQuery = useViewerEntitlementsQuery();
+  const profileQuery = useProfileQuery();
+  const profile = useMemo<RailProfile>(() => {
+    if (!profileQuery.data) return null;
+    return {
+      role: profileQuery.data.role,
+      first_name: profileQuery.data.firstName,
+      last_name: profileQuery.data.lastName
+    };
+  }, [profileQuery.data]);
+  const viewerTier = useMemo<ViewerTier | null>(() => {
+    const tier = entitlementsQuery.data?.tier;
+    return tier === 'anon' || tier === 'free' || tier === 'premium' ? tier : null;
+  }, [entitlementsQuery.data?.tier]);
   const isAdmin = profile?.role === 'admin';
   const isCameraGuide = /^\/launches\/[^/]+\/ar(?:\/|$)/.test(pathname || '');
-  const isAuthPath = pathname.startsWith('/auth/');
   const feedbackContext = useMemo(() => {
     if (!pathname) return null;
     if (pathname === '/') return { source: 'launch_card' as const, launchId: null as string | null };
@@ -40,107 +48,6 @@ export function SiteChrome() {
     if (!match) return null;
     return { source: 'launch_details' as const, launchId: match[1] || null };
   }, [pathname]);
-
-  const loadSubscription = useCallback(() => {
-    let cancelled = false;
-    browserApiClient
-      .getViewerEntitlements()
-      .then((data) => {
-        if (cancelled) return;
-        const tier = data?.tier;
-        if (tier === 'anon' || tier === 'free' || tier === 'premium') {
-          setViewerTier(tier);
-          return;
-        }
-        setViewerTier(null);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setViewerTier(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const loadProfile = useCallback(() => {
-    let cancelled = false;
-    browserApiClient
-      .getProfile()
-      .then((nextProfile) => {
-        if (cancelled) return;
-        setProfile(
-          nextProfile
-            ? {
-                role: nextProfile.role,
-                first_name: nextProfile.firstName,
-                last_name: nextProfile.lastName
-              }
-            : null
-        );
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setProfile(null);
-        console.error('profile fetch error', err);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (isCameraGuide) return;
-    const cancelProfile = loadProfile();
-    const cancelSubscription = loadSubscription();
-    return () => {
-      cancelProfile?.();
-      cancelSubscription?.();
-    };
-  }, [isCameraGuide, loadProfile, loadSubscription]);
-
-  useEffect(() => {
-    if (isCameraGuide) return;
-    const supabase = getBrowserClient();
-    if (!supabase) {
-      setIsAuthed(false);
-      return;
-    }
-    let cancelled = false;
-    supabase.auth
-      .getUser()
-      .then((result: { data?: { user?: unknown | null } | null }) => {
-        if (cancelled) return;
-        const authed = Boolean(result.data?.user);
-        setIsAuthed(authed);
-        if (!authed) {
-          setProfile(null);
-          setViewerTier('anon');
-        }
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setIsAuthed(false);
-        setProfile(null);
-        setViewerTier('anon');
-      });
-
-    const { data } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
-      const authed = Boolean(session?.user);
-      setIsAuthed(authed);
-      if (!authed) {
-        setProfile(null);
-        setViewerTier('anon');
-        return;
-      }
-      loadProfile();
-      loadSubscription();
-    });
-    return () => {
-      cancelled = true;
-      data.subscription.unsubscribe();
-    };
-  }, [isCameraGuide, loadProfile, loadSubscription]);
 
   useEffect(() => {
     setSearchOpen(false);
@@ -178,7 +85,9 @@ export function SiteChrome() {
     if (!tip && !premium) return;
 
     const tipMode = params.get('tip_mode');
-    if (tip === 'success') {
+    if (tip === 'open') {
+      setTipJarOpen(true);
+    } else if (tip === 'success') {
       pushToast({
         tone: 'success',
         message: tipMode === 'monthly' ? 'Monthly tip active — thank you!' : 'Thanks for the tip!'
@@ -225,12 +134,11 @@ export function SiteChrome() {
         profile={profile}
         isAdmin={isAdmin}
         viewerTier={viewerTier}
-        onOpenCalendar={() => setCalendarOpen(true)}
+        onOpenCalendar={() => router.push(buildCalendarHref())}
         onOpenSearch={() => setSearchOpen(true)}
         onOpenTipJar={() => setTipJarOpen(true)}
       />
 
-      <LaunchCalendar open={calendarOpen} onClose={() => setCalendarOpen(false)} />
       <Suspense fallback={null}>
         <LaunchSearchModal open={searchOpen} onClose={() => setSearchOpen(false)} />
       </Suspense>

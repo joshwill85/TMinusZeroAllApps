@@ -9,6 +9,7 @@ import { SiteChrome } from '@/components/SiteChrome';
 import { Starfield } from '@/components/Starfield';
 import { Footer } from '@/components/Footer';
 import { ToastProvider } from '@/components/ToastProvider';
+import { WebQueryProvider } from '@/components/WebQueryProvider';
 
 export function RootFrame({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -16,25 +17,27 @@ export function RootFrame({ children }: { children: ReactNode }) {
   const isCameraGuide = pathname ? /^\/launches\/[^/]+\/ar(?:\/|$)/.test(pathname) : false;
 
   return (
-    <ToastProvider>
-      {!isEmbed && (
-        <>
-          <RecoveryRedirect />
-          <PrivacySignals />
-          <div className="fixed inset-0 -z-10 grid-bg opacity-40" aria-hidden />
-          <div className="fixed inset-0 -z-20 bg-gradient-to-b from-[#070913] via-[#05060a] to-[#03040a]" aria-hidden />
-          <Starfield />
-          <SiteChrome />
-        </>
-      )}
-      <main id="main" tabIndex={-1} className={clsx('relative outline-none', !isEmbed && 'md:pl-[60px]')}>
-        {children}
-      </main>
-      {!isEmbed && !isCameraGuide && (
-        <div className="hidden md:block md:pl-[60px]">
-          <Footer />
-        </div>
-      )}
-    </ToastProvider>
+    <WebQueryProvider>
+      <ToastProvider>
+        {!isEmbed && (
+          <>
+            <RecoveryRedirect />
+            <PrivacySignals />
+            <div className="fixed inset-0 -z-10 grid-bg opacity-40" aria-hidden />
+            <div className="fixed inset-0 -z-20 bg-gradient-to-b from-[#070913] via-[#05060a] to-[#03040a]" aria-hidden />
+            <Starfield />
+            <SiteChrome />
+          </>
+        )}
+        <main id="main" tabIndex={-1} className={clsx('relative outline-none', !isEmbed && 'md:pl-[60px]')}>
+          {children}
+        </main>
+        {!isEmbed && !isCameraGuide && (
+          <div className="hidden md:block md:pl-[60px]">
+            <Footer />
+          </div>
+        )}
+      </ToastProvider>
+    </WebQueryProvider>
   );
 }

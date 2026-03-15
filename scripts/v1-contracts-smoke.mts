@@ -1,203 +1,33 @@
 import assert from 'node:assert/strict';
-import { createApiClient } from '@tminuszero/api-client';
-import {
-  entitlementSchemaV1,
-  filterPresetsSchemaV1,
-  launchDetailSchemaV1,
-  launchFeedSchemaV1,
-  launchNotificationPreferenceEnvelopeSchemaV1,
-  notificationPreferencesSchemaV1,
-  profileSchemaV1,
-  pushDeviceRegistrationSchemaV1,
-  searchResponseSchemaV1,
-  viewerSessionSchemaV1,
-  watchlistsSchemaV1
-} from '@tminuszero/contracts';
+import { ApiClientError, createApiClient } from '../packages/api-client/src/index.ts';
 
-const client = createApiClient();
+type LoggedRequest = {
+  method: string;
+  path: string;
+  search: string;
+  credentials: string | undefined;
+  authorization: string | null;
+  body: unknown;
+};
 
-assert.equal(typeof client.getViewerSession, 'function');
-assert.equal(typeof client.getViewerEntitlements, 'function');
-assert.equal(typeof client.getLaunchFeed, 'function');
-assert.equal(typeof client.getLaunchDetail, 'function');
-assert.equal(typeof client.search, 'function');
-assert.equal(typeof client.getProfile, 'function');
-assert.equal(typeof client.getWatchlists, 'function');
-assert.equal(typeof client.getFilterPresets, 'function');
-assert.equal(typeof client.getNotificationPreferences, 'function');
-assert.equal(typeof client.getLaunchNotificationPreference, 'function');
-assert.equal(typeof client.registerPushDevice, 'function');
+const launchId = '11111111-1111-4111-8111-111111111111';
 
-viewerSessionSchemaV1.parse({
-  viewerId: null,
-  email: null,
-  role: 'guest',
-  accessToken: null,
-  expiresAt: null,
-  authMode: 'guest'
-});
-
-entitlementSchemaV1.parse({
-  tier: 'anon',
-  status: 'none',
-  source: 'guest',
-  isPaid: false,
-  isAdmin: false,
-  isAuthed: false,
-  mode: 'public',
-  refreshIntervalSeconds: 900,
-  capabilities: {
-    canUseSavedItems: false,
-    canUseOneOffCalendar: true,
-    canUseLiveFeed: false,
-    canUseChangeLog: false,
-    canUseInstantAlerts: false,
-    canUseRecurringCalendarFeeds: false,
-    canUseRssFeeds: false,
-    canUseEmbedWidgets: false,
-    canUseArTrajectory: false,
-    canUseEnhancedForecastInsights: false,
-    canUseLaunchDayEmail: false
-  },
-  limits: {
-    presetLimit: 0,
-    watchlistLimit: 0,
-    watchlistRuleLimit: 0
-  },
-  cancelAtPeriodEnd: false,
-  currentPeriodEnd: null,
-  stripePriceId: null,
-  reconciled: false,
-  reconcileThrottled: false
-});
-
-launchFeedSchemaV1.parse({
-  launches: [
-    {
-      id: '11111111-1111-4111-8111-111111111111',
-      slug: 'sample-launch',
-      name: 'Sample Launch',
-      net: '2026-03-08T12:00:00.000Z',
-      status: 'Go',
-      provider: 'Sample Provider',
-      imageUrl: 'https://example.com/launch.jpg'
-    }
-  ],
-  nextCursor: null,
-  hasMore: false,
-  freshness: 'public-cache-db',
-  intervalMinutes: 15
-});
-
-searchResponseSchemaV1.parse({
-  query: 'falcon',
-  results: [
-    {
-      id: 'launch:1',
-      type: 'launch',
-      title: 'Falcon 9',
-      subtitle: 'SpaceX',
-      summary: 'Upcoming launch.',
-      href: '/launches/falcon-9',
-      imageUrl: 'https://example.com/falcon.jpg',
-      badge: 'Launch',
-      publishedAt: '2026-03-08T12:00:00.000Z'
-    }
-  ],
-  tookMs: 12,
-  limit: 8,
-  offset: 0,
-  hasMore: false
-});
-
-notificationPreferencesSchemaV1.parse({
-  pushEnabled: false,
-  emailEnabled: true,
-  smsEnabled: false,
-  launchDayEmailEnabled: false,
-  quietHoursEnabled: false,
-  quietStartLocal: null,
-  quietEndLocal: null,
-  smsVerified: false,
-  smsPhone: null
-});
-
-profileSchemaV1.parse({
-  viewerId: '11111111-1111-4111-8111-111111111111',
-  email: 'viewer@example.com',
-  role: 'member',
-  firstName: 'Ada',
-  lastName: 'Lovelace',
-  timezone: 'America/New_York',
-  emailConfirmedAt: '2026-03-08T12:00:00.000Z'
-});
-
-watchlistsSchemaV1.parse({
-  watchlists: [
-    {
-      id: '11111111-1111-4111-8111-111111111111',
-      name: 'My Launches',
-      ruleCount: 2,
-      createdAt: '2026-03-08T12:00:00.000Z'
-    }
-  ]
-});
-
-filterPresetsSchemaV1.parse({
-  presets: [
-    {
-      id: '11111111-1111-4111-8111-111111111111',
-      name: 'Florida',
-      filters: { region: 'us', state: 'Florida' },
-      isDefault: true,
-      createdAt: '2026-03-08T12:00:00.000Z',
-      updatedAt: '2026-03-08T12:00:00.000Z'
-    }
-  ]
-});
-
-launchNotificationPreferenceEnvelopeSchemaV1.parse({
-  enabled: true,
-  preference: {
-    launchId: '11111111-1111-4111-8111-111111111111',
-    channel: 'push',
-    mode: 't_minus',
-    timezone: 'UTC',
-    tMinusMinutes: [10, 30],
-    localTimes: [],
-    notifyStatusChange: true,
-    notifyNetChange: true
+function parseBody(init: RequestInit | undefined) {
+  if (!init?.body || typeof init.body !== 'string') {
+    return undefined;
   }
-});
 
-pushDeviceRegistrationSchemaV1.parse({
-  platform: 'ios',
-  token: 'ExponentPushToken[abc123]',
-  appVersion: '1.0.0',
-  deviceName: 'iPhone',
-  pushProvider: 'expo',
-  registeredAt: '2026-03-08T12:00:00.000Z'
-});
+  try {
+    return JSON.parse(init.body);
+  } catch {
+    return init.body;
+  }
+}
 
-launchDetailSchemaV1.parse({
-  launch: {
-    id: '11111111-1111-4111-8111-111111111111',
-    slug: 'sample-launch',
-    name: 'Sample Launch',
-    net: '2026-03-08T12:00:00.000Z',
-    status: 'Go',
-    provider: 'Sample Provider',
-    imageUrl: 'https://example.com/launch.jpg',
-    mission: 'Sample mission.',
-    padName: 'SLC-40',
-    padLocation: 'Cape Canaveral',
-    windowStart: '2026-03-08T12:00:00.000Z',
-    windowEnd: '2026-03-08T12:30:00.000Z',
-    weatherSummary: 'Clear skies',
-    launchStatusDescription: 'Go for launch',
-    rocketName: 'Falcon 9'
-  },
-  entitlements: {
+async function main() {
+  const requestLog: LoggedRequest[] = [];
+
+  const baseEntitlements = {
     tier: 'free',
     status: 'active',
     source: 'stripe',
@@ -207,11 +37,18 @@ launchDetailSchemaV1.parse({
     mode: 'public',
     refreshIntervalSeconds: 900,
     capabilities: {
-      canUseSavedItems: true,
+      canUseSavedItems: false,
+      canUseLaunchFilters: true,
+      canUseLaunchCalendar: true,
       canUseOneOffCalendar: true,
       canUseLiveFeed: false,
       canUseChangeLog: false,
       canUseInstantAlerts: false,
+      canManageFilterPresets: false,
+      canManageFollows: false,
+      canUseBasicAlertRules: true,
+      canUseAdvancedAlertRules: false,
+      canUseBrowserLaunchAlerts: false,
       canUseRecurringCalendarFeeds: false,
       canUseRssFeeds: false,
       canUseEmbedWidgets: false,
@@ -220,24 +57,1519 @@ launchDetailSchemaV1.parse({
       canUseLaunchDayEmail: false
     },
     limits: {
-      presetLimit: 1,
-      watchlistLimit: 1,
-      watchlistRuleLimit: 10
+      presetLimit: 0,
+      filterPresetLimit: 0,
+      watchlistLimit: 0,
+      watchlistRuleLimit: 0
     },
     cancelAtPeriodEnd: false,
     currentPeriodEnd: null,
     stripePriceId: null,
-    reconciled: false,
+    reconciled: true,
     reconcileThrottled: false
-  },
-  related: [],
-  enrichment: {
-    firstStageCount: 1,
-    recoveryCount: 1,
-    externalContentCount: 0,
-    hasJepScore: false,
-    faaAdvisoryCount: 0
-  }
-});
+  } as const;
 
-console.log('v1 contract smoke passed');
+  const payloads = {
+    viewerSession: {
+      viewerId: null,
+      email: null,
+      role: 'guest',
+      accessToken: null,
+      expiresAt: null,
+      authMode: 'guest'
+    },
+    viewerSessionBearer: {
+      viewerId: launchId,
+      email: 'viewer@example.com',
+      role: 'member',
+      accessToken: 'tmz-bearer',
+      expiresAt: '2026-03-08T12:00:00.000Z',
+      authMode: 'bearer'
+    },
+    entitlements: baseEntitlements,
+    launchFeed: {
+      launches: [
+        {
+          id: launchId,
+          ll2Id: 'd7fce970-65bb-4fd2-9170-fcbe9f0ebc61',
+          ll2AgencyId: 121,
+          ll2PadId: 87,
+          ll2RocketConfigId: 44,
+          cacheGeneratedAt: '2026-03-08T11:58:00.000Z',
+          slug: 'sample-launch',
+          name: 'Sample Launch',
+          launchDesignator: 'SL-42',
+          agencyLaunchAttemptCount: 12,
+          agencyLaunchAttemptCountYear: 3,
+          locationLaunchAttemptCount: 19,
+          locationLaunchAttemptCountYear: 4,
+          orbitalLaunchAttemptCount: 27,
+          orbitalLaunchAttemptCountYear: 5,
+          padLaunchAttemptCount: 8,
+          padLaunchAttemptCountYear: 2,
+          padTurnaround: '17d',
+          provider: 'Sample Provider',
+          providerType: 'Commercial',
+          providerCountryCode: 'USA',
+          providerDescription: 'Sample launch provider.',
+          providerLogoUrl: 'https://example.com/provider-logo.png',
+          providerImageUrl: 'https://example.com/provider-image.png',
+          vehicle: 'Falcon 9',
+          rocket: {
+            fullName: 'Falcon 9 Block 5',
+            family: 'Falcon',
+            variant: 'Block 5'
+          },
+          mission: {
+            name: 'Starlink Group 99',
+            type: 'Communications',
+            description: 'Deploy broadband satellites.',
+            orbit: 'LEO'
+          },
+          pad: {
+            name: 'SLC-40',
+            shortCode: 'SLC-40',
+            state: 'Florida',
+            timezone: 'America/New_York',
+            locationName: 'Cape Canaveral',
+            countryCode: 'USA',
+            mapUrl: null,
+            latitude: 28.5618571,
+            longitude: -80.577366
+          },
+          net: '2026-03-08T12:00:00.000Z',
+          netPrecision: 'minute',
+          windowStart: '2026-03-08T12:00:00.000Z',
+          windowEnd: '2026-03-08T12:30:00.000Z',
+          webcastLive: true,
+          videoUrl: 'https://example.com/watch',
+          image: {
+            thumbnail: 'https://example.com/launch.jpg',
+            full: 'https://example.com/launch-full.jpg'
+          },
+          tier: 'major',
+          status: 'go',
+          statusText: 'Go',
+          featured: true,
+          hidden: false,
+          payloads: [
+            {
+              name: 'Starlink',
+              type: 'Satellite',
+              orbit: 'LEO',
+              agency: 'SpaceX'
+            }
+          ],
+          launchInfoUrls: [
+            {
+              url: 'https://example.com/info',
+              title: 'Mission page'
+            }
+          ],
+          launchVidUrls: [
+            {
+              url: 'https://example.com/watch',
+              title: 'Webcast',
+              publisher: 'TMZ'
+            }
+          ],
+          missionPatches: [
+            {
+              name: 'Primary patch',
+              image_url: 'https://example.com/patch.png'
+            }
+          ],
+          updates: [
+            {
+              id: 1,
+              comment: 'Holding T-0',
+              created_on: '2026-03-08T11:00:00.000Z'
+            }
+          ],
+          timeline: [
+            {
+              relative_time: 'T-00:10:00'
+            }
+          ],
+          currentEvent: {
+            id: 1,
+            name: 'Fueling',
+            date: '2026-03-08T11:50:00.000Z'
+          },
+          nextEvent: {
+            id: 2,
+            name: 'Liftoff',
+            date: '2026-03-08T12:00:00.000Z'
+          },
+          lastUpdated: '2026-03-08T11:59:00.000Z',
+          updatedFields: ['net', 'status_abbrev'],
+          changeSummary: 'NET change and status update'
+        }
+      ],
+      nextCursor: null,
+      hasMore: false,
+      freshness: 'public-cache-db',
+      intervalMinutes: 15,
+      intervalSeconds: null,
+      tier: null,
+      scope: 'public'
+    },
+    changedLaunches: {
+      hours: 24,
+      tier: 'premium',
+      intervalSeconds: 15,
+      results: [
+        {
+          launchId,
+          name: 'Sample Launch',
+          summary: 'NET change and status update',
+          lastUpdated: '2026-03-08T11:59:00.000Z',
+          lastUpdatedLabel: '11:59 AM',
+          entries: [
+            {
+              updateId: 'launch-update-1',
+              changeSummary: 'NET change',
+              updatedFields: ['net'],
+              detectedAt: '2026-03-08T11:59:00.000Z',
+              detectedLabel: '11:59 AM',
+              details: ['NET moved 5 minutes later']
+            }
+          ]
+        }
+      ]
+    },
+    launchDetail: {
+      launch: {
+        id: launchId,
+        slug: 'sample-launch',
+        name: 'Sample Launch',
+        net: '2026-03-08T12:00:00.000Z',
+        status: 'Go',
+        provider: 'Sample Provider',
+        imageUrl: 'https://example.com/launch.jpg',
+        mission: 'Sample mission.',
+        padName: 'SLC-40',
+        padLocation: 'Cape Canaveral',
+        windowStart: '2026-03-08T12:00:00.000Z',
+        windowEnd: '2026-03-08T12:30:00.000Z',
+        weatherSummary: 'Clear skies',
+        launchStatusDescription: 'Go for launch',
+        rocketName: 'Falcon 9'
+      },
+      entitlements: baseEntitlements,
+      related: [
+        {
+          id: `launch:${launchId}`,
+          type: 'launch',
+          title: 'Sample Launch',
+          subtitle: 'Sample Provider',
+          summary: 'Upcoming launch.',
+          href: `/launches/${launchId}`,
+          imageUrl: 'https://example.com/launch.jpg',
+          badge: 'Launch',
+          publishedAt: '2026-03-08T12:00:00.000Z'
+        }
+      ],
+      enrichment: {
+        firstStageCount: 1,
+        recoveryCount: 1,
+        externalContentCount: 1,
+        hasJepScore: false,
+        faaAdvisoryCount: 0
+      },
+      arTrajectory: {
+        eligible: true,
+        hasTrajectory: true,
+        availabilityReason: 'available',
+        qualityState: 'safe_corridor',
+        confidenceBadge: 'medium',
+        generatedAt: '2026-03-08T11:57:00.000Z',
+        publishPolicy: {
+          precisionClaim: false,
+          allowPrecision: false,
+          enforcePadOnly: false,
+          contractStatus: 'pass',
+          missingFields: [],
+          blockingReasons: [],
+          reasons: []
+        }
+      }
+    },
+    launchTrajectory: {
+      launchId,
+      version: 'trajectory-public-v2',
+      modelVersion: 'ios-baseline-1',
+      quality: 0.74,
+      qualityState: 'safe_corridor',
+      uncertaintyEnvelope: {
+        sampleCount: 2,
+        sigmaDegP50: 0.7,
+        sigmaDegP95: 1.2,
+        sigmaDegMax: 1.5
+      },
+      sourceBlend: {
+        sourceCode: 'provider_plus_template',
+        sourceLabel: 'Provider + template blend',
+        hasDirectionalConstraint: true,
+        hasLandingDirectional: false,
+        hasHazardDirectional: false,
+        hasMissionNumericOrbit: true,
+        hasSupgpConstraint: false
+      },
+      confidenceReasons: ['provider_heading'],
+      safeModeActive: false,
+      generatedAt: '2026-03-08T11:57:00.000Z',
+      confidenceTier: 'B',
+      sourceSufficiency: {
+        providerTimeline: true
+      },
+      freshnessState: 'fresh',
+      lineageComplete: true,
+      publishPolicy: {
+        precisionClaim: false,
+        allowPrecision: false,
+        enforcePadOnly: false,
+        contractStatus: 'pass',
+        missingFields: [],
+        blockingReasons: [],
+        reasons: []
+      },
+      confidenceBadge: 'medium',
+      evidenceLabel: 'Provider directional fit',
+      tracks: [
+        {
+          trackKind: 'core_up',
+          samples: [
+            {
+              tPlusSec: 0,
+              ecef: [1, 2, 3],
+              sigmaDeg: 0.7
+            },
+            {
+              tPlusSec: 60,
+              ecef: [4, 5, 6],
+              sigmaDeg: 0.9
+            }
+          ]
+        }
+      ],
+      milestones: [
+        {
+          key: 'liftoff',
+          tPlusSec: 0,
+          label: 'Liftoff',
+          description: 'Vehicle leaves the pad.',
+          timeText: 'T+0',
+          sourceRefIds: ['provider-timeline'],
+          confidence: 'high',
+          phase: 'core_ascent',
+          trackKind: 'core_up',
+          sourceType: 'provider_timeline',
+          estimated: false,
+          projectable: true
+        }
+      ],
+      product: {
+        renderTier: 1
+      }
+    },
+    search: {
+      query: 'starlink',
+      results: [
+        {
+          id: launchId,
+          type: 'launch',
+          title: 'Sample Launch',
+          subtitle: 'Sample Provider',
+          summary: 'Upcoming launch.',
+          href: `/launches/${launchId}`,
+          imageUrl: 'https://example.com/launch.jpg',
+          badge: 'Launch',
+          publishedAt: '2026-03-08T12:00:00.000Z'
+        }
+      ],
+      tookMs: 12,
+      limit: 8,
+      offset: 0,
+      hasMore: false
+    },
+    notificationPreferences: {
+      pushEnabled: false,
+      emailEnabled: true,
+      smsEnabled: false,
+      launchDayEmailEnabled: false,
+      launchDayEmailProviders: [],
+      launchDayEmailStates: [],
+      quietHoursEnabled: false,
+      quietStartLocal: null,
+      quietEndLocal: null,
+      smsVerified: false,
+      smsPhone: null,
+      smsSystemEnabled: true
+    },
+    privacyPreferences: {
+      optOutSaleShare: false,
+      limitSensitive: true,
+      blockThirdPartyEmbeds: false,
+      gpcEnabled: false,
+      createdAt: '2026-03-08T12:00:00.000Z',
+      updatedAt: '2026-03-08T12:00:00.000Z'
+    },
+    profile: {
+      viewerId: launchId,
+      email: 'viewer@example.com',
+      role: 'member',
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+      timezone: 'America/New_York',
+      emailConfirmedAt: '2026-03-08T12:00:00.000Z',
+      createdAt: '2026-03-01T12:00:00.000Z'
+    },
+    marketingEmail: {
+      marketingEmailOptIn: false,
+      updatedAt: '2026-03-08T12:00:00.000Z'
+    },
+    accountExport: {
+      generated_at: '2026-03-08T12:00:00.000Z',
+      auth: {
+        user_id: launchId,
+        email: 'viewer@example.com',
+        created_at: '2026-03-01T12:00:00.000Z',
+        user_metadata: {
+          first_name: 'Ada'
+        }
+      },
+      profile: {
+        user_id: launchId,
+        email: 'viewer@example.com'
+      },
+      notification_preferences: {
+        email_enabled: true
+      },
+      sms_consent_events: [],
+      privacy_preferences: {
+        opt_out_sale_share: false
+      },
+      launch_notification_preferences: [],
+      push_subscriptions: [],
+      subscription: null,
+      stripe_customer: {
+        stripe_customer_id: 'cus_123'
+      },
+      warnings: []
+    },
+    billingSummary: {
+      provider: 'stripe',
+      productKey: 'premium_monthly',
+      status: 'active',
+      isPaid: true,
+      cancelAtPeriodEnd: false,
+      currentPeriodEnd: '2026-04-08T12:00:00.000Z',
+      managementMode: 'stripe_portal',
+      managementUrl: 'https://tmz.test/account',
+      providerMessage: null,
+      providerProductId: 'price_pro_monthly'
+    },
+    billingCatalogWeb: {
+      platform: 'web',
+      generatedAt: '2026-03-08T12:00:00.000Z',
+      products: [
+        {
+          productKey: 'premium_monthly',
+          platform: 'web',
+          provider: 'stripe',
+          available: true,
+          displayName: 'Premium Monthly',
+          priceLabel: '$3.99/mo',
+          providerProductId: 'price_pro_monthly',
+          stripePriceId: 'price_pro_monthly'
+        }
+      ]
+    },
+    billingCatalogIos: {
+      platform: 'ios',
+      generatedAt: '2026-03-08T12:00:00.000Z',
+      products: [
+        {
+          productKey: 'premium_monthly',
+          platform: 'ios',
+          provider: 'apple_app_store',
+          available: true,
+          displayName: 'Premium Monthly',
+          priceLabel: '$3.99/mo',
+          providerProductId: 'app.tminuszero.premium.monthly'
+        }
+      ]
+    },
+    billingCatalogAndroid: {
+      platform: 'android',
+      generatedAt: '2026-03-08T12:00:00.000Z',
+      products: [
+        {
+          productKey: 'premium_monthly',
+          platform: 'android',
+          provider: 'google_play',
+          available: true,
+          displayName: 'Premium Monthly',
+          priceLabel: '$3.99/mo',
+          providerProductId: 'app.tminuszero.premium.monthly',
+          googleBasePlanId: 'premium-monthly',
+          googleOfferToken: 'offer-token'
+        }
+      ]
+    },
+    billingSyncResponse: {
+      summary: {
+        provider: 'apple_app_store',
+        productKey: 'premium_monthly',
+        status: 'active',
+        isPaid: true,
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: '2026-04-08T12:00:00.000Z',
+        managementMode: 'app_store_external',
+        managementUrl: 'https://apps.apple.com/account/subscriptions',
+        providerMessage: 'Purchased in the App Store. Manage or restore this subscription through Apple.',
+        providerProductId: 'app.tminuszero.premium.monthly'
+      },
+      entitlements: {
+        ...baseEntitlements,
+        tier: 'premium',
+        status: 'active',
+        source: 'apple',
+        isPaid: true,
+        mode: 'live',
+        capabilities: {
+          ...baseEntitlements.capabilities,
+          canUseSavedItems: true,
+          canUseLaunchFilters: true,
+          canUseLaunchCalendar: true,
+          canManageFilterPresets: true,
+          canManageFollows: true,
+          canUseBasicAlertRules: true,
+          canUseAdvancedAlertRules: true,
+          canUseBrowserLaunchAlerts: true,
+          canUseLiveFeed: true,
+          canUseChangeLog: true,
+          canUseInstantAlerts: true,
+          canUseRecurringCalendarFeeds: true,
+          canUseRssFeeds: true,
+          canUseEmbedWidgets: true,
+          canUseArTrajectory: true,
+          canUseEnhancedForecastInsights: true,
+          canUseLaunchDayEmail: true
+        },
+        limits: {
+          presetLimit: 25,
+          filterPresetLimit: 25,
+          watchlistLimit: 5,
+          watchlistRuleLimit: 200
+        }
+      }
+    },
+    smsVerificationSent: {
+      status: 'sent'
+    },
+    smsVerificationVerified: {
+      status: 'verified'
+    },
+    watchlists: {
+      watchlists: [
+        {
+          id: '22222222-2222-4222-8222-222222222222',
+          name: 'My Launches',
+          ruleCount: 2,
+          createdAt: '2026-03-08T12:00:00.000Z',
+          rules: [
+            {
+              id: '44444444-4444-4444-8444-444444444444',
+              ruleType: 'launch',
+              ruleValue: launchId,
+              createdAt: '2026-03-08T12:00:00.000Z'
+            }
+          ]
+        }
+      ]
+    },
+    filterPresets: {
+      presets: [
+        {
+          id: '33333333-3333-4333-8333-333333333333',
+          name: 'Florida',
+          filters: { region: 'us', state: 'Florida' },
+          isDefault: true,
+          createdAt: '2026-03-08T12:00:00.000Z',
+          updatedAt: '2026-03-08T12:00:00.000Z'
+        }
+      ]
+    },
+    launchNotificationPreference: {
+      enabled: true,
+      preference: {
+        launchId,
+        channel: 'push',
+        mode: 't_minus',
+        timezone: 'UTC',
+        tMinusMinutes: [10, 30],
+        localTimes: [],
+        notifyStatusChange: true,
+        notifyNetChange: true
+      },
+      pushStatus: {
+        enabled: true,
+        subscribed: true
+      }
+    },
+    watchlistEnvelope: {
+      watchlist: {
+        id: '22222222-2222-4222-8222-222222222222',
+        name: 'My Launches',
+        ruleCount: 0,
+        createdAt: '2026-03-08T12:00:00.000Z',
+        rules: []
+      }
+    },
+    watchlistRuleEnvelope: {
+      rule: {
+        id: '55555555-5555-4555-8555-555555555555',
+        ruleType: 'provider',
+        ruleValue: 'SpaceX',
+        createdAt: '2026-03-08T12:00:00.000Z'
+      },
+      source: 'created'
+    },
+    filterPresetEnvelope: {
+      preset: {
+        id: '33333333-3333-4333-8333-333333333333',
+        name: 'Florida',
+        filters: { region: 'us', state: 'Florida' },
+        isDefault: true,
+        createdAt: '2026-03-08T12:00:00.000Z',
+        updatedAt: '2026-03-08T12:00:00.000Z'
+      }
+    },
+    calendarFeeds: {
+      feeds: [
+        {
+          id: '66666666-6666-4666-8666-666666666666',
+          name: 'Live feed',
+          token: 'calendar-token',
+          filters: { region: 'us' },
+          alarmMinutesBefore: 30,
+          createdAt: '2026-03-08T12:00:00.000Z',
+          updatedAt: '2026-03-08T12:00:00.000Z'
+        }
+      ]
+    },
+    calendarFeedEnvelope: {
+      feed: {
+        id: '66666666-6666-4666-8666-666666666666',
+        name: 'Live feed',
+        token: 'calendar-token',
+        filters: { region: 'us' },
+        alarmMinutesBefore: 30,
+        createdAt: '2026-03-08T12:00:00.000Z',
+        updatedAt: '2026-03-08T12:00:00.000Z'
+      }
+    },
+    rssFeeds: {
+      feeds: [
+        {
+          id: '77777777-7777-4777-8777-777777777777',
+          name: 'RSS feed',
+          token: 'rss-token',
+          filters: { provider: 'SpaceX' },
+          createdAt: '2026-03-08T12:00:00.000Z',
+          updatedAt: '2026-03-08T12:00:00.000Z'
+        }
+      ]
+    },
+    rssFeedEnvelope: {
+      feed: {
+        id: '77777777-7777-4777-8777-777777777777',
+        name: 'RSS feed',
+        token: 'rss-token',
+        filters: { provider: 'SpaceX' },
+        createdAt: '2026-03-08T12:00:00.000Z',
+        updatedAt: '2026-03-08T12:00:00.000Z'
+      }
+    },
+    embedWidgets: {
+      widgets: [
+        {
+          id: '88888888-8888-4888-8888-888888888888',
+          name: 'Next Launch',
+          token: 'widget-token',
+          widgetType: 'next_launch_card',
+          filters: { region: 'all' },
+          presetId: '33333333-3333-4333-8333-333333333333',
+          watchlistId: null,
+          createdAt: '2026-03-08T12:00:00.000Z',
+          updatedAt: '2026-03-08T12:00:00.000Z'
+        }
+      ]
+    },
+    embedWidgetEnvelope: {
+      widget: {
+        id: '88888888-8888-4888-8888-888888888888',
+        name: 'Next Launch',
+        token: 'widget-token',
+        widgetType: 'next_launch_card',
+        filters: { region: 'all' },
+        presetId: '33333333-3333-4333-8333-333333333333',
+        watchlistId: null,
+        createdAt: '2026-03-08T12:00:00.000Z',
+        updatedAt: '2026-03-08T12:00:00.000Z'
+      }
+    },
+    success: {
+      ok: true
+    },
+    pushDevice: {
+      platform: 'ios',
+      installationId: 'tmz-installation-1',
+      token: 'ExponentPushToken[abc123]',
+      appVersion: '1.0.0',
+      deviceName: 'iPhone',
+      pushProvider: 'expo',
+      active: true,
+      registeredAt: '2026-03-08T12:00:00.000Z',
+      lastSentAt: null,
+      lastReceiptAt: null,
+      lastFailureReason: null,
+      disabledAt: null
+    },
+    pushDeviceRemoval: {
+      platform: 'ios',
+      installationId: 'tmz-installation-1',
+      removed: true,
+      removedAt: '2026-03-08T12:01:00.000Z'
+    },
+    pushTest: {
+      ok: true,
+      queuedAt: '2026-03-08T12:02:00.000Z'
+    }
+  };
+
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const url = new URL(typeof input === 'string' ? input : input.url);
+    const method = init?.method || 'GET';
+    const headers = new Headers(init?.headers);
+
+    requestLog.push({
+      method,
+      path: url.pathname,
+      search: url.search,
+      credentials: init?.credentials,
+      authorization: headers.get('Authorization'),
+      body: parseBody(init)
+    });
+
+    let status = 200;
+    let payload: unknown;
+
+    if (url.pathname === '/api/v1/viewer/session') {
+      payload = headers.get('Authorization') ? payloads.viewerSessionBearer : payloads.viewerSession;
+    } else if (url.pathname === '/api/v1/viewer/entitlements') {
+      payload = payloads.entitlements;
+    } else if (url.pathname === '/api/v1/launches') {
+      payload = payloads.launchFeed;
+    } else if (url.pathname === '/api/v1/launches/changed') {
+      payload = payloads.changedLaunches;
+    } else if (url.pathname === `/api/v1/launches/${launchId}`) {
+      payload = payloads.launchDetail;
+    } else if (url.pathname === `/api/v1/launches/${launchId}/trajectory`) {
+      payload = payloads.launchTrajectory;
+    } else if (url.pathname === '/api/v1/search') {
+      payload = {
+        ...payloads.search,
+        query: url.searchParams.get('q') || ''
+      };
+    } else if (url.pathname === '/api/v1/ar/telemetry/session' && method === 'POST') {
+      payload = payloads.success;
+    } else if (url.pathname === '/api/v1/me/profile') {
+      payload = payloads.profile;
+    } else if (url.pathname === '/api/v1/me/privacy/preferences' && method === 'GET') {
+      payload = payloads.privacyPreferences;
+    } else if (url.pathname === '/api/v1/me/privacy/preferences' && method === 'PATCH') {
+      payload = {
+        ...payloads.privacyPreferences,
+        ...(parseBody(init) as object | undefined)
+      };
+    } else if (url.pathname === '/api/v1/me/export') {
+      payload = payloads.accountExport;
+    } else if (url.pathname === '/api/v1/me/billing/summary') {
+      payload = payloads.billingSummary;
+    } else if (url.pathname === '/api/v1/me/billing/catalog') {
+      const platform = url.searchParams.get('platform');
+      payload =
+        platform === 'ios'
+          ? payloads.billingCatalogIos
+          : platform === 'android'
+            ? payloads.billingCatalogAndroid
+            : payloads.billingCatalogWeb;
+    } else if (url.pathname === '/api/v1/me/billing/apple/sync' && method === 'POST') {
+      payload = payloads.billingSyncResponse;
+    } else if (url.pathname === '/api/v1/me/billing/google/sync' && method === 'POST') {
+      payload = {
+        ...payloads.billingSyncResponse,
+        summary: {
+          ...payloads.billingSyncResponse.summary,
+          provider: 'google_play',
+          managementMode: 'google_play_external',
+          managementUrl: 'https://play.google.com/store/account/subscriptions',
+          providerMessage: 'Purchased in Google Play. Manage or restore this subscription through Google Play.'
+        },
+        entitlements: {
+          ...payloads.billingSyncResponse.entitlements,
+          source: 'google'
+        }
+      };
+    } else if (url.pathname === '/api/v1/me/marketing-email' && method === 'GET') {
+      payload = payloads.marketingEmail;
+    } else if (url.pathname === '/api/v1/me/marketing-email' && method === 'PATCH') {
+      payload = {
+        ...payloads.marketingEmail,
+        ...(parseBody(init) as object | undefined)
+      };
+    } else if (url.pathname === '/api/v1/me/account/delete' && method === 'POST') {
+      payload = payloads.success;
+    } else if (url.pathname === '/api/v1/me/watchlists' && method === 'GET') {
+      payload = payloads.watchlists;
+    } else if (url.pathname === '/api/v1/me/watchlists' && method === 'POST') {
+      payload = payloads.watchlistEnvelope;
+    } else if (url.pathname === '/api/v1/me/watchlists/22222222-2222-4222-8222-222222222222' && method === 'PATCH') {
+      payload = payloads.watchlistEnvelope;
+    } else if (url.pathname === '/api/v1/me/watchlists/22222222-2222-4222-8222-222222222222' && method === 'DELETE') {
+      payload = payloads.success;
+    } else if (url.pathname === '/api/v1/me/watchlists/22222222-2222-4222-8222-222222222222/rules' && method === 'POST') {
+      payload = payloads.watchlistRuleEnvelope;
+    } else if (url.pathname === '/api/v1/me/filter-presets') {
+      payload = method === 'GET' ? payloads.filterPresets : payloads.filterPresetEnvelope;
+    } else if (url.pathname === '/api/v1/me/filter-presets/33333333-3333-4333-8333-333333333333') {
+      payload = method === 'DELETE' ? payloads.success : payloads.filterPresetEnvelope;
+    } else if (url.pathname === '/api/v1/me/calendar-feeds' && method === 'GET') {
+      payload = payloads.calendarFeeds;
+    } else if (url.pathname === '/api/v1/me/calendar-feeds' && method === 'POST') {
+      payload = payloads.calendarFeedEnvelope;
+    } else if (url.pathname === '/api/v1/me/calendar-feeds/66666666-6666-4666-8666-666666666666' && method === 'PATCH') {
+      payload = payloads.calendarFeedEnvelope;
+    } else if (url.pathname === '/api/v1/me/calendar-feeds/66666666-6666-4666-8666-666666666666' && method === 'DELETE') {
+      payload = payloads.success;
+    } else if (url.pathname === '/api/v1/me/calendar-feeds/66666666-6666-4666-8666-666666666666/rotate' && method === 'POST') {
+      payload = payloads.calendarFeedEnvelope;
+    } else if (url.pathname === '/api/v1/me/rss-feeds' && method === 'GET') {
+      payload = payloads.rssFeeds;
+    } else if (url.pathname === '/api/v1/me/rss-feeds' && method === 'POST') {
+      payload = payloads.rssFeedEnvelope;
+    } else if (url.pathname === '/api/v1/me/rss-feeds/77777777-7777-4777-8777-777777777777' && method === 'PATCH') {
+      payload = payloads.rssFeedEnvelope;
+    } else if (url.pathname === '/api/v1/me/rss-feeds/77777777-7777-4777-8777-777777777777' && method === 'DELETE') {
+      payload = payloads.success;
+    } else if (url.pathname === '/api/v1/me/rss-feeds/77777777-7777-4777-8777-777777777777/rotate' && method === 'POST') {
+      payload = payloads.rssFeedEnvelope;
+    } else if (url.pathname === '/api/v1/me/embed-widgets' && method === 'GET') {
+      payload = payloads.embedWidgets;
+    } else if (url.pathname === '/api/v1/me/embed-widgets' && method === 'POST') {
+      payload = payloads.embedWidgetEnvelope;
+    } else if (url.pathname === '/api/v1/me/embed-widgets/88888888-8888-4888-8888-888888888888' && method === 'PATCH') {
+      payload = payloads.embedWidgetEnvelope;
+    } else if (url.pathname === '/api/v1/me/embed-widgets/88888888-8888-4888-8888-888888888888' && method === 'DELETE') {
+      payload = payloads.success;
+    } else if (url.pathname === '/api/v1/me/embed-widgets/88888888-8888-4888-8888-888888888888/rotate' && method === 'POST') {
+      payload = payloads.embedWidgetEnvelope;
+    } else if (url.pathname === '/api/v1/me/notification-preferences' && method === 'GET') {
+      payload = payloads.notificationPreferences;
+    } else if (url.pathname === '/api/v1/me/notification-preferences' && method === 'POST') {
+      payload = {
+        ...payloads.notificationPreferences,
+        ...(parseBody(init) as object | undefined)
+      };
+    } else if (url.pathname === '/api/v1/me/notification-preferences/sms/verify' && method === 'POST') {
+      payload = payloads.smsVerificationSent;
+    } else if (url.pathname === '/api/v1/me/notification-preferences/sms/verify/check' && method === 'POST') {
+      payload = payloads.smsVerificationVerified;
+    } else if (url.pathname === `/api/v1/me/launch-notifications/${launchId}`) {
+      payload = payloads.launchNotificationPreference;
+    } else if (
+      url.pathname === '/api/v1/me/watchlists/22222222-2222-4222-8222-222222222222/rules/55555555-5555-4555-8555-555555555555' &&
+      method === 'DELETE'
+    ) {
+      payload = payloads.success;
+    } else if (url.pathname === '/api/v1/me/push-devices' && method === 'POST') {
+      payload = payloads.pushDevice;
+    } else if (url.pathname === '/api/v1/me/push-devices' && method === 'DELETE') {
+      payload = payloads.pushDeviceRemoval;
+    } else if (url.pathname === '/api/v1/me/push-devices/test' && headers.get('Authorization') === 'Bearer bad-token') {
+      status = 409;
+      payload = { error: 'push_not_enabled' };
+    } else if (url.pathname === '/api/v1/me/push-devices/test') {
+      payload = payloads.pushTest;
+    } else {
+      status = 404;
+      payload = { error: 'not_found' };
+    }
+
+    return new Response(JSON.stringify(payload), {
+      status,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  };
+
+  function popLastRequest() {
+    const request = requestLog.pop();
+    assert.ok(request, 'expected a request to be logged');
+    return request;
+  }
+
+  function expectGuest(request: LoggedRequest, path: string, method = 'GET') {
+    assert.equal(request.method, method);
+    assert.equal(request.path, path);
+    assert.equal(request.authorization, null);
+    assert.equal(request.credentials, 'same-origin');
+  }
+
+  function expectCookie(request: LoggedRequest, path: string, method = 'GET') {
+    assert.equal(request.method, method);
+    assert.equal(request.path, path);
+    assert.equal(request.authorization, null);
+    assert.equal(request.credentials, 'include');
+  }
+
+  function expectBearer(request: LoggedRequest, path: string, method = 'GET') {
+    assert.equal(request.method, method);
+    assert.equal(request.path, path);
+    assert.equal(request.authorization, 'Bearer tmz-bearer');
+    assert.equal(request.credentials, 'same-origin');
+  }
+
+  const guestClient = createApiClient({
+    baseUrl: 'https://tmz.test',
+    auth: { mode: 'guest' },
+    fetchImpl
+  });
+  const cookieClient = createApiClient({
+    baseUrl: 'https://tmz.test',
+    auth: { mode: 'cookie' },
+    fetchImpl
+  });
+  const bearerClient = createApiClient({
+    baseUrl: 'https://tmz.test',
+    auth: { mode: 'bearer', accessToken: 'tmz-bearer' },
+    fetchImpl
+  });
+
+  assert.equal(typeof guestClient.getViewerSession, 'function');
+  assert.equal(typeof guestClient.getViewerEntitlements, 'function');
+  assert.equal(typeof guestClient.getLaunchFeed, 'function');
+  assert.equal(typeof guestClient.getLaunchDetail, 'function');
+  assert.equal(typeof guestClient.getLaunchTrajectory, 'function');
+  assert.equal(typeof guestClient.postArTelemetrySession, 'function');
+  assert.equal(typeof guestClient.search, 'function');
+  assert.equal(typeof cookieClient.getProfile, 'function');
+  assert.equal(typeof cookieClient.getBillingSummary, 'function');
+  assert.equal(typeof cookieClient.getBillingCatalog, 'function');
+  assert.equal(typeof cookieClient.syncAppleBilling, 'function');
+  assert.equal(typeof cookieClient.syncGoogleBilling, 'function');
+  assert.equal(typeof cookieClient.updateProfile, 'function');
+  assert.equal(typeof cookieClient.getMarketingEmail, 'function');
+  assert.equal(typeof cookieClient.updateMarketingEmail, 'function');
+  assert.equal(typeof cookieClient.startSmsVerification, 'function');
+  assert.equal(typeof cookieClient.completeSmsVerification, 'function');
+  assert.equal(typeof cookieClient.deleteAccount, 'function');
+  assert.equal(typeof cookieClient.getWatchlists, 'function');
+  assert.equal(typeof cookieClient.updateWatchlist, 'function');
+  assert.equal(typeof cookieClient.deleteWatchlist, 'function');
+  assert.equal(typeof cookieClient.getFilterPresets, 'function');
+  assert.equal(typeof cookieClient.createFilterPreset, 'function');
+  assert.equal(typeof cookieClient.updateFilterPreset, 'function');
+  assert.equal(typeof cookieClient.deleteFilterPreset, 'function');
+  assert.equal(typeof cookieClient.getCalendarFeeds, 'function');
+  assert.equal(typeof cookieClient.createCalendarFeed, 'function');
+  assert.equal(typeof cookieClient.updateCalendarFeed, 'function');
+  assert.equal(typeof cookieClient.deleteCalendarFeed, 'function');
+  assert.equal(typeof cookieClient.rotateCalendarFeed, 'function');
+  assert.equal(typeof cookieClient.getRssFeeds, 'function');
+  assert.equal(typeof cookieClient.createRssFeed, 'function');
+  assert.equal(typeof cookieClient.updateRssFeed, 'function');
+  assert.equal(typeof cookieClient.deleteRssFeed, 'function');
+  assert.equal(typeof cookieClient.rotateRssFeed, 'function');
+  assert.equal(typeof cookieClient.getEmbedWidgets, 'function');
+  assert.equal(typeof cookieClient.createEmbedWidget, 'function');
+  assert.equal(typeof cookieClient.updateEmbedWidget, 'function');
+  assert.equal(typeof cookieClient.deleteEmbedWidget, 'function');
+  assert.equal(typeof cookieClient.rotateEmbedWidget, 'function');
+  assert.equal(typeof cookieClient.getNotificationPreferences, 'function');
+  assert.equal(typeof cookieClient.updateNotificationPreferences, 'function');
+  assert.equal(typeof cookieClient.getLaunchNotificationPreference, 'function');
+  assert.equal(typeof cookieClient.updateLaunchNotificationPreference, 'function');
+  assert.equal(typeof cookieClient.createWatchlist, 'function');
+  assert.equal(typeof cookieClient.createWatchlistRule, 'function');
+  assert.equal(typeof cookieClient.deleteWatchlistRule, 'function');
+  assert.equal(typeof cookieClient.registerPushDevice, 'function');
+  assert.equal(typeof cookieClient.removePushDevice, 'function');
+  assert.equal(typeof cookieClient.sendPushTest, 'function');
+
+  await guestClient.getViewerSession();
+  expectGuest(popLastRequest(), '/api/v1/viewer/session');
+
+  await guestClient.getViewerEntitlements();
+  expectGuest(popLastRequest(), '/api/v1/viewer/entitlements');
+
+  await guestClient.getLaunchFeed({ limit: 20, region: 'all' });
+  {
+    const request = popLastRequest();
+    expectGuest(request, '/api/v1/launches');
+    assert.match(request.search, /\blimit=20\b/);
+    assert.match(request.search, /\bregion=all\b/);
+  }
+
+  await cookieClient.getLaunchFeed({
+    scope: 'watchlist',
+    watchlistId: '22222222-2222-4222-8222-222222222222',
+    limit: 10,
+    offset: 20,
+    range: 'month',
+    region: 'us',
+    provider: 'SpaceX',
+    sort: 'changed',
+    status: 'hold'
+  });
+  {
+    const request = popLastRequest();
+    expectCookie(request, '/api/v1/launches');
+    assert.match(request.search, /\bscope=watchlist\b/);
+    assert.match(request.search, /\bwatchlistId=22222222-2222-4222-8222-222222222222\b/);
+    assert.match(request.search, /\blimit=10\b/);
+    assert.match(request.search, /\boffset=20\b/);
+    assert.match(request.search, /\brange=month\b/);
+    assert.match(request.search, /\bprovider=SpaceX\b/);
+    assert.match(request.search, /\bsort=changed\b/);
+    assert.match(request.search, /\bstatus=hold\b/);
+  }
+
+  await bearerClient.getChangedLaunches({ hours: 24, region: 'non-us' });
+  {
+    const request = popLastRequest();
+    expectBearer(request, '/api/v1/launches/changed');
+    assert.match(request.search, /\bhours=24\b/);
+    assert.match(request.search, /\bregion=non-us\b/);
+  }
+
+  await guestClient.getLaunchDetail(launchId);
+  expectGuest(popLastRequest(), `/api/v1/launches/${launchId}`);
+
+  await bearerClient.getLaunchTrajectory(launchId);
+  expectBearer(popLastRequest(), `/api/v1/launches/${launchId}/trajectory`);
+
+  await bearerClient.postArTelemetrySession({
+    type: 'start',
+    payload: {
+      sessionId: '99999999-9999-4999-8999-999999999999',
+      launchId,
+      startedAt: '2026-03-08T11:58:00.000Z',
+      runtimeFamily: 'ios_native',
+      trackingState: 'normal',
+      worldAlignment: 'gravity_and_heading',
+      lidarAvailable: true,
+      sceneDepthEnabled: true
+    }
+  });
+  {
+    const request = popLastRequest();
+    expectBearer(request, '/api/v1/ar/telemetry/session', 'POST');
+    assert.deepEqual(request.body, {
+      type: 'start',
+      payload: {
+        sessionId: '99999999-9999-4999-8999-999999999999',
+        launchId,
+        startedAt: '2026-03-08T11:58:00.000Z',
+        runtimeFamily: 'ios_native',
+        trackingState: 'normal',
+        worldAlignment: 'gravity_and_heading',
+        lidarAvailable: true,
+        sceneDepthEnabled: true
+      }
+    });
+  }
+
+  await guestClient.search('starlink', { limit: 8, offset: 0, types: ['launch'] });
+  {
+    const request = popLastRequest();
+    expectGuest(request, '/api/v1/search');
+    assert.match(request.search, /\bq=starlink\b/);
+    assert.match(request.search, /\blimit=8\b/);
+    assert.match(request.search, /\boffset=0\b/);
+    assert.match(request.search, /\btypes=launch\b/);
+  }
+
+  await cookieClient.getProfile();
+  expectCookie(popLastRequest(), '/api/v1/me/profile');
+
+  await bearerClient.getProfile();
+  expectBearer(popLastRequest(), '/api/v1/me/profile');
+
+  await cookieClient.getPrivacyPreferences();
+  expectCookie(popLastRequest(), '/api/v1/me/privacy/preferences');
+
+  await bearerClient.updatePrivacyPreferences({ optOutSaleShare: true });
+  {
+    const request = popLastRequest();
+    expectBearer(request, '/api/v1/me/privacy/preferences', 'PATCH');
+    assert.deepEqual(request.body, {
+      optOutSaleShare: true
+    });
+  }
+
+  await cookieClient.getAccountExport();
+  expectCookie(popLastRequest(), '/api/v1/me/export');
+
+  await cookieClient.getBillingSummary();
+  expectCookie(popLastRequest(), '/api/v1/me/billing/summary');
+
+  await bearerClient.getBillingCatalog('ios');
+  {
+    const request = popLastRequest();
+    expectBearer(request, '/api/v1/me/billing/catalog');
+    assert.match(request.search, /\bplatform=ios\b/);
+  }
+
+  await cookieClient.getBillingCatalog('android');
+  {
+    const request = popLastRequest();
+    expectCookie(request, '/api/v1/me/billing/catalog');
+    assert.match(request.search, /\bplatform=android\b/);
+  }
+
+  await bearerClient.syncAppleBilling({
+    transactionId: 'apple-transaction-1',
+    productId: 'app.tminuszero.premium.monthly',
+    originalTransactionId: 'apple-original-1',
+    appAccountToken: launchId,
+    environment: 'sandbox'
+  });
+  {
+    const request = popLastRequest();
+    expectBearer(request, '/api/v1/me/billing/apple/sync', 'POST');
+    assert.deepEqual(request.body, {
+      transactionId: 'apple-transaction-1',
+      productId: 'app.tminuszero.premium.monthly',
+      originalTransactionId: 'apple-original-1',
+      appAccountToken: launchId,
+      environment: 'sandbox'
+    });
+  }
+
+  await cookieClient.syncGoogleBilling({
+    purchaseToken: 'google-purchase-token',
+    productId: 'app.tminuszero.premium.monthly',
+    basePlanId: 'premium-monthly',
+    obfuscatedAccountId: launchId
+  });
+  {
+    const request = popLastRequest();
+    expectCookie(request, '/api/v1/me/billing/google/sync', 'POST');
+    assert.deepEqual(request.body, {
+      purchaseToken: 'google-purchase-token',
+      productId: 'app.tminuszero.premium.monthly',
+      basePlanId: 'premium-monthly',
+      obfuscatedAccountId: launchId
+    });
+  }
+
+  await cookieClient.updateProfile({ firstName: 'Grace' });
+  {
+    const request = popLastRequest();
+    expectCookie(request, '/api/v1/me/profile', 'PATCH');
+    assert.deepEqual(request.body, {
+      firstName: 'Grace'
+    });
+  }
+
+  await bearerClient.getMarketingEmail();
+  expectBearer(popLastRequest(), '/api/v1/me/marketing-email');
+
+  await cookieClient.updateMarketingEmail({ marketingEmailOptIn: true });
+  {
+    const request = popLastRequest();
+    expectCookie(request, '/api/v1/me/marketing-email', 'PATCH');
+    assert.deepEqual(request.body, {
+      marketingEmailOptIn: true
+    });
+  }
+
+  await cookieClient.getWatchlists();
+  expectCookie(popLastRequest(), '/api/v1/me/watchlists');
+
+  await bearerClient.getWatchlists();
+  expectBearer(popLastRequest(), '/api/v1/me/watchlists');
+
+  await cookieClient.updateWatchlist('22222222-2222-4222-8222-222222222222', {
+    name: 'My Launches'
+  });
+  {
+    const request = popLastRequest();
+    expectCookie(request, '/api/v1/me/watchlists/22222222-2222-4222-8222-222222222222', 'PATCH');
+    assert.deepEqual(request.body, {
+      name: 'My Launches'
+    });
+  }
+
+  await bearerClient.deleteWatchlist('22222222-2222-4222-8222-222222222222');
+  {
+    const request = popLastRequest();
+    expectBearer(request, '/api/v1/me/watchlists/22222222-2222-4222-8222-222222222222', 'DELETE');
+    assert.equal(request.body, undefined);
+  }
+
+  await cookieClient.getFilterPresets();
+  expectCookie(popLastRequest(), '/api/v1/me/filter-presets');
+
+  await bearerClient.getFilterPresets();
+  expectBearer(popLastRequest(), '/api/v1/me/filter-presets');
+
+  await cookieClient.createWatchlist({});
+  {
+    const request = popLastRequest();
+    expectCookie(request, '/api/v1/me/watchlists', 'POST');
+    assert.deepEqual(request.body, {});
+  }
+
+  await bearerClient.createWatchlistRule('22222222-2222-4222-8222-222222222222', {
+    ruleType: 'provider',
+    ruleValue: 'SpaceX'
+  });
+  {
+    const request = popLastRequest();
+    expectBearer(request, '/api/v1/me/watchlists/22222222-2222-4222-8222-222222222222/rules', 'POST');
+    assert.deepEqual(request.body, {
+      ruleType: 'provider',
+      ruleValue: 'SpaceX'
+    });
+  }
+
+  await cookieClient.deleteWatchlistRule(
+    '22222222-2222-4222-8222-222222222222',
+    '55555555-5555-4555-8555-555555555555'
+  );
+  {
+    const request = popLastRequest();
+    expectCookie(request, '/api/v1/me/watchlists/22222222-2222-4222-8222-222222222222/rules/55555555-5555-4555-8555-555555555555', 'DELETE');
+    assert.equal(request.body, undefined);
+  }
+
+  await bearerClient.createFilterPreset({
+    name: 'Florida',
+    filters: { region: 'us', state: 'Florida' }
+  });
+  {
+    const request = popLastRequest();
+    expectBearer(request, '/api/v1/me/filter-presets', 'POST');
+    assert.deepEqual(request.body, {
+      name: 'Florida',
+      filters: { region: 'us', state: 'Florida' }
+    });
+  }
+
+  await cookieClient.updateFilterPreset('33333333-3333-4333-8333-333333333333', {
+    isDefault: true
+  });
+  {
+    const request = popLastRequest();
+    expectCookie(request, '/api/v1/me/filter-presets/33333333-3333-4333-8333-333333333333', 'PATCH');
+    assert.deepEqual(request.body, {
+      isDefault: true
+    });
+  }
+
+  await bearerClient.deleteFilterPreset('33333333-3333-4333-8333-333333333333');
+  {
+    const request = popLastRequest();
+    expectBearer(request, '/api/v1/me/filter-presets/33333333-3333-4333-8333-333333333333', 'DELETE');
+    assert.equal(request.body, undefined);
+  }
+
+  await cookieClient.getCalendarFeeds();
+  expectCookie(popLastRequest(), '/api/v1/me/calendar-feeds');
+
+  await bearerClient.createCalendarFeed({
+    name: 'Live feed',
+    filters: { region: 'us' },
+    alarmMinutesBefore: 30
+  });
+  {
+    const request = popLastRequest();
+    expectBearer(request, '/api/v1/me/calendar-feeds', 'POST');
+    assert.deepEqual(request.body, {
+      name: 'Live feed',
+      filters: { region: 'us' },
+      alarmMinutesBefore: 30
+    });
+  }
+
+  await cookieClient.updateCalendarFeed('66666666-6666-4666-8666-666666666666', {
+    alarmMinutesBefore: 60
+  });
+  {
+    const request = popLastRequest();
+    expectCookie(request, '/api/v1/me/calendar-feeds/66666666-6666-4666-8666-666666666666', 'PATCH');
+    assert.deepEqual(request.body, {
+      alarmMinutesBefore: 60
+    });
+  }
+
+  await bearerClient.rotateCalendarFeed('66666666-6666-4666-8666-666666666666');
+  expectBearer(popLastRequest(), '/api/v1/me/calendar-feeds/66666666-6666-4666-8666-666666666666/rotate', 'POST');
+
+  await cookieClient.deleteCalendarFeed('66666666-6666-4666-8666-666666666666');
+  {
+    const request = popLastRequest();
+    expectCookie(request, '/api/v1/me/calendar-feeds/66666666-6666-4666-8666-666666666666', 'DELETE');
+    assert.equal(request.body, undefined);
+  }
+
+  await cookieClient.getRssFeeds();
+  expectCookie(popLastRequest(), '/api/v1/me/rss-feeds');
+
+  await bearerClient.createRssFeed({
+    name: 'RSS feed',
+    filters: { provider: 'SpaceX' }
+  });
+  {
+    const request = popLastRequest();
+    expectBearer(request, '/api/v1/me/rss-feeds', 'POST');
+    assert.deepEqual(request.body, {
+      name: 'RSS feed',
+      filters: { provider: 'SpaceX' }
+    });
+  }
+
+  await cookieClient.updateRssFeed('77777777-7777-4777-8777-777777777777', {
+    name: 'Renamed RSS feed'
+  });
+  {
+    const request = popLastRequest();
+    expectCookie(request, '/api/v1/me/rss-feeds/77777777-7777-4777-8777-777777777777', 'PATCH');
+    assert.deepEqual(request.body, {
+      name: 'Renamed RSS feed'
+    });
+  }
+
+  await bearerClient.rotateRssFeed('77777777-7777-4777-8777-777777777777');
+  expectBearer(popLastRequest(), '/api/v1/me/rss-feeds/77777777-7777-4777-8777-777777777777/rotate', 'POST');
+
+  await cookieClient.deleteRssFeed('77777777-7777-4777-8777-777777777777');
+  {
+    const request = popLastRequest();
+    expectCookie(request, '/api/v1/me/rss-feeds/77777777-7777-4777-8777-777777777777', 'DELETE');
+    assert.equal(request.body, undefined);
+  }
+
+  await cookieClient.getEmbedWidgets();
+  expectCookie(popLastRequest(), '/api/v1/me/embed-widgets');
+
+  await bearerClient.createEmbedWidget({
+    name: 'Next Launch',
+    presetId: '33333333-3333-4333-8333-333333333333'
+  });
+  {
+    const request = popLastRequest();
+    expectBearer(request, '/api/v1/me/embed-widgets', 'POST');
+    assert.deepEqual(request.body, {
+      name: 'Next Launch',
+      presetId: '33333333-3333-4333-8333-333333333333'
+    });
+  }
+
+  await cookieClient.updateEmbedWidget('88888888-8888-4888-8888-888888888888', {
+    watchlistId: '22222222-2222-4222-8222-222222222222',
+    presetId: null
+  });
+  {
+    const request = popLastRequest();
+    expectCookie(request, '/api/v1/me/embed-widgets/88888888-8888-4888-8888-888888888888', 'PATCH');
+    assert.deepEqual(request.body, {
+      watchlistId: '22222222-2222-4222-8222-222222222222',
+      presetId: null
+    });
+  }
+
+  await bearerClient.rotateEmbedWidget('88888888-8888-4888-8888-888888888888');
+  expectBearer(popLastRequest(), '/api/v1/me/embed-widgets/88888888-8888-4888-8888-888888888888/rotate', 'POST');
+
+  await cookieClient.deleteEmbedWidget('88888888-8888-4888-8888-888888888888');
+  {
+    const request = popLastRequest();
+    expectCookie(request, '/api/v1/me/embed-widgets/88888888-8888-4888-8888-888888888888', 'DELETE');
+    assert.equal(request.body, undefined);
+  }
+
+  await cookieClient.getNotificationPreferences();
+  expectCookie(popLastRequest(), '/api/v1/me/notification-preferences');
+
+  await bearerClient.getNotificationPreferences();
+  expectBearer(popLastRequest(), '/api/v1/me/notification-preferences');
+
+  await cookieClient.updateNotificationPreferences({ pushEnabled: true });
+  {
+    const request = popLastRequest();
+    expectCookie(request, '/api/v1/me/notification-preferences', 'POST');
+    assert.deepEqual(request.body, {
+      pushEnabled: true
+    });
+  }
+
+  await bearerClient.updateNotificationPreferences({ pushEnabled: true });
+  {
+    const request = popLastRequest();
+    expectBearer(request, '/api/v1/me/notification-preferences', 'POST');
+    assert.deepEqual(request.body, {
+      pushEnabled: true
+    });
+  }
+
+  await cookieClient.startSmsVerification({
+    phone: '(555) 555-5555',
+    smsConsent: true
+  });
+  {
+    const request = popLastRequest();
+    expectCookie(request, '/api/v1/me/notification-preferences/sms/verify', 'POST');
+    assert.deepEqual(request.body, {
+      phone: '(555) 555-5555',
+      smsConsent: true
+    });
+  }
+
+  await bearerClient.completeSmsVerification({
+    phone: '(555) 555-5555',
+    code: '123456'
+  });
+  {
+    const request = popLastRequest();
+    expectBearer(request, '/api/v1/me/notification-preferences/sms/verify/check', 'POST');
+    assert.deepEqual(request.body, {
+      phone: '(555) 555-5555',
+      code: '123456'
+    });
+  }
+
+  await cookieClient.getLaunchNotificationPreference(launchId, 'push');
+  {
+    const request = popLastRequest();
+    expectCookie(request, `/api/v1/me/launch-notifications/${launchId}`);
+    assert.match(request.search, /\bchannel=push\b/);
+  }
+
+  await bearerClient.getLaunchNotificationPreference(launchId, 'sms');
+  {
+    const request = popLastRequest();
+    expectBearer(request, `/api/v1/me/launch-notifications/${launchId}`);
+    assert.match(request.search, /\bchannel=sms\b/);
+  }
+
+  await cookieClient.updateLaunchNotificationPreference(launchId, {
+    channel: 'push',
+    mode: 't_minus',
+    tMinusMinutes: [10],
+    notifyStatusChange: true,
+    notifyNetChange: false
+  });
+  {
+    const request = popLastRequest();
+    expectCookie(request, `/api/v1/me/launch-notifications/${launchId}`, 'POST');
+    assert.deepEqual(request.body, {
+      channel: 'push',
+      mode: 't_minus',
+      tMinusMinutes: [10],
+      notifyStatusChange: true,
+      notifyNetChange: false
+    });
+  }
+
+  const pushRegistrationPayload = {
+    platform: 'ios' as const,
+    installationId: 'tmz-installation-1',
+    token: 'ExponentPushToken[abc123]',
+    appVersion: '1.0.0',
+    deviceName: 'iPhone 16',
+    pushProvider: 'expo' as const,
+    active: true,
+    registeredAt: '2026-03-08T12:00:00.000Z'
+  };
+
+  await cookieClient.registerPushDevice(pushRegistrationPayload);
+  {
+    const request = popLastRequest();
+    expectCookie(request, '/api/v1/me/push-devices', 'POST');
+    assert.equal((request.body as { installationId?: string }).installationId, 'tmz-installation-1');
+  }
+
+  await bearerClient.registerPushDevice(pushRegistrationPayload);
+  {
+    const request = popLastRequest();
+    expectBearer(request, '/api/v1/me/push-devices', 'POST');
+    assert.equal((request.body as { token?: string }).token, 'ExponentPushToken[abc123]');
+  }
+
+  await cookieClient.removePushDevice({
+    platform: 'ios',
+    installationId: 'tmz-installation-1'
+  });
+  {
+    const request = popLastRequest();
+    expectCookie(request, '/api/v1/me/push-devices', 'DELETE');
+    assert.deepEqual(request.body, {
+      platform: 'ios',
+      installationId: 'tmz-installation-1'
+    });
+  }
+
+  await bearerClient.removePushDevice({
+    platform: 'ios',
+    installationId: 'tmz-installation-1'
+  });
+  {
+    const request = popLastRequest();
+    expectBearer(request, '/api/v1/me/push-devices', 'DELETE');
+    assert.deepEqual(request.body, {
+      platform: 'ios',
+      installationId: 'tmz-installation-1'
+    });
+  }
+
+  await cookieClient.sendPushTest();
+  expectCookie(popLastRequest(), '/api/v1/me/push-devices/test', 'POST');
+
+  await bearerClient.sendPushTest();
+  expectBearer(popLastRequest(), '/api/v1/me/push-devices/test', 'POST');
+
+  await cookieClient.deleteAccount('DELETE');
+  {
+    const request = popLastRequest();
+    expectCookie(request, '/api/v1/me/account/delete', 'POST');
+    assert.deepEqual(request.body, {
+      confirm: 'DELETE'
+    });
+  }
+
+  const failingBearerClient = createApiClient({
+    baseUrl: 'https://tmz.test',
+    auth: { mode: 'bearer', accessToken: 'bad-token' },
+    fetchImpl
+  });
+
+  await assert.rejects(
+    () => failingBearerClient.sendPushTest(),
+    (error: unknown) => {
+      assert.ok(error instanceof ApiClientError);
+      assert.equal(error.status, 409);
+      assert.equal(error.code, 'push_not_enabled');
+      assert.equal(error.path, '/api/v1/me/push-devices/test');
+      return true;
+    }
+  );
+
+  console.log('v1 client contracts passed');
+}
+
+await main();

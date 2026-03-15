@@ -18,7 +18,7 @@ import {
   type ViewerLimits,
   type ViewerMode,
   type ViewerTier
-} from '@/lib/tiers';
+} from '@tminuszero/domain';
 
 type SubscriptionSnapshot = {
   status?: string | null;

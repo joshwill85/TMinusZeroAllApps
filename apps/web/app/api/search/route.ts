@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { searchSite, warmSiteSearchIndex } from '@/lib/server/siteSearch';
+import { enforceDurableRateLimit } from '@/lib/server/apiRateLimit';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,18 +20,22 @@ export async function GET(request: Request) {
   const types = searchParams.get('types');
   const shouldWarm = searchParams.get('warm') === '1';
 
+  const rateLimited = await enforceDurableRateLimit(request, {
+    scope: 'api_search',
+    limit: 60,
+    windowSeconds: 60
+  });
+  if (rateLimited) {
+    return rateLimited;
+  }
+
   if (shouldWarm && !(query || '').trim()) {
-    try {
-      const payload = await warmSiteSearchIndex();
-      return NextResponse.json(payload, {
-        headers: {
-          'Cache-Control': WARM_CACHE_CONTROL
-        }
-      });
-    } catch (error) {
-      console.error('search warm error', error);
-      return NextResponse.json({ error: 'search_warm_failed' }, { status: 500 });
-    }
+    const payload = await warmSiteSearchIndex();
+    return NextResponse.json(payload, {
+      headers: {
+        'Cache-Control': WARM_CACHE_CONTROL
+      }
+    });
   }
 
   try {

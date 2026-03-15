@@ -1,5 +1,5 @@
-import sharp from 'sharp';
 import OpengraphImage from '../generator';
+import { renderOgJpegOrPngFallback } from '@/lib/server/ogJpeg';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,14 +20,13 @@ export async function GET() {
   }
 
   const buffer = Buffer.from(await png.arrayBuffer());
-  const jpeg = await sharp(buffer).jpeg({ quality: 82, mozjpeg: true }).toBuffer();
-  const body = jpeg.buffer.slice(jpeg.byteOffset, jpeg.byteOffset + jpeg.byteLength) as ArrayBuffer;
+  const rendered = await renderOgJpegOrPngFallback(buffer);
 
   const headers = new Headers(png.headers);
-  headers.set('Content-Type', 'image/jpeg');
-  headers.set('Content-Length', String(body.byteLength));
-  headers.set('X-TMN-OG-Format', 'jpeg');
+  headers.set('Content-Type', rendered.contentType);
+  headers.set('Content-Length', String(rendered.body.byteLength));
+  headers.set('X-TMN-OG-Format', rendered.format);
   headers.set('X-Robots-Tag', 'noindex, noimageindex');
 
-  return new Response(body, { status: 200, headers });
+  return new Response(rendered.body, { status: 200, headers });
 }

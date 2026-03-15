@@ -8,7 +8,7 @@ import {
   readTrajectoryPointSigmaDeg,
   type TrajectoryAzElPoint
 } from '@/lib/ar/trajectory';
-import type { TrajectoryMilestonePayload, TrajectoryTrackKind } from '@/lib/server/trajectoryContract';
+import type { TrajectoryMilestonePayload, TrajectoryTrackKind } from '@tminuszero/domain';
 
 type Props = {
   points: TrajectoryAzElPoint[];

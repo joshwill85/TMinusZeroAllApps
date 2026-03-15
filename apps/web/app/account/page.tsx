@@ -1,197 +1,128 @@
 'use client';
 
 import { useEffect, useId, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { getBrowserClient } from '@/lib/api/supabase';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
+import { buildAuthCallbackHref, buildAuthHref, buildPreferencesHref, buildProfileHref, buildUpgradeHref } from '@tminuszero/navigation';
 import { BillingPanel } from '@/components/BillingPanel';
-import { formatUsPhoneForDisplay } from '@/lib/notifications/phone';
 import { TipJarRecurringPanel } from '@/components/TipJarRecurringPanel';
-import { buildAuthQuery } from '@/lib/utils/returnTo';
+import {
+  applyGuestViewerState,
+  useDeleteAccountMutation,
+  useLaunchDayEmailFilterOptionsQuery,
+  useMarketingEmailQuery,
+  useNotificationPreferencesQuery,
+  useProfileQuery,
+  useUpdateMarketingEmailMutation,
+  useUpdateNotificationPreferencesMutation,
+  useUpdateProfileMutation,
+  useViewerEntitlementsQuery,
+  useViewerSessionQuery
+} from '@/lib/api/queries';
+import { getBrowserClient } from '@/lib/api/supabase';
+import { formatUsPhoneForDisplay } from '@/lib/notifications/phone';
 
-type Profile = {
-  user_id: string;
-  email: string | null;
-  email_confirmed_at?: string | null;
-  role?: string | null;
-  first_name?: string | null;
-  last_name?: string | null;
-  timezone?: string | null;
-  created_at?: string | null;
-};
-
-type SmsStatus = {
-  sms_enabled: boolean;
-  sms_verified: boolean;
-  sms_phone_e164: string | null;
+type LaunchDaySnapshot = {
+  enabled: boolean;
+  providers: string[];
+  states: string[];
 };
 
 export default function AccountPage() {
   const searchParams = useSearchParams();
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [status, setStatus] = useState<'loading' | 'authed' | 'guest'>('loading');
-  const [isPaid, setIsPaid] = useState<boolean | null>(null);
-  const [smsStatus, setSmsStatus] = useState<SmsStatus | null>(null);
+  const queryClient = useQueryClient();
+  const viewerSessionQuery = useViewerSessionQuery();
+  const entitlementsQuery = useViewerEntitlementsQuery();
+  const profileQuery = useProfileQuery();
+  const marketingEmailQuery = useMarketingEmailQuery();
+  const notificationPreferencesQuery = useNotificationPreferencesQuery();
+  const filterOptionsQuery = useLaunchDayEmailFilterOptionsQuery({
+    enabled: Boolean(viewerSessionQuery.data?.viewerId)
+  });
+  const updateProfileMutation = useUpdateProfileMutation();
+  const updateMarketingEmailMutation = useUpdateMarketingEmailMutation();
+  const updateNotificationPreferencesMutation = useUpdateNotificationPreferencesMutation();
+  const deleteAccountMutation = useDeleteAccountMutation();
+
   const marketingLabelId = useId();
   const launchDayEmailLabelId = useId();
+
+  const status: 'loading' | 'authed' | 'guest' = viewerSessionQuery.isPending
+    ? 'loading'
+    : viewerSessionQuery.data?.viewerId
+      ? 'authed'
+      : 'guest';
+
+  const profile = profileQuery.data ?? null;
+  const isPaid = entitlementsQuery.data?.isPaid ?? false;
+  const smsStatus = notificationPreferencesQuery.data
+    ? {
+        sms_enabled: notificationPreferencesQuery.data.smsEnabled,
+        sms_verified: notificationPreferencesQuery.data.smsVerified,
+        sms_phone_e164: notificationPreferencesQuery.data.smsPhone
+      }
+    : null;
+
   const [editFirstName, setEditFirstName] = useState('');
   const [editLastName, setEditLastName] = useState('');
   const [editTimezone, setEditTimezone] = useState('America/New_York');
-  const [savingProfile, setSavingProfile] = useState(false);
   const [profileMessage, setProfileMessage] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
+
   const [marketingEmailOptIn, setMarketingEmailOptIn] = useState<boolean | null>(null);
-  const [marketingSaving, setMarketingSaving] = useState(false);
   const [marketingMessage, setMarketingMessage] = useState<string | null>(null);
   const [marketingError, setMarketingError] = useState<string | null>(null);
+
   const [launchDayEmailEnabled, setLaunchDayEmailEnabled] = useState(false);
   const [launchDayEmailProviders, setLaunchDayEmailProviders] = useState<string[]>([]);
   const [launchDayEmailStates, setLaunchDayEmailStates] = useState<string[]>([]);
-  const [launchDayEmailLoaded, setLaunchDayEmailLoaded] = useState<{
-    enabled: boolean;
-    providers: string[];
-    states: string[];
-  } | null>(null);
-  const [launchDayEmailSaving, setLaunchDayEmailSaving] = useState(false);
+  const [launchDayEmailLoaded, setLaunchDayEmailLoaded] = useState<LaunchDaySnapshot | null>(null);
   const [launchDayEmailMessage, setLaunchDayEmailMessage] = useState<string | null>(null);
   const [launchDayEmailError, setLaunchDayEmailError] = useState<string | null>(null);
-  const [filterOptions, setFilterOptions] = useState<{ providers: string[]; states: string[] } | null>(null);
-  const [filterOptionsLoading, setFilterOptionsLoading] = useState(false);
-  const [filterOptionsError, setFilterOptionsError] = useState<string | null>(null);
+
   const [resendingEmail, setResendingEmail] = useState(false);
   const [resendEmailMessage, setResendEmailMessage] = useState<string | null>(null);
   const [resendEmailError, setResendEmailError] = useState<string | null>(null);
+
   const [deleteConfirm, setDeleteConfirm] = useState('');
-  const [deleting, setDeleting] = useState(false);
   const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
-    let active = true;
-    fetch('/api/me/profile', { cache: 'no-store' })
-      .then(async (res) => {
-        if (!res.ok) return null;
-        const json = await res.json();
-        return json.profile as Profile | null;
-      })
-      .then((data) => {
-        if (!active) return;
-        if (!data) {
-          setProfile(null);
-          setStatus('guest');
-          return;
-        }
-        setProfile(data);
-        setEditFirstName(data.first_name || '');
-        setEditLastName(data.last_name || '');
-        setEditTimezone(data.timezone || 'America/New_York');
-        setStatus('authed');
-      })
-      .catch(() => {
-        if (!active) return;
-        setProfile(null);
-        setStatus('guest');
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+    if (!profile) return;
+    setEditFirstName(profile.firstName || '');
+    setEditLastName(profile.lastName || '');
+    setEditTimezone(profile.timezone || 'America/New_York');
+  }, [profile]);
 
   useEffect(() => {
-    if (status !== 'authed') return;
-    let active = true;
-    const loadStatus = async () => {
-      try {
-        const [prefsRes, marketingRes, subscriptionRes] = await Promise.all([
-          fetch('/api/me/notifications/preferences', { cache: 'no-store' }),
-          fetch('/api/me/marketing-email', { cache: 'no-store' }),
-          fetch('/api/me/subscription', { cache: 'no-store' })
-        ]);
-
-        const prefsJson = await prefsRes.json().catch(() => ({}));
-        const marketingJson = await marketingRes.json().catch(() => ({}));
-        const subscriptionJson = await subscriptionRes.json().catch(() => ({}));
-
-        if (!active) return;
-
-        if (prefsRes.ok) {
-          const prefs = prefsJson.preferences || {};
-          setSmsStatus({
-            sms_enabled: !!prefs.sms_enabled,
-            sms_verified: !!prefs.sms_verified,
-            sms_phone_e164: prefs.sms_phone_e164 || null
-          });
-
-          const providers = Array.isArray(prefs.launch_day_email_providers)
-            ? prefs.launch_day_email_providers.map((v: any) => String(v || '').trim()).filter(Boolean)
-            : [];
-          const states = Array.isArray(prefs.launch_day_email_states)
-            ? prefs.launch_day_email_states.map((v: any) => String(v || '').trim()).filter(Boolean)
-            : [];
-          const snapshot = { enabled: !!prefs.launch_day_email_enabled, providers, states };
-          setLaunchDayEmailEnabled(snapshot.enabled);
-          setLaunchDayEmailProviders(snapshot.providers);
-          setLaunchDayEmailStates(snapshot.states);
-          setLaunchDayEmailLoaded(snapshot);
-        }
-
-        if (marketingRes.ok) {
-          setMarketingEmailOptIn(!!marketingJson.marketing_email_opt_in);
-        } else {
-          setMarketingEmailOptIn(null);
-        }
-
-        if (subscriptionRes.ok) {
-          setIsPaid(!!subscriptionJson.isPaid);
-        } else {
-          setIsPaid(false);
-        }
-      } catch (err) {
-        if (!active) return;
-        console.error('account status load error', err);
-      }
-    };
-
-    loadStatus();
-    return () => {
-      active = false;
-    };
-  }, [status]);
+    if (status !== 'authed') {
+      setMarketingEmailOptIn(null);
+      return;
+    }
+    if (!marketingEmailQuery.data) return;
+    setMarketingEmailOptIn(marketingEmailQuery.data.marketingEmailOptIn);
+  }, [marketingEmailQuery.data, status]);
 
   useEffect(() => {
-    if (status !== 'authed') return;
-    let active = true;
-    setFilterOptionsLoading(true);
-    setFilterOptionsError(null);
-    fetch('/api/filters?mode=live&region=all', { cache: 'no-store' })
-      .then(async (res) => {
-        const json = await res.json().catch(() => ({}));
-        if (!active) return;
-        if (!res.ok) throw new Error(json?.error || 'filters_failed');
-        setFilterOptions({
-          providers: Array.isArray(json.providers) ? json.providers : [],
-          states: Array.isArray(json.states) ? json.states : []
-        });
-      })
-      .catch((err: any) => {
-        if (!active) return;
-        setFilterOptions(null);
-        setFilterOptionsError(err?.message || 'Unable to load filters.');
-      })
-      .finally(() => {
-        if (!active) return;
-        setFilterOptionsLoading(false);
-      });
-    return () => {
-      active = false;
+    if (!notificationPreferencesQuery.data) return;
+    const snapshot = {
+      enabled: notificationPreferencesQuery.data.launchDayEmailEnabled,
+      providers: notificationPreferencesQuery.data.launchDayEmailProviders,
+      states: notificationPreferencesQuery.data.launchDayEmailStates
     };
-  }, [status]);
+    setLaunchDayEmailEnabled(snapshot.enabled);
+    setLaunchDayEmailProviders(snapshot.providers);
+    setLaunchDayEmailStates(snapshot.states);
+    setLaunchDayEmailLoaded(snapshot);
+  }, [notificationPreferencesQuery.data]);
 
-  const fullName = [profile?.first_name, profile?.last_name].filter(Boolean).join(' ');
+  const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ');
   const smsOptInLabel = smsStatus ? (smsStatus.sms_enabled ? 'On' : 'Off') : '—';
   const smsVerifiedLabel = smsStatus ? (smsStatus.sms_verified ? 'Yes' : 'No') : '—';
   const emailPremiumLocked = isPaid !== true;
-  const emailVerified = Boolean(profile?.email_confirmed_at);
+  const emailVerified = Boolean(profile?.emailConfirmedAt);
   const premiumStatus = searchParams.get('premium');
   const showPremiumWelcome = premiumStatus === 'welcome' && isPaid === true;
   const launchDayEmailDirty = launchDayEmailLoaded
@@ -199,8 +130,8 @@ export default function AccountPage() {
       stableKey(launchDayEmailLoaded.providers) !== stableKey(launchDayEmailProviders) ||
       stableKey(launchDayEmailLoaded.states) !== stableKey(launchDayEmailStates)
     : false;
-  const profileFirstName = String(profile?.first_name || '').trim();
-  const profileLastName = String(profile?.last_name || '').trim();
+  const profileFirstName = String(profile?.firstName || '').trim();
+  const profileLastName = String(profile?.lastName || '').trim();
   const profileTimezone = String(profile?.timezone || 'America/New_York').trim();
   const nextFirstName = editFirstName.trim();
   const nextLastName = editLastName.trim();
@@ -209,7 +140,10 @@ export default function AccountPage() {
     (profileFirstName.length > 0 && nextFirstName.length === 0) || (profileLastName.length > 0 && nextLastName.length === 0);
   const hasProfileChanges =
     nextFirstName !== profileFirstName || nextLastName !== profileLastName || nextTimezone !== profileTimezone;
-  const canSaveProfile = Boolean(status === 'authed' && nextTimezone && hasProfileChanges && !hasBlankedExistingName && !savingProfile);
+  const canSaveProfile = Boolean(
+    status === 'authed' && nextTimezone && hasProfileChanges && !hasBlankedExistingName && !updateProfileMutation.isPending
+  );
+  const showLoading = status === 'loading' || (status === 'authed' && profileQuery.isPending && !profile);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -239,20 +173,19 @@ export default function AccountPage() {
       const supabase = getBrowserClient();
       if (!supabase) throw new Error('Supabase not available');
       const baseUrl = window.location.origin.replace(/\/+$/, '');
-      const authQuery = buildAuthQuery({ returnTo: '/account' });
       const { error } = await supabase.auth.resend({
         type: 'signup',
         email: profile.email,
         options: {
-          emailRedirectTo: `${baseUrl}/auth/callback${authQuery ? `?${authQuery}` : ''}`
+          emailRedirectTo: `${baseUrl}${buildAuthCallbackHref({ returnTo: '/account' })}`
         }
       });
       if (error) throw error;
       setResendEmailMessage(
         `Verification email sent to ${profile.email}. If you don’t see it within a few minutes, check your spam/junk folder (and Promotions).`
       );
-    } catch (err: any) {
-      setResendEmailError(err?.message || 'Unable to resend verification email.');
+    } catch (error: unknown) {
+      setResendEmailError(getErrorMessage(error, 'Unable to resend verification email.'));
     } finally {
       setResendingEmail(false);
     }
@@ -265,9 +198,9 @@ export default function AccountPage() {
       return;
     }
 
-    const payload: Record<string, string> = {};
-    if (nextFirstName && nextFirstName !== profileFirstName) payload.first_name = nextFirstName;
-    if (nextLastName && nextLastName !== profileLastName) payload.last_name = nextLastName;
+    const payload: { firstName?: string; lastName?: string; timezone?: string } = {};
+    if (nextFirstName && nextFirstName !== profileFirstName) payload.firstName = nextFirstName;
+    if (nextLastName && nextLastName !== profileLastName) payload.lastName = nextLastName;
     if (nextTimezone !== profileTimezone) payload.timezone = nextTimezone;
 
     if (!Object.keys(payload).length) {
@@ -276,52 +209,36 @@ export default function AccountPage() {
       return;
     }
 
-    setSavingProfile(true);
     setProfileMessage(null);
     setProfileError(null);
     try {
-      const res = await fetch('/api/me/profile', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || 'Failed to update profile');
-      const nextProfile = (json.profile as Profile | null) || null;
-      setProfile(nextProfile);
-      setEditFirstName(nextProfile?.first_name || '');
-      setEditLastName(nextProfile?.last_name || '');
-      setEditTimezone(nextProfile?.timezone || 'America/New_York');
+      const nextProfile = await updateProfileMutation.mutateAsync(payload);
+      setEditFirstName(nextProfile.firstName || '');
+      setEditLastName(nextProfile.lastName || '');
+      setEditTimezone(nextProfile.timezone || 'America/New_York');
       setProfileMessage('Profile updated.');
-    } catch (err: any) {
-      setProfileError(err?.message || 'Profile update failed');
-    } finally {
-      setSavingProfile(false);
+    } catch (error: unknown) {
+      setProfileError(getErrorMessage(error, 'Profile update failed'));
     }
   }
 
   async function updateMarketingOptIn(next: boolean) {
     if (status !== 'authed') return;
-    setMarketingSaving(true);
     setMarketingMessage(null);
     setMarketingError(null);
     const previous = marketingEmailOptIn;
     setMarketingEmailOptIn(next);
     try {
-      const res = await fetch('/api/me/marketing-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ marketing_email_opt_in: next })
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || 'Failed to save');
-      setMarketingEmailOptIn(!!json.marketing_email_opt_in);
-      setMarketingMessage(next ? 'Marketing emails enabled.' : 'Marketing emails disabled. Essential account emails will still be sent when needed.');
-    } catch (err: any) {
+      const payload = await updateMarketingEmailMutation.mutateAsync(next);
+      setMarketingEmailOptIn(payload.marketingEmailOptIn);
+      setMarketingMessage(
+        payload.marketingEmailOptIn
+          ? 'Marketing emails enabled.'
+          : 'Marketing emails disabled. Essential account emails will still be sent when needed.'
+      );
+    } catch (error: unknown) {
       setMarketingEmailOptIn(previous);
-      setMarketingError(err?.message || 'Failed to save');
-    } finally {
-      setMarketingSaving(false);
+      setMarketingError(getErrorMessage(error, 'Failed to save'));
     }
   }
 
@@ -331,43 +248,31 @@ export default function AccountPage() {
     const nextProviders = overrides?.providers ?? launchDayEmailProviders;
     const nextStates = overrides?.states ?? launchDayEmailStates;
 
-    setLaunchDayEmailSaving(true);
     setLaunchDayEmailMessage(null);
     setLaunchDayEmailError(null);
     try {
-      const res = await fetch('/api/me/notifications/preferences', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          launch_day_email_enabled: nextEnabled,
-          launch_day_email_providers: nextProviders,
-          launch_day_email_states: nextStates
-        })
+      const prefs = await updateNotificationPreferencesMutation.mutateAsync({
+        launchDayEmailEnabled: nextEnabled,
+        launchDayEmailProviders: nextProviders,
+        launchDayEmailStates: nextStates
       });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const code = json?.error || 'failed_to_save';
-        if (code === 'subscription_required') throw new Error('Premium required. Upgrade to enable launch-day emails.');
-        throw new Error(code);
-      }
-
-      const prefs = json.preferences || {};
-      const providers = Array.isArray(prefs.launch_day_email_providers)
-        ? prefs.launch_day_email_providers.map((v: any) => String(v || '').trim()).filter(Boolean)
-        : [];
-      const states = Array.isArray(prefs.launch_day_email_states)
-        ? prefs.launch_day_email_states.map((v: any) => String(v || '').trim()).filter(Boolean)
-        : [];
-      const snapshot = { enabled: !!prefs.launch_day_email_enabled, providers, states };
+      const snapshot = {
+        enabled: prefs.launchDayEmailEnabled,
+        providers: prefs.launchDayEmailProviders,
+        states: prefs.launchDayEmailStates
+      };
       setLaunchDayEmailEnabled(snapshot.enabled);
       setLaunchDayEmailProviders(snapshot.providers);
       setLaunchDayEmailStates(snapshot.states);
       setLaunchDayEmailLoaded(snapshot);
       setLaunchDayEmailMessage('Saved.');
-    } catch (err: any) {
-      setLaunchDayEmailError(err?.message || 'Failed to save');
-    } finally {
-      setLaunchDayEmailSaving(false);
+    } catch (error: unknown) {
+      const code = getErrorCode(error);
+      if (code === 'subscription_required') {
+        setLaunchDayEmailError('Premium required. Upgrade to enable launch-day emails.');
+        return;
+      }
+      setLaunchDayEmailError(getErrorMessage(error, 'Failed to save'));
     }
   }
 
@@ -376,43 +281,34 @@ export default function AccountPage() {
     if (!normalized) return;
     setList(
       list.includes(normalized)
-        ? list.filter((v) => v !== normalized)
-        : [...list, normalized].sort((a, b) => a.localeCompare(b))
+        ? list.filter((entry) => entry !== normalized)
+        : [...list, normalized].sort((left, right) => left.localeCompare(right))
     );
   }
 
   async function deleteAccount() {
-    setDeleting(true);
     setDeleteMessage(null);
     setDeleteError(null);
     try {
-      const res = await fetch('/api/me/account/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirm: deleteConfirm })
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const code = json?.error || 'delete_failed';
-        if (code === 'confirm_required') throw new Error('Type DELETE to confirm.');
-        if (code === 'unauthorized') throw new Error('Sign in to delete your account.');
-        if (code === 'active_subscription') {
-          throw new Error('You have an active subscription and we could not cancel renewal automatically. Cancel billing first, then delete your account.');
-        }
-        throw new Error(code);
-      }
-
+      await deleteAccountMutation.mutateAsync(deleteConfirm);
       const supabase = getBrowserClient();
       await supabase?.auth.signOut().catch(() => undefined);
+      applyGuestViewerState(queryClient);
       setDeleteMessage('Account deleted.');
       setDeleteConfirm('');
-      setStatus('guest');
-      setProfile(null);
-      setIsPaid(false);
-    } catch (err: any) {
-      setDeleteError(err?.message || 'Delete failed');
-    } finally {
-      setDeleting(false);
+    } catch (error: unknown) {
+      const code = getErrorCode(error);
+      if (code === 'confirm_required') {
+        setDeleteError('Type DELETE to confirm.');
+        return;
+      }
+      if (code === 'active_subscription') {
+        setDeleteError(
+          'You have an active subscription and we could not cancel renewal automatically. Cancel billing first, then delete your account.'
+        );
+        return;
+      }
+      setDeleteError(getErrorMessage(error, 'Delete failed'));
     }
   }
 
@@ -430,20 +326,20 @@ export default function AccountPage() {
           {deleteError}
         </div>
       )}
-      {status === 'loading' && <p className="text-text3">Loading...</p>}
-      {status === 'guest' && (
+      {showLoading && <p className="text-text3">Loading...</p>}
+      {status === 'guest' && !showLoading && (
         <p className="text-text2">
-          You are not signed in. <Link className="text-primary" href="/auth/sign-in">Sign in</Link> to manage notifications.
+          You are not signed in. <Link className="text-primary" href={buildAuthHref('sign-in', { returnTo: buildProfileHref() })}>Sign in</Link> to manage your account, alerts, and membership settings.
         </p>
       )}
-      {status === 'authed' && (
+      {status === 'authed' && !showLoading && (
         <>
           {showPremiumWelcome && (
             <div className="mt-4 rounded-2xl border border-primary/30 bg-[rgba(34,211,238,0.08)] p-4 text-sm text-text2">
               <div className="text-xs uppercase tracking-[0.1em] text-text3">Premium quick-start</div>
               <div className="mt-1 text-base font-semibold text-text1">Everything is unlocked. Start with three setup steps.</div>
               <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                <Link className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1 hover:border-primary" href="/me/preferences">
+                <Link className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1 hover:border-primary" href={buildPreferencesHref()}>
                   Enable browser alerts
                 </Link>
                 <Link className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1 hover:border-primary" href="/account/saved">
@@ -481,7 +377,7 @@ export default function AccountPage() {
             </div>
             <div className="flex items-center justify-between">
               <span className="text-text3">Member since</span>
-              <span className="text-text1">{profile?.created_at ? formatDate(profile.created_at) : '—'}</span>
+              <span className="text-text1">{profile?.createdAt ? formatDate(profile.createdAt) : '—'}</span>
             </div>
             <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3">
               <div className="text-xs uppercase tracking-[0.1em] text-text3">Update profile</div>
@@ -492,7 +388,7 @@ export default function AccountPage() {
                     type="text"
                     className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
                     value={editFirstName}
-                    onChange={(e) => setEditFirstName(e.target.value)}
+                    onChange={(event) => setEditFirstName(event.target.value)}
                     autoComplete="given-name"
                   />
                 </label>
@@ -502,7 +398,7 @@ export default function AccountPage() {
                     type="text"
                     className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
                     value={editLastName}
-                    onChange={(e) => setEditLastName(e.target.value)}
+                    onChange={(event) => setEditLastName(event.target.value)}
                     autoComplete="family-name"
                   />
                 </label>
@@ -512,7 +408,7 @@ export default function AccountPage() {
                     type="text"
                     className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
                     value={editTimezone}
-                    onChange={(e) => setEditTimezone(e.target.value)}
+                    onChange={(event) => setEditTimezone(event.target.value)}
                     placeholder="America/New_York"
                     autoComplete="off"
                   />
@@ -520,7 +416,7 @@ export default function AccountPage() {
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-3">
                 <button type="button" className="btn rounded-lg px-4 py-2 text-xs" onClick={saveProfile} disabled={!canSaveProfile}>
-                  {savingProfile ? 'Saving…' : 'Save profile'}
+                  {updateProfileMutation.isPending ? 'Saving…' : 'Save profile'}
                 </button>
                 <Link className="text-xs text-primary hover:underline" href="/legal/privacy-choices">
                   Privacy choices
@@ -555,9 +451,7 @@ export default function AccountPage() {
                 const supabase = getBrowserClient();
                 if (!supabase) return;
                 await supabase.auth.signOut();
-                setStatus('guest');
-                setProfile(null);
-                setIsPaid(false);
+                applyGuestViewerState(queryClient);
               }}
             >
               Sign out
@@ -567,12 +461,12 @@ export default function AccountPage() {
             <div className="md:col-span-2">
               <BillingPanel />
             </div>
-	            <div className="md:col-span-2">
-	              <TipJarRecurringPanel />
-	            </div>
-	            <div className="md:col-span-2 rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
-	              <div className="flex items-start justify-between gap-4">
-	                <div className="min-w-0">
+            <div className="md:col-span-2">
+              <TipJarRecurringPanel />
+            </div>
+            <div className="md:col-span-2 rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
                   <div className="text-xs uppercase tracking-[0.1em] text-text3">Integrations</div>
                   <div className="mt-1 text-base font-semibold text-text1">Calendar, RSS, embeds</div>
                   <div className="mt-1 text-xs text-text3">
@@ -589,7 +483,7 @@ export default function AccountPage() {
                 <div className="min-w-0">
                   <div className="text-xs uppercase tracking-[0.1em] text-text3">Saved</div>
                   <div className="mt-1 text-base font-semibold text-text1">Presets, follows, starred launches</div>
-                  <div className="mt-1 text-xs text-text3">Manage your saved view, My Launches rules, and any premium extras in one place.</div>
+                  <div className="mt-1 text-xs text-text3">Manage saved views, My Launches rules, and Premium alert sources in one place.</div>
                 </div>
                 <Link className="shrink-0 text-sm text-primary hover:underline" href="/account/saved">
                   Open
@@ -609,10 +503,10 @@ export default function AccountPage() {
                 </div>
                 <ToggleButton
                   checked={launchDayEmailEnabled}
-                  disabled={emailPremiumLocked || launchDayEmailSaving}
+                  disabled={emailPremiumLocked || updateNotificationPreferencesMutation.isPending}
                   onChange={(next) => {
                     setLaunchDayEmailEnabled(next);
-                    saveLaunchDayEmailPrefs({ enabled: next });
+                    void saveLaunchDayEmailPrefs({ enabled: next });
                   }}
                   labelledBy={launchDayEmailLabelId}
                 />
@@ -621,7 +515,7 @@ export default function AccountPage() {
               {emailPremiumLocked && (
                 <div className="mt-3 rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-2 text-xs text-text3">
                   Premium required.{' '}
-                  <Link className="text-primary hover:underline" href="/upgrade?return_to=%2Faccount">
+                  <Link className="text-primary hover:underline" href={buildUpgradeHref({ returnTo: buildProfileHref() })}>
                     Upgrade to Premium
                   </Link>{' '}
                   to enable launch-day emails.
@@ -642,13 +536,13 @@ export default function AccountPage() {
                     </button>
                   </div>
                   <div className="mt-2 max-h-44 overflow-y-auto rounded-lg border border-stroke bg-surface-0 p-2">
-                    {filterOptionsLoading && <div className="text-xs text-text3">Loading…</div>}
-                    {filterOptionsError && <div className="text-xs text-warning">{filterOptionsError}</div>}
-                    {!filterOptionsLoading &&
-                      !filterOptionsError &&
-                      (filterOptions?.providers?.length ? (
+                    {filterOptionsQuery.isPending && <div className="text-xs text-text3">Loading…</div>}
+                    {filterOptionsQuery.error && <div className="text-xs text-warning">Unable to load filters.</div>}
+                    {!filterOptionsQuery.isPending &&
+                      !filterOptionsQuery.error &&
+                      (filterOptionsQuery.data?.providers?.length ? (
                         <div className="space-y-1">
-                          {filterOptions.providers.map((provider) => (
+                          {filterOptionsQuery.data.providers.map((provider) => (
                             <label
                               key={provider}
                               className="flex items-center gap-2 rounded-md px-1 py-1 text-sm text-text2 hover:bg-[rgba(255,255,255,0.03)]"
@@ -686,13 +580,13 @@ export default function AccountPage() {
                     </button>
                   </div>
                   <div className="mt-2 max-h-44 overflow-y-auto rounded-lg border border-stroke bg-surface-0 p-2">
-                    {filterOptionsLoading && <div className="text-xs text-text3">Loading…</div>}
-                    {filterOptionsError && <div className="text-xs text-warning">{filterOptionsError}</div>}
-                    {!filterOptionsLoading &&
-                      !filterOptionsError &&
-                      (filterOptions?.states?.length ? (
+                    {filterOptionsQuery.isPending && <div className="text-xs text-text3">Loading…</div>}
+                    {filterOptionsQuery.error && <div className="text-xs text-warning">Unable to load filters.</div>}
+                    {!filterOptionsQuery.isPending &&
+                      !filterOptionsQuery.error &&
+                      (filterOptionsQuery.data?.states?.length ? (
                         <div className="space-y-1">
-                          {filterOptions.states.map((state) => (
+                          {filterOptionsQuery.data.states.map((state) => (
                             <label
                               key={state}
                               className="flex items-center gap-2 rounded-md px-1 py-1 text-sm text-text2 hover:bg-[rgba(255,255,255,0.03)]"
@@ -722,10 +616,10 @@ export default function AccountPage() {
                 <button
                   type="button"
                   className="btn rounded-lg px-4 py-2 text-xs"
-                  onClick={() => saveLaunchDayEmailPrefs()}
-                  disabled={emailPremiumLocked || launchDayEmailSaving || !launchDayEmailDirty}
+                  onClick={() => void saveLaunchDayEmailPrefs()}
+                  disabled={emailPremiumLocked || updateNotificationPreferencesMutation.isPending || !launchDayEmailDirty}
                 >
-                  {launchDayEmailSaving ? 'Saving…' : launchDayEmailDirty ? 'Save changes' : 'Saved'}
+                  {updateNotificationPreferencesMutation.isPending ? 'Saving…' : launchDayEmailDirty ? 'Save changes' : 'Saved'}
                 </button>
                 <div className="text-xs text-text3">We only email on days with matching launches.</div>
               </div>
@@ -746,7 +640,7 @@ export default function AccountPage() {
                 <span className="text-text3">Phone</span>
                 <span className="text-text1">{smsStatus?.sms_phone_e164 ? formatUsPhoneForDisplay(smsStatus.sms_phone_e164) : '—'}</span>
               </div>
-              <Link className="mt-2 inline-flex text-xs text-primary hover:underline" href="/me/preferences">
+              <Link className="mt-2 inline-flex text-xs text-primary hover:underline" href={buildPreferencesHref()}>
                 Manage notifications
               </Link>
             </div>
@@ -759,8 +653,8 @@ export default function AccountPage() {
                 </div>
                 <ToggleButton
                   checked={(marketingEmailOptIn ?? false) === true}
-                  disabled={marketingEmailOptIn === null || marketingSaving}
-                  onChange={updateMarketingOptIn}
+                  disabled={marketingEmailOptIn === null || updateMarketingEmailMutation.isPending}
+                  onChange={(next) => void updateMarketingOptIn(next)}
                   labelledBy={marketingLabelId}
                 />
               </div>
@@ -782,16 +676,16 @@ export default function AccountPage() {
                   className="flex-1 rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
                   placeholder="Type DELETE to confirm"
                   value={deleteConfirm}
-                  onChange={(e) => setDeleteConfirm(e.target.value)}
+                  onChange={(event) => setDeleteConfirm(event.target.value)}
                   autoComplete="off"
                 />
                 <button
                   type="button"
                   className="btn-secondary rounded-lg px-4 py-2 text-sm text-danger hover:border-danger/60"
-                  onClick={deleteAccount}
-                  disabled={deleting || deleteConfirm.trim().toUpperCase() !== 'DELETE'}
+                  onClick={() => void deleteAccount()}
+                  disabled={deleteAccountMutation.isPending || deleteConfirm.trim().toUpperCase() !== 'DELETE'}
                 >
-                  {deleting ? 'Deleting…' : 'Delete my account'}
+                  {deleteAccountMutation.isPending ? 'Deleting…' : 'Delete my account'}
                 </button>
               </div>
               <div className="mt-2 text-xs text-text3">
@@ -843,6 +737,14 @@ function formatDate(value: string) {
 
 function stableKey(values: string[]) {
   return Array.from(new Set(values.map((value) => String(value || '').trim()).filter(Boolean)))
-    .sort((a, b) => a.localeCompare(b))
+    .sort((left, right) => left.localeCompare(right))
     .join('|');
+}
+
+function getErrorCode(error: unknown) {
+  return typeof (error as { code?: unknown })?.code === 'string' ? (error as { code: string }).code : null;
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
 }

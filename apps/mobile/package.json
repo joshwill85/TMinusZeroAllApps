@@ -5,10 +5,19 @@
   "main": "expo-router/entry",
   "scripts": {
     "dev": "expo start",
-    "ios": "expo start --ios",
-    "android": "expo start --android",
+    "ios": "expo run:ios",
+    "android": "expo run:android",
+    "prebuild": "CI=1 expo prebuild --no-install",
     "lint": "eslint . --ext .ts,.tsx",
-    "type-check": "tsc --noEmit -p tsconfig.json"
+    "type-check": "tsc --noEmit -p tsconfig.json",
+    "e2e:build:ios": "CI=1 expo prebuild --platform ios --no-install && detox build --config detox.config.js -c ios.sim.debug",
+    "e2e:test:ios": "detox test --config detox.config.js -c ios.sim.debug",
+    "e2e:test:ios:artifacts": "detox test --config detox.config.js -c ios.sim.debug --record-logs all --take-screenshots failing --record-videos failing --artifacts-location .artifacts/detox/ios",
+    "e2e:build:android": "CI=1 expo prebuild --platform android --no-install && detox build --config detox.config.js -c android.emu.debug",
+    "e2e:test:android": "detox test --config detox.config.js -c android.emu.debug",
+    "e2e:test:android:artifacts": "detox test --config detox.config.js -c android.emu.debug --record-logs all --take-screenshots failing --record-videos failing --artifacts-location .artifacts/detox/android",
+    "e2e:acceptance:ios": "npm run e2e:build:ios && npm run e2e:test:ios:artifacts",
+    "e2e:acceptance:android": "npm run e2e:build:android && npm run e2e:test:android:artifacts"
   },
   "dependencies": {
     "@react-navigation/native": "^7.1.28",
@@ -16,11 +25,18 @@
     "@tminuszero/api-client": "0.0.0",
     "@tminuszero/contracts": "0.0.0",
     "@tminuszero/design-tokens": "0.0.0",
+    "@tminuszero/domain": "0.0.0",
     "@tminuszero/navigation": "0.0.0",
     "@tminuszero/query": "0.0.0",
     "expo": "~55.0.5",
+    "expo-application": "^55.0.8",
+    "expo-build-properties": "^55.0.9",
     "expo-constants": "~55.0.7",
+    "expo-dev-client": "^55.0.11",
+    "expo-device": "^55.0.9",
+    "expo-iap": "^3.4.9",
     "expo-linking": "~55.0.7",
+    "expo-notifications": "^55.0.11",
     "expo-router": "~55.0.4",
     "expo-secure-store": "~55.0.8",
     "expo-splash-screen": "~55.0.10",
@@ -36,6 +52,8 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
+    "detox": "^20.47.0",
+    "jest": "^30.2.0",
     "typescript": "5.9.3"
   }
 }

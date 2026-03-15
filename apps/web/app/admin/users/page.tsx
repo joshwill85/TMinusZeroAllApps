@@ -1,7 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import type { MouseEvent } from 'react';
+import { useEffect, useState, type MouseEvent } from 'react';
 import SectionCard from '../_components/SectionCard';
 
 type AdminUser = {
@@ -15,7 +14,25 @@ type AdminUser = {
   created_at: string | null;
   last_sign_in_at: string | null;
   banned_until: string | null;
+  providers: string[];
+  primary_provider: string | null;
+  platforms: string[];
+  last_sign_in_platform: string | null;
+  last_mobile_sign_in_at: string | null;
+  avatar_url: string | null;
+  identity_display_name: string | null;
+  email_is_private_relay: boolean;
+  recent_auth_events: Array<{
+    provider: string;
+    platform: string;
+    event_type: string;
+    created_at: string | null;
+  }>;
 };
+
+const USERS_PER_PAGE = 25;
+const providerOptions = ['', 'email_password', 'google', 'apple', 'twitter', 'unknown'];
+const platformOptions = ['', 'web', 'ios', 'android'];
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -23,11 +40,25 @@ export default function AdminUsersPage() {
   const [usersError, setUsersError] = useState<string | null>(null);
   const [usersMessage, setUsersMessage] = useState<string | null>(null);
   const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [query, setQuery] = useState('');
+  const [providerFilter, setProviderFilter] = useState('');
+  const [platformFilter, setPlatformFilter] = useState('');
 
   useEffect(() => {
     let cancelled = false;
+    const searchParams = new URLSearchParams({
+      page: String(page),
+      perPage: String(USERS_PER_PAGE)
+    });
+    if (query.trim()) searchParams.set('q', query.trim());
+    if (providerFilter) searchParams.set('provider', providerFilter);
+    if (platformFilter) searchParams.set('platform', platformFilter);
+
     setUsersStatus('loading');
-    fetch('/api/admin/users', { cache: 'no-store' })
+    setUsersError(null);
+    fetch(`/api/admin/users?${searchParams.toString()}`, { cache: 'no-store' })
       .then(async (res) => {
         if (!res.ok) {
           const json = await res.json().catch(() => ({}));
@@ -38,6 +69,7 @@ export default function AdminUsersPage() {
       .then((json) => {
         if (cancelled) return;
         setUsers(Array.isArray(json.users) ? (json.users as AdminUser[]) : []);
+        setHasMore(Boolean(json.hasMore));
         setUsersStatus('ready');
       })
       .catch((err) => {
@@ -47,10 +79,11 @@ export default function AdminUsersPage() {
           setUsersError(err.message || 'Failed to load users');
         }
       });
+
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [page, platformFilter, providerFilter, query]);
 
   async function runUserAction(
     userId: string,
@@ -86,10 +119,10 @@ export default function AdminUsersPage() {
       { role },
       () => {
         setUsers((prev) =>
-          prev.map((u) => {
-            if (u.user_id !== userId) return u;
-            const nextStatus = role === 'admin' ? 'admin' : u.is_paid ? 'paid' : 'free';
-            return { ...u, role, status: nextStatus };
+          prev.map((user) => {
+            if (user.user_id !== userId) return user;
+            const nextStatus = role === 'admin' ? 'admin' : user.is_paid ? 'paid' : 'free';
+            return { ...user, role, status: nextStatus };
           })
         );
       },
@@ -112,7 +145,7 @@ export default function AdminUsersPage() {
       { action: 'suspend', banDuration },
       (json) => {
         setUsers((prev) =>
-          prev.map((u) => (u.user_id === user.user_id ? { ...u, banned_until: json.banned_until ?? u.banned_until } : u))
+          prev.map((entry) => (entry.user_id === user.user_id ? { ...entry, banned_until: json.banned_until ?? entry.banned_until } : entry))
         );
       },
       `Account suspended (${label}).`
@@ -125,7 +158,7 @@ export default function AdminUsersPage() {
       { action: 'unsuspend' },
       (json) => {
         setUsers((prev) =>
-          prev.map((u) => (u.user_id === user.user_id ? { ...u, banned_until: json.banned_until ?? null } : u))
+          prev.map((entry) => (entry.user_id === user.user_id ? { ...entry, banned_until: json.banned_until ?? null } : entry))
         );
       },
       'Suspension lifted.'
@@ -144,7 +177,7 @@ export default function AdminUsersPage() {
       user.user_id,
       { action: 'delete', confirm: typed },
       () => {
-        setUsers((prev) => prev.filter((u) => u.user_id !== user.user_id));
+        setUsers((prev) => prev.filter((entry) => entry.user_id !== user.user_id));
       },
       `Account deleted for ${label}.`
     );
@@ -156,93 +189,196 @@ export default function AdminUsersPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-10 md:px-8">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-10 md:px-8">
       <div>
         <p className="text-xs uppercase tracking-[0.1em] text-text3">Admin</p>
         <h1 className="text-3xl font-semibold text-text1">Users</h1>
-        <p className="text-sm text-text2">Manage accounts, roles, and suspensions.</p>
+        <p className="text-sm text-text2">Manage accounts, roles, suspensions, and cross-platform sign-in visibility.</p>
       </div>
 
-      {usersError && (
-        <div className="rounded-xl border border-danger bg-[rgba(251,113,133,0.08)] p-3 text-sm text-danger">
-          {usersError}
+      {usersError ? (
+        <div className="rounded-xl border border-danger bg-[rgba(251,113,133,0.08)] p-3 text-sm text-danger">{usersError}</div>
+      ) : null}
+      {usersMessage ? (
+        <div className="rounded-xl border border-stroke bg-[rgba(234,240,255,0.04)] p-3 text-sm text-text2">{usersMessage}</div>
+      ) : null}
+
+      <SectionCard title="Filters" description="Search by identity and narrow by auth provider or surface.">
+        <div className="grid gap-3 md:grid-cols-3">
+          <label className="flex flex-col gap-1 text-xs uppercase tracking-[0.08em] text-text3">
+            Search
+            <input
+              value={query}
+              onChange={(event) => {
+                setPage(1);
+                setQuery(event.target.value);
+              }}
+              placeholder="Email, name, provider, user id"
+              className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm normal-case tracking-normal text-text1"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1 text-xs uppercase tracking-[0.08em] text-text3">
+            Provider
+            <select
+              value={providerFilter}
+              onChange={(event) => {
+                setPage(1);
+                setProviderFilter(event.target.value);
+              }}
+              className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm normal-case tracking-normal text-text1"
+            >
+              {providerOptions.map((option) => (
+                <option key={option || 'all'} value={option}>
+                  {option ? formatProviderLabel(option) : 'All providers'}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-xs uppercase tracking-[0.08em] text-text3">
+            Platform
+            <select
+              value={platformFilter}
+              onChange={(event) => {
+                setPage(1);
+                setPlatformFilter(event.target.value);
+              }}
+              className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm normal-case tracking-normal text-text1"
+            >
+              {platformOptions.map((option) => (
+                <option key={option || 'all'} value={option}>
+                  {option ? formatPlatformLabel(option) : 'All platforms'}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
-      )}
-      {usersMessage && (
-        <div className="rounded-xl border border-stroke bg-[rgba(234,240,255,0.04)] p-3 text-sm text-text2">
-          {usersMessage}
-        </div>
-      )}
+      </SectionCard>
 
       <SectionCard
         title="Users"
-        description="Name, email, last login, status, and suspension state. Use actions to manage access, reset passwords, or delete accounts."
+        description="Name, provider mix, last sign-in, platform history, status, and suspension state."
       >
-        {usersStatus === 'loading' && <div className="text-sm text-text3">Loading users...</div>}
-        {usersStatus === 'error' && <div className="text-sm text-warning">{usersError}</div>}
-        {usersStatus === 'ready' && (
+        {usersStatus === 'loading' ? <div className="text-sm text-text3">Loading users...</div> : null}
+        {usersStatus === 'error' ? <div className="text-sm text-warning">{usersError}</div> : null}
+        {usersStatus === 'ready' ? (
           <div className="overflow-auto rounded-xl border border-stroke bg-surface-0">
             <table className="w-full text-left text-xs text-text2">
               <thead className="sticky top-0 bg-surface-0 text-[11px] uppercase tracking-[0.08em] text-text3">
                 <tr>
-                  <th className="px-3 py-2">Name</th>
-                  <th className="px-3 py-2">Email</th>
-                  <th className="px-3 py-2">Last login</th>
+                  <th className="px-3 py-2">User</th>
+                  <th className="px-3 py-2">Identity</th>
+                  <th className="px-3 py-2">Activity</th>
                   <th className="px-3 py-2">Status</th>
                   <th className="px-3 py-2 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {users.length === 0 && (
+                {users.length === 0 ? (
                   <tr>
                     <td className="px-3 py-3 text-text3" colSpan={5}>
                       No users found.
                     </td>
                   </tr>
-                )}
-                {users.map((u) => {
-                  const status = resolveUserStatus(u);
-                  const suspendedUntil = formatSuspendedUntil(u.banned_until);
+                ) : null}
+
+                {users.map((user) => {
+                  const status = resolveUserStatus(user);
+                  const suspendedUntil = formatSuspendedUntil(user.banned_until);
                   const isSuspended = Boolean(suspendedUntil);
-                  const isBusy = updatingUserId === u.user_id;
+                  const isBusy = updatingUserId === user.user_id;
+
                   return (
-                    <tr key={u.user_id} className="border-t border-stroke">
-                      <td className="px-3 py-2 text-text1">{formatUserName(u)}</td>
-                      <td className="px-3 py-2">{u.email || '—'}</td>
-                      <td className="px-3 py-2">{formatLastLogin(u.last_sign_in_at)}</td>
-                      <td className="px-3 py-2">
+                    <tr key={user.user_id} className="border-t border-stroke align-top">
+                      <td className="px-3 py-3">
+                        <div className="flex items-start gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-full border border-stroke bg-[rgba(255,255,255,0.03)] text-[11px] font-semibold uppercase text-text3">
+                            {buildInitials(user)}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="font-medium text-text1">{formatUserName(user)}</div>
+                            <div className="mt-1 break-all text-[11px] text-text3">{user.user_id}</div>
+                            {user.avatar_url ? <div className="mt-1 text-[11px] text-text3">Avatar metadata present</div> : null}
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="px-3 py-3">
+                        <div className="space-y-2">
+                          <div className="break-all text-text1">{user.email || '—'}</div>
+                          {user.email_is_private_relay ? (
+                            <div className="text-[11px] text-warning">Apple private relay email</div>
+                          ) : null}
+                          <div className="flex flex-wrap gap-1">
+                            {user.providers.length === 0 ? (
+                              <Badge label="Unknown provider" />
+                            ) : (
+                              user.providers.map((provider) => <Badge key={`${user.user_id}-${provider}`} label={formatProviderLabel(provider)} />)
+                            )}
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="px-3 py-3">
+                        <div className="space-y-2">
+                          <div>
+                            <div className="text-[11px] uppercase tracking-[0.08em] text-text3">Last sign-in</div>
+                            <div className="text-text1">{formatLastLogin(user.last_sign_in_at)}</div>
+                            <div className="text-[11px] text-text3">{user.last_sign_in_platform ? formatPlatformLabel(user.last_sign_in_platform) : 'Platform unknown'}</div>
+                          </div>
+                          <div>
+                            <div className="text-[11px] uppercase tracking-[0.08em] text-text3">Last mobile sign-in</div>
+                            <div className="text-text1">{formatLastLogin(user.last_mobile_sign_in_at)}</div>
+                          </div>
+                          {user.recent_auth_events.length > 0 ? (
+                            <div className="space-y-1">
+                              <div className="text-[11px] uppercase tracking-[0.08em] text-text3">Recent auth events</div>
+                              {user.recent_auth_events.map((event, index) => (
+                                <div key={`${user.user_id}-${event.created_at || index}`} className="text-[11px] text-text3">
+                                  {formatProviderLabel(event.provider)} on {formatPlatformLabel(event.platform)} · {formatRelativeEvent(event)}
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      </td>
+
+                      <td className="px-3 py-3">
                         <div className="flex flex-wrap items-center gap-2">
                           <span
                             className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] ${statusBadgeClass(status)}`}
                           >
                             {formatUserStatusLabel(status)}
                           </span>
-                          {isSuspended && (
+                          {isSuspended ? (
                             <span className="inline-flex items-center rounded-full border border-danger/40 bg-[rgba(251,113,133,0.08)] px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-danger">
                               Suspended
                             </span>
-                          )}
+                          ) : null}
+                          {user.platforms.map((platform) => (
+                            <Badge key={`${user.user_id}-${platform}`} label={formatPlatformLabel(platform)} />
+                          ))}
                         </div>
-                        {isSuspended && suspendedUntil && (
-                          <div className="mt-1 text-[10px] text-text3">Until {suspendedUntil}</div>
-                        )}
+                        {isSuspended && suspendedUntil ? <div className="mt-1 text-[10px] text-text3">Until {suspendedUntil}</div> : null}
                       </td>
-                      <td className="px-3 py-2 text-right">
+
+                      <td className="px-3 py-3 text-right">
                         <details className="relative inline-block text-left">
                           <summary
                             className={`btn-secondary inline-flex list-none rounded-md px-3 py-1 text-[11px] [&::-webkit-details-marker]:hidden ${isBusy ? 'pointer-events-none opacity-60' : ''}`}
                           >
                             Actions
                           </summary>
-                          <div className="absolute right-0 mt-2 w-56 rounded-lg border border-stroke bg-surface-1 p-1 text-[11px] text-text2 shadow-glow">
-                            {u.role === 'admin' ? (
+                          <div className="absolute right-0 z-10 mt-2 w-56 rounded-lg border border-stroke bg-surface-1 p-1 text-[11px] text-text2 shadow-glow">
+                            {user.role === 'admin' ? (
                               <button
                                 type="button"
                                 className="flex w-full items-center rounded-md px-3 py-2 text-left hover:bg-surface-0 hover:text-text1 disabled:cursor-not-allowed disabled:opacity-60"
                                 disabled={isBusy}
                                 onClick={(event) => {
                                   closeDetails(event);
-                                  updateUserRole(u.user_id, 'user');
+                                  updateUserRole(user.user_id, 'user');
                                 }}
                               >
                                 Revoke admin
@@ -254,7 +390,7 @@ export default function AdminUsersPage() {
                                 disabled={isBusy}
                                 onClick={(event) => {
                                   closeDetails(event);
-                                  updateUserRole(u.user_id, 'admin');
+                                  updateUserRole(user.user_id, 'admin');
                                 }}
                               >
                                 Make admin
@@ -263,10 +399,10 @@ export default function AdminUsersPage() {
                             <button
                               type="button"
                               className="flex w-full items-center rounded-md px-3 py-2 text-left hover:bg-surface-0 hover:text-text1 disabled:cursor-not-allowed disabled:opacity-60"
-                              disabled={isBusy || !u.email}
+                              disabled={isBusy || !user.email}
                               onClick={(event) => {
                                 closeDetails(event);
-                                sendPasswordReset(u);
+                                sendPasswordReset(user);
                               }}
                             >
                               Send password reset
@@ -279,7 +415,7 @@ export default function AdminUsersPage() {
                                 disabled={isBusy}
                                 onClick={(event) => {
                                   closeDetails(event);
-                                  unsuspendUser(u);
+                                  unsuspendUser(user);
                                 }}
                               >
                                 Lift suspension
@@ -292,7 +428,7 @@ export default function AdminUsersPage() {
                                   disabled={isBusy}
                                   onClick={(event) => {
                                     closeDetails(event);
-                                    suspendUser(u, '168h', '7 days');
+                                    suspendUser(user, '168h', '7 days');
                                   }}
                                 >
                                   Suspend 7 days
@@ -303,7 +439,7 @@ export default function AdminUsersPage() {
                                   disabled={isBusy}
                                   onClick={(event) => {
                                     closeDetails(event);
-                                    suspendUser(u, '87600h', 'indefinite');
+                                    suspendUser(user, '87600h', 'indefinite');
                                   }}
                                 >
                                   Suspend indefinitely
@@ -317,7 +453,7 @@ export default function AdminUsersPage() {
                               disabled={isBusy}
                               onClick={(event) => {
                                 closeDetails(event);
-                                deleteUserAccount(u);
+                                deleteUserAccount(user);
                               }}
                             >
                               Delete account
@@ -331,15 +467,43 @@ export default function AdminUsersPage() {
               </tbody>
             </table>
           </div>
-        )}
+        ) : null}
       </SectionCard>
 
-      {usersStatus === 'ready' && (
-        <div className="text-xs text-text3">
-          Loaded {users.length} user{users.length === 1 ? '' : 's'}.
+      {usersStatus === 'ready' ? (
+        <div className="flex flex-col gap-3 text-xs text-text3 md:flex-row md:items-center md:justify-between">
+          <div>
+            Page {page} · Loaded {users.length} user{users.length === 1 ? '' : 's'} on this page.
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="rounded-md border border-stroke px-3 py-1.5 text-text2 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={page <= 1 || usersStatus !== 'ready'}
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              className="rounded-md border border-stroke px-3 py-1.5 text-text2 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!hasMore || usersStatus !== 'ready'}
+              onClick={() => setPage((current) => current + 1)}
+            >
+              Next
+            </button>
+          </div>
         </div>
-      )}
+      ) : null}
     </div>
+  );
+}
+
+function Badge({ label }: { label: string }) {
+  return (
+    <span className="inline-flex items-center rounded-full border border-stroke bg-[rgba(255,255,255,0.02)] px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-text3">
+      {label}
+    </span>
   );
 }
 
@@ -363,8 +527,17 @@ function statusBadgeClass(status: 'free' | 'paid' | 'admin') {
 }
 
 function formatUserName(user: AdminUser) {
-  const name = [user.first_name, user.last_name].filter(Boolean).join(' ');
+  const name = user.identity_display_name || [user.first_name, user.last_name].filter(Boolean).join(' ');
   return name || user.email || user.user_id || '—';
+}
+
+function buildInitials(user: AdminUser) {
+  const source = formatUserName(user);
+  return source
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((token) => token[0]?.toUpperCase() || '')
+    .join('') || 'U';
 }
 
 function formatLastLogin(value?: string | null) {
@@ -380,4 +553,24 @@ function formatSuspendedUntil(value?: string | null) {
   if (Number.isNaN(date.getTime())) return null;
   if (date.getTime() <= Date.now()) return null;
   return date.toLocaleString();
+}
+
+function formatProviderLabel(value: string) {
+  if (value === 'email' || value === 'email_password') return 'Email';
+  if (value === 'twitter') return 'X';
+  if (value === 'unknown') return 'Unknown';
+  return value.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatPlatformLabel(value: string) {
+  if (value === 'ios') return 'iOS';
+  return value.toUpperCase();
+}
+
+function formatRelativeEvent(event: AdminUser['recent_auth_events'][number]) {
+  const date = event.created_at ? new Date(event.created_at) : null;
+  if (!date || Number.isNaN(date.getTime())) {
+    return event.event_type.replace(/_/g, ' ');
+  }
+  return `${event.event_type.replace(/_/g, ' ')} · ${date.toLocaleString()}`;
 }

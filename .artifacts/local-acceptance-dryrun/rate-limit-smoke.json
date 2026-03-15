@@ -1,0 +1,19 @@
+{
+  "generatedAt": "2026-03-10T01:21:52.229Z",
+  "scenarios": [
+    {
+      "name": "shared-bucket",
+      "limit": 3,
+      "attempts": 6,
+      "allowed": 3,
+      "blocked": 3
+    },
+    {
+      "name": "isolated-bucket",
+      "limit": 3,
+      "attempts": 3,
+      "allowed": 3,
+      "blocked": 0
+    }
+  ]
+}

@@ -1,0 +1,223 @@
+{
+  "generatedAt": "2026-03-10T01:21:51.317Z",
+  "outDir": "/Users/petpawlooza/TMinusZero AllApps/.artifacts/local-acceptance-dryrun/preflight",
+  "includeMobileE2E": false,
+  "billingEvidenceUserId": "4cbef9a2-99c7-429d-91bc-e77290425982",
+  "steps": [
+    {
+      "name": "Mobile E2E acceptance",
+      "command": "",
+      "status": "skipped",
+      "exitCode": null,
+      "startedAt": "2026-03-10T01:20:47.160Z",
+      "endedAt": "2026-03-10T01:20:47.160Z",
+      "durationMs": 0,
+      "logFile": null,
+      "note": "Run separately with `npm run mobile:e2e:acceptance` or the Mobile E2E workflow."
+    },
+    {
+      "name": "Toolchain doctor",
+      "command": "/Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/node/bin/node /Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/npm/bin/npm-cli.js run doctor",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-10T01:20:47.161Z",
+      "endedAt": "2026-03-10T01:20:47.267Z",
+      "durationMs": 106,
+      "logFile": ".artifacts/local-acceptance-dryrun/preflight/logs/toolchain-doctor.log",
+      "note": null
+    },
+    {
+      "name": "Three-platform boundary check",
+      "command": "/Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/node/bin/node /Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/npm/bin/npm-cli.js run check:three-platform:boundaries",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-10T01:20:47.267Z",
+      "endedAt": "2026-03-10T01:20:47.384Z",
+      "durationMs": 117,
+      "logFile": ".artifacts/local-acceptance-dryrun/preflight/logs/three-platform-boundary-check.log",
+      "note": null
+    },
+    {
+      "name": "Shared domain smoke",
+      "command": "/Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/node/bin/node /Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/npm/bin/npm-cli.js run test:shared-domain",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-10T01:20:47.384Z",
+      "endedAt": "2026-03-10T01:20:47.921Z",
+      "durationMs": 537,
+      "logFile": ".artifacts/local-acceptance-dryrun/preflight/logs/shared-domain-smoke.log",
+      "note": null
+    },
+    {
+      "name": "Phase 3 web closeout guard",
+      "command": "/Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/node/bin/node /Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/npm/bin/npm-cli.js run test:phase3-web-guard",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-10T01:20:47.921Z",
+      "endedAt": "2026-03-10T01:20:48.366Z",
+      "durationMs": 445,
+      "logFile": ".artifacts/local-acceptance-dryrun/preflight/logs/phase-3-web-closeout-guard.log",
+      "note": null
+    },
+    {
+      "name": "Three-platform hot path guard",
+      "command": "/Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/node/bin/node /Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/npm/bin/npm-cli.js run test:three-platform:hot-path",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-10T01:20:48.366Z",
+      "endedAt": "2026-03-10T01:20:48.592Z",
+      "durationMs": 226,
+      "logFile": ".artifacts/local-acceptance-dryrun/preflight/logs/three-platform-hot-path-guard.log",
+      "note": null
+    },
+    {
+      "name": "Web regression smoke",
+      "command": "/Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/node/bin/node /Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/npm/bin/npm-cli.js run test:web-regression",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-10T01:20:48.592Z",
+      "endedAt": "2026-03-10T01:20:49.014Z",
+      "durationMs": 422,
+      "logFile": ".artifacts/local-acceptance-dryrun/preflight/logs/web-regression-smoke.log",
+      "note": null
+    },
+    {
+      "name": "Billing regression smoke",
+      "command": "/Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/node/bin/node /Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/npm/bin/npm-cli.js run test:billing-regression -- --out=/Users/petpawlooza/TMinusZero AllApps/.artifacts/local-acceptance-dryrun/preflight/billing/billing-regression.json",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-10T01:20:49.015Z",
+      "endedAt": "2026-03-10T01:20:49.336Z",
+      "durationMs": 321,
+      "logFile": ".artifacts/local-acceptance-dryrun/preflight/logs/billing-regression-smoke.log",
+      "note": null
+    },
+    {
+      "name": "V1 contracts",
+      "command": "/Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/node/bin/node /Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/npm/bin/npm-cli.js run test:v1-contracts",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-10T01:20:49.337Z",
+      "endedAt": "2026-03-10T01:20:49.736Z",
+      "durationMs": 399,
+      "logFile": ".artifacts/local-acceptance-dryrun/preflight/logs/v1-contracts.log",
+      "note": null
+    },
+    {
+      "name": "Mobile query guard",
+      "command": "/Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/node/bin/node /Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/npm/bin/npm-cli.js run test:mobile-query-guard",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-10T01:20:49.736Z",
+      "endedAt": "2026-03-10T01:20:50.123Z",
+      "durationMs": 387,
+      "logFile": ".artifacts/local-acceptance-dryrun/preflight/logs/mobile-query-guard.log",
+      "note": null
+    },
+    {
+      "name": "Mobile security guard",
+      "command": "/Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/node/bin/node /Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/npm/bin/npm-cli.js run test:mobile-security-guard",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-10T01:20:50.124Z",
+      "endedAt": "2026-03-10T01:20:50.359Z",
+      "durationMs": 235,
+      "logFile": ".artifacts/local-acceptance-dryrun/preflight/logs/mobile-security-guard.log",
+      "note": null
+    },
+    {
+      "name": "Mobile type-check",
+      "command": "/Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/node/bin/node /Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/npm/bin/npm-cli.js run type-check:mobile",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-10T01:20:50.360Z",
+      "endedAt": "2026-03-10T01:20:52.715Z",
+      "durationMs": 2355,
+      "logFile": ".artifacts/local-acceptance-dryrun/preflight/logs/mobile-type-check.log",
+      "note": null
+    },
+    {
+      "name": "Mobile lint",
+      "command": "/Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/node/bin/node /Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/npm/bin/npm-cli.js run lint --workspace @tminuszero/mobile",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-10T01:20:52.716Z",
+      "endedAt": "2026-03-10T01:20:53.859Z",
+      "durationMs": 1143,
+      "logFile": ".artifacts/local-acceptance-dryrun/preflight/logs/mobile-lint.log",
+      "note": null
+    },
+    {
+      "name": "Web lint",
+      "command": "/Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/node/bin/node /Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/npm/bin/npm-cli.js run lint",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-10T01:20:53.859Z",
+      "endedAt": "2026-03-10T01:20:56.273Z",
+      "durationMs": 2414,
+      "logFile": ".artifacts/local-acceptance-dryrun/preflight/logs/web-lint.log",
+      "note": null
+    },
+    {
+      "name": "Smoke tests",
+      "command": "/Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/node/bin/node /Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/npm/bin/npm-cli.js run test:smoke",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-10T01:20:56.273Z",
+      "endedAt": "2026-03-10T01:20:57.010Z",
+      "durationMs": 737,
+      "logFile": ".artifacts/local-acceptance-dryrun/preflight/logs/smoke-tests.log",
+      "note": null
+    },
+    {
+      "name": "Web build",
+      "command": "/Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/node/bin/node /Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/npm/bin/npm-cli.js run build",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-10T01:20:57.010Z",
+      "endedAt": "2026-03-10T01:21:43.800Z",
+      "durationMs": 46790,
+      "logFile": ".artifacts/local-acceptance-dryrun/preflight/logs/web-build.log",
+      "note": null
+    },
+    {
+      "name": "Web type-check after build",
+      "command": "/Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/node/bin/node /Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/npm/bin/npm-cli.js run type-check:ci",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-10T01:21:43.803Z",
+      "endedAt": "2026-03-10T01:21:49.094Z",
+      "durationMs": 5291,
+      "logFile": ".artifacts/local-acceptance-dryrun/preflight/logs/web-type-check-after-build.log",
+      "note": null
+    },
+    {
+      "name": "Three-platform baseline capture",
+      "command": "/Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/node/bin/node /Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/npm/bin/npm-cli.js run baseline:three-platform -- --out-dir=/Users/petpawlooza/TMinusZero AllApps/.artifacts/local-acceptance-dryrun/preflight/baseline --ttfb-requests=15 --ttfb-warmup=5",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-10T01:21:49.094Z",
+      "endedAt": "2026-03-10T01:21:50.936Z",
+      "durationMs": 1842,
+      "logFile": ".artifacts/local-acceptance-dryrun/preflight/logs/three-platform-baseline-capture.log",
+      "note": null
+    },
+    {
+      "name": "Billing evidence export",
+      "command": "/Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/node/bin/node /Users/petpawlooza/.npm/_npx/25ed3670c542cf72/node_modules/npm/bin/npm-cli.js run export:billing-evidence -- --out=/Users/petpawlooza/TMinusZero AllApps/.artifacts/local-acceptance-dryrun/preflight/billing/billing-evidence.json --skip-when-unavailable --user-id=4cbef9a2-99c7-429d-91bc-e77290425982",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-10T01:21:50.936Z",
+      "endedAt": "2026-03-10T01:21:51.317Z",
+      "durationMs": 381,
+      "logFile": ".artifacts/local-acceptance-dryrun/preflight/logs/billing-evidence-export.log",
+      "note": null
+    }
+  ],
+  "artifacts": {
+    "baselineDir": "/Users/petpawlooza/TMinusZero AllApps/.artifacts/local-acceptance-dryrun/preflight/baseline",
+    "billingEvidence": "/Users/petpawlooza/TMinusZero AllApps/.artifacts/local-acceptance-dryrun/preflight/billing/billing-evidence.json",
+    "billingRegression": "/Users/petpawlooza/TMinusZero AllApps/.artifacts/local-acceptance-dryrun/preflight/billing/billing-regression.json",
+    "summaryMarkdown": "/Users/petpawlooza/TMinusZero AllApps/.artifacts/local-acceptance-dryrun/preflight/summary.md"
+  }
+}

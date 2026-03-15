@@ -1,10 +1,9 @@
 'use client';
 
-import { useEffect } from 'react';
-import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
-import { getBrowserClient } from '@/lib/api/supabase';
+import { useEffect, useRef } from 'react';
 import { PRIVACY_COOKIES } from '@/lib/privacy/choices';
 import { deleteCookie, readCookie, setCookie } from '@/lib/privacy/clientCookies';
+import { usePrivacyPreferencesQuery, useUpdatePrivacyPreferencesMutation, useViewerSessionQuery } from '@/lib/api/queries';
 
 type CookiePreferences = {
   opt_out_sale_share: boolean;
@@ -22,75 +21,51 @@ function syncCookiePreferences(prefs: CookiePreferences) {
 }
 
 export function PrivacySignals() {
+  const viewerSessionQuery = useViewerSessionQuery();
+  const privacyPreferencesQuery = usePrivacyPreferencesQuery();
+  const updatePrivacyPreferencesMutation = useUpdatePrivacyPreferencesMutation();
+  const promotionSignatureRef = useRef<string | null>(null);
+  const gpcEnabled = typeof navigator !== 'undefined' && (navigator as any).globalPrivacyControl === true;
+  const isAuthed = Boolean(viewerSessionQuery.data?.viewerId);
+
   useEffect(() => {
-    let active = true;
-    const gpcEnabled = typeof navigator !== 'undefined' && (navigator as any).globalPrivacyControl === true;
-
-    const syncGpcCookie = () => {
-      if (gpcEnabled) {
-        const saleShare = readCookie(PRIVACY_COOKIES.optOutSaleShare);
-        if (saleShare !== '1') setCookie(PRIVACY_COOKIES.optOutSaleShare, '1');
-      }
-    };
-
-    const syncServerPreferences = async () => {
-      try {
-        const res = await fetch('/api/me/privacy/preferences', { cache: 'no-store' });
-        if (!res.ok) return;
-        const json = await res.json().catch(() => ({}));
-        if (!active) return;
-        const prefs = json?.preferences;
-        if (!prefs) return;
-        syncCookiePreferences({
-          opt_out_sale_share: Boolean(prefs.opt_out_sale_share) || gpcEnabled,
-          limit_sensitive: Boolean(prefs.limit_sensitive),
-          block_third_party_embeds: Boolean(prefs.block_third_party_embeds)
-        });
-      } catch {
-        return;
-      }
-
-      if (gpcEnabled) {
-        await fetch('/api/me/privacy/preferences', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            opt_out_sale_share: true,
-            gpc_enabled: true
-          })
-        }).catch(() => undefined);
-      }
-    };
-
-    syncGpcCookie();
-
-    const supabase = getBrowserClient();
-    if (!supabase) {
-      return () => {
-        active = false;
-      };
+    if (gpcEnabled && readCookie(PRIVACY_COOKIES.optOutSaleShare) !== '1') {
+      setCookie(PRIVACY_COOKIES.optOutSaleShare, '1');
     }
+  }, [gpcEnabled]);
 
-    const runIfAuthed = async () => {
-      const sessionResult = await supabase.auth.getSession().catch(() => null);
-      if (!active) return;
-      const user = sessionResult?.data?.session?.user;
-      if (!user) return;
-      await syncServerPreferences();
-    };
+  useEffect(() => {
+    if (!isAuthed || !privacyPreferencesQuery.data) return;
 
-    void runIfAuthed();
-
-    const { data } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
-      if (!session?.user) return;
-      void syncServerPreferences();
+    const prefs = privacyPreferencesQuery.data;
+    syncCookiePreferences({
+      opt_out_sale_share: prefs.optOutSaleShare || gpcEnabled,
+      limit_sensitive: prefs.limitSensitive,
+      block_third_party_embeds: prefs.blockThirdPartyEmbeds
     });
 
-    return () => {
-      active = false;
-      data.subscription.unsubscribe();
+    const promote = {
+      ...(gpcEnabled && !prefs.gpcEnabled ? { gpcEnabled: true } : {}),
+      ...(gpcEnabled && !prefs.optOutSaleShare ? { optOutSaleShare: true } : {})
     };
-  }, []);
+    const keys = Object.keys(promote);
+    if (keys.length === 0) {
+      promotionSignatureRef.current = null;
+      return;
+    }
+
+    const signature = JSON.stringify(promote);
+    if (promotionSignatureRef.current === signature) {
+      return;
+    }
+    promotionSignatureRef.current = signature;
+
+    void updatePrivacyPreferencesMutation.mutateAsync(promote).catch(() => {
+      if (promotionSignatureRef.current === signature) {
+        promotionSignatureRef.current = null;
+      }
+    });
+  }, [gpcEnabled, isAuthed, privacyPreferencesQuery.data, updatePrivacyPreferencesMutation]);
 
   return null;
 }

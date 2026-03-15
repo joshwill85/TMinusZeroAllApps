@@ -1,14 +1,34 @@
 import { Badge, type BadgeTone } from './Badge';
+import { deriveJepWeatherImpact } from '@/lib/jep/weather';
 import type { LaunchJepScore } from '@/lib/types/jep';
-import {
-  dedupeTrajectoryReasonLabels,
-  formatTrajectoryFieldConfidenceLabel,
-  formatTrajectoryAuthorityTierLabel,
-  formatTrajectoryQualityStateLabel
-} from '@/lib/trajectory/trajectoryEvidencePresentation';
 
 export type JepLocationMode = 'user' | 'pad_fallback';
 export type JepFallbackReason = 'denied' | 'unsupported' | 'timeout' | 'unavailable' | 'error' | null;
+
+type NarrativeItem = {
+  title: string;
+  detail: string;
+  tone: BadgeTone;
+  rank: number;
+};
+
+type GuidancePresentation = {
+  mode: 'visible' | 'conditional' | 'sunlit_only' | 'path_only';
+  badgeLabel: string | null;
+  badgeTone: BadgeTone;
+  windowLabel: string;
+  windowNote: string | null;
+  directionLabel: string;
+  directionNote: string | null;
+  elevationLabel: string;
+  elevationNote: string | null;
+};
+
+type ScoreNarrative = {
+  summary: string;
+  whyNow: NarrativeItem[];
+  guidance: GuidancePresentation;
+};
 
 export function JepScorePanel({
   score,
@@ -34,28 +54,22 @@ export function JepScorePanel({
   const resolvedLocationMode = locationMode ?? (score.observer.personalized ? 'user' : 'pad_fallback');
   const locationLabel = resolvedLocationMode === 'user' ? 'Using your location' : 'Using launch pad (fallback)';
   const fallbackReasonLabel = formatFallbackReason(fallbackReason ?? null);
-  const observerLabel = resolvedLocationMode === 'user' ? 'Personalized observer tile' : 'Pad observer fallback';
   const primaryValue = isProbabilityMode && probability != null ? formatProbability(probability) : `${score.score}/100`;
   const primaryLabel = isProbabilityMode ? 'Chance to see it' : 'Visibility score';
   const scaleSummary = isProbabilityMode
     ? '0% = almost no chance. 100% = very likely.'
     : '0 = very unlikely to see it. 100 = best setup.';
-  const scenarioWindows = Array.isArray(score.scenarioWindows) ? score.scenarioWindows : [];
-  const hasGuidanceSummary =
-    score.bestWindow != null || score.directionBand != null || score.elevationBand != null || scenarioWindows.length > 0;
-  const trajectoryReasonLabels = score.trajectory
-    ? dedupeTrajectoryReasonLabels([
-        ...(score.trajectory.publishPolicy?.reasons ?? []),
-        ...(score.trajectory.publishPolicy?.missingFields ?? []),
-        ...(score.trajectory.publishPolicy?.blockingReasons ?? []),
-        ...score.trajectory.confidenceReasons
-      ])
-    : [];
-  const readinessReasonLabels = score.readiness.reasons.map(formatReadinessReasonLabel);
+  const hasGuidanceSummary = score.bestWindow != null || score.directionBand != null || score.elevationBand != null;
   const readinessSummary = formatReadinessSummary(score);
   const modelSummary = isProbabilityMode
     ? 'Estimated chance of seeing the jellyfish effect from your location.'
     : '0-100 score for how likely the jellyfish effect is to be visible from your location.';
+  const narrative = deriveScoreNarrative(score);
+  const guidancePresentation = narrative.guidance;
+  const hasNarrative = narrative.whyNow.length > 0;
+  const shouldShowGuidanceSummary =
+    hasGuidanceSummary && (guidancePresentation.mode === 'visible' || guidancePresentation.mode === 'conditional');
+  const observerMetricLabel = resolvedLocationMode === 'user' ? 'Your location' : 'Launch pad fallback';
 
   return (
     <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
@@ -100,156 +114,104 @@ export function JepScorePanel({
           )}
         </div>
 
-        {hasGuidanceSummary && (
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
-            {score.bestWindow && (
-              <Metric label="Best viewing window" value={score.bestWindow.label} note={score.bestWindow.reason} />
-            )}
-            {score.directionBand && (
-              <Metric
-                label="Look toward"
-                value={score.directionBand.label}
-                note={`${formatDegrees(score.directionBand.fromAzDeg)} to ${formatDegrees(score.directionBand.toAzDeg)}`}
-              />
-            )}
-            {score.elevationBand && (
-              <Metric label="Height above horizon" value={score.elevationBand.label} note="Above your local horizon" />
-            )}
+        {hasNarrative && (
+          <div className="mt-4">
+            <NarrativePanel heading="Why This Score" summary={narrative.summary} items={narrative.whyNow} />
           </div>
         )}
 
-        {scenarioWindows.length > 0 && (
+        {shouldShowGuidanceSummary && (
           <div className="mt-4 rounded-xl border border-stroke bg-surface-0 p-3">
-            <div className="text-[11px] uppercase tracking-[0.08em] text-text3">If Launch Timing Changes</div>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {scenarioWindows.map((scenario) => (
-                <Badge key={scenario.offsetMinutes} tone={scenarioTone(scenario.trend)} subtle>
-                  {scenario.label} • {scenario.score}/100 • {scenario.trend}
+            {guidancePresentation.badgeLabel && (
+              <div className="mb-3 flex flex-wrap gap-2">
+                <Badge tone={guidancePresentation.badgeTone} subtle>
+                  {guidancePresentation.badgeLabel}
                 </Badge>
-              ))}
-            </div>
-            <div className="mt-2 text-[11px] text-text3">
-              Only launch time changes here. Path and weather stay the same.
+              </div>
+            )}
+            <div className="grid gap-3 md:grid-cols-3">
+              {score.bestWindow && (
+                <Metric
+                  label={guidancePresentation.windowLabel}
+                  value={score.bestWindow.label}
+                  note={guidancePresentation.mode === 'visible' ? score.bestWindow.reason : guidancePresentation.windowNote}
+                />
+              )}
+              {score.directionBand && (
+                <Metric
+                  label={guidancePresentation.directionLabel}
+                  value={score.directionBand.label}
+                  note={joinNotes(
+                    `${formatDegrees(score.directionBand.fromAzDeg)} to ${formatDegrees(score.directionBand.toAzDeg)}`,
+                    guidancePresentation.directionNote
+                  )}
+                />
+              )}
+              {score.elevationBand && (
+                <Metric
+                  label={guidancePresentation.elevationLabel}
+                  value={score.elevationBand.label}
+                  note={guidancePresentation.elevationNote}
+                />
+              )}
             </div>
           </div>
         )}
       </div>
 
       <details className="mt-4 rounded-xl border border-stroke bg-surface-0 p-3">
-        <summary className="cursor-pointer text-sm font-semibold text-text1">What Moves This Number</summary>
+        <summary className="cursor-pointer text-sm font-semibold text-text1">Score Breakdown</summary>
 
-        <div className="mt-3 grid gap-3 md:grid-cols-6">
+        <div className="mt-3 grid gap-3 md:grid-cols-7">
           <Metric label="Visibility score" value={`${score.score}/100`} />
           <Metric label={isProbabilityMode ? 'Chance to see it' : 'Showing'} value={isProbabilityMode ? formatProbability(probability) : '0-100 score'} />
           <Metric label="Chance estimate" value={isProbabilityMode ? 'Shown' : 'Not shown yet'} note={readinessSummary} />
           <Metric label="Rocket in sunlight" value={formatFactor(score.factors.illumination)} />
-          <Metric label="Dark sky" value={formatFactor(score.factors.darkness)} />
-          <Metric label="Open view" value={formatFactor(score.factors.lineOfSight)} />
-          <Metric label="Clouds" value={formatFactor(score.factors.weather)} />
+          <Metric label="Twilight timing" value={formatFactor(score.factors.darkness)} />
+          <Metric label="Visible path" value={formatFactor(score.factors.lineOfSight)} />
+          <Metric
+            label="Sky clarity"
+            value={formatFactor(score.factors.weather)}
+            note="Low clouds count most, then mid clouds, then high clouds. Total cloud is a soft ceiling."
+          />
         </div>
 
-        <div className="mt-3 grid gap-3 md:grid-cols-5">
-          <Metric label="Cloud cover" value={formatPct(score.factors.cloudCoverPct)} />
+        <div className="mt-3 grid gap-3 md:grid-cols-7">
+          <Metric
+            label="Total cloud cover"
+            value={formatPct(score.factors.cloudCoverPct)}
+            note="Any cloud layer counts here, not just low overcast."
+          />
           <Metric label="Low clouds" value={formatPct(score.factors.cloudCoverLowPct)} />
+          <Metric label="Mid clouds" value={formatPct(score.factors.cloudCoverMidPct)} />
+          <Metric label="High clouds" value={formatPct(score.factors.cloudCoverHighPct)} />
           <Metric label="Sun below horizon" value={formatDegrees(score.factors.solarDepressionDeg)} />
           <Metric label="Sunlight margin" value={formatKm(score.sunlitMarginKm)} />
           <Metric label="Visible flight path" value={formatProbability(score.losVisibleFraction)} />
         </div>
 
-        <div className="mt-3 grid gap-3 md:grid-cols-3">
+        <div className="mt-3 grid gap-3 md:grid-cols-4">
+          <Metric label="Weather data" value={weatherSourceLabel} />
           <Metric
-            label="Confirmed reports"
-            value={formatReadinessThreshold(score.readiness.labeledOutcomes, score.readiness.minLabeledOutcomes)}
+            label="Observer location"
+            value={observerMetricLabel}
+            note={
+              score.observer.usingPadFallback && resolvedLocationMode === 'pad_fallback'
+                ? 'Using launch-pad geometry until your score refreshes.'
+                : null
+            }
           />
-          <Metric label="Calibration error (ECE)" value={formatCalibrationMetric(score.readiness.currentEce, score.readiness.maxEce)} />
-          <Metric
-            label="Forecast error (Brier)"
-            value={formatCalibrationMetric(score.readiness.currentBrier, score.readiness.maxBrier)}
-          />
+          {computedLabel ? <Metric label="Updated" value={computedLabel} /> : null}
+          {score.isSnapshot ? (
+            snapshotLabel ? <Metric label="Snapshot captured" value={snapshotLabel} /> : null
+          ) : expiresLabel ? (
+            <Metric label="Refresh due" value={expiresLabel} />
+          ) : null}
         </div>
-
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Badge tone={confidenceTone(score.confidence.time)} subtle>
-            Time {score.confidence.time}
-          </Badge>
-          <Badge tone={confidenceTone(score.confidence.trajectory)} subtle>
-            Trajectory {score.confidence.trajectory}
-          </Badge>
-          <Badge tone={confidenceTone(score.confidence.weather)} subtle>
-            Weather {score.confidence.weather}
-          </Badge>
-          {score.trajectory && (
-            <Badge tone={trajectoryAuthorityTone(score.trajectory.authorityTier)} subtle>
-              Trajectory evidence {formatTrajectoryAuthorityTierLabel(score.trajectory.authorityTier)}
-            </Badge>
-          )}
-        </div>
-
-        {score.trajectory?.fieldProvenance && (
-          <div className="mt-4 grid gap-3 md:grid-cols-4">
-            <Metric
-              label="Direction source"
-              value={formatTrajectoryAuthorityTierLabel(score.trajectory.fieldProvenance.azimuth.authorityTier)}
-              note={`${formatTrajectoryFieldConfidenceLabel(score.trajectory.fieldProvenance.azimuth.confidenceLabel)} • ${score.trajectory.fieldProvenance.azimuth.summary}`}
-            />
-            <Metric
-              label="Altitude source"
-              value={formatTrajectoryAuthorityTierLabel(score.trajectory.fieldProvenance.altitude.authorityTier)}
-              note={`${formatTrajectoryFieldConfidenceLabel(score.trajectory.fieldProvenance.altitude.confidenceLabel)} • ${score.trajectory.fieldProvenance.altitude.summary}`}
-            />
-            <Metric
-              label="Milestones source"
-              value={formatTrajectoryAuthorityTierLabel(score.trajectory.fieldProvenance.milestones.authorityTier)}
-              note={`${formatTrajectoryFieldConfidenceLabel(score.trajectory.fieldProvenance.milestones.confidenceLabel)} • ${score.trajectory.fieldProvenance.milestones.summary}`}
-            />
-            <Metric
-              label="Uncertainty source"
-              value={formatTrajectoryAuthorityTierLabel(score.trajectory.fieldProvenance.uncertainty.authorityTier)}
-              note={`${formatTrajectoryFieldConfidenceLabel(score.trajectory.fieldProvenance.uncertainty.confidenceLabel)} • ${score.trajectory.fieldProvenance.uncertainty.summary}`}
-            />
-          </div>
-        )}
 
         <div className="mt-3 text-xs text-text3">
-          <div>Weather data: {weatherSourceLabel}</div>
-          <div>Direction data: {formatSourceValue(score.source.azimuth)}</div>
-          <div>Observer location: {observerLabel}</div>
-          {score.observer.usingPadFallback && resolvedLocationMode === 'pad_fallback' && (
-            <div>Fallback: using launch-pad geometry until your score refreshes.</div>
-          )}
-          <div>Chance estimate: {score.readiness.probabilityReady ? 'ready' : 'score only'}</div>
-          <div>Validation: {score.readiness.validationReady ? 'ready' : 'in progress'}</div>
-          <div>Model notes: {score.readiness.modelCardPublished ? 'published' : 'pending'}</div>
-          <div>Confirmed reports: {formatReadinessThreshold(score.readiness.labeledOutcomes, score.readiness.minLabeledOutcomes)}</div>
-          <div>Calibration error (ECE): {formatCalibrationMetric(score.readiness.currentEce, score.readiness.maxEce)}</div>
-          <div>Forecast error (Brier): {formatCalibrationMetric(score.readiness.currentBrier, score.readiness.maxBrier)}</div>
-          {readinessReasonLabels.length > 0 && <div>Why chance mode is held back: {readinessReasonLabels.join(', ')}</div>}
-          <div>Calibration: {score.calibrationBand.replace('_', ' ')}</div>
-          {score.weatherFreshnessMinutes != null && <div>Weather age: {score.weatherFreshnessMinutes} min</div>}
-          {score.explainability.reasonCodes.length > 0 && <div>Reasons: {score.explainability.reasonCodes.join(', ')}</div>}
-          {score.trajectory && <div>Trajectory evidence: {score.trajectory.evidenceLabel}</div>}
-          {score.trajectory && <div>Trajectory confidence: {score.trajectory.confidenceBadgeLabel}</div>}
-          {score.trajectory && score.trajectory.freshnessState && <div>Trajectory freshness: {score.trajectory.freshnessState}</div>}
-          {score.trajectory && <div>Trajectory detail level: {formatTrajectoryQualityStateLabel(score.trajectory.qualityState)}</div>}
-          {score.trajectory?.safeModeActive && <div>Trajectory guidance: widened into safe mode rather than claiming precision.</div>}
-          {score.trajectory?.publishPolicy?.enforcePadOnly && (
-            <div>Trajectory guardrail: precise guidance withheld and pad-only fallback enforced.</div>
-          )}
-          {score.bestWindow && <div>Best viewing window: {score.bestWindow.label}</div>}
-          {score.directionBand && <div>Look toward: {score.directionBand.label}</div>}
-          {score.elevationBand && <div>Height above horizon: {score.elevationBand.label}</div>}
-          {scenarioWindows.length > 0 && (
-            <div>
-              If launch timing changes: {scenarioWindows.map((scenario) => `${scenario.label} ${scenario.score}/100 (${scenario.trend})`).join(', ')}
-            </div>
-          )}
-          {score.trajectory && !score.trajectory.lineageComplete && <div>Trajectory sourcing: partial.</div>}
-          {trajectoryReasonLabels.length > 0 && <div>Trajectory caveats: {trajectoryReasonLabels.join(', ')}</div>}
-          <div>Model version: {score.modelVersion}</div>
-          {score.isSnapshot && snapshotLabel && <div>Snapshot captured: {snapshotLabel}</div>}
-          {computedLabel && <div>Updated: {computedLabel}</div>}
-          {!score.isSnapshot && expiresLabel && <div>Refresh due: {expiresLabel}</div>}
-          {score.source.geometryOnlyFallback && <div>Weather fallback: geometry-only estimate (no usable forecast).</div>}
+          {score.source.geometryOnlyFallback && <div>Weather fallback: geometry-only estimate because no usable forecast was available.</div>}
+          {fallbackReasonLabel && resolvedLocationMode === 'pad_fallback' && <div>Browser location note: {fallbackReasonLabel}.</div>}
         </div>
       </details>
 
@@ -259,6 +221,36 @@ export function JepScorePanel({
         </a>
       </p>
     </section>
+  );
+}
+
+function NarrativePanel({
+  heading,
+  summary,
+  items
+}: {
+  heading: string;
+  summary?: string;
+  items: NarrativeItem[];
+}) {
+  return (
+    <div className="rounded-xl border border-stroke bg-surface-0 p-3">
+      <div className="text-[11px] uppercase tracking-[0.08em] text-text3">{heading}</div>
+      {summary ? <p className="mt-2 text-sm text-text2">{summary}</p> : null}
+      <div className="mt-3 space-y-3">
+        {items.map((item) => (
+          <div key={`${heading}-${item.title}`} className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone={item.tone} subtle>
+                {narrativeToneLabel(item.tone)}
+              </Badge>
+              <div className="text-sm font-semibold text-text1">{item.title}</div>
+            </div>
+            <div className="mt-2 text-sm text-text3">{item.detail}</div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -282,24 +274,272 @@ function Metric({
   );
 }
 
+function deriveScoreNarrative(score: LaunchJepScore): ScoreNarrative {
+  const guidance = deriveGuidancePresentation(score);
+  const whyNow = sortNarrativeItems(buildWhyNowItems(score));
+  const summary =
+    score.score === 0
+      ? 'No visible jellyfish plume is currently expected from this location.'
+      : score.score < 30
+        ? 'The setup is weak right now because multiple parts of the visibility chain are underperforming.'
+        : score.score < 70
+          ? 'The setup is mixed right now. Some parts of the visibility chain work, but important pieces are still limiting it.'
+          : 'The setup is favorable right now, but the score still depends on timing, geometry, and weather holding together.';
+
+  return {
+    summary,
+    whyNow,
+    guidance
+  };
+}
+
+function buildWhyNowItems(score: LaunchJepScore): NarrativeItem[] {
+  const items: NarrativeItem[] = [];
+  const cloudCover = toPctNumber(score.factors.cloudCoverPct);
+  const lowClouds = toPctNumber(score.factors.cloudCoverLowPct);
+  const midClouds = toPctNumber(score.factors.cloudCoverMidPct);
+  const highClouds = toPctNumber(score.factors.cloudCoverHighPct);
+  const sunBelow = score.factors.solarDepressionDeg;
+  const weatherImpact = deriveJepWeatherImpact({
+    cloudCoverTotal: score.factors.cloudCoverPct,
+    cloudCoverLow: score.factors.cloudCoverLowPct,
+    cloudCoverMid: score.factors.cloudCoverMidPct,
+    cloudCoverHigh: score.factors.cloudCoverHighPct
+  });
+  const detailedWeatherItem = buildDetailedWeatherWhyItem(score.weatherDetails);
+
+  if (detailedWeatherItem) {
+    items.push(detailedWeatherItem);
+  } else if (score.factors.weather <= 0.15 || weatherImpact.blockerStrength === 'severe') {
+    items.push(primaryWeatherNarrative({
+      cloudCover,
+      lowClouds,
+      midClouds,
+      highClouds,
+      weatherFactor: score.factors.weather,
+      dominantBlocker: weatherImpact.dominantBlocker,
+      blockerStrength: weatherImpact.blockerStrength
+    }));
+  } else if (score.factors.weather < 0.55 || weatherImpact.dominantBlocker !== 'unknown') {
+    items.push(secondaryWeatherNarrative({
+      cloudCover,
+      lowClouds,
+      midClouds,
+      highClouds,
+      weatherFactor: score.factors.weather,
+      dominantBlocker: weatherImpact.dominantBlocker
+    }));
+  }
+
+  if (score.factors.illumination === 0) {
+    items.push({
+      title: 'No sunlit plume window is modeled',
+      detail: 'The model does not place the useful part of ascent in sunlight from this location at the current launch time.',
+      tone: 'danger',
+      rank: 95
+    });
+  } else if (score.factors.illumination < 0.25) {
+    items.push({
+      title: 'Only a small part of the plume is sunlit',
+      detail: `Only ${formatFactor(score.factors.illumination)} of the scored ascent window is modeled in sunlight.`,
+      tone: 'warning',
+      rank: 68
+    });
+  }
+
+  if (score.factors.illumination > 0 && score.factors.lineOfSight === 0) {
+    items.push({
+      title: 'The sunlit part never clears your horizon enough',
+      detail: 'From this location, the sunlit segment is not modeled as clearly visible above the viewing threshold.',
+      tone: 'danger',
+      rank: 90
+    });
+  } else if (score.factors.illumination > 0 && score.factors.lineOfSight < 0.25) {
+    items.push({
+      title: 'Only a small part of the sunlit path is viewable',
+      detail: `The visible part of the sunlit path is limited to ${formatFactor(score.factors.lineOfSight)} of the scoring window.`,
+      tone: 'warning',
+      rank: 64
+    });
+  }
+
+  if (score.factors.darkness <= 0.15 && sunBelow != null) {
+    items.push({
+      title: 'Twilight timing is poor',
+      detail: `The Sun is ${formatDegrees(sunBelow)} below the horizon, which is well past the twilight sweet spot that usually produces the best jellyfish contrast.`,
+      tone: 'warning',
+      rank: 66
+    });
+  } else if (score.factors.darkness < 0.4 && sunBelow != null) {
+    items.push({
+      title: 'Twilight timing is only partly favorable',
+      detail: `The Sun is ${formatDegrees(sunBelow)} below the horizon, so the plume timing is not in the strongest twilight band.`,
+      tone: 'info',
+      rank: 48
+    });
+  }
+
+  return items;
+}
+
+function deriveGuidancePresentation(score: LaunchJepScore): GuidancePresentation {
+  if (score.factors.illumination > 0 && score.factors.lineOfSight > 0) {
+    if (score.score > 0) {
+      return {
+        mode: 'visible',
+        badgeLabel: null,
+        badgeTone: 'success',
+        windowLabel: 'Best viewing window',
+        windowNote: null,
+        directionLabel: 'Look toward',
+        directionNote: null,
+        elevationLabel: 'Height above horizon',
+        elevationNote: 'Above your local horizon'
+      };
+    }
+    return {
+      mode: 'conditional',
+      badgeLabel: 'Visibility blocked by current conditions',
+      badgeTone: 'warning',
+      windowLabel: 'If conditions improve',
+      windowNote: 'This is the strongest modeled viewing geometry if current blockers like clouds or timing improve.',
+      directionLabel: 'Look toward',
+      directionNote: 'Direction if current blockers improve.',
+      elevationLabel: 'Height above horizon',
+      elevationNote: 'Above your local horizon if current blockers improve.'
+    };
+  }
+
+  if (score.factors.illumination > 0) {
+    return {
+      mode: 'sunlit_only',
+      badgeLabel: 'Sunlit path is not clearly visible',
+      badgeTone: 'warning',
+      windowLabel: 'Sunlit path peak',
+      windowNote: 'The plume may be sunlit here, but the modeled sunlit segment is not clearly viewable from this location.',
+      directionLabel: 'Path direction',
+      directionNote: 'Geometry only. This is not a predicted visible plume window.',
+      elevationLabel: 'Path height',
+      elevationNote: 'Geometry only, not a predicted visible plume window.'
+    };
+  }
+
+  return {
+    mode: 'path_only',
+    badgeLabel: 'Modeled path only',
+    badgeTone: 'neutral',
+    windowLabel: 'Modeled flight path peak',
+    windowNote: 'This is the rocket’s highest modeled path from your observer, not a predicted visible plume window.',
+    directionLabel: 'Path direction',
+    directionNote: 'Geometry only. This is not a predicted visible plume window.',
+    elevationLabel: 'Path height',
+    elevationNote: 'Geometry only, not a predicted visible plume window.'
+  };
+}
+
+function sortNarrativeItems(items: NarrativeItem[]) {
+  const deduped = new Map<string, NarrativeItem>();
+  for (const item of items) {
+    const existing = deduped.get(item.title);
+    if (!existing || item.rank > existing.rank) deduped.set(item.title, item);
+  }
+  return [...deduped.values()].sort((a, b) => b.rank - a.rank).slice(0, 3);
+}
+
+function narrativeToneLabel(tone: BadgeTone) {
+  if (tone === 'danger') return 'Hard stop';
+  if (tone === 'warning') return 'Main drag';
+  if (tone === 'success') return 'Would help';
+  return 'Also matters';
+}
+
+function buildDetailedWeatherWhyItem(weatherDetails: LaunchJepScore['weatherDetails']): NarrativeItem | null {
+  if (!weatherDetails) return null;
+  switch (weatherDetails.mainBlocker) {
+    case 'observer_low_ceiling':
+      return {
+        title: 'Low cloud over your location is the main weather blocker',
+        detail:
+          weatherDetails.observer?.note ||
+          'The forecast puts a low cloud deck over your location, which is the strongest weather blocker in the current model.',
+        tone: 'danger',
+        rank: 100
+      };
+    case 'observer_sky_cover':
+      return {
+        title: 'Cloud cover over your location is the main weather blocker',
+        detail:
+          weatherDetails.observer?.note ||
+          'The weather model expects heavy cloud cover over your location at launch time.',
+        tone: 'danger',
+        rank: 94
+      };
+    case 'path_low_ceiling':
+      return {
+        title: 'Low cloud along the plume path is the main weather blocker',
+        detail:
+          weatherDetails.alongPath?.note ||
+          'The modeled plume path runs under a low cloud deck, which makes blockage likely even if your local sky is somewhat better.',
+        tone: 'danger',
+        rank: 96
+      };
+    case 'path_sky_cover':
+      return {
+        title: 'Cloud cover along the plume path is the main weather blocker',
+        detail:
+          weatherDetails.alongPath?.note ||
+          'The modeled plume path sits under heavy cloud cover, which is the strongest weather blocker in the current model.',
+        tone: 'warning',
+        rank: 88
+      };
+    case 'observer_low_clouds':
+      return {
+        title: 'Low clouds are the main weather drag',
+        detail:
+          weatherDetails.observer?.note ||
+          'Low clouds over your location are the largest weather penalty in the current model.',
+        tone: 'warning',
+        rank: 82
+      };
+    case 'observer_mid_clouds':
+      return {
+        title: 'Mid-level cloud is softening the setup',
+        detail:
+          weatherDetails.observer?.note ||
+          'Mid-level cloud is currently the main weather drag over your location.',
+        tone: 'warning',
+        rank: 74
+      };
+    case 'observer_high_clouds':
+      return {
+        title: 'High cloud is reducing contrast',
+        detail:
+          weatherDetails.observer?.note ||
+          'The current weather model does not treat this like a solid low overcast deck, but it does expect high cloud to wash out contrast.',
+        tone: 'info',
+        rank: 62
+      };
+    case 'mixed':
+      return {
+        title: 'Several weather layers are working against the view',
+        detail: weatherDetails.alongPath?.note || weatherDetails.observer?.note || 'No single cloud layer dominates the forecast right now.',
+        tone: 'warning',
+        rank: 68
+      };
+    default:
+      return null;
+  }
+}
+
+function joinNotes(primary: string | null, secondary: string | null) {
+  if (primary && secondary) return `${primary}. ${secondary}`;
+  return primary || secondary || null;
+}
+
 function scoreBand(score: number): { label: string; tone: BadgeTone } {
   if (score >= 70) return { label: 'High', tone: 'success' };
   if (score >= 30) return { label: 'Moderate', tone: 'warning' };
   return { label: 'Low', tone: 'danger' };
-}
-
-function confidenceTone(confidence: string): BadgeTone {
-  if (confidence === 'HIGH') return 'success';
-  if (confidence === 'MEDIUM') return 'info';
-  if (confidence === 'LOW') return 'warning';
-  return 'neutral';
-}
-
-function trajectoryAuthorityTone(authorityTier: string): BadgeTone {
-  if (authorityTier === 'partner_feed' || authorityTier === 'official_numeric') return 'success';
-  if (authorityTier === 'regulatory_constrained' || authorityTier === 'supplemental_ephemeris') return 'info';
-  if (authorityTier === 'public_metadata') return 'warning';
-  return 'neutral';
 }
 
 function calibrationBandTone(band: string): BadgeTone {
@@ -310,14 +550,122 @@ function calibrationBandTone(band: string): BadgeTone {
   return 'neutral';
 }
 
-function scenarioTone(trend: 'better' | 'similar' | 'worse'): BadgeTone {
-  if (trend === 'better') return 'success';
-  if (trend === 'worse') return 'warning';
-  return 'neutral';
-}
-
 function formatFactor(value: number) {
   return `${Math.round(value * 100)}%`;
+}
+
+function primaryWeatherNarrative({
+  cloudCover,
+  lowClouds,
+  midClouds,
+  highClouds,
+  weatherFactor,
+  dominantBlocker,
+  blockerStrength
+}: {
+  cloudCover: number | null;
+  lowClouds: number | null;
+  midClouds: number | null;
+  highClouds: number | null;
+  weatherFactor: number;
+  dominantBlocker: ReturnType<typeof deriveJepWeatherImpact>['dominantBlocker'];
+  blockerStrength: ReturnType<typeof deriveJepWeatherImpact>['blockerStrength'];
+}): NarrativeItem {
+  if (dominantBlocker === 'low' && lowClouds != null) {
+    return {
+      title: 'A low cloud deck is the main weather blocker',
+      detail: `Low clouds are ${formatPct(lowClouds)} right now. The current model weights low clouds most heavily because they are most likely to block the plume directly.${appendCloudProfile(cloudCover, lowClouds, midClouds, highClouds)}`,
+      tone: 'danger',
+      rank: blockerStrength === 'severe' ? 100 : 88
+    };
+  }
+
+  if (dominantBlocker === 'mid' && midClouds != null) {
+    return {
+      title: 'Mid-level cloud is the main weather blocker',
+      detail: `Mid clouds are ${formatPct(midClouds)} right now, which is a stronger drag than the low and high layers in the current model.${appendCloudProfile(cloudCover, lowClouds, midClouds, highClouds)}`,
+      tone: 'danger',
+      rank: 84
+    };
+  }
+
+  if (dominantBlocker === 'high' && highClouds != null) {
+    return {
+      title: 'High cloud is overhead, but it is not treated like low overcast',
+      detail: `Most of the cloud signal is coming from high cloud at ${formatPct(highClouds)}.${appendCloudProfile(cloudCover, lowClouds, midClouds, highClouds)} The weather term still falls to ${formatFactor(weatherFactor)}, but this is a softer drag than a solid low deck.`,
+      tone: 'warning',
+      rank: 78
+    };
+  }
+
+  return {
+    title: 'Several cloud layers are softening the view',
+    detail: `The current weather term is ${formatFactor(weatherFactor)}.${appendCloudProfile(cloudCover, lowClouds, midClouds, highClouds)} The model weights low clouds most, then mid clouds, then high clouds.`,
+    tone: weatherFactor <= 0.2 ? 'danger' : 'warning',
+    rank: weatherFactor <= 0.2 ? 82 : 66
+  };
+}
+
+function secondaryWeatherNarrative({
+  cloudCover,
+  lowClouds,
+  midClouds,
+  highClouds,
+  weatherFactor,
+  dominantBlocker
+}: {
+  cloudCover: number | null;
+  lowClouds: number | null;
+  midClouds: number | null;
+  highClouds: number | null;
+  weatherFactor: number;
+  dominantBlocker: ReturnType<typeof deriveJepWeatherImpact>['dominantBlocker'];
+}): NarrativeItem {
+  if (dominantBlocker === 'high' && highClouds != null) {
+    return {
+      title: 'High cloud is reducing contrast',
+      detail: `High clouds are ${formatPct(highClouds)}.${appendCloudProfile(cloudCover, lowClouds, midClouds, highClouds)} In the current model that softens the weather term without treating it as a hard stop.`,
+      tone: 'info',
+      rank: 54
+    };
+  }
+
+  if (dominantBlocker === 'low' && lowClouds != null) {
+    return {
+      title: 'Low clouds are the main weather drag',
+      detail: `Low clouds are ${formatPct(lowClouds)} right now, which is the largest weather penalty in the current model.${appendCloudProfile(cloudCover, lowClouds, midClouds, highClouds)}`,
+      tone: 'warning',
+      rank: 72
+    };
+  }
+
+  if (dominantBlocker === 'mid' && midClouds != null) {
+    return {
+      title: 'Mid-level cloud is softening the setup',
+      detail: `Mid clouds are ${formatPct(midClouds)} right now.${appendCloudProfile(cloudCover, lowClouds, midClouds, highClouds)} That keeps the weather term at ${formatFactor(weatherFactor)}.`,
+      tone: 'warning',
+      rank: 62
+    };
+  }
+
+  return {
+    title: 'Clouds are part of the drag',
+    detail: `The weather term is ${formatFactor(weatherFactor)}.${appendCloudProfile(cloudCover, lowClouds, midClouds, highClouds)}`,
+    tone: 'info',
+    rank: 48
+  };
+}
+
+function appendCloudProfile(cloudCover: number | null, lowClouds: number | null, midClouds: number | null, highClouds: number | null) {
+  const pieces = [
+    cloudCover != null ? `total ${formatPct(cloudCover)}` : null,
+    lowClouds != null ? `low ${formatPct(lowClouds)}` : null,
+    midClouds != null ? `mid ${formatPct(midClouds)}` : null,
+    highClouds != null ? `high ${formatPct(highClouds)}` : null
+  ].filter((value): value is string => Boolean(value));
+
+  if (!pieces.length) return '';
+  return ` Cloud mix: ${pieces.join(', ')}.`;
 }
 
 function clampProbability(value: number | null) {
@@ -351,54 +699,6 @@ function formatReadinessSummary(score: LaunchJepScore) {
   return 'Showing the 0-100 score for now.';
 }
 
-function formatReadinessReasonLabel(reason: LaunchJepScore['readiness']['reasons'][number]) {
-  switch (reason) {
-    case 'public_release_disabled':
-      return 'held back for this rollout';
-    case 'validation_incomplete':
-      return 'validation still in progress';
-    case 'model_card_unpublished':
-      return 'model notes not published yet';
-    case 'labeled_outcome_threshold_unconfigured':
-      return 'confirmed-report target not set';
-    case 'labeled_outcome_count_unreported':
-      return 'confirmed-report count missing';
-    case 'insufficient_labeled_outcomes':
-      return 'not enough confirmed reports yet';
-    case 'ece_threshold_unconfigured':
-      return 'ECE limit not set';
-    case 'ece_unreported':
-      return 'ECE missing';
-    case 'ece_above_threshold':
-      return 'ECE still above target';
-    case 'brier_threshold_unconfigured':
-      return 'Brier limit not set';
-    case 'brier_unreported':
-      return 'Brier score missing';
-    case 'brier_above_threshold':
-      return 'Brier score still above target';
-    default:
-      return reason;
-  }
-}
-
-function formatReadinessThreshold(current: number | null, minimum: number | null) {
-  if (minimum == null) return 'Not configured';
-  if (current == null) return `Need ${minimum}+`;
-  return `${current} / ${minimum}+`;
-}
-
-function formatCalibrationMetric(current: number | null, threshold: number | null) {
-  if (threshold == null) return 'Not configured';
-  if (current == null) return `<= ${formatMetricDecimal(threshold)} required`;
-  return `${formatMetricDecimal(current)} / <= ${formatMetricDecimal(threshold)}`;
-}
-
-function formatMetricDecimal(value: number) {
-  if (!Number.isFinite(value)) return 'Unknown';
-  return value.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
-}
-
 function formatFallbackReason(reason: JepFallbackReason) {
   if (reason === 'denied') return 'Location permission denied';
   if (reason === 'unsupported') return 'Location not supported';
@@ -419,6 +719,11 @@ function formatPct(value: number | null) {
   return `${Math.max(0, Math.min(100, Math.round(value)))}%`;
 }
 
+function toPctNumber(value: number | null) {
+  if (value == null || !Number.isFinite(value)) return null;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
 function formatKm(value: number | null) {
   if (value == null || !Number.isFinite(value)) return '—';
   return `${(Math.round(value * 10) / 10).toFixed(1)} km`;
@@ -434,6 +739,7 @@ function formatWeatherSource(source: string | null) {
   const normalized = (source || '').trim().toLowerCase();
   if (normalized === 'open_meteo') return 'Open-Meteo';
   if (normalized === 'nws') return 'NOAA NWS';
+  if (normalized === 'mixed') return 'NOAA NWS + Open-Meteo';
   if (normalized === 'none') return 'None (geometry only)';
   return formatSourceValue(source);
 }

@@ -3,8 +3,10 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { assertPasswordPolicy, PASSWORD_POLICY_HINT } from '@tminuszero/domain';
+import { buildAuthCallbackHref, readAuthIntent, readReturnTo } from '@tminuszero/navigation';
+import { browserApiClient } from '@/lib/api/client';
 import { getBrowserClient } from '@/lib/api/supabase';
-import { buildAuthQuery, readAuthIntent, readReturnTo } from '@/lib/utils/returnTo';
 import { CaptchaWidget } from './CaptchaWidget';
 
 const POST_CONFIRM_NEXT_STORAGE_KEY = 'tmn_auth_post_confirm_next';
@@ -27,7 +29,7 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
   const [termsPrompt, setTermsPrompt] = useState(false);
   const termsInputRef = useRef<HTMLInputElement | null>(null);
   const isSignUp = mode === 'sign-up';
-  const passwordHint = useMemo(() => (isSignUp ? 'Minimum 8 characters.' : undefined), [isSignUp]);
+  const passwordHint = useMemo(() => (isSignUp ? PASSWORD_POLICY_HINT : undefined), [isSignUp]);
   const redirectPath = useMemo(() => readReturnTo(searchParams), [searchParams]);
   const authIntent = useMemo(() => readAuthIntent(searchParams), [searchParams]);
   const captchaProvider = useMemo(() => {
@@ -63,8 +65,7 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
 
   const emailRedirectTo = useMemo(() => {
     if (!baseUrl) return '';
-    const query = buildAuthQuery({ returnTo: redirectPath, intent: authIntent });
-    return `${baseUrl}/auth/callback${query ? `?${query}` : ''}`;
+    return `${baseUrl}${buildAuthCallbackHref({ returnTo: redirectPath, intent: authIntent })}`;
   }, [authIntent, baseUrl, redirectPath]);
 
   function promptTermsAcceptance() {
@@ -143,7 +144,7 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
       if (!supabase) throw new Error('Supabase not available');
 
       if (isSignUp) {
-        if (password.length < 8) throw new Error('Password must be at least 8 characters.');
+        assertPasswordPolicy(password);
         if (password !== confirmPassword) throw new Error('Passwords do not match.');
         if (!acceptTerms) {
           promptTermsAcceptance();
@@ -173,6 +174,13 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
         }
 
         if (data?.session) {
+          await browserApiClient
+            .recordAuthContext({
+              provider: 'email_password',
+              platform: 'web',
+              eventType: 'sign_up'
+            })
+            .catch(() => {});
           try {
             window.localStorage.removeItem(POST_CONFIRM_NEXT_STORAGE_KEY);
           } catch {}
@@ -199,6 +207,13 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
           }
         });
         if (error) throw error;
+        await browserApiClient
+          .recordAuthContext({
+            provider: 'email_password',
+            platform: 'web',
+            eventType: 'sign_in'
+          })
+          .catch(() => {});
         router.push(redirectPath);
       }
     } catch (err: any) {
@@ -269,7 +284,7 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
 
       {isSignUp ? (
         <div className="rounded-lg border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-2 text-xs text-text3">
-          Free account perks: 15-minute refreshes, one saved view, one My Launches list, and synced preferences. Premium stays optional later.
+          Free account perks: 15-minute refreshes, signed-in filters, the launch calendar, one-off calendar adds, and basic mobile push alerts. Premium stays optional later.
         </div>
       ) : null}
 

@@ -21,5 +21,43 @@ AS $function$
     perform pg_advisory_unlock(hashtext('ll2_incremental_burst')::bigint);
   end;
   $function$;
-CREATE TRIGGER protect_buckets_delete BEFORE DELETE ON storage.buckets FOR EACH STATEMENT EXECUTE FUNCTION storage.protect_delete();
-CREATE TRIGGER protect_objects_delete BEFORE DELETE ON storage.objects FOR EACH STATEMENT EXECUTE FUNCTION storage.protect_delete();
+
+do $$
+begin
+  if exists (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'storage'
+      and p.proname = 'protect_delete'
+  ) then
+    if exists (
+      select 1
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'storage'
+        and c.relname = 'buckets'
+  ) then
+      drop trigger if exists protect_buckets_delete on storage.buckets;
+      create trigger protect_buckets_delete
+        before delete on storage.buckets
+        for each statement
+        execute function storage.protect_delete();
+    end if;
+
+    if exists (
+      select 1
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'storage'
+        and c.relname = 'objects'
+    ) then
+      drop trigger if exists protect_objects_delete on storage.objects;
+      create trigger protect_objects_delete
+        before delete on storage.objects
+        for each statement
+        execute function storage.protect_delete();
+    end if;
+  end if;
+end
+$$;

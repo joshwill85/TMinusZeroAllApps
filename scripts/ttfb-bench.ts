@@ -8,11 +8,38 @@ import { performance } from 'node:perf_hooks';
 
 type RouteResult = {
   route: string;
+  accept: string;
   samplesMs: number[];
 };
 
+type BenchReport = {
+  generatedAt: string;
+  requests: number;
+  warmupRequests: number;
+  thresholdMs: number | null;
+  routes: Array<{
+    route: string;
+    accept: string;
+    min: number;
+    max: number;
+    mean: number;
+    p50: number;
+    p95: number;
+  }>;
+};
+
+type BenchOptions = {
+  routes: string[];
+  accept: string;
+  requests: number;
+  warmupRequests: number;
+  thresholdMs: number | null;
+  outputPath: string | null;
+  markdownPath: string | null;
+};
+
 const WEB_DIR = path.join(process.cwd(), 'apps', 'web');
-const ROUTES = ['/', '/robots.txt', '/legal/privacy'];
+const DEFAULT_ROUTES = ['/', '/robots.txt', '/legal/privacy'];
 
 async function main() {
   assert(
@@ -20,53 +47,142 @@ async function main() {
     'Missing production build. Run `npm run build` first.'
   );
 
-  const thresholdMs = readThresholdMs();
+  const options = readOptions(process.argv.slice(2));
+  const report = await runBench(options);
+
+  for (const result of report.routes) {
+    console.log(
+      `${result.route} TTFB(ms): p50=${result.p50.toFixed(3)} p95=${result.p95.toFixed(3)} min=${result.min.toFixed(3)} mean=${result.mean.toFixed(3)} max=${result.max.toFixed(3)}`
+    );
+  }
+
+  writeJson(options.outputPath, report);
+  writeMarkdown(options.markdownPath, renderMarkdown(report));
+}
+
+export async function runBench(options: BenchOptions): Promise<BenchReport> {
   const port = await getFreePort();
   const server = startNextServer(port);
 
   try {
-    await waitForServerReady({ port, path: '/' });
+    await waitForServerReady({ port, routePath: options.routes[0] || '/' });
 
     const results: RouteResult[] = [];
-    for (const route of ROUTES) {
-      await warmup({ port, route, requests: 10 });
-      const samplesMs = await measureTtfb({ port, route, requests: 100 });
-      results.push({ route, samplesMs });
+    for (const route of options.routes) {
+      await warmup({ port, route, requests: options.warmupRequests, accept: options.accept });
+      const samplesMs = await measureTtfb({
+        port,
+        route,
+        requests: options.requests,
+        accept: options.accept
+      });
+      results.push({ route, accept: options.accept, samplesMs });
     }
 
-    for (const result of results) {
-      const { route, samplesMs } = result;
-      const stats = summarize(samplesMs);
-      console.log(
-        `${route} TTFB(ms): p50=${stats.p50.toFixed(3)} p95=${stats.p95.toFixed(3)} min=${stats.min.toFixed(3)} mean=${stats.mean.toFixed(3)} max=${stats.max.toFixed(3)}`
-      );
-    }
-
-    if (thresholdMs != null) {
+    if (options.thresholdMs != null) {
       const failing = results
         .map((result) => ({ route: result.route, ...summarize(result.samplesMs) }))
-        .filter((stats) => stats.p95 > thresholdMs);
+        .filter((stats) => stats.p95 > options.thresholdMs!);
 
       assert.equal(
         failing.length,
         0,
-        `TTFB threshold failed (p95 > ${thresholdMs}ms): ${failing.map((s) => `${s.route} p95=${s.p95.toFixed(3)}ms`).join(', ')}`
+        `TTFB threshold failed (p95 > ${options.thresholdMs}ms): ${failing.map((s) => `${s.route} p95=${s.p95.toFixed(3)}ms`).join(', ')}`
       );
     }
+
+    return {
+      generatedAt: new Date().toISOString(),
+      requests: options.requests,
+      warmupRequests: options.warmupRequests,
+      thresholdMs: options.thresholdMs,
+      routes: results.map((result) => ({
+        route: result.route,
+        accept: result.accept,
+        ...summarize(result.samplesMs)
+      }))
+    };
   } finally {
     await stopServer(server);
   }
 }
 
-function readThresholdMs() {
-  const raw = process.argv.find((arg) => arg.startsWith('--threshold-ms='));
-  if (!raw) return null;
-  const value = raw.split('=')[1]?.trim();
-  const parsed = value ? Number(value) : NaN;
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`Invalid --threshold-ms value: ${value}`);
+function readOptions(argv: string[]): BenchOptions {
+  const routes = argv
+    .filter((arg) => arg.startsWith('--route='))
+    .map((arg) => arg.slice('--route='.length).trim())
+    .filter(Boolean);
+
+  return {
+    routes: routes.length > 0 ? routes : DEFAULT_ROUTES,
+    accept: readStringOption(argv, 'accept') || 'text/html',
+    requests: readPositiveIntOption(argv, 'requests', 100),
+    warmupRequests: readPositiveIntOption(argv, 'warmup', 10),
+    thresholdMs: readOptionalPositiveNumberOption(argv, 'threshold-ms'),
+    outputPath: readStringOption(argv, 'output'),
+    markdownPath: readStringOption(argv, 'markdown')
+  };
+}
+
+function readStringOption(argv: string[], key: string) {
+  const prefix = `--${key}=`;
+  const match = argv.find((arg) => arg.startsWith(prefix));
+  return match ? match.slice(prefix.length).trim() : null;
+}
+
+function readPositiveIntOption(argv: string[], key: string, fallback: number) {
+  const raw = readStringOption(argv, key);
+  if (!raw) return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`Invalid --${key} value: ${raw}`);
   }
-  return parsed;
+  return value;
+}
+
+function readOptionalPositiveNumberOption(argv: string[], key: string) {
+  const raw = readStringOption(argv, key);
+  if (!raw) return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`Invalid --${key} value: ${raw}`);
+  }
+  return value;
+}
+
+function writeJson(filePath: string | null, value: unknown) {
+  if (!filePath) return;
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+}
+
+function writeMarkdown(filePath: string | null, markdown: string) {
+  if (!filePath) return;
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${markdown.trimEnd()}\n`, 'utf8');
+}
+
+function renderMarkdown(report: BenchReport) {
+  const lines = [
+    '# TTFB Bench',
+    '',
+    `Generated: ${report.generatedAt}`,
+    '',
+    `- Requests per route: ${report.requests}`,
+    `- Warmup requests per route: ${report.warmupRequests}`,
+    `- Threshold: ${report.thresholdMs == null ? 'none' : `${report.thresholdMs}ms p95`}`,
+    '',
+    '| route | accept | p50 ms | p95 ms | min ms | mean ms | max ms |',
+    '| --- | --- | ---: | ---: | ---: | ---: | ---: |'
+  ];
+
+  for (const route of report.routes) {
+    lines.push(
+      `| \`${route.route}\` | \`${route.accept}\` | ${route.p50.toFixed(3)} | ${route.p95.toFixed(3)} | ${route.min.toFixed(3)} | ${route.mean.toFixed(3)} | ${route.max.toFixed(3)} |`
+    );
+  }
+
+  return lines.join('\n');
 }
 
 function startNextServer(port: number) {
@@ -97,12 +213,12 @@ async function stopServer(child: ReturnType<typeof startNextServer>) {
   }
 }
 
-async function waitForServerReady({ port, path: routePath }: { port: number; path: string }) {
+async function waitForServerReady({ port, routePath }: { port: number; routePath: string }) {
   const deadline = Date.now() + 30_000;
   let lastError: unknown;
   while (Date.now() < deadline) {
     try {
-      await requestFully({ port, route: routePath });
+      await requestFully({ port, route: routePath, accept: '*/*' });
       return;
     } catch (error) {
       lastError = error;
@@ -112,17 +228,27 @@ async function waitForServerReady({ port, path: routePath }: { port: number; pat
   throw lastError instanceof Error ? lastError : new Error('Server did not become ready');
 }
 
-async function warmup({ port, route, requests }: { port: number; route: string; requests: number }) {
+async function warmup({ port, route, requests, accept }: { port: number; route: string; requests: number; accept: string }) {
   for (let i = 0; i < requests; i += 1) {
-    await requestFully({ port, route });
+    await requestFully({ port, route, accept });
   }
 }
 
-async function measureTtfb({ port, route, requests }: { port: number; route: string; requests: number }) {
+async function measureTtfb({
+  port,
+  route,
+  requests,
+  accept
+}: {
+  port: number;
+  route: string;
+  requests: number;
+  accept: string;
+}) {
   const agent = new http.Agent({ keepAlive: true, maxSockets: 1 });
   const samples: number[] = [];
   for (let i = 0; i < requests; i += 1) {
-    const sample = await requestTtfbMs({ port, route, agent });
+    const sample = await requestTtfbMs({ port, route, agent, accept });
     samples.push(sample);
   }
   agent.destroy();
@@ -132,11 +258,13 @@ async function measureTtfb({ port, route, requests }: { port: number; route: str
 async function requestTtfbMs({
   port,
   route,
-  agent
+  agent,
+  accept
 }: {
   port: number;
   route: string;
   agent: http.Agent;
+  accept: string;
 }): Promise<number> {
   return await new Promise((resolve, reject) => {
     const start = performance.now();
@@ -149,7 +277,7 @@ async function requestTtfbMs({
         agent,
         headers: {
           'x-forwarded-proto': 'https',
-          Accept: 'text/html'
+          Accept: accept
         }
       },
       (res) => {
@@ -170,7 +298,7 @@ async function requestTtfbMs({
   });
 }
 
-async function requestFully({ port, route }: { port: number; route: string }) {
+async function requestFully({ port, route, accept }: { port: number; route: string; accept: string }) {
   const agent = new http.Agent({ keepAlive: true, maxSockets: 1 });
   try {
     await new Promise<void>((resolve, reject) => {
@@ -183,7 +311,7 @@ async function requestFully({ port, route }: { port: number; route: string }) {
           agent,
           headers: {
             'x-forwarded-proto': 'https',
-            Accept: 'text/html'
+            Accept: accept
           }
         },
         (res) => {
@@ -201,7 +329,7 @@ async function requestFully({ port, route }: { port: number; route: string }) {
 }
 
 function summarize(values: number[]) {
-  const sorted = [...values].sort((a, b) => a - b);
+  const sorted = [...values].sort((left, right) => left - right);
   const sum = sorted.reduce((acc, value) => acc + value, 0);
   const mean = sorted.length ? sum / sorted.length : 0;
   return {
@@ -220,23 +348,22 @@ function percentile(sortedValues: number[], p: number) {
   return sortedValues[clamped]!;
 }
 
-async function getFreePort(): Promise<number> {
-  return await new Promise((resolve, reject) => {
+async function getFreePort() {
+  return await new Promise<number>((resolve, reject) => {
     const server = net.createServer();
     server.unref();
     server.on('error', reject);
     server.listen(0, '127.0.0.1', () => {
       const address = server.address();
-      if (!address || typeof address === 'string') {
-        server.close();
-        reject(new Error('Failed to resolve port'));
-        return;
+      if (address && typeof address === 'object') {
+        const port = address.port;
+        server.close((error) => {
+          if (error) reject(error);
+          else resolve(port);
+        });
+      } else {
+        reject(new Error('Unable to allocate port'));
       }
-      const port = address.port;
-      server.close((error) => {
-        if (error) reject(error);
-        else resolve(port);
-      });
     });
   });
 }
@@ -245,7 +372,4 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+void main();

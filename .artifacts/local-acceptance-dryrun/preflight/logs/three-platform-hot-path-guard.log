@@ -1,0 +1,7 @@
+
+> tminuszero@0.1.0 test:three-platform:hot-path
+> TS_NODE_TRANSPILE_ONLY=1 node --loader ts-node/esm scripts/three-platform-hot-path-guard.mts
+
+(node:97367) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+--import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("ts-node/esm", pathToFileURL("./"));'
+(Use `node --trace-warnings ...` to show where the warning was created)

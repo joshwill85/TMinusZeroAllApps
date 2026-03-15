@@ -20,7 +20,7 @@ export function isDateOnlyNet(netIso: string, netPrecision?: Launch['netPrecisio
   return isMidnightUtc || isMidnightLocal;
 }
 
-export function isCountdownEligible(launch: Launch, timeZone?: string) {
+export function isCountdownEligible(launch: Pick<Launch, 'net' | 'netPrecision'>, timeZone?: string) {
   return !isDateOnlyNet(launch.net, launch.netPrecision, timeZone);
 }
 

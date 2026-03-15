@@ -1,31 +1,66 @@
-import { ReactNode, createContext, useContext, useState } from 'react';
+import { ReactNode, useCallback, useState } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { createSharedQueryClient } from '@tminuszero/query';
-import type { MobileTheme } from '@tminuszero/design-tokens';
+import { createSharedQueryClient, sharedQueryKeys } from '@tminuszero/query';
+import { useViewerEntitlementsQuery, useViewerSessionQuery } from '@/src/api/queries';
 import { useAuthBootstrap } from '@/src/bootstrap/useAuthBootstrap';
 import { useThemeBootstrap } from '@/src/bootstrap/useThemeBootstrap';
+import { MobilePushProvider } from '@/src/providers/MobilePushProvider';
+import { MobileBootstrapContext, useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 
 type AppProvidersProps = {
   children: ReactNode;
 };
 
-type MobileBootstrapContextValue = {
-  accessToken: string | null;
-  refreshToken: string | null;
-  isAuthHydrated: boolean;
-  isReady: boolean;
-  scheme: 'light' | 'dark';
-  theme: MobileTheme;
-  persistSession: (session: { accessToken: string; refreshToken?: string | null }) => Promise<void>;
-  clearSession: () => Promise<void>;
-};
+function BootstrapPrefetcher() {
+  useMobileBootstrap();
+  useViewerSessionQuery();
+  useViewerEntitlementsQuery();
+  return null;
+}
 
-const MobileBootstrapContext = createContext<MobileBootstrapContextValue | null>(null);
+function isAuthScopedQueryKey(queryKey: readonly unknown[]) {
+  const [root, scope] = queryKey;
+  if (typeof root !== 'string') {
+    return false;
+  }
+
+  if (
+    root === sharedQueryKeys.viewerSession[0] ||
+    root === sharedQueryKeys.entitlements[0] ||
+    root === sharedQueryKeys.profile[0] ||
+    root === sharedQueryKeys.privacyPreferences[0] ||
+    root === sharedQueryKeys.accountExport[0] ||
+    root === sharedQueryKeys.billingSummary[0] ||
+    root === 'billing-catalog' ||
+    root === sharedQueryKeys.marketingEmail[0] ||
+    root === sharedQueryKeys.watchlists[0] ||
+    root === sharedQueryKeys.filterPresets[0] ||
+    root === sharedQueryKeys.alertRules[0] ||
+    root === sharedQueryKeys.calendarFeeds[0] ||
+    root === sharedQueryKeys.rssFeeds[0] ||
+    root === sharedQueryKeys.embedWidgets[0] ||
+    root === sharedQueryKeys.notificationPreferences[0] ||
+    root === 'launch-notification-preference' ||
+    root === 'push-device'
+  ) {
+    return true;
+  }
+
+  return root === sharedQueryKeys.launchFeed[0] && scope === 'watchlist';
+}
 
 export function AppProviders({ children }: AppProvidersProps) {
-  const { accessToken, refreshToken, isHydrated, persistSession, clearSession } = useAuthBootstrap();
-  const { scheme, theme } = useThemeBootstrap();
   const [queryClient] = useState(() => createSharedQueryClient());
+  const clearAuthedQueryState = useCallback(async () => {
+    const predicate = (query: { queryKey: readonly unknown[] }) => isAuthScopedQueryKey(query.queryKey);
+
+    await queryClient.cancelQueries({ predicate });
+    await queryClient.resetQueries({ predicate });
+  }, [queryClient]);
+  const { accessToken, refreshToken, isHydrated, persistSession, clearSession, refreshSession } = useAuthBootstrap({
+    onSessionBoundaryChange: clearAuthedQueryState
+  });
+  const { scheme, theme } = useThemeBootstrap();
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -38,19 +73,18 @@ export function AppProviders({ children }: AppProvidersProps) {
           scheme,
           theme,
           persistSession,
-          clearSession
+          clearSession,
+          clearAuthedQueryState,
+          refreshSession
         }}
       >
-        {children}
+        <MobilePushProvider>
+          <BootstrapPrefetcher />
+          {children}
+        </MobilePushProvider>
       </MobileBootstrapContext.Provider>
     </QueryClientProvider>
   );
 }
 
-export function useMobileBootstrap() {
-  const context = useContext(MobileBootstrapContext);
-  if (!context) {
-    throw new Error('useMobileBootstrap must be used within AppProviders.');
-  }
-  return context;
-}
+export { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';

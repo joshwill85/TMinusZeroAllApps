@@ -2,6 +2,10 @@ import * as SecureStore from 'expo-secure-store';
 
 const ACCESS_TOKEN_KEY = 'tmz.supabase.access-token';
 const REFRESH_TOKEN_KEY = 'tmz.supabase.refresh-token';
+const AUTH_SECURE_STORE_OPTIONS: SecureStore.SecureStoreOptions = {
+  keychainService: 'tmz.auth.session',
+  keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY
+};
 
 export type StoredAuthSession = {
   accessToken: string | null;
@@ -10,8 +14,8 @@ export type StoredAuthSession = {
 
 export async function readStoredAuthSession(): Promise<StoredAuthSession> {
   const [accessToken, refreshToken] = await Promise.all([
-    SecureStore.getItemAsync(ACCESS_TOKEN_KEY),
-    SecureStore.getItemAsync(REFRESH_TOKEN_KEY)
+    SecureStore.getItemAsync(ACCESS_TOKEN_KEY, AUTH_SECURE_STORE_OPTIONS),
+    SecureStore.getItemAsync(REFRESH_TOKEN_KEY, AUTH_SECURE_STORE_OPTIONS)
   ]);
 
   return {
@@ -24,15 +28,15 @@ export async function writeStoredAuthSession(session: StoredAuthSession) {
   const writes: Promise<void>[] = [];
 
   if (session.accessToken) {
-    writes.push(SecureStore.setItemAsync(ACCESS_TOKEN_KEY, session.accessToken));
+    writes.push(SecureStore.setItemAsync(ACCESS_TOKEN_KEY, session.accessToken, AUTH_SECURE_STORE_OPTIONS));
   } else {
-    writes.push(SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY));
+    writes.push(SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY, AUTH_SECURE_STORE_OPTIONS));
   }
 
   if (session.refreshToken) {
-    writes.push(SecureStore.setItemAsync(REFRESH_TOKEN_KEY, session.refreshToken));
+    writes.push(SecureStore.setItemAsync(REFRESH_TOKEN_KEY, session.refreshToken, AUTH_SECURE_STORE_OPTIONS));
   } else {
-    writes.push(SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY));
+    writes.push(SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY, AUTH_SECURE_STORE_OPTIONS));
   }
 
   await Promise.all(writes);

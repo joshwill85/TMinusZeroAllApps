@@ -1,6 +1,6 @@
 import { getViewerEntitlement } from '@/lib/server/entitlements';
 import type { ResolvedViewerSession } from '@/lib/server/viewerSession';
-import type { ViewerCapabilities, ViewerLimits, ViewerTier, ViewerMode } from '@/lib/tiers';
+import type { ViewerCapabilities, ViewerLimits, ViewerTier, ViewerMode } from '@tminuszero/domain';
 
 export type ViewerTierInfo = {
   tier: ViewerTier;

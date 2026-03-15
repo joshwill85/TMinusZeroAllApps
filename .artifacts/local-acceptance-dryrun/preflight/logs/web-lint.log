@@ -1,0 +1,19 @@
+
+> tminuszero@0.1.0 lint
+> turbo run lint --filter=@tminuszero/web
+
+• Packages in scope: @tminuszero/web
+• Running lint in 1 packages
+• Remote caching disabled
+@tminuszero/web:lint: cache miss, executing 2a658d027b6e0b54
+@tminuszero/web:lint: 
+@tminuszero/web:lint: > @tminuszero/web@0.0.0 lint
+@tminuszero/web:lint: > next lint --cache-location .eslintcache
+@tminuszero/web:lint: 
+@tminuszero/web:lint: ✔ No ESLint warnings or errors
+
+ Tasks:    1 successful, 1 total
+Cached:    0 cached, 1 total
+  Time:    2.258s 
+
+• turbo 2.8.14

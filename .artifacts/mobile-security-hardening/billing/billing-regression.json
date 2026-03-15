@@ -1,0 +1,9 @@
+{
+  "generatedAt": "2026-03-09T21:00:01.452Z",
+  "assertions": [
+    "billing shared helpers preserve web status normalization and return-to sanitization",
+    "web billing adapters preserve checkout, portal, setup-intent, cancel, resume, and payment-method route shapes",
+    "provider-specific failure paths are guarded in source before provider fetch or entitlement mutation boundaries",
+    "webhook replay bookkeeping remains idempotent and failures reopen events safely"
+  ]
+}

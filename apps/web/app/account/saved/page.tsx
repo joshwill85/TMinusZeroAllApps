@@ -1,164 +1,105 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import clsx from 'clsx';
-import { getTierLimits, type ViewerCapabilities, type ViewerLimits, type ViewerTier } from '@/lib/tiers';
+import type { FilterPresetV1, WatchlistRuleV1, WatchlistV1 } from '@tminuszero/api-client';
+import { getTierLimits, type ViewerTier } from '@tminuszero/domain';
+import { buildAuthHref, buildProfileHref } from '@tminuszero/navigation';
+import {
+  useAlertRulesQuery,
+  useCreateAlertRuleMutation,
+  useDeleteAlertRuleMutation,
+  useDeleteFilterPresetMutation,
+  useDeleteWatchlistMutation,
+  useDeleteWatchlistRuleMutation,
+  useFilterPresetsQuery,
+  useUpdateFilterPresetMutation,
+  useUpdateWatchlistMutation,
+  useViewerEntitlementsQuery,
+  useViewerSessionQuery,
+  useWatchlistsQuery
+} from '@/lib/api/queries';
 import type { LaunchFilter } from '@/lib/types/launch';
-
-type SubscriptionSnapshot = {
-  isAuthed: boolean;
-  isPaid: boolean;
-  isAdmin: boolean;
-  tier?: ViewerTier;
-  capabilities?: ViewerCapabilities;
-  limits?: ViewerLimits;
-};
-
-type Preset = {
-  id: string;
-  name: string;
-  filters: LaunchFilter;
-  is_default?: boolean;
-  created_at?: string;
-  updated_at?: string;
-};
-
-type WatchlistRule = {
-  id: string;
-  rule_type: 'launch' | 'pad' | 'provider' | 'tier' | string;
-  rule_value: string;
-  created_at?: string;
-};
-
-type Watchlist = {
-  id: string;
-  name: string;
-  created_at?: string;
-  watchlist_rules?: WatchlistRule[];
-};
 
 type CopyState = 'idle' | 'copied' | 'error';
 
 const PREMIUM_SAVED_LIMITS = getTierLimits('premium');
 
 export default function AccountSavedPage() {
-  const [subscription, setSubscription] = useState<SubscriptionSnapshot | null>(null);
-  const [status, setStatus] = useState<'loading' | 'authed' | 'guest'>('loading');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const [presets, setPresets] = useState<Preset[]>([]);
-  const [watchlists, setWatchlists] = useState<Watchlist[]>([]);
+  const viewerSessionQuery = useViewerSessionQuery();
+  const entitlementsQuery = useViewerEntitlementsQuery();
+  const filterPresetsQuery = useFilterPresetsQuery();
+  const watchlistsQuery = useWatchlistsQuery();
+  const alertRulesQuery = useAlertRulesQuery();
+  const updateFilterPresetMutation = useUpdateFilterPresetMutation();
+  const deleteFilterPresetMutation = useDeleteFilterPresetMutation();
+  const updateWatchlistMutation = useUpdateWatchlistMutation();
+  const deleteWatchlistMutation = useDeleteWatchlistMutation();
+  const deleteWatchlistRuleMutation = useDeleteWatchlistRuleMutation();
+  const createAlertRuleMutation = useCreateAlertRuleMutation();
+  const deleteAlertRuleMutation = useDeleteAlertRuleMutation();
 
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [copyState, setCopyState] = useState<Record<string, CopyState>>({});
   const [ruleQuery, setRuleQuery] = useState('');
-  const viewerTier = resolveViewerTier(subscription);
-  const savedItemLimits = subscription?.limits ?? getTierLimits(viewerTier);
-  const canUseSavedItems = subscription?.capabilities?.canUseSavedItems ?? viewerTier !== 'anon';
+  const [error, setError] = useState<string | null>(null);
+
+  const status: 'loading' | 'authed' | 'guest' = viewerSessionQuery.isPending
+    ? 'loading'
+    : viewerSessionQuery.data?.viewerId
+      ? 'authed'
+      : 'guest';
+  const entitlementsLoading = status === 'authed' && entitlementsQuery.isPending && !entitlementsQuery.data;
+
+  const viewerTier = resolveViewerTier(entitlementsQuery.data?.tier);
+  const savedItemLimits = entitlementsQuery.data?.limits ?? getTierLimits(viewerTier);
+  const canUseSavedItems = entitlementsQuery.data?.capabilities.canUseSavedItems ?? false;
+  const canUseAdvancedAlertRules = entitlementsQuery.data?.capabilities.canUseAdvancedAlertRules ?? false;
+  const presets = filterPresetsQuery.data?.presets ?? [];
+  const watchlists = useMemo(() => watchlistsQuery.data?.watchlists ?? [], [watchlistsQuery.data?.watchlists]);
+  const alertRules = useMemo(() => alertRulesQuery.data?.rules ?? [], [alertRulesQuery.data?.rules]);
+  const hasSavedInventory = presets.length > 0 || watchlists.length > 0;
+  const loadingSavedItems = status === 'authed' && (filterPresetsQuery.isPending || watchlistsQuery.isPending);
   const totalRuleCount = useMemo(
-    () => watchlists.reduce((sum, watchlist) => sum + countWatchlistRules(watchlist.watchlist_rules), 0),
+    () => watchlists.reduce((sum, watchlist) => sum + countWatchlistRules(watchlist.rules), 0),
     [watchlists]
   );
-  const overLimitItems = [
-    viewerTier === 'free' && presets.length > savedItemLimits.presetLimit ? `presets (${presets.length}/${savedItemLimits.presetLimit})` : null,
-    viewerTier === 'free' && watchlists.length > savedItemLimits.watchlistLimit
-      ? `watchlists (${watchlists.length}/${savedItemLimits.watchlistLimit})`
-      : null,
-    viewerTier === 'free' && totalRuleCount > savedItemLimits.watchlistRuleLimit
-      ? `total rules (${totalRuleCount}/${savedItemLimits.watchlistRuleLimit})`
-      : null
-  ].filter(Boolean) as string[];
-
-  useEffect(() => {
-    let active = true;
-    fetch('/api/me/subscription', { cache: 'no-store' })
-      .then(async (res) => {
-        const json = await res.json().catch(() => ({}));
-        if (!active) return;
-        setSubscription({
-          isAuthed: Boolean(json?.isAuthed),
-          isPaid: Boolean(json?.isPaid),
-          isAdmin: Boolean(json?.isAdmin),
-          tier: normalizeViewerTier(json?.tier),
-          capabilities:
-            json?.capabilities && typeof json.capabilities === 'object' ? (json.capabilities as ViewerCapabilities) : undefined,
-          limits: json?.limits && typeof json.limits === 'object' ? (json.limits as ViewerLimits) : undefined
-        });
-        setStatus(json?.isAuthed ? 'authed' : 'guest');
-      })
-      .catch((err) => {
-        if (!active) return;
-        console.error('subscription load error', err);
-        setSubscription({ isAuthed: false, isPaid: false, isAdmin: false, tier: 'anon' });
-        setStatus('guest');
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (status !== 'authed') return;
-    if (!canUseSavedItems) {
-      setPresets([]);
-      setWatchlists([]);
-      setError(null);
-      setLoading(false);
-      return;
-    }
-
-    let active = true;
-    setLoading(true);
-    setError(null);
-
-    Promise.all([fetch('/api/me/filter-presets', { cache: 'no-store' }), fetch('/api/me/watchlists', { cache: 'no-store' })])
-      .then(async ([presetsRes, watchlistsRes]) => {
-        const [presetsJson, watchlistsJson] = await Promise.all([
-          presetsRes.json().catch(() => ({})),
-          watchlistsRes.json().catch(() => ({}))
-        ]);
-
-        if (!active) return;
-
-        if ((!presetsRes.ok && presetsRes.status === 402) || (!watchlistsRes.ok && watchlistsRes.status === 402)) {
-          setError('Saved items are not available on this account.');
-          return;
-        }
-
-        if (!presetsRes.ok) throw new Error(presetsJson?.error || 'Failed to load presets.');
-        if (!watchlistsRes.ok) throw new Error(watchlistsJson?.error || 'Failed to load watchlists.');
-
-        setPresets(Array.isArray(presetsJson?.presets) ? presetsJson.presets : []);
-        setWatchlists(Array.isArray(watchlistsJson?.watchlists) ? watchlistsJson.watchlists : []);
-      })
-      .catch((err) => {
-        if (!active) return;
-        console.error('account saved load error', err);
-        setError(err?.message || 'Unable to load saved items.');
-      })
-      .finally(() => {
-        if (!active) return;
-        setLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [canUseSavedItems, status]);
-
+  const savedItemsReadOnly = status === 'authed' && !canUseSavedItems;
   const normalizedRuleQuery = ruleQuery.trim().toLowerCase();
   const filteredWatchlists = useMemo(() => {
     if (!normalizedRuleQuery) return watchlists;
     return watchlists.map((watchlist) => ({
       ...watchlist,
-      watchlist_rules: (Array.isArray(watchlist.watchlist_rules) ? watchlist.watchlist_rules : []).filter((rule) => {
-        const haystack = `${rule.rule_type || ''} ${rule.rule_value || ''}`.toLowerCase();
+      rules: watchlist.rules.filter((rule) => {
+        const haystack = `${rule.ruleType || ''} ${rule.ruleValue || ''}`.toLowerCase();
         return haystack.includes(normalizedRuleQuery);
       })
     }));
   }, [normalizedRuleQuery, watchlists]);
+  const presetAlertRuleIds = useMemo(
+    () =>
+      new Map(
+        alertRules
+          .filter((rule) => rule.kind === 'filter_preset')
+          .map((rule) => [rule.presetId, rule.id])
+      ),
+    [alertRules]
+  );
+  const followAlertRuleIds = useMemo(
+    () =>
+      new Map(
+        alertRules
+          .filter((rule) => rule.kind === 'follow')
+          .map((rule) => [buildFollowAlertRuleKey(rule.followRuleType, rule.followRuleValue), rule.id])
+      ),
+    [alertRules]
+  );
+  const queryError =
+    status === 'authed'
+      ? filterPresetsQuery.error || watchlistsQuery.error || alertRulesQuery.error || (entitlementsQuery.error ?? null)
+      : entitlementsQuery.error;
+  const activeError = error ?? (queryError ? getErrorMessage(queryError, 'Unable to load saved items.') : null);
 
   async function copyText(key: string, value: string) {
     try {
@@ -170,7 +111,7 @@ export default function AccountSavedPage() {
     }
   }
 
-  async function renamePreset(preset: Preset) {
+  async function renamePreset(preset: FilterPresetV1) {
     const next = window.prompt('Rename preset', preset.name)?.trim();
     if (!next || next === preset.name) return;
 
@@ -180,49 +121,39 @@ export default function AccountSavedPage() {
     setError(null);
 
     try {
-      const res = await fetch(`/api/me/filter-presets/${encodeURIComponent(preset.id)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: next }),
-        cache: 'no-store'
+      await updateFilterPresetMutation.mutateAsync({
+        presetId: preset.id,
+        payload: { name: next }
       });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || `rename_http_${res.status}`);
-      setPresets((prev) => prev.map((p) => (p.id === preset.id ? { ...p, name: next } : p)));
-    } catch (err) {
-      console.error('rename preset error', err);
+    } catch (mutationError: unknown) {
+      console.error('rename preset error', mutationError);
       setError('Unable to rename preset.');
     } finally {
       setBusy((prev) => ({ ...prev, [key]: false }));
     }
   }
 
-  async function setDefaultPreset(preset: Preset) {
-    if (preset.is_default) return;
+  async function setDefaultPreset(preset: FilterPresetV1) {
+    if (preset.isDefault) return;
     const key = `preset:default:${preset.id}`;
     if (busy[key]) return;
     setBusy((prev) => ({ ...prev, [key]: true }));
     setError(null);
 
     try {
-      const res = await fetch(`/api/me/filter-presets/${encodeURIComponent(preset.id)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ is_default: true }),
-        cache: 'no-store'
+      await updateFilterPresetMutation.mutateAsync({
+        presetId: preset.id,
+        payload: { isDefault: true }
       });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || `default_http_${res.status}`);
-      setPresets((prev) => prev.map((p) => ({ ...p, is_default: p.id === preset.id })));
-    } catch (err) {
-      console.error('default preset error', err);
+    } catch (mutationError: unknown) {
+      console.error('default preset error', mutationError);
       setError('Unable to set default preset.');
     } finally {
       setBusy((prev) => ({ ...prev, [key]: false }));
     }
   }
 
-  async function deletePreset(preset: Preset) {
+  async function deletePreset(preset: FilterPresetV1) {
     const ok = window.confirm(`Delete preset "${preset.name}"?`);
     if (!ok) return;
 
@@ -232,19 +163,16 @@ export default function AccountSavedPage() {
     setError(null);
 
     try {
-      const res = await fetch(`/api/me/filter-presets/${encodeURIComponent(preset.id)}`, { method: 'DELETE', cache: 'no-store' });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || `delete_http_${res.status}`);
-      setPresets((prev) => prev.filter((p) => p.id !== preset.id));
-    } catch (err) {
-      console.error('delete preset error', err);
+      await deleteFilterPresetMutation.mutateAsync(preset.id);
+    } catch (mutationError: unknown) {
+      console.error('delete preset error', mutationError);
       setError('Unable to delete preset.');
     } finally {
       setBusy((prev) => ({ ...prev, [key]: false }));
     }
   }
 
-  async function renameWatchlist(watchlist: Watchlist) {
+  async function renameWatchlist(watchlist: WatchlistV1) {
     const next = window.prompt('Rename watchlist', watchlist.name)?.trim();
     if (!next || next === watchlist.name) return;
 
@@ -254,24 +182,19 @@ export default function AccountSavedPage() {
     setError(null);
 
     try {
-      const res = await fetch(`/api/me/watchlists/${encodeURIComponent(watchlist.id)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: next }),
-        cache: 'no-store'
+      await updateWatchlistMutation.mutateAsync({
+        watchlistId: watchlist.id,
+        payload: { name: next }
       });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || `rename_http_${res.status}`);
-      setWatchlists((prev) => prev.map((w) => (w.id === watchlist.id ? { ...w, name: next } : w)));
-    } catch (err) {
-      console.error('rename watchlist error', err);
+    } catch (mutationError: unknown) {
+      console.error('rename watchlist error', mutationError);
       setError('Unable to rename watchlist.');
     } finally {
       setBusy((prev) => ({ ...prev, [key]: false }));
     }
   }
 
-  async function deleteWatchlist(watchlist: Watchlist) {
+  async function deleteWatchlist(watchlist: WatchlistV1) {
     const ok = window.confirm(`Delete watchlist "${watchlist.name}"? This removes all its rules.`);
     if (!ok) return;
 
@@ -281,19 +204,16 @@ export default function AccountSavedPage() {
     setError(null);
 
     try {
-      const res = await fetch(`/api/me/watchlists/${encodeURIComponent(watchlist.id)}`, { method: 'DELETE', cache: 'no-store' });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || `delete_http_${res.status}`);
-      setWatchlists((prev) => prev.filter((w) => w.id !== watchlist.id));
-    } catch (err) {
-      console.error('delete watchlist error', err);
+      await deleteWatchlistMutation.mutateAsync(watchlist.id);
+    } catch (mutationError: unknown) {
+      console.error('delete watchlist error', mutationError);
       setError('Unable to delete watchlist.');
     } finally {
       setBusy((prev) => ({ ...prev, [key]: false }));
     }
   }
 
-  async function removeRule(watchlist: Watchlist, rule: WatchlistRule) {
+  async function removeRule(watchlist: WatchlistV1, rule: WatchlistRuleV1) {
     const ok = window.confirm('Remove this rule?');
     if (!ok) return;
 
@@ -303,20 +223,66 @@ export default function AccountSavedPage() {
     setError(null);
 
     try {
-      const res = await fetch(`/api/me/watchlists/${encodeURIComponent(watchlist.id)}/rules/${encodeURIComponent(rule.id)}`, {
-        method: 'DELETE',
-        cache: 'no-store'
+      await deleteWatchlistRuleMutation.mutateAsync({
+        watchlistId: watchlist.id,
+        ruleId: rule.id
       });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || `delete_http_${res.status}`);
-      setWatchlists((prev) =>
-        prev.map((w) =>
-          w.id === watchlist.id ? { ...w, watchlist_rules: (w.watchlist_rules || []).filter((r) => r.id !== rule.id) } : w
-        )
-      );
-    } catch (err) {
-      console.error('remove rule error', err);
+    } catch (mutationError: unknown) {
+      console.error('remove rule error', mutationError);
       setError('Unable to remove rule.');
+    } finally {
+      setBusy((prev) => ({ ...prev, [key]: false }));
+    }
+  }
+
+  async function togglePresetAlertRule(preset: FilterPresetV1) {
+    const key = `alert:preset:${preset.id}`;
+    const existingRuleId = presetAlertRuleIds.get(preset.id) ?? null;
+    if (busy[key]) return;
+    setBusy((prev) => ({ ...prev, [key]: true }));
+    setError(null);
+
+    try {
+      if (existingRuleId) {
+        await deleteAlertRuleMutation.mutateAsync(existingRuleId);
+      } else {
+        await createAlertRuleMutation.mutateAsync({
+          kind: 'filter_preset',
+          presetId: preset.id
+        });
+      }
+    } catch (mutationError: unknown) {
+      console.error('preset alert rule toggle error', mutationError);
+      setError(existingRuleId ? 'Unable to remove preset alert rule.' : 'Unable to create preset alert rule.');
+    } finally {
+      setBusy((prev) => ({ ...prev, [key]: false }));
+    }
+  }
+
+  async function toggleFollowAlertRule(rule: WatchlistRuleV1) {
+    const normalizedType = normalizeWatchlistAlertRuleType(rule.ruleType);
+    if (!normalizedType) return;
+
+    const alertKey = buildFollowAlertRuleKey(normalizedType, rule.ruleValue);
+    const existingRuleId = followAlertRuleIds.get(alertKey) ?? null;
+    const key = `alert:follow:${rule.id}`;
+    if (busy[key]) return;
+    setBusy((prev) => ({ ...prev, [key]: true }));
+    setError(null);
+
+    try {
+      if (existingRuleId) {
+        await deleteAlertRuleMutation.mutateAsync(existingRuleId);
+      } else {
+        await createAlertRuleMutation.mutateAsync({
+          kind: 'follow',
+          followRuleType: normalizedType,
+          followRuleValue: rule.ruleValue
+        });
+      }
+    } catch (mutationError: unknown) {
+      console.error('follow alert rule toggle error', mutationError);
+      setError(existingRuleId ? 'Unable to remove follow alert rule.' : 'Unable to create follow alert rule.');
     } finally {
       setBusy((prev) => ({ ...prev, [key]: false }));
     }
@@ -328,71 +294,83 @@ export default function AccountSavedPage() {
         <div>
           <p className="text-xs uppercase tracking-[0.1em] text-text3">Account</p>
           <h1 className="text-3xl font-semibold text-text1">Saved</h1>
-          <p className="mt-1 text-sm text-text3">Manage saved views and My Launches rules, including follows and starred launches.</p>
+          <p className="mt-1 text-sm text-text3">Review saved filters, follows, and starred launches. Editing and new saves stay Premium-only.</p>
         </div>
-        <Link href="/account" className="text-sm text-primary hover:underline">
+        <Link href={buildProfileHref()} className="text-sm text-primary hover:underline">
           Back to profile
         </Link>
       </div>
 
-      {error && (
-        <div className="mt-4 rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">{error}</div>
+      {activeError && (
+        <div className="mt-4 rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">{activeError}</div>
       )}
 
-      {status === 'loading' && <p className="mt-4 text-text3">Loading…</p>}
+      {(status === 'loading' || entitlementsLoading) && <p className="mt-4 text-text3">Loading…</p>}
 
       {status === 'guest' && (
         <p className="mt-4 text-text2">
           You are not signed in.{' '}
-          <Link className="text-primary hover:underline" href="/auth/sign-in">
+          <Link className="text-primary hover:underline" href={buildAuthHref('sign-in', { returnTo: '/account/saved' })}>
             Sign in
           </Link>{' '}
           or{' '}
-          <Link className="text-primary hover:underline" href="/auth/sign-up">
+          <Link className="text-primary hover:underline" href={buildAuthHref('sign-up', { returnTo: '/account/saved' })}>
             create a free account
           </Link>{' '}
-          to manage saved items.
+          to unlock the signed-in feed and upgrade later for saved items.
         </p>
       )}
 
-      {status === 'authed' && (
+      {status === 'authed' && !entitlementsLoading && (
         <div className="mt-4 rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
           <div className="text-xs uppercase tracking-[0.1em] text-text3">{viewerTier === 'premium' ? 'Premium' : 'Free account'}</div>
           <div className="mt-1 text-base font-semibold text-text1">
-            {viewerTier === 'premium' ? 'Saved items are fully enabled.' : 'Free saved items are enabled.'}
+            {viewerTier === 'premium'
+              ? 'Saved items are fully enabled.'
+              : hasSavedInventory
+                ? 'Saved items are stored but read-only on free.'
+                : 'Saved items are a Premium feature.'}
           </div>
           <div className="mt-1 text-xs text-text3">
             {viewerTier === 'premium'
               ? `${savedItemLimits.presetLimit} presets, ${savedItemLimits.watchlistLimit} watchlists, and ${savedItemLimits.watchlistRuleLimit} rules per watchlist.`
-              : `${savedItemLimits.presetLimit} preset, ${savedItemLimits.watchlistLimit} watchlist, and ${savedItemLimits.watchlistRuleLimit} total follow rules. Premium expands that to ${PREMIUM_SAVED_LIMITS.presetLimit} presets, ${PREMIUM_SAVED_LIMITS.watchlistLimit} watchlists, and ${PREMIUM_SAVED_LIMITS.watchlistRuleLimit} rules per watchlist.`}
+              : hasSavedInventory
+                ? 'Your saved views, follows, and starred launches are still here, but they reactivate only with Premium.'
+                : `Premium unlocks saved/default filters, follows, and starred launches, plus up to ${PREMIUM_SAVED_LIMITS.presetLimit} presets and ${PREMIUM_SAVED_LIMITS.watchlistLimit} watchlists.`}
           </div>
           {viewerTier === 'free' && (
-            <Link className="mt-3 inline-block text-sm text-primary hover:underline" href="/account">
+            <Link className="mt-3 inline-block text-sm text-primary hover:underline" href={buildProfileHref()}>
               View billing options
             </Link>
-          )}
-          {overLimitItems.length > 0 && (
-            <div className="mt-3 rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
-              Over the current free limit for {overLimitItems.join(', ')}. You can keep reviewing and deleting items here, but new saves stay
-              blocked until you trim back under the cap.
-            </div>
           )}
         </div>
       )}
 
-      {status === 'authed' && canUseSavedItems && (
+      {status === 'authed' && !entitlementsLoading && !canUseSavedItems && !hasSavedInventory && (
+        <div className="mt-6 rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
+          No saved items yet. Premium unlocks saved/default filters, follows, and starred launches across your account.
+        </div>
+      )}
+
+      {status === 'authed' && !entitlementsLoading && (canUseSavedItems || hasSavedInventory) && (
         <>
           <Section
             title="Presets"
-            description={`Saved filters for the home feed (${presets.length}/${savedItemLimits.presetLimit}).`}
+            description={
+              canUseSavedItems
+                ? `Saved filters for the home feed (${presets.length}/${savedItemLimits.presetLimit}). Premium can also turn a preset into an alert source.`
+                : `Stored Premium filter presets (${presets.length}).`
+            }
             emptyLabel="No presets yet."
-            loading={loading}
+            loading={loadingSavedItems}
           >
             {presets.map((preset) => {
               const renameKey = `preset:rename:${preset.id}`;
               const defaultKey = `preset:default:${preset.id}`;
               const deleteKey = `preset:delete:${preset.id}`;
-              const summary = summarizeFilters(preset.filters);
+              const alertKey = `alert:preset:${preset.id}`;
+              const presetAlertsEnabled = presetAlertRuleIds.has(preset.id);
+              const summary = summarizeFilters(preset.filters as LaunchFilter);
 
               return (
                 <div key={preset.id} className="rounded-xl border border-stroke bg-surface-0 p-3">
@@ -400,7 +378,7 @@ export default function AccountSavedPage() {
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <div className="truncate text-sm font-semibold text-text1">{preset.name}</div>
-                        {preset.is_default ? (
+                        {preset.isDefault ? (
                           <span className="rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-primary">
                             Default
                           </span>
@@ -408,48 +386,67 @@ export default function AccountSavedPage() {
                       </div>
                       <div className="mt-1 text-xs text-text3">{summary}</div>
                     </div>
-                    <button
-                      type="button"
-                      className="shrink-0 rounded-lg border border-stroke bg-surface-0 px-2 py-1 text-xs text-text1 hover:border-primary"
-                      onClick={() => copyText(`preset:${preset.id}`, preset.id)}
-                    >
-                      {copyState[`preset:${preset.id}`] === 'copied'
-                        ? 'Copied ID'
-                        : copyState[`preset:${preset.id}`] === 'error'
-                          ? 'Copy failed'
-                          : 'Copy ID'}
-                    </button>
+                    {canUseSavedItems ? (
+                      <button
+                        type="button"
+                        className="shrink-0 rounded-lg border border-stroke bg-surface-0 px-2 py-1 text-xs text-text1 hover:border-primary"
+                        onClick={() => copyText(`preset:${preset.id}`, preset.id)}
+                      >
+                        {copyState[`preset:${preset.id}`] === 'copied'
+                          ? 'Copied ID'
+                          : copyState[`preset:${preset.id}`] === 'error'
+                            ? 'Copy failed'
+                            : 'Copy ID'}
+                      </button>
+                    ) : null}
                   </div>
 
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      className={clsx(
-                        'rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-xs text-text1 hover:border-primary',
-                        preset.is_default && 'opacity-50'
-                      )}
-                      onClick={() => setDefaultPreset(preset)}
-                      disabled={preset.is_default || busy[defaultKey]}
-                    >
-                      {busy[defaultKey] ? 'Saving…' : 'Set default'}
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-xs text-text1 hover:border-primary"
-                      onClick={() => renamePreset(preset)}
-                      disabled={busy[renameKey]}
-                    >
-                      {busy[renameKey] ? 'Renaming…' : 'Rename'}
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-xs text-text1 hover:border-primary"
-                      onClick={() => deletePreset(preset)}
-                      disabled={busy[deleteKey]}
-                    >
-                      {busy[deleteKey] ? 'Deleting…' : 'Delete'}
-                    </button>
-                  </div>
+                  {canUseSavedItems ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {canUseAdvancedAlertRules ? (
+                        <button
+                          type="button"
+                          className={clsx(
+                            'rounded-lg border px-3 py-2 text-xs',
+                            presetAlertsEnabled
+                              ? 'border-primary/40 bg-primary/10 text-primary'
+                              : 'border-stroke bg-surface-0 text-text1 hover:border-primary'
+                          )}
+                          onClick={() => togglePresetAlertRule(preset)}
+                          disabled={busy[alertKey]}
+                        >
+                          {busy[alertKey] ? 'Saving…' : presetAlertsEnabled ? 'Alerts on' : 'Use for alerts'}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className={clsx(
+                          'rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-xs text-text1 hover:border-primary',
+                          preset.isDefault && 'opacity-50'
+                        )}
+                        onClick={() => setDefaultPreset(preset)}
+                        disabled={preset.isDefault || busy[defaultKey]}
+                      >
+                        {busy[defaultKey] ? 'Saving…' : 'Set default'}
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-xs text-text1 hover:border-primary"
+                        onClick={() => renamePreset(preset)}
+                        disabled={busy[renameKey]}
+                      >
+                        {busy[renameKey] ? 'Renaming…' : 'Rename'}
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-xs text-text1 hover:border-primary"
+                        onClick={() => deletePreset(preset)}
+                        disabled={busy[deleteKey]}
+                      >
+                        {busy[deleteKey] ? 'Deleting…' : 'Delete'}
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               );
             })}
@@ -458,12 +455,12 @@ export default function AccountSavedPage() {
           <Section
             title="My Launches"
             description={
-              viewerTier === 'premium'
-                ? `Watchlists and rules (${watchlists.length}/${savedItemLimits.watchlistLimit} watchlists, ${savedItemLimits.watchlistRuleLimit} rules max per watchlist).`
-                : `Watchlists and rules (${watchlists.length}/${savedItemLimits.watchlistLimit} watchlists, ${totalRuleCount}/${savedItemLimits.watchlistRuleLimit} total rules).`
+              canUseSavedItems
+                ? `Watchlists and rules (${watchlists.length}/${savedItemLimits.watchlistLimit} watchlists, ${savedItemLimits.watchlistRuleLimit} rules max per watchlist). Premium can also turn a follow into an alert source.`
+                : `Stored Premium follows and starred launches (${watchlists.length} watchlists, ${totalRuleCount} rules).`
             }
             emptyLabel="No watchlists yet."
-            loading={loading}
+            loading={loadingSavedItems}
           >
             <div className="rounded-xl border border-stroke bg-surface-0 p-3">
               <label className="block text-xs uppercase tracking-[0.1em] text-text3" htmlFor="ruleFilter">
@@ -479,10 +476,10 @@ export default function AccountSavedPage() {
             </div>
 
             {filteredWatchlists.map((watchlist) => {
-              const rules = (Array.isArray(watchlist.watchlist_rules) ? watchlist.watchlist_rules : [])
-                .filter((rule) => rule?.id && rule?.rule_type && rule?.rule_value)
+              const rules = watchlist.rules
+                .filter((rule) => rule?.id && rule?.ruleType && rule?.ruleValue)
                 .slice()
-                .sort((a, b) => Date.parse(String(b.created_at || '')) - Date.parse(String(a.created_at || '')));
+                .sort((a, b) => Date.parse(String(b.createdAt || '')) - Date.parse(String(a.createdAt || '')));
 
               const grouped = groupRules(rules);
               const total = rules.length;
@@ -500,24 +497,26 @@ export default function AccountSavedPage() {
                         {normalizedRuleQuery ? ' (filtered)' : ''}
                       </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-xs text-text1 hover:border-primary"
-                        onClick={() => renameWatchlist(watchlist)}
-                        disabled={busy[renameKey]}
-                      >
-                        {busy[renameKey] ? 'Renaming…' : 'Rename'}
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-xs text-text1 hover:border-primary"
-                        onClick={() => deleteWatchlist(watchlist)}
-                        disabled={busy[deleteKey]}
-                      >
-                        {busy[deleteKey] ? 'Deleting…' : 'Delete'}
-                      </button>
-                    </div>
+                    {canUseSavedItems ? (
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-xs text-text1 hover:border-primary"
+                          onClick={() => renameWatchlist(watchlist)}
+                          disabled={busy[renameKey]}
+                        >
+                          {busy[renameKey] ? 'Renaming…' : 'Rename'}
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-xs text-text1 hover:border-primary"
+                          onClick={() => deleteWatchlist(watchlist)}
+                          disabled={busy[deleteKey]}
+                        >
+                          {busy[deleteKey] ? 'Deleting…' : 'Delete'}
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="mt-3 space-y-3">
@@ -526,7 +525,9 @@ export default function AccountSavedPage() {
                         key={groupKey}
                         title={items.title}
                         rules={items.rules}
-                        onRemove={(rule) => removeRule(watchlist, rule)}
+                        onRemove={canUseSavedItems ? (rule) => removeRule(watchlist, rule) : null}
+                        onToggleAlertRule={canUseAdvancedAlertRules ? toggleFollowAlertRule : null}
+                        activeAlertRuleIds={followAlertRuleIds}
                         busy={busy}
                       />
                     ))}
@@ -539,8 +540,9 @@ export default function AccountSavedPage() {
           </Section>
 
           <div className="mt-6 text-xs text-text3">
-            Tip: if you hit your plan limit, remove old follows or saved views here first. Tokenized feeds (calendar, RSS, embeds) still sit on
-            the Premium side and stay cached and rate-limited.
+            {savedItemsReadOnly
+              ? 'These items stay stored on your account, but edits and new saves remain locked until Premium is active again.'
+              : 'Tip: if you hit your plan limit, remove old follows or saved views here first. Tokenized feeds (calendar, RSS, embeds) still sit on the Premium side and stay cached and rate-limited.'}
           </div>
         </>
       )}
@@ -569,16 +571,12 @@ function normalizeViewerTier(value: unknown): ViewerTier | undefined {
   return value === 'anon' || value === 'free' || value === 'premium' ? value : undefined;
 }
 
-function resolveViewerTier(subscription: SubscriptionSnapshot | null): ViewerTier {
-  if (subscription?.tier) return subscription.tier;
-  if (subscription?.isPaid) return 'premium';
-  if (subscription?.isAuthed) return 'free';
-  return 'anon';
+function resolveViewerTier(value: unknown): ViewerTier {
+  return normalizeViewerTier(value) ?? 'anon';
 }
 
-function countWatchlistRules(rules: Watchlist['watchlist_rules']) {
-  if (!Array.isArray(rules)) return 0;
-  return rules.filter((rule) => rule?.id && rule?.rule_type && rule?.rule_value).length;
+function countWatchlistRules(rules: WatchlistRuleV1[]) {
+  return rules.filter((rule) => rule?.id && rule?.ruleType && rule?.ruleValue).length;
 }
 
 function normalizeRuleValue(ruleType: string, ruleValue: string) {
@@ -597,22 +595,31 @@ function normalizeRuleValue(ruleType: string, ruleValue: string) {
   return { label: type || 'Rule', value };
 }
 
-function groupRules(rules: WatchlistRule[]) {
+function normalizeWatchlistAlertRuleType(ruleType: string): 'launch' | 'pad' | 'provider' | 'tier' | null {
+  const normalized = String(ruleType || '').trim().toLowerCase();
+  return normalized === 'launch' || normalized === 'pad' || normalized === 'provider' || normalized === 'tier' ? normalized : null;
+}
+
+function buildFollowAlertRuleKey(ruleType: string, ruleValue: string) {
+  return `${String(ruleType || '').trim().toLowerCase()}:${String(ruleValue || '').trim().toLowerCase()}`;
+}
+
+function groupRules(rules: WatchlistRuleV1[]) {
   const result: Record<
     string,
     {
       title: string;
-      rules: WatchlistRule[];
+      rules: WatchlistRuleV1[];
     }
   > = {};
 
-  const byType = (type: string) => rules.filter((r) => String(r.rule_type || '').toLowerCase() === type);
+  const byType = (type: string) => rules.filter((rule) => String(rule.ruleType || '').toLowerCase() === type);
 
   const providers = byType('provider');
   const pads = byType('pad');
   const launches = byType('launch');
   const tiers = byType('tier');
-  const other = rules.filter((r) => !['provider', 'pad', 'launch', 'tier'].includes(String(r.rule_type || '').toLowerCase()));
+  const other = rules.filter((rule) => !['provider', 'pad', 'launch', 'tier'].includes(String(rule.ruleType || '').toLowerCase()));
 
   if (providers.length) result.providers = { title: `Followed providers (${providers.length})`, rules: providers };
   if (pads.length) result.pads = { title: `Followed pads (${pads.length})`, rules: pads };
@@ -627,11 +634,15 @@ function RuleGroup({
   title,
   rules,
   onRemove,
+  onToggleAlertRule,
+  activeAlertRuleIds,
   busy
 }: {
   title: string;
-  rules: WatchlistRule[];
-  onRemove: (rule: WatchlistRule) => void;
+  rules: WatchlistRuleV1[];
+  onRemove: ((rule: WatchlistRuleV1) => void) | null;
+  onToggleAlertRule: ((rule: WatchlistRuleV1) => void) | null;
+  activeAlertRuleIds: Map<string, string>;
   busy: Record<string, boolean>;
 }) {
   if (!rules.length) return null;
@@ -640,11 +651,15 @@ function RuleGroup({
       <div className="text-xs uppercase tracking-[0.1em] text-text3">{title}</div>
       <div className="mt-2 space-y-2">
         {rules.map((rule) => {
-          const normalized = normalizeRuleValue(rule.rule_type, rule.rule_value);
+          const normalized = normalizeRuleValue(rule.ruleType, rule.ruleValue);
           const removeKey = `rule:delete:${rule.id}`;
+          const alertKey = `alert:follow:${rule.id}`;
+          const normalizedAlertType = normalizeWatchlistAlertRuleType(rule.ruleType);
+          const activeAlertRuleId = normalizedAlertType ? activeAlertRuleIds.get(buildFollowAlertRuleKey(normalizedAlertType, rule.ruleValue)) : null;
+          const canToggleAlertRule = Boolean(onToggleAlertRule && normalizedAlertType);
           const canLinkToLaunch =
-            String(rule.rule_type || '').toLowerCase() === 'launch' &&
-            /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rule.rule_value);
+            String(rule.ruleType || '').toLowerCase() === 'launch' &&
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rule.ruleValue);
 
           return (
             <div key={rule.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-stroke bg-surface-1 px-3 py-2">
@@ -652,7 +667,7 @@ function RuleGroup({
                 <div className="text-xs uppercase tracking-[0.1em] text-text3">{normalized.label}</div>
                 <div className="mt-0.5 truncate text-sm text-text1">
                   {canLinkToLaunch ? (
-                    <Link className="text-primary hover:underline" href={`/launches/${encodeURIComponent(rule.rule_value)}`}>
+                    <Link className="text-primary hover:underline" href={`/launches/${encodeURIComponent(rule.ruleValue)}`}>
                       {normalized.value}
                     </Link>
                   ) : (
@@ -660,14 +675,31 @@ function RuleGroup({
                   )}
                 </div>
               </div>
-              <button
-                type="button"
-                className="shrink-0 rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-xs text-text1 hover:border-primary disabled:opacity-50"
-                onClick={() => onRemove(rule)}
-                disabled={busy[removeKey]}
-              >
-                {busy[removeKey] ? 'Removing…' : 'Remove'}
-              </button>
+              <div className="flex flex-wrap gap-2">
+                {canToggleAlertRule ? (
+                  <button
+                    type="button"
+                    className={clsx(
+                      'shrink-0 rounded-lg border px-3 py-2 text-xs disabled:opacity-50',
+                      activeAlertRuleId
+                        ? 'border-primary/40 bg-primary/10 text-primary'
+                        : 'border-stroke bg-surface-0 text-text1 hover:border-primary'
+                    )}
+                    onClick={() => onToggleAlertRule?.(rule)}
+                    disabled={busy[alertKey]}
+                  >
+                    {busy[alertKey] ? 'Saving…' : activeAlertRuleId ? 'Alerts on' : 'Use for alerts'}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="shrink-0 rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-xs text-text1 hover:border-primary disabled:opacity-50"
+                  onClick={() => onRemove?.(rule)}
+                  disabled={!onRemove || busy[removeKey]}
+                >
+                  {!onRemove ? 'Premium only' : busy[removeKey] ? 'Removing…' : 'Remove'}
+                </button>
+              </div>
             </div>
           );
         })}
@@ -702,4 +734,8 @@ function Section({
       </div>
     </section>
   );
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
 }

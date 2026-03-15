@@ -6,8 +6,7 @@ import {
   type SiteSearchResponse,
   type SiteSearchResult,
   type SearchResultType
-} from '@/lib/search/shared';
-import { ensureSiteSearchFresh } from '@/lib/server/siteSearchSync';
+} from '@tminuszero/domain';
 
 const DEFAULT_LIMIT = 8;
 const MAX_LIMIT = 50;
@@ -53,9 +52,11 @@ function normalizeResults(rows: SearchRpcRow[]) {
 }
 
 export async function warmSiteSearchIndex() {
-  if (!isSupabaseConfigured()) return { ok: false, warmed: false };
-  await ensureSiteSearchFresh({ requireReady: false });
-  return { ok: true, warmed: true };
+  return {
+    ok: isSupabaseConfigured(),
+    warmed: false,
+    deprecated: true
+  };
 }
 
 export async function searchSite(
@@ -84,8 +85,6 @@ export async function searchSite(
   }
 
   const startedAt = Date.now();
-  await ensureSiteSearchFresh({ requireReady: true });
-
   const supabase = createSupabasePublicClient();
   const { data, error } = await supabase.rpc('search_public_documents', {
     q_in: parsed.query,

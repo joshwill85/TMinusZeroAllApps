@@ -1,4 +1,4 @@
-import type { TrajectoryAuthorityTier, TrajectoryQualityState } from '@/lib/server/trajectoryContract';
+import type { TrajectoryAuthorityTier, TrajectoryQualityState } from '@tminuszero/domain';
 
 export type AlignmentStability = 'inactive' | 'settling' | 'stable' | 'drifting';
 export type AlignmentBiasConfidence = 'low' | 'medium' | 'high';

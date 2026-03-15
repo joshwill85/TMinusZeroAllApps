@@ -34,12 +34,6 @@ function isAllowedSupabaseVerifyUrl(url: URL, supabaseHost: string) {
 }
 
 function isAllowedFinalRedirect(url: URL, origin: string) {
-  const protocol = url.protocol.toLowerCase();
-  if (protocol === 'tminuszero:' || protocol === 'exp+tminuszero:') {
-    const nativePath = `/${url.host}${url.pathname}`.replace(/\/+/g, '/');
-    return nativePath === '/auth/callback' || nativePath === '/auth/reset-password';
-  }
-
   const host = url.host.toLowerCase();
   if (host === 'www.tminuszero.app') return true;
   if (host === 'tminuszero.app') return true;

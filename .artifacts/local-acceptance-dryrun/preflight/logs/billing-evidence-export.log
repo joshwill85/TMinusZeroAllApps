@@ -1,0 +1,5 @@
+
+> tminuszero@0.1.0 export:billing-evidence
+> ts-node --project tsconfig.scripts.json --transpile-only -r tsconfig-paths/register scripts/billing-evidence-export.ts --out=/Users/petpawlooza/TMinusZero AllApps/.artifacts/local-acceptance-dryrun/preflight/billing/billing-evidence.json --skip-when-unavailable --user-id=4cbef9a2-99c7-429d-91bc-e77290425982
+
+billing-evidence-export: wrote .artifacts/local-acceptance-dryrun/preflight/billing/billing-evidence.json

@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createSupabaseAdminClient, createSupabaseServerClient } from '@/lib/server/supabaseServer';
 import {
+  isAppleBillingConfigured,
+  isAppleBillingNotificationsConfigured,
+  isGoogleBillingConfigured,
+  isGoogleBillingNotificationsConfigured,
   isStripeConfigured,
   isStripePriceConfigured,
   isStripePublishableConfigured,
@@ -16,12 +20,222 @@ const STATUS_ORDER: Record<string, number> = {
   trialing: 1,
   past_due: 2,
   unpaid: 3,
-  canceled: 4,
-  incomplete: 5,
-  incomplete_expired: 6,
-  paused: 7,
-  none: 8
+  pending: 4,
+  on_hold: 5,
+  canceled: 6,
+  revoked: 7,
+  expired: 8,
+  incomplete: 9,
+  incomplete_expired: 10,
+  paused: 11,
+  none: 12
 };
+
+const PROVIDERS = ['stripe', 'apple_app_store', 'google_play'] as const;
+const WEBHOOK_SOURCES = ['stripe', 'apple_app_store', 'google_play'] as const;
+
+type ProviderKey = (typeof PROVIDERS)[number];
+type WebhookSource = (typeof WEBHOOK_SOURCES)[number];
+
+type ProviderEntitlementRow = {
+  user_id: string;
+  provider: ProviderKey;
+  status: string;
+  is_active: boolean;
+  cancel_at_period_end: boolean;
+  current_period_end: string | null;
+  provider_product_id: string | null;
+  updated_at: string | null;
+};
+
+type ProfileRow = {
+  user_id: string;
+  email: string | null;
+  role: string | null;
+  created_at: string | null;
+};
+
+type SubscriptionRow = {
+  user_id: string;
+  stripe_subscription_id: string | null;
+  stripe_price_id: string | null;
+  status: string;
+  current_period_end: string | null;
+  cancel_at_period_end: boolean;
+  updated_at: string | null;
+};
+
+type StripeCustomerRow = {
+  user_id: string;
+  stripe_customer_id: string | null;
+};
+
+type PurchaseEventRow = {
+  user_id: string | null;
+  provider: ProviderKey;
+  event_type: string;
+  status: string | null;
+  provider_event_id: string | null;
+  provider_product_id: string | null;
+  provider_subscription_id: string | null;
+  created_at: string | null;
+};
+
+type WebhookFailureRow = {
+  source: WebhookSource;
+  event_id?: string | null;
+  received_at: string | null;
+  processed: boolean;
+  error: string | null;
+};
+
+function isMissingRelationError(error: unknown) {
+  const message = String((error as { message?: unknown })?.message || '').toLowerCase();
+  return message.includes('relation') && message.includes('does not exist');
+}
+
+function formatProviderLabel(provider: ProviderKey | null) {
+  if (provider === 'apple_app_store') return 'App Store';
+  if (provider === 'google_play') return 'Google Play';
+  if (provider === 'stripe') return 'Stripe';
+  return 'None';
+}
+
+function buildPlanLabel({
+  provider,
+  stripePriceId,
+  providerProductId,
+  proPriceId,
+  priceConfigured
+}: {
+  provider: ProviderKey | null;
+  stripePriceId: string | null;
+  providerProductId: string | null;
+  proPriceId: string;
+  priceConfigured: boolean;
+}) {
+  if (!provider) {
+    return 'None';
+  }
+
+  if (provider === 'stripe') {
+    if (stripePriceId && stripePriceId === proPriceId && priceConfigured) {
+      return 'Premium monthly';
+    }
+    return 'Stripe plan';
+  }
+
+  return `Premium via ${formatProviderLabel(provider)}`;
+}
+
+function createEmptyWebhookHealth(source: WebhookSource) {
+  return {
+    source,
+    lastReceivedAt: null as string | null,
+    lastSuccessAt: null as string | null,
+    lastError: null as string | null,
+    pendingCount: 0,
+    failedLast24h: 0
+  };
+}
+
+async function loadOptionalRows<T>(
+  promise: PromiseLike<{ data: T[] | null; error: { message?: string } | null }>,
+  label: string
+) {
+  const result = await promise;
+  if (result.error) {
+    if (isMissingRelationError(result.error)) {
+      return [] as T[];
+    }
+    console.error(label, result.error);
+    return [] as T[];
+  }
+  return result.data ?? [];
+}
+
+async function loadOptionalMaybeSingle<T>(
+  promise: PromiseLike<{ data: T | null; error: { message?: string } | null }>,
+  label: string
+) {
+  const result = await promise;
+  if (result.error) {
+    if (isMissingRelationError(result.error)) {
+      return null;
+    }
+    console.error(label, result.error);
+    return null;
+  }
+  return result.data ?? null;
+}
+
+async function loadOptionalCount(
+  promise: PromiseLike<{ count: number | null; error: { message?: string } | null }>,
+  label: string
+) {
+  const result = await promise;
+  if (result.error) {
+    if (isMissingRelationError(result.error)) {
+      return 0;
+    }
+    console.error(label, result.error);
+    return 0;
+  }
+  return result.count ?? 0;
+}
+
+async function loadWebhookHealth(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  source: WebhookSource,
+  cutoffIso: string
+) {
+  const [lastReceived, lastSuccess, pendingCount, failedLast24h] = await Promise.all([
+    loadOptionalMaybeSingle<{ received_at: string | null; error: string | null }>(
+      admin
+        .from('webhook_events')
+        .select('received_at,error')
+        .eq('source', source)
+        .order('received_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      `${source} webhook last received`
+    ),
+    loadOptionalMaybeSingle<{ received_at: string | null }>(
+      admin
+        .from('webhook_events')
+        .select('received_at')
+        .eq('source', source)
+        .eq('processed', true)
+        .is('error', null)
+        .order('received_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      `${source} webhook last success`
+    ),
+    loadOptionalCount(
+      admin.from('webhook_events').select('id', { count: 'exact', head: true }).eq('source', source).eq('processed', false),
+      `${source} webhook pending`
+    ),
+    loadOptionalCount(
+      admin
+        .from('webhook_events')
+        .select('id', { count: 'exact', head: true })
+        .eq('source', source)
+        .not('error', 'is', null)
+        .gte('received_at', cutoffIso),
+      `${source} webhook failures`
+    )
+  ]);
+
+  return {
+    source,
+    lastReceivedAt: typeof lastReceived?.received_at === 'string' ? lastReceived.received_at : null,
+    lastSuccessAt: typeof lastSuccess?.received_at === 'string' ? lastSuccess.received_at : null,
+    lastError: typeof lastReceived?.error === 'string' ? lastReceived.error : null,
+    pendingCount,
+    failedLast24h
+  };
+}
 
 export async function GET() {
   if (!isSupabaseConfigured() || !isSupabaseAdminConfigured()) {
@@ -40,86 +254,90 @@ export async function GET() {
   const admin = createSupabaseAdminClient();
   const cutoffIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-  const [profilesRes, subscriptionsRes, customersRes, webhookLastRes, webhookLastSuccessRes, webhookPendingRes, webhookFailedRes] =
-    await Promise.all([
-    admin.from('profiles').select('user_id,email,role,created_at').order('created_at', { ascending: false }).limit(500),
-    admin
-      .from('subscriptions')
-      .select('user_id,stripe_subscription_id,stripe_price_id,status,current_period_end,cancel_at_period_end,updated_at'),
-    admin.from('stripe_customers').select('user_id,stripe_customer_id'),
-    admin
-      .from('webhook_events')
-      .select('received_at,processed,error')
-      .eq('source', 'stripe')
-      .order('received_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    admin
-      .from('webhook_events')
-      .select('received_at')
-      .eq('source', 'stripe')
-      .eq('processed', true)
-      .is('error', null)
-      .order('received_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    admin
-      .from('webhook_events')
-      .select('id', { count: 'exact', head: true })
-      .eq('source', 'stripe')
-      .eq('processed', false),
-    admin
-      .from('webhook_events')
-      .select('id', { count: 'exact', head: true })
-      .eq('source', 'stripe')
-      .not('error', 'is', null)
-      .gte('received_at', cutoffIso)
+  const [
+    profiles,
+    subscriptions,
+    customers,
+    providerEntitlements,
+    recentPurchaseEvents,
+    recentWebhookFailures,
+    webhookHealth
+  ] = await Promise.all([
+    loadOptionalRows<ProfileRow>(
+      admin.from('profiles').select('user_id,email,role,created_at').order('created_at', { ascending: false }).limit(500),
+      'admin billing profiles'
+    ),
+    loadOptionalRows<SubscriptionRow>(
+      admin
+        .from('subscriptions')
+        .select('user_id,stripe_subscription_id,stripe_price_id,status,current_period_end,cancel_at_period_end,updated_at'),
+      'admin billing subscriptions'
+    ),
+    loadOptionalRows<StripeCustomerRow>(admin.from('stripe_customers').select('user_id,stripe_customer_id'), 'admin billing customers'),
+    loadOptionalRows<ProviderEntitlementRow>(
+      admin
+        .from('purchase_entitlements')
+        .select('user_id,provider,status,is_active,cancel_at_period_end,current_period_end,provider_product_id,updated_at'),
+      'admin billing provider entitlements'
+    ),
+    loadOptionalRows<PurchaseEventRow>(
+      admin
+        .from('purchase_events')
+        .select('user_id,provider,event_type,status,provider_event_id,provider_product_id,provider_subscription_id,created_at')
+        .order('created_at', { ascending: false })
+        .limit(20),
+      'admin billing purchase events'
+    ),
+    loadOptionalRows<WebhookFailureRow>(
+      admin
+        .from('webhook_events')
+        .select('source,event_id,received_at,processed,error')
+        .not('error', 'is', null)
+        .order('received_at', { ascending: false })
+        .limit(20),
+      'admin billing webhook failures'
+    ),
+    Promise.all(WEBHOOK_SOURCES.map((source) => loadWebhookHealth(admin, source, cutoffIso)))
   ]);
 
-  const anyError = [
-    profilesRes.error,
-    subscriptionsRes.error,
-    customersRes.error,
-    webhookLastRes.error,
-    webhookLastSuccessRes.error,
-    webhookPendingRes.error,
-    webhookFailedRes.error
-  ].filter(Boolean);
-
-  if (anyError.length) {
-    console.error('admin billing errors', anyError);
-  }
-
-  const profiles = profilesRes.data ?? [];
-  const subscriptions = subscriptionsRes.data ?? [];
-  const customers = customersRes.data ?? [];
   const subscriptionMap = new Map(subscriptions.map((sub) => [sub.user_id, sub]));
   const customerMap = new Map(customers.map((customer) => [customer.user_id, customer.stripe_customer_id]));
+  const providerEntitlementMap = new Map(providerEntitlements.map((row) => [row.user_id, row]));
   const proPriceId = process.env.STRIPE_PRICE_PRO_MONTHLY || '';
   const priceConfigured = isStripePriceConfigured();
 
   const billingCustomers = profiles
     .map((row) => {
       const subscription = subscriptionMap.get(row.user_id);
+      const providerEntitlement = providerEntitlementMap.get(row.user_id) ?? null;
       const stripePriceId = subscription?.stripe_price_id ?? null;
-      const planLabel = stripePriceId
-        ? stripePriceId === proPriceId && priceConfigured
-          ? 'Premium monthly'
-          : 'Custom'
-        : 'None';
+      const provider = providerEntitlement?.provider ?? (subscription ? 'stripe' : null);
+      const status = providerEntitlement?.status ?? subscription?.status ?? 'none';
+      const currentPeriodEnd = providerEntitlement?.current_period_end ?? subscription?.current_period_end ?? null;
+      const cancelAtPeriodEnd = providerEntitlement?.cancel_at_period_end ?? subscription?.cancel_at_period_end ?? false;
+      const providerProductId = providerEntitlement?.provider_product_id ?? stripePriceId;
 
       return {
         userId: row.user_id,
         email: row.email ?? null,
         role: row.role === 'admin' ? 'admin' : 'user',
+        provider,
+        providerProductId,
+        providerLabel: formatProviderLabel(provider),
         stripeCustomerId: customerMap.get(row.user_id) ?? null,
         stripeSubscriptionId: subscription?.stripe_subscription_id ?? null,
         stripePriceId,
-        planLabel,
-        status: subscription?.status ?? 'none',
-        cancelAtPeriodEnd: subscription?.cancel_at_period_end ?? false,
-        currentPeriodEnd: subscription?.current_period_end ?? null,
-        updatedAt: subscription?.updated_at ?? null
+        planLabel: buildPlanLabel({
+          provider,
+          stripePriceId,
+          providerProductId,
+          proPriceId,
+          priceConfigured
+        }),
+        status,
+        cancelAtPeriodEnd: Boolean(cancelAtPeriodEnd),
+        currentPeriodEnd,
+        updatedAt: providerEntitlement?.updated_at ?? subscription?.updated_at ?? null
       };
     })
     .sort((a, b) => {
@@ -177,23 +395,52 @@ export async function GET() {
     }
   });
 
-  const webhook = {
-    lastReceivedAt: webhookLastRes.data?.received_at ?? null,
-    lastSuccessAt: webhookLastSuccessRes.data?.received_at ?? null,
-    lastError: webhookLastRes.data?.error ?? null,
-    pendingCount: webhookPendingRes.count ?? 0,
-    failedLast24h: webhookFailedRes.count ?? 0
+  const providerSummary = {
+    totalEntitlements: providerEntitlements.length,
+    activeEntitlements: providerEntitlements.filter((row) => row.is_active).length,
+    providers: PROVIDERS.map((provider) => {
+      const rows = providerEntitlements.filter((row) => row.provider === provider);
+      return {
+        provider,
+        label: formatProviderLabel(provider),
+        total: rows.length,
+        active: rows.filter((row) => row.is_active).length,
+        canceling: rows.filter((row) => row.cancel_at_period_end).length,
+        expired: rows.filter((row) => row.status === 'expired').length,
+        pending: rows.filter((row) => row.status === 'pending').length,
+        other: rows.filter((row) => !row.is_active && !['expired', 'pending'].includes(row.status)).length
+      };
+    })
   };
 
   const config = {
     stripeSecret: isStripeConfigured(),
     stripePublishable: isStripePublishableConfigured(),
     stripeWebhook: isStripeWebhookConfigured(),
-    stripePrice: isStripePriceConfigured()
+    stripePrice: isStripePriceConfigured(),
+    appleBilling: isAppleBillingConfigured(),
+    appleNotifications: isAppleBillingNotificationsConfigured(),
+    googleBilling: isGoogleBillingConfigured(),
+    googleNotifications: isGoogleBillingNotificationsConfigured()
+  };
+
+  const webhooks = {
+    stripe: webhookHealth.find((item) => item.source === 'stripe') ?? createEmptyWebhookHealth('stripe'),
+    apple_app_store:
+      webhookHealth.find((item) => item.source === 'apple_app_store') ?? createEmptyWebhookHealth('apple_app_store'),
+    google_play: webhookHealth.find((item) => item.source === 'google_play') ?? createEmptyWebhookHealth('google_play')
   };
 
   return NextResponse.json(
-    { config, summary, webhook, customers: billingCustomers },
+    {
+      config,
+      summary,
+      providerSummary,
+      webhooks,
+      recentPurchaseEvents,
+      recentWebhookFailures,
+      customers: billingCustomers
+    },
     { headers: { 'Cache-Control': 'private, no-store' } }
   );
 }

@@ -1,55 +1,19 @@
 import { NextResponse } from 'next/server';
-import { stripe } from '@/lib/api/stripe';
-import { createSupabaseAdminClient, createSupabaseServerClient } from '@/lib/server/supabaseServer';
-import { getSiteUrl, isStripeConfigured, isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
+import { BillingStripeRouteError, createStripePortalSession } from '@/lib/server/billingStripe';
+import { resolveViewerSession } from '@/lib/server/viewerSession';
 export const dynamic = 'force-dynamic';
 
-export async function POST() {
-  if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'supabase_not_configured' }, { status: 501 });
-  }
-  if (!isSupabaseAdminConfigured()) {
-    return NextResponse.json({ error: 'supabase_service_role_missing' }, { status: 501 });
-  }
-  if (!isStripeConfigured()) {
-    return NextResponse.json({ error: 'stripe_not_configured' }, { status: 501 });
-  }
-
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
-
-  const admin = createSupabaseAdminClient();
-  const { data: mapping, error } = await admin
-    .from('stripe_customers')
-    .select('stripe_customer_id')
-    .eq('user_id', user.id)
-    .maybeSingle();
-
-  if (error) {
-    console.error('stripe customer mapping error', error);
+export async function POST(request: Request) {
+  try {
+    const session = await resolveViewerSession(request);
+    const payload = await createStripePortalSession(session);
+    return NextResponse.json(payload);
+  } catch (error) {
+    if (error instanceof BillingStripeRouteError) {
+      const code = error.code === 'failed_to_init_billing' ? 'failed_to_load_billing' : error.code;
+      return NextResponse.json({ error: code }, { status: error.status });
+    }
+    console.error('billing portal route error', error);
     return NextResponse.json({ error: 'failed_to_load_billing' }, { status: 500 });
   }
-
-  if (!mapping?.stripe_customer_id) {
-    return NextResponse.json({ error: 'no_stripe_customer' }, { status: 404 });
-  }
-
-  let portal;
-  try {
-    portal = await stripe.billingPortal.sessions.create({
-      customer: mapping.stripe_customer_id,
-      return_url: `${getSiteUrl()}/account`
-    });
-  } catch (err) {
-    console.error('stripe billing portal error', err);
-    return NextResponse.json({ error: 'failed_to_load_billing' }, { status: 502 });
-  }
-
-  return NextResponse.json({ url: portal.url });
 }

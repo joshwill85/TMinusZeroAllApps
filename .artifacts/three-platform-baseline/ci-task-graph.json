@@ -1,0 +1,100 @@
+{
+  "generatedAt": "2026-03-09T01:36:51.265Z",
+  "workspaceCount": 8,
+  "workspaces": [
+    {
+      "name": "@tminuszero/mobile",
+      "path": "apps/mobile",
+      "tasks": [
+        "lint",
+        "type-check"
+      ]
+    },
+    {
+      "name": "@tminuszero/web",
+      "path": "apps/web",
+      "tasks": [
+        "lint",
+        "type-check",
+        "type-check:ci",
+        "build"
+      ]
+    },
+    {
+      "name": "@tminuszero/api-client",
+      "path": "packages/api-client",
+      "tasks": []
+    },
+    {
+      "name": "@tminuszero/contracts",
+      "path": "packages/contracts",
+      "tasks": []
+    },
+    {
+      "name": "@tminuszero/design-tokens",
+      "path": "packages/design-tokens",
+      "tasks": []
+    },
+    {
+      "name": "@tminuszero/domain",
+      "path": "packages/domain",
+      "tasks": []
+    },
+    {
+      "name": "@tminuszero/navigation",
+      "path": "packages/navigation",
+      "tasks": []
+    },
+    {
+      "name": "@tminuszero/query",
+      "path": "packages/query",
+      "tasks": []
+    }
+  ],
+  "turboTasks": [
+    {
+      "task": "lint",
+      "dependsOn": [],
+      "outputs": [
+        ".eslintcache"
+      ]
+    },
+    {
+      "task": "type-check",
+      "dependsOn": [
+        "^type-check"
+      ],
+      "outputs": [
+        ".next/cache/tsc/**",
+        "dist/**/*.d.ts",
+        "dist/**/*.d.ts.map"
+      ]
+    },
+    {
+      "task": "type-check:ci",
+      "dependsOn": [
+        "^type-check:ci"
+      ],
+      "outputs": [
+        ".next/cache/tsc/**"
+      ]
+    },
+    {
+      "task": "build",
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        ".next/**",
+        "dist/**"
+      ]
+    }
+  ],
+  "ciRelevantWorkspaceTaskCounts": {
+    "lint": 2,
+    "type-check": 2,
+    "type-check:ci": 1,
+    "build": 1
+  },
+  "dependencyEdgeCount": 3
+}

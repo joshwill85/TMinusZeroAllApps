@@ -2,15 +2,15 @@
 
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import { buildAuthHref, readAuthIntent, readReturnTo } from '@tminuszero/navigation';
 import { AuthForm } from '@/components/AuthForm';
-import { readAuthIntent, readReturnTo, withAuthQuery } from '@/lib/utils/returnTo';
 
 export function SignUpPanel() {
   const searchParams = useSearchParams();
   const returnTo = readReturnTo(searchParams);
   const authIntent = readAuthIntent(searchParams);
   const isUpgradeIntent = authIntent === 'upgrade';
-  const signInHref = withAuthQuery('/auth/sign-in', { returnTo, intent: authIntent });
+  const signInHref = buildAuthHref('sign-in', { returnTo, intent: authIntent });
 
   return (
     <div className="space-y-4">
@@ -24,7 +24,7 @@ export function SignUpPanel() {
       <div>
         <h1 className="text-3xl font-semibold text-text1">Create free account</h1>
         <p className="mt-1 text-sm text-text3">
-          Save one view, build a personal My Launches list, and keep your preferences synced across devices.
+          Unlock signed-in filters, the launch calendar, one-off calendar adds, and faster refreshes across your devices.
         </p>
       </div>
 

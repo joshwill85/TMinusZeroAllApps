@@ -1,7 +1,23 @@
 'use client';
 
-import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useId, useMemo, useState } from 'react';
 import Link from 'next/link';
+import {
+  useAlertRulesQuery,
+  useCompleteSmsVerificationMutation,
+  useCreateAlertRuleMutation,
+  useDeleteAlertRuleMutation,
+  useFeedFilterOptionsQuery,
+  useNotificationPreferencesQuery,
+  useSendWebPushTestMutation,
+  useStartSmsVerificationMutation,
+  useSubscribeWebPushDeviceMutation,
+  useUnsubscribeWebPushDeviceMutation,
+  useUpdateNotificationPreferencesMutation,
+  useViewerEntitlementsQuery,
+  useViewerSessionQuery,
+  useWebPushDeviceStatusQuery
+} from '@/lib/api/queries';
 import { getBrowserClient } from '@/lib/api/supabase';
 import { parseUsPhone, formatUsPhoneForDisplay } from '@/lib/notifications/phone';
 import { BRAND_NAME } from '@/lib/brand';
@@ -30,116 +46,48 @@ const DEFAULT_PREFS: PrefForm = {
 };
 
 export default function PreferencesPage() {
-  const [status, setStatus] = useState<'loading' | 'guest' | 'ready' | 'missing-supabase' | 'error'>('loading');
+  const viewerSessionQuery = useViewerSessionQuery();
+  const entitlementsQuery = useViewerEntitlementsQuery();
+  const notificationPreferencesQuery = useNotificationPreferencesQuery();
+  const updateNotificationPreferencesMutation = useUpdateNotificationPreferencesMutation();
+  const startSmsVerificationMutation = useStartSmsVerificationMutation();
+  const completeSmsVerificationMutation = useCompleteSmsVerificationMutation();
+  const subscribeWebPushDeviceMutation = useSubscribeWebPushDeviceMutation();
+  const unsubscribeWebPushDeviceMutation = useUnsubscribeWebPushDeviceMutation();
+  const sendWebPushTestMutation = useSendWebPushTestMutation();
+  const alertRulesQuery = useAlertRulesQuery();
+  const createAlertRuleMutation = useCreateAlertRuleMutation();
+  const deleteAlertRuleMutation = useDeleteAlertRuleMutation();
+
   const [form, setForm] = useState<PrefForm>(DEFAULT_PREFS);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [smsSystemEnabled, setSmsSystemEnabled] = useState<boolean | null>(null);
   const [smsConsent, setSmsConsent] = useState(false);
   const [smsCodeSent, setSmsCodeSent] = useState(false);
   const [smsCode, setSmsCode] = useState('');
-  const [smsSending, setSmsSending] = useState(false);
-  const [smsVerifying, setSmsVerifying] = useState(false);
-  const [isPaid, setIsPaid] = useState<boolean | null>(null);
-  const [pushSupported, setPushSupported] = useState<boolean>(false);
-  const [pushPermission, setPushPermission] = useState<NotificationPermission | 'unsupported'>('unsupported');
-  const [pushDeviceSubscribed, setPushDeviceSubscribed] = useState<boolean>(false);
-  const [pushWorking, setPushWorking] = useState(false);
-  const [pushTestSending, setPushTestSending] = useState(false);
-
-  const loadPreferences = useCallback(async () => {
-    setStatus('loading');
-    setError(null);
-    try {
-      const res = await fetch('/api/me/notifications/preferences', { cache: 'no-store' });
-      if (res.status === 401) {
-        setStatus('guest');
-        return;
-      }
-      const json = await res.json();
-      const prefs = json.preferences || DEFAULT_PREFS;
-      setSmsSystemEnabled(typeof json.smsSystemEnabled === 'boolean' ? json.smsSystemEnabled : null);
-      setForm({
-        push_enabled: !!prefs.push_enabled,
-        sms_enabled: !!prefs.sms_enabled,
-        quiet_hours_enabled: !!prefs.quiet_hours_enabled,
-        quiet_start_local: prefs.quiet_start_local || '22:00',
-        quiet_end_local: prefs.quiet_end_local || '07:00',
-        sms_phone_us: prefs.sms_phone_e164 ? formatUsPhoneForDisplay(prefs.sms_phone_e164) : '',
-        sms_verified: !!prefs.sms_verified
-      });
-      setStatus('ready');
-    } catch (err: any) {
-      setError(err.message || 'Failed to load preferences');
-      setStatus('error');
-    }
-  }, []);
-
-  const loadSubscription = useCallback(async () => {
-    try {
-      const res = await fetch('/api/me/subscription', { cache: 'no-store' });
-      if (!res.ok) {
-        setIsPaid(false);
-        return;
-      }
-      const json = await res.json();
-      setIsPaid(!!json.isPaid);
-    } catch (err) {
-      console.error('subscription load error', err);
-      setIsPaid(false);
-    }
-  }, []);
-
-  const refreshPushDeviceStatus = useCallback(async () => {
-    if (typeof window === 'undefined') return;
-
-    const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
-    setPushSupported(supported);
-    if (!supported) {
-      setPushPermission('unsupported');
-      setPushDeviceSubscribed(false);
-      return;
-    }
-
-    setPushPermission(Notification.permission);
-    try {
-      const reg = await navigator.serviceWorker.getRegistration();
-      if (!reg) {
-        setPushDeviceSubscribed(false);
-        return;
-      }
-      const sub = await reg.pushManager.getSubscription();
-      setPushDeviceSubscribed(!!sub);
-    } catch (err) {
-      console.warn('push status check warning', err);
-      setPushDeviceSubscribed(false);
-    }
-  }, []);
+  const [selectedStateToAdd, setSelectedStateToAdd] = useState('');
+  const supabaseAvailable = Boolean(getBrowserClient());
+  const status: 'loading' | 'guest' | 'ready' | 'missing-supabase' = !supabaseAvailable
+    ? 'missing-supabase'
+    : viewerSessionQuery.isPending
+      ? 'loading'
+      : viewerSessionQuery.data?.viewerId
+        ? 'ready'
+        : 'guest';
+  const webPushDeviceStatusQuery = useWebPushDeviceStatusQuery({ enabled: status === 'ready' });
 
   useEffect(() => {
-    const supabase = getBrowserClient();
-    if (!supabase) {
-      setStatus('missing-supabase');
-      return;
-    }
-    let active = true;
-    const run = async () => {
-      const { data } = await supabase.auth.getUser();
-      if (!active) return;
-      if (!data.user) {
-        setStatus('guest');
-        return;
-      }
-      loadPreferences();
-      loadSubscription();
-      refreshPushDeviceStatus();
-    };
-    run();
-    return () => {
-      active = false;
-    };
-  }, [loadPreferences, loadSubscription, refreshPushDeviceStatus]);
+    if (!notificationPreferencesQuery.data) return;
+    setForm({
+      push_enabled: notificationPreferencesQuery.data.pushEnabled,
+      sms_enabled: notificationPreferencesQuery.data.smsEnabled,
+      quiet_hours_enabled: notificationPreferencesQuery.data.quietHoursEnabled,
+      quiet_start_local: notificationPreferencesQuery.data.quietStartLocal || '22:00',
+      quiet_end_local: notificationPreferencesQuery.data.quietEndLocal || '07:00',
+      sms_phone_us: notificationPreferencesQuery.data.smsPhone ? formatUsPhoneForDisplay(notificationPreferencesQuery.data.smsPhone) : '',
+      sms_verified: notificationPreferencesQuery.data.smsVerified
+    });
+  }, [notificationPreferencesQuery.data]);
 
   useEffect(() => {
     if (!form.sms_verified) {
@@ -155,64 +103,106 @@ export default function PreferencesPage() {
 
   const parsedPhone = useMemo(() => parseUsPhone(form.sms_phone_us.trim()), [form.sms_phone_us]);
   const isValidPhone = parsedPhone !== null;
+  const smsSystemEnabled = notificationPreferencesQuery.data?.smsSystemEnabled ?? null;
   const smsComingSoon = SMS_NOTIFICATIONS_COMING_SOON || smsSystemEnabled === false;
+  const isPaid = entitlementsQuery.data?.isPaid ?? false;
+  const canUseBasicAlerts = entitlementsQuery.data?.capabilities.canUseBasicAlertRules ?? false;
+  const canUseAdvancedAlertRules = entitlementsQuery.data?.capabilities.canUseAdvancedAlertRules ?? false;
+  const canUseBrowserLaunchAlerts = entitlementsQuery.data?.capabilities.canUseBrowserLaunchAlerts ?? false;
+  const feedScope = entitlementsQuery.data?.mode === 'live' ? 'live' : 'public';
+  const feedFilterOptionsQuery = useFeedFilterOptionsQuery(
+    {
+      mode: feedScope,
+      range: 'all',
+      region: 'all'
+    },
+    { enabled: status === 'ready' && canUseBasicAlerts }
+  );
+  const pushSupported = webPushDeviceStatusQuery.data?.supported ?? false;
+  const pushPermission = webPushDeviceStatusQuery.data?.permission ?? 'unsupported';
+  const pushDeviceSubscribed = webPushDeviceStatusQuery.data?.subscribed ?? false;
   const canUseSms = isPaid === true && !smsComingSoon;
   const canToggleSms = canUseSms && form.sms_verified;
   const smsToggleDisabled = form.sms_enabled ? false : !canToggleSms;
-  const canUsePush = isPaid === true && pushSupported;
+  const canUsePush = canUseBasicAlerts;
+  const canManageBrowserPush = canUseBrowserLaunchAlerts && pushSupported;
   const pushToggleDisabled = form.push_enabled ? false : !canUsePush;
+  const alertRules = alertRulesQuery.data?.rules ?? [];
+  const regionUsRule = alertRules.find((rule) => rule.kind === 'region_us') ?? null;
+  const stateRules = alertRules.filter((rule) => rule.kind === 'state');
+  const advancedAlertRules = alertRules.filter((rule) => rule.kind === 'filter_preset' || rule.kind === 'follow');
+  const selectedStateKeys = useMemo(
+    () => new Set(stateRules.map((rule) => normalizeAlertRuleToken(rule.kind === 'state' ? rule.state : rule.label))),
+    [stateRules]
+  );
+  const availableStates = useMemo(
+    () =>
+      (feedFilterOptionsQuery.data?.states ?? []).filter(
+        (state) => !selectedStateKeys.has(normalizeAlertRuleToken(state))
+      ),
+    [feedFilterOptionsQuery.data?.states, selectedStateKeys]
+  );
+
+  useEffect(() => {
+    if (!availableStates.length) {
+      if (selectedStateToAdd) setSelectedStateToAdd('');
+      return;
+    }
+    if (!selectedStateToAdd || !availableStates.includes(selectedStateToAdd)) {
+      setSelectedStateToAdd(availableStates[0] ?? '');
+    }
+  }, [availableStates, selectedStateToAdd]);
 
   async function savePreferences() {
-    setSaving(true);
     setMessage(null);
     setError(null);
     try {
-      const res = await fetch('/api/me/notifications/preferences', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          push_enabled: form.push_enabled,
-          sms_enabled: form.sms_enabled,
-          sms_consent: smsConsent,
-          quiet_hours_enabled: form.quiet_hours_enabled,
-          quiet_start_local: form.quiet_start_local,
-          quiet_end_local: form.quiet_end_local
-        })
+      const prefs = await updateNotificationPreferencesMutation.mutateAsync({
+        pushEnabled: form.push_enabled,
+        smsEnabled: form.sms_enabled,
+        smsConsent,
+        quietHoursEnabled: form.quiet_hours_enabled,
+        quietStartLocal: form.quiet_start_local,
+        quietEndLocal: form.quiet_end_local
       });
-      const json = await res.json();
-      if (!res.ok) {
-        if (json.error === 'subscription_required') {
-          throw new Error('Upgrade to Premium to enable notifications.');
-        }
-        if (json.error === 'sms_system_disabled') {
-          throw new Error('SMS alerts are coming soon.');
-        }
-        if (json.error === 'sms_not_verified') {
-          throw new Error('Verify your phone before enabling SMS alerts.');
-        }
-        if (json.error === 'phone_required') {
-          throw new Error('Enter and verify a phone number to enable SMS alerts.');
-        }
-        if (json.error === 'sms_consent_required') {
-          throw new Error('Please agree to the SMS terms below to enable SMS alerts.');
-        }
-        if (json.error === 'sms_reply_start_required') {
-          throw new Error(json.message || 'This number is opted out (STOP). Reply START from your phone to resubscribe, then try again.');
-        }
-        throw new Error(json.error || 'Failed to save preferences');
-      }
-      const prefs = json.preferences || {};
-      setForm((prev) => ({
-        ...prev,
-        push_enabled: !!prefs.push_enabled,
-        sms_enabled: !!prefs.sms_enabled,
-        sms_verified: !!prefs.sms_verified
+      setForm((current) => ({
+        ...current,
+        push_enabled: prefs.pushEnabled,
+        sms_enabled: prefs.smsEnabled,
+        quiet_hours_enabled: prefs.quietHoursEnabled,
+        quiet_start_local: prefs.quietStartLocal || '22:00',
+        quiet_end_local: prefs.quietEndLocal || '07:00',
+        sms_phone_us: prefs.smsPhone ? formatUsPhoneForDisplay(prefs.smsPhone) : current.sms_phone_us,
+        sms_verified: prefs.smsVerified
       }));
       setMessage('Preferences saved');
-    } catch (err: any) {
-      setError(err.message || 'Save failed');
-    } finally {
-      setSaving(false);
+    } catch (saveError: unknown) {
+      const code = getErrorCode(saveError);
+      if (code === 'subscription_required') {
+        setError('Upgrade to Premium for that notification option.');
+        return;
+      }
+      if (code === 'sms_system_disabled') {
+        setError('SMS alerts are coming soon.');
+        return;
+      }
+      if (code === 'sms_not_verified') {
+        setError('Verify your phone before enabling SMS alerts.');
+        return;
+      }
+      if (code === 'phone_required') {
+        setError('Enter and verify a phone number to enable SMS alerts.');
+        return;
+      }
+      if (code === 'sms_consent_required') {
+        setError('Please agree to the SMS terms below to enable SMS alerts.');
+        return;
+      }
+      if (code === 'sms_reply_start_required') {
+        setError('This number is opted out (STOP). Reply START from your phone to resubscribe, then try again.');
+        return;
+      }
+      setError(getErrorMessage(saveError, 'Save failed'));
     }
   }
 
@@ -229,29 +219,31 @@ export default function PreferencesPage() {
       setError('Please agree to the SMS terms below to request a verification code.');
       return;
     }
-    setSmsSending(true);
+
     setMessage(null);
     setError(null);
     try {
-      const res = await fetch('/api/notifications/sms/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: form.sms_phone_us.trim(), sms_consent: smsConsent })
+      await startSmsVerificationMutation.mutateAsync({
+        phone: form.sms_phone_us.trim(),
+        smsConsent
       });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok && json.error === 'sms_system_disabled') {
-        throw new Error('SMS alerts are coming soon.');
-      }
-      if (!res.ok && json.error === 'sms_consent_required') {
-        throw new Error('Please agree to the SMS terms below to request a verification code.');
-      }
-      if (!res.ok) throw new Error(json.error || 'Failed to send code');
       setSmsCodeSent(true);
       setMessage('Verification code sent.');
-    } catch (err: any) {
-      setError(err.message || 'Failed to send code');
-    } finally {
-      setSmsSending(false);
+    } catch (smsError: unknown) {
+      const code = getErrorCode(smsError);
+      if (code === 'sms_system_disabled') {
+        setError('SMS alerts are coming soon.');
+        return;
+      }
+      if (code === 'sms_consent_required') {
+        setError('Please agree to the SMS terms below to request a verification code.');
+        return;
+      }
+      if (code === 'subscription_required') {
+        setError('Upgrade to enable SMS alerts.');
+        return;
+      }
+      setError(getErrorMessage(smsError, 'Failed to send code'));
     }
   }
 
@@ -264,44 +256,36 @@ export default function PreferencesPage() {
       setError('Enter the verification code.');
       return;
     }
-    setSmsVerifying(true);
+
     setMessage(null);
     setError(null);
     try {
-      const res = await fetch('/api/notifications/sms/verify/check', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: form.sms_phone_us.trim(), code: smsCode.trim() })
+      await completeSmsVerificationMutation.mutateAsync({
+        phone: form.sms_phone_us.trim(),
+        code: smsCode.trim()
       });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok && json.error === 'sms_system_disabled') {
-        throw new Error('SMS alerts are coming soon.');
-      }
-      if (!res.ok) throw new Error(json.error || 'Verification failed');
-      setForm((prev) => ({ ...prev, sms_verified: true, sms_enabled: false }));
+      setForm((current) => ({ ...current, sms_verified: true, sms_enabled: false }));
       setSmsCodeSent(false);
       setSmsCode('');
       setMessage('Phone verified. Turn on SMS alerts and save to opt in.');
-    } catch (err: any) {
-      setError(err.message || 'Verification failed');
-    } finally {
-      setSmsVerifying(false);
+    } catch (smsError: unknown) {
+      const code = getErrorCode(smsError);
+      if (code === 'sms_system_disabled') {
+        setError('SMS alerts are coming soon.');
+        return;
+      }
+      if (code === 'invalid_code') {
+        setError('Verification failed');
+        return;
+      }
+      setError(getErrorMessage(smsError, 'Verification failed'));
     }
   }
 
   async function ensurePushEnabled() {
     if (form.push_enabled) return;
-    const res = await fetch('/api/me/notifications/preferences', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ push_enabled: true })
-    });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      if (json.error === 'subscription_required') throw new Error('Upgrade to Premium to enable browser notifications.');
-      throw new Error(json.error || 'Failed to enable browser notifications.');
-    }
-    setForm((prev) => ({ ...prev, push_enabled: !!json.preferences?.push_enabled }));
+    const prefs = await updateNotificationPreferencesMutation.mutateAsync({ pushEnabled: true });
+    setForm((current) => ({ ...current, push_enabled: prefs.pushEnabled }));
   }
 
   async function subscribePushDevice() {
@@ -309,7 +293,7 @@ export default function PreferencesPage() {
       setError('Browser notifications are not supported in this browser.');
       return;
     }
-    if (isPaid !== true) {
+    if (!canUseBrowserLaunchAlerts) {
       setError('Upgrade to Premium to enable browser notifications.');
       return;
     }
@@ -322,56 +306,50 @@ export default function PreferencesPage() {
       return;
     }
 
-    setPushWorking(true);
     setMessage(null);
     setError(null);
     try {
       await ensurePushEnabled();
 
       const permission = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
-      setPushPermission(permission);
       if (permission !== 'granted') {
+        await webPushDeviceStatusQuery.refetch();
         throw new Error('Notification permission was not granted.');
       }
 
-      const existingReg = await navigator.serviceWorker.getRegistration();
-      const reg = existingReg ?? (await navigator.serviceWorker.register('/sw.js'));
-      const readyReg = (await navigator.serviceWorker.ready) ?? reg;
+      const existingRegistration = await navigator.serviceWorker.getRegistration();
+      const registration = existingRegistration ?? (await navigator.serviceWorker.register('/sw.js'));
+      const readyRegistration = (await navigator.serviceWorker.ready) ?? registration;
 
-      const existingSub = await readyReg.pushManager.getSubscription();
-      const sub =
-        existingSub ??
-        (await readyReg.pushManager.subscribe({
+      const existingSubscription = await readyRegistration.pushManager.getSubscription();
+      const subscription =
+        existingSubscription ??
+        (await readyRegistration.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey: urlBase64ToUint8Array(WEB_PUSH_PUBLIC_KEY)
         }));
 
-      const p256dhKey = sub.getKey('p256dh');
-      const authKey = sub.getKey('auth');
+      const p256dhKey = subscription.getKey('p256dh');
+      const authKey = subscription.getKey('auth');
       if (!p256dhKey || !authKey) throw new Error('Missing subscription keys.');
 
-      const saveRes = await fetch('/api/me/notifications/push/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          endpoint: sub.endpoint,
-          p256dh: arrayBufferToBase64(p256dhKey),
-          auth: arrayBufferToBase64(authKey),
-          user_agent: navigator.userAgent
-        })
+      await subscribeWebPushDeviceMutation.mutateAsync({
+        endpoint: subscription.endpoint,
+        p256dh: arrayBufferToBase64(p256dhKey),
+        auth: arrayBufferToBase64(authKey),
+        user_agent: navigator.userAgent
       });
-      const saveJson = await saveRes.json().catch(() => ({}));
-      if (!saveRes.ok) {
-        if (saveJson.error === 'subscription_required') throw new Error('Upgrade to Premium to enable browser notifications.');
-        throw new Error(saveJson.error || 'Failed to save device subscription.');
-      }
 
-      await refreshPushDeviceStatus();
+      await webPushDeviceStatusQuery.refetch();
       setMessage('Browser notifications enabled on this device.');
-    } catch (err: any) {
-      setError(err.message || 'Failed to enable browser notifications.');
-    } finally {
-      setPushWorking(false);
+    } catch (pushError: unknown) {
+      await webPushDeviceStatusQuery.refetch().catch(() => undefined);
+      const code = getErrorCode(pushError);
+      if (code === 'subscription_required') {
+        setError('Upgrade to Premium to enable browser notifications.');
+        return;
+      }
+      setError(getErrorMessage(pushError, 'Failed to enable browser notifications.'));
     }
   }
 
@@ -381,36 +359,30 @@ export default function PreferencesPage() {
       return;
     }
 
-    setPushWorking(true);
     setMessage(null);
     setError(null);
     try {
-      const reg = await navigator.serviceWorker.getRegistration();
-      const sub = reg ? await reg.pushManager.getSubscription() : null;
-      const endpoint = sub?.endpoint || null;
-      if (sub) {
-        await sub.unsubscribe();
+      const registration = await navigator.serviceWorker.getRegistration();
+      const subscription = registration ? await registration.pushManager.getSubscription() : null;
+      const endpoint = subscription?.endpoint || null;
+      if (subscription) {
+        await subscription.unsubscribe();
       }
       if (endpoint) {
-        await fetch('/api/me/notifications/push/unsubscribe', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ endpoint })
-        });
+        await unsubscribeWebPushDeviceMutation.mutateAsync({ endpoint });
       }
 
-      await refreshPushDeviceStatus();
+      await webPushDeviceStatusQuery.refetch();
       setMessage('Browser notifications disabled on this device.');
-    } catch (err: any) {
-      setError(err.message || 'Failed to disable browser notifications.');
-    } finally {
-      setPushWorking(false);
+    } catch (pushError: unknown) {
+      await webPushDeviceStatusQuery.refetch().catch(() => undefined);
+      setError(getErrorMessage(pushError, 'Failed to disable browser notifications.'));
     }
   }
 
   async function sendPushTest() {
-    if (isPaid !== true) {
-      setError('Upgrade to Premium to use notifications.');
+    if (!canUseBrowserLaunchAlerts) {
+      setError('Upgrade to Premium to use browser notifications on web.');
       return;
     }
     if (!form.push_enabled) {
@@ -422,24 +394,55 @@ export default function PreferencesPage() {
       return;
     }
 
-    setPushTestSending(true);
     setMessage(null);
     setError(null);
     try {
-      const res = await fetch('/api/me/notifications/push/test', { method: 'POST' });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        if (json.error === 'push_not_enabled') throw new Error('Enable browser notifications first.');
-        if (json.error === 'push_not_subscribed') throw new Error('Subscribe this device first.');
-        if (json.error === 'rate_limited') throw new Error('Please wait a moment before sending another test.');
-        if (json.error === 'subscription_required') throw new Error('Upgrade to Premium to enable notifications.');
-        throw new Error(json.error || 'Failed to queue test notification.');
-      }
+      await sendWebPushTestMutation.mutateAsync();
       setMessage('Test notification queued. It should arrive within about a minute.');
-    } catch (err: any) {
-      setError(err.message || 'Failed to send test notification.');
-    } finally {
-      setPushTestSending(false);
+    } catch (pushError: unknown) {
+      const code = getErrorCode(pushError);
+      if (code === 'push_not_enabled') {
+        setError('Enable browser notifications first.');
+        return;
+      }
+      if (code === 'push_not_subscribed') {
+        setError('Subscribe this device first.');
+        return;
+      }
+      if (code === 'rate_limited') {
+        setError('Please wait a moment before sending another test.');
+        return;
+      }
+      if (code === 'subscription_required') {
+        setError('Upgrade to Premium to enable browser notifications.');
+        return;
+      }
+      setError(getErrorMessage(pushError, 'Failed to send test notification.'));
+    }
+  }
+
+  async function createAlertRule(
+    payload: { kind: 'region_us' } | { kind: 'state'; state: string },
+    successMessage: string
+  ) {
+    setMessage(null);
+    setError(null);
+    try {
+      await createAlertRuleMutation.mutateAsync(payload);
+      setMessage(successMessage);
+    } catch (ruleError: unknown) {
+      setError(getErrorMessage(ruleError, 'Unable to save alert rule.'));
+    }
+  }
+
+  async function removeAlertRule(ruleId: string, successMessage: string) {
+    setMessage(null);
+    setError(null);
+    try {
+      await deleteAlertRuleMutation.mutateAsync(ruleId);
+      setMessage(successMessage);
+    } catch (ruleError: unknown) {
+      setError(getErrorMessage(ruleError, 'Unable to remove alert rule.'));
     }
   }
 
@@ -449,10 +452,13 @@ export default function PreferencesPage() {
       <h1 className="text-3xl font-semibold text-text1">Notifications</h1>
       <p className="text-sm text-text2">
         {smsComingSoon
-          ? 'Browser notifications are available for Premium users. SMS launch alerts are coming soon.'
-          : 'Browser notifications and SMS alerts are available for Premium users. Opt in once, then choose alert types per launch.'}
+          ? 'Signed-in accounts can use shared push alerts on mobile devices. Premium adds browser delivery on web. SMS launch alerts are coming soon.'
+          : 'Signed-in accounts can use shared push alerts on mobile devices. Premium adds browser delivery on web plus SMS alerts.'}
       </p>
 
+      {status === 'loading' && (
+        <div className="mt-4 rounded-xl border border-stroke bg-surface-1 p-3 text-sm text-text2">Loading…</div>
+      )}
       {status === 'missing-supabase' && (
         <div className="mt-4 rounded-xl border border-stroke bg-surface-1 p-3 text-sm text-text2">Supabase env vars not configured; preferences are read-only stubs.</div>
       )}
@@ -463,12 +469,12 @@ export default function PreferencesPage() {
       )}
       {status === 'ready' && smsComingSoon && (
         <div className="mt-4 rounded-xl border border-warning/40 bg-warning/10 p-3 text-sm text-warning">
-          SMS alerts are temporarily unavailable while we finish delivery setup. Browser notifications are still available.
+          SMS alerts are temporarily unavailable while we finish delivery setup. Push alerts are still available.
         </div>
       )}
-      {status === 'ready' && isPaid === false && (
+      {status === 'ready' && !canUseBrowserLaunchAlerts && (
         <div className="mt-4 rounded-xl border border-stroke bg-surface-1 p-3 text-sm text-text2">
-          Notifications are a Premium feature. <Link className="text-primary" href="/upgrade">Upgrade</Link> to enable browser notifications (and SMS once it launches).
+          Free accounts can manage push alerts for signed-in iOS and Android devices. <Link className="text-primary" href="/upgrade">Upgrade</Link> to add browser notifications on web{smsComingSoon ? '.' : ' and SMS alerts.'}
         </div>
       )}
       {message && <div className="mt-3 rounded-xl border border-stroke bg-[rgba(234,240,255,0.04)] p-3 text-sm text-text2">{message}</div>}
@@ -476,89 +482,247 @@ export default function PreferencesPage() {
 
       {status === 'ready' && (
         <>
+          <section className="mt-6 rounded-2xl border border-stroke bg-surface-1 p-4">
+            <div className="text-xs uppercase tracking-[0.1em] text-text3">Account alert rules</div>
+            <p className="mt-1 text-sm text-text2">
+              {canUseAdvancedAlertRules
+                ? 'Basic rules deliver to signed-in mobile devices. Premium also supports preset-based and follow-based rules, with browser delivery available on web.'
+                : 'Choose which launches this signed-in account should watch. Free rules deliver to registered iOS and Android devices.'}
+            </p>
+
+            {!canUseBasicAlerts ? (
+              <div className="mt-4 rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3 text-sm text-text2">
+                Sign in to manage shared alert rules.
+              </div>
+            ) : alertRulesQuery.isPending ? (
+              <div className="mt-4 rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3 text-sm text-text2">Loading alert rules…</div>
+            ) : alertRulesQuery.isError ? (
+              <div className="mt-4 rounded-xl border border-danger bg-[rgba(251,113,133,0.08)] p-3 text-sm text-danger">
+                {getErrorMessage(alertRulesQuery.error, 'Unable to load alert rules.')}
+              </div>
+            ) : (
+              <div className="mt-4 space-y-4">
+                <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3">
+                  <div className="text-sm font-semibold text-text1">Basic launch scopes</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className={`rounded-full border px-3 py-2 text-xs font-semibold ${
+                        regionUsRule
+                          ? 'border-primary/40 bg-primary/10 text-primary'
+                          : 'border-stroke bg-surface-0 text-text1 hover:border-primary'
+                      }`}
+                      onClick={() =>
+                        void (regionUsRule
+                          ? removeAlertRule(regionUsRule.id, 'Removed the U.S. launch alert rule.')
+                          : createAlertRule({ kind: 'region_us' }, 'Added the U.S. launch alert rule.'))
+                      }
+                      disabled={createAlertRuleMutation.isPending || deleteAlertRuleMutation.isPending}
+                    >
+                      All U.S. launches
+                    </button>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-text1">Tracked states</div>
+                      <div className="text-xs text-text3">Add state-based account rules for mobile push delivery.</div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        className="rounded-lg border border-stroke bg-surface-0 px-2 py-2 text-xs text-text1"
+                        value={selectedStateToAdd}
+                        onChange={(event) => setSelectedStateToAdd(event.target.value)}
+                        disabled={!availableStates.length || createAlertRuleMutation.isPending}
+                      >
+                        {availableStates.length ? (
+                          availableStates.map((state) => (
+                            <option key={state} value={state}>
+                              {state}
+                            </option>
+                          ))
+                        ) : (
+                          <option value="">No states left to add</option>
+                        )}
+                      </select>
+                      <button
+                        type="button"
+                        className="btn-secondary rounded-lg px-3 py-2 text-xs"
+                        onClick={() => {
+                          if (!selectedStateToAdd) return;
+                          void createAlertRule({ kind: 'state', state: selectedStateToAdd }, `Added ${selectedStateToAdd} alerts.`);
+                        }}
+                        disabled={!selectedStateToAdd || createAlertRuleMutation.isPending}
+                      >
+                        {createAlertRuleMutation.isPending ? 'Saving…' : 'Add state'}
+                      </button>
+                    </div>
+                  </div>
+                  {feedFilterOptionsQuery.isError && (
+                    <div className="mt-3 text-xs text-warning">{getErrorMessage(feedFilterOptionsQuery.error, 'Unable to load state options.')}</div>
+                  )}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {stateRules.length ? (
+                      stateRules.map((rule) => (
+                        <button
+                          key={rule.id}
+                          type="button"
+                          className="rounded-full border border-primary/40 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary"
+                          onClick={() => void removeAlertRule(rule.id, `Removed ${rule.label}.`)}
+                          disabled={deleteAlertRuleMutation.isPending}
+                        >
+                          {rule.label} • Remove
+                        </button>
+                      ))
+                    ) : (
+                      <div className="text-xs text-text3">No state rules are active yet.</div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-text1">Current rules</div>
+                      <div className="text-xs text-text3">Remove any shared account-level alert rule from here.</div>
+                    </div>
+                    {canUseAdvancedAlertRules ? (
+                      <Link className="text-xs text-primary hover:underline" href="/account/saved">
+                        Manage Premium sources
+                      </Link>
+                    ) : (
+                      <Link className="text-xs text-primary hover:underline" href="/upgrade">
+                        Upgrade for preset/follow rules
+                      </Link>
+                    )}
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    {alertRules.length ? (
+                      alertRules.map((rule) => (
+                        <div key={rule.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-stroke bg-surface-0 px-3 py-2">
+                          <div className="min-w-0">
+                            <div className="text-sm text-text1">{rule.label}</div>
+                            <div className="text-xs text-text3">
+                              {rule.kind === 'filter_preset' || rule.kind === 'follow' ? 'Premium rule' : 'Basic mobile rule'}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-xs text-text1 hover:border-primary disabled:opacity-50"
+                            onClick={() => void removeAlertRule(rule.id, `Removed ${rule.label}.`)}
+                            disabled={deleteAlertRuleMutation.isPending}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-xs text-text3">No alert rules are active yet.</div>
+                    )}
+                  </div>
+                  {canUseAdvancedAlertRules && advancedAlertRules.length === 0 && (
+                    <div className="mt-3 text-xs text-text3">
+                      Premium preset-based and follow-based rules can be added from{' '}
+                      <Link className="text-primary hover:underline" href="/account/saved">
+                        Saved
+                      </Link>
+                      .
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </section>
+
           <form className="mt-6 space-y-4 rounded-2xl border border-stroke bg-surface-1 p-4">
             <Toggle
-              label="Browser notifications (Premium only)"
+              label={canUseBrowserLaunchAlerts ? 'Push alerts' : 'Push alerts (browser delivery is Premium)'}
               checked={form.push_enabled}
-              onChange={(v) => {
-                if (v && !pushSupported) {
-                  setError('Browser notifications are not supported in this browser.');
+              onChange={(value) => {
+                if (value && !canUseBasicAlerts) {
+                  setError('Sign in to enable push alerts.');
                   return;
                 }
-                if (v && isPaid !== true) {
-                  setError('Upgrade to Premium to enable browser notifications.');
-                  return;
-                }
-                setForm((f) => ({ ...f, push_enabled: v }));
+                setForm((current) => ({ ...current, push_enabled: value }));
               }}
-              helper="Launch alerts delivered as browser notifications (web push)."
+              helper="Shared push preference across your signed-in devices. Premium adds browser delivery on web."
               disabled={pushToggleDisabled}
             >
               <div className="mt-2 rounded-lg border border-stroke bg-surface-0 p-3 text-xs text-text3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span>
-                    Device: <span className="text-text2">{pushDeviceSubscribed ? 'Subscribed' : 'Not subscribed'}</span>
-                  </span>
-                  <span>
-                    Permission: <span className="text-text2">{pushPermission === 'unsupported' ? 'Unsupported' : pushPermission}</span>
-                  </span>
-                </div>
-                {!pushSupported && <div className="mt-2">This browser does not support web push notifications.</div>}
-                {pushSupported && pushPermission === 'denied' && (
-                  <div className="mt-2">Permission is blocked. Enable notifications in your browser settings, then try again.</div>
-                )}
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    className="btn rounded-lg px-3 py-2 text-[11px]"
-                    onClick={subscribePushDevice}
-                    disabled={!canUsePush || pushWorking || pushPermission === 'denied'}
-                  >
-                    {pushWorking ? 'Working…' : pushDeviceSubscribed ? 'Re-sync device' : 'Subscribe device'}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-secondary rounded-lg px-3 py-2 text-[11px]"
-                    onClick={unsubscribePushDevice}
-                    disabled={!pushSupported || pushWorking || !pushDeviceSubscribed}
-                  >
-                    Unsubscribe device
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-secondary rounded-lg px-3 py-2 text-[11px]"
-                    onClick={sendPushTest}
-                    disabled={!canUsePush || pushWorking || pushTestSending || !form.push_enabled || !pushDeviceSubscribed}
-                  >
-                    {pushTestSending ? 'Sending…' : 'Send test'}
-                  </button>
-                </div>
-                {!WEB_PUSH_PUBLIC_KEY && pushSupported && (
-                  <div className="mt-2 text-warning">Missing configuration: set NEXT_PUBLIC_WEB_PUSH_PUBLIC_KEY to enable web push.</div>
+                {canUseBrowserLaunchAlerts ? (
+                  <>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span>
+                        Device: <span className="text-text2">{pushDeviceSubscribed ? 'Subscribed' : 'Not subscribed'}</span>
+                      </span>
+                      <span>
+                        Permission: <span className="text-text2">{pushPermission === 'unsupported' ? 'Unsupported' : pushPermission}</span>
+                      </span>
+                    </div>
+                    {!pushSupported && <div className="mt-2">This browser does not support web push notifications.</div>}
+                    {pushSupported && pushPermission === 'denied' && (
+                      <div className="mt-2">Permission is blocked. Enable notifications in your browser settings, then try again.</div>
+                    )}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="btn rounded-lg px-3 py-2 text-[11px]"
+                        onClick={() => void subscribePushDevice()}
+                        disabled={!canManageBrowserPush || subscribeWebPushDeviceMutation.isPending || pushPermission === 'denied'}
+                      >
+                        {subscribeWebPushDeviceMutation.isPending ? 'Working…' : pushDeviceSubscribed ? 'Re-sync device' : 'Subscribe device'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-secondary rounded-lg px-3 py-2 text-[11px]"
+                        onClick={() => void unsubscribePushDevice()}
+                        disabled={!pushSupported || unsubscribeWebPushDeviceMutation.isPending || !pushDeviceSubscribed}
+                      >
+                        Unsubscribe device
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-secondary rounded-lg px-3 py-2 text-[11px]"
+                        onClick={() => void sendPushTest()}
+                        disabled={!canManageBrowserPush || sendWebPushTestMutation.isPending || !form.push_enabled || !pushDeviceSubscribed}
+                      >
+                        {sendWebPushTestMutation.isPending ? 'Sending…' : 'Send test'}
+                      </button>
+                    </div>
+                    {!WEB_PUSH_PUBLIC_KEY && pushSupported && (
+                      <div className="mt-2 text-warning">Missing configuration: set NEXT_PUBLIC_WEB_PUSH_PUBLIC_KEY to enable web push.</div>
+                    )}
+                  </>
+                ) : (
+                  <div>
+                    Free push alerts deliver to your signed-in iOS and Android devices. Upgrade if you want this browser to receive alerts directly.
+                  </div>
                 )}
               </div>
             </Toggle>
             <Toggle
               label={smsComingSoon ? 'SMS alerts (coming soon)' : 'SMS alerts (Premium only)'}
               checked={form.sms_enabled}
-              onChange={(v) => {
-                if (v && smsComingSoon) {
+              onChange={(value) => {
+                if (value && smsComingSoon) {
                   setError('SMS alerts are coming soon.');
                   return;
                 }
-                if (v && !canUseSms) {
+                if (value && !canUseSms) {
                   setError('Upgrade to enable SMS alerts.');
                   return;
                 }
-                if (v && !form.sms_verified) {
+                if (value && !form.sms_verified) {
                   setError('Verify your phone number before enabling SMS alerts.');
                   return;
                 }
-                if (v && !smsConsent) {
+                if (value && !smsConsent) {
                   setError('Please agree to the SMS terms below to enable SMS alerts.');
                   return;
                 }
-                setForm((f) => ({ ...f, sms_enabled: v }));
+                setForm((current) => ({ ...current, sms_enabled: value }));
               }}
               helper="Rocket launch alerts via SMS. Msg freq varies. Message and data rates may apply. Reply STOP to cancel, HELP for help."
               disabled={smsToggleDisabled}
@@ -568,116 +732,114 @@ export default function PreferencesPage() {
                   SMS alerts are coming soon. We&#39;re temporarily disabling SMS notifications while delivery issues are resolved.
                 </div>
               ) : (
-              <div className="mt-2 flex flex-col gap-2 text-sm text-text2">
-                <label className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <span>Phone (US)</span>
-                  <input
-                    type="tel"
-                    className="flex-1 rounded-lg border border-stroke bg-surface-0 px-2 py-1"
-                    value={form.sms_phone_us}
-                    onChange={(e) => {
-                      const nextPhone = e.target.value;
-                      setSmsConsent(false);
-                      setForm((f) => {
-                        const changed = f.sms_phone_us !== nextPhone;
-                        return {
-                          ...f,
-                          sms_phone_us: nextPhone,
-                          sms_verified: changed ? false : f.sms_verified,
-                          sms_enabled: changed ? false : f.sms_enabled
-                        };
-                      });
-                    }}
-                    placeholder="(555) 555-5555"
-                    disabled={!canUseSms || smsSending || smsVerifying}
-                  />
-                </label>
-                {!form.sms_enabled && (
-                  <div className="rounded-lg border border-stroke bg-surface-0 p-3 text-xs text-text3">
-                    <p>
-                      By enabling SMS alerts, you agree to receive recurring automated text messages from {BRAND_NAME} about rocket launch alerts you select.
-                      Message frequency varies. Message and data rates may apply. Reply STOP to cancel, HELP for help. Consent is not a condition of purchase. See{' '}
-                      <Link className="text-primary hover:underline" href="/legal/terms#sms-alerts">
-                        Terms
-                      </Link>{' '}
-                      (SMS Alerts section) and{' '}
-                      <Link className="text-primary hover:underline" href="/legal/privacy">
-                        Privacy
-                      </Link>
-                      .
-                    </p>
-                    <label className="mt-2 flex items-start gap-2">
-                      <input
-                        type="checkbox"
-                        className="mt-0.5 h-4 w-4"
-                        checked={smsConsent}
-                        onChange={(e) => setSmsConsent(e.target.checked)}
-                        disabled={!canUseSms || smsSending || smsVerifying}
-                      />
-                      <span>I agree.</span>
-                    </label>
-                  </div>
-                )}
-                {form.sms_verified ? (
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-text3">
-                    <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 uppercase tracking-[0.08em] text-emerald-200">
-                      Verified
-                    </span>
-                    <span>
-                      {form.sms_enabled
-                        ? 'SMS opt-in is active.'
-                        : 'Phone verified. Enable SMS alerts and save to opt in.'}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        className="btn-secondary rounded-lg px-3 py-2 text-xs"
-                        onClick={sendSmsCode}
-                        disabled={!canUseSms || !isValidPhone || smsSending || !smsConsent}
-                      >
-                        {smsSending ? 'Sending…' : smsCodeSent ? 'Resend code' : 'Send code'}
-                      </button>
-                      {!canUseSms && <span className="text-xs text-text3">Upgrade to verify.</span>}
-                      {canUseSms && !isValidPhone && <span className="text-xs text-text3">Enter a valid US phone number.</span>}
-                      {canUseSms && isValidPhone && !smsConsent && <span className="text-xs text-text3">Agree to the SMS terms above.</span>}
-                    </div>
-                    {smsCodeSent && (
-                      <div className="flex flex-col gap-2">
+                <div className="mt-2 flex flex-col gap-2 text-sm text-text2">
+                  <label className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <span>Phone (US)</span>
+                    <input
+                      type="tel"
+                      className="flex-1 rounded-lg border border-stroke bg-surface-0 px-2 py-1"
+                      value={form.sms_phone_us}
+                      onChange={(event) => {
+                        const nextPhone = event.target.value;
+                        setSmsConsent(false);
+                        setForm((current) => {
+                          const changed = current.sms_phone_us !== nextPhone;
+                          return {
+                            ...current,
+                            sms_phone_us: nextPhone,
+                            sms_verified: changed ? false : current.sms_verified,
+                            sms_enabled: changed ? false : current.sms_enabled
+                          };
+                        });
+                      }}
+                      placeholder="(555) 555-5555"
+                      disabled={!canUseSms || startSmsVerificationMutation.isPending || completeSmsVerificationMutation.isPending}
+                    />
+                  </label>
+                  {!form.sms_enabled && (
+                    <div className="rounded-lg border border-stroke bg-surface-0 p-3 text-xs text-text3">
+                      <p>
+                        By enabling SMS alerts, you agree to receive recurring automated text messages from {BRAND_NAME} about rocket launch alerts you select.
+                        Message frequency varies. Message and data rates may apply. Reply STOP to cancel, HELP for help. Consent is not a condition of purchase. See{' '}
+                        <Link className="text-primary hover:underline" href="/legal/terms#sms-alerts">
+                          Terms
+                        </Link>{' '}
+                        (SMS Alerts section) and{' '}
+                        <Link className="text-primary hover:underline" href="/legal/privacy">
+                          Privacy
+                        </Link>
+                        .
+                      </p>
+                      <label className="mt-2 flex items-start gap-2">
                         <input
-                          type="text"
-                          inputMode="numeric"
-                          className="rounded-lg border border-stroke bg-surface-0 px-2 py-1 text-sm"
-                          value={smsCode}
-                          onChange={(e) => setSmsCode(e.target.value)}
-                          placeholder="Verification code"
-                          aria-label="Verification code"
+                          type="checkbox"
+                          className="mt-0.5 h-4 w-4"
+                          checked={smsConsent}
+                          onChange={(event) => setSmsConsent(event.target.checked)}
+                          disabled={!canUseSms || startSmsVerificationMutation.isPending || completeSmsVerificationMutation.isPending}
                         />
+                        <span>I agree.</span>
+                      </label>
+                    </div>
+                  )}
+                  {form.sms_verified ? (
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-text3">
+                      <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 uppercase tracking-[0.08em] text-emerald-200">
+                        Verified
+                      </span>
+                      <span>
+                        {form.sms_enabled ? 'SMS opt-in is active.' : 'Phone verified. Enable SMS alerts and save to opt in.'}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
-                          className="btn rounded-lg px-3 py-2 text-xs"
-                          onClick={verifySmsCode}
-                          disabled={!canUseSms || smsVerifying || !smsCode.trim()}
+                          className="btn-secondary rounded-lg px-3 py-2 text-xs"
+                          onClick={() => void sendSmsCode()}
+                          disabled={!canUseSms || !isValidPhone || startSmsVerificationMutation.isPending || !smsConsent}
                         >
-                          {smsVerifying ? 'Verifying…' : 'Verify phone'}
+                          {startSmsVerificationMutation.isPending ? 'Sending…' : smsCodeSent ? 'Resend code' : 'Send code'}
                         </button>
+                        {!canUseSms && <span className="text-xs text-text3">Upgrade to verify.</span>}
+                        {canUseSms && !isValidPhone && <span className="text-xs text-text3">Enter a valid US phone number.</span>}
+                        {canUseSms && isValidPhone && !smsConsent && <span className="text-xs text-text3">Agree to the SMS terms above.</span>}
                       </div>
-                    )}
-                    <p className="text-xs text-text3">We send a one-time code to confirm your number before enabling alerts.</p>
-                  </div>
-                )}
-              </div>
+                      {smsCodeSent && (
+                        <div className="flex flex-col gap-2">
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            className="rounded-lg border border-stroke bg-surface-0 px-2 py-1 text-sm"
+                            value={smsCode}
+                            onChange={(event) => setSmsCode(event.target.value)}
+                            placeholder="Verification code"
+                            aria-label="Verification code"
+                          />
+                          <button
+                            type="button"
+                            className="btn rounded-lg px-3 py-2 text-xs"
+                            onClick={() => void verifySmsCode()}
+                            disabled={!canUseSms || completeSmsVerificationMutation.isPending || !smsCode.trim()}
+                          >
+                            {completeSmsVerificationMutation.isPending ? 'Verifying…' : 'Verify phone'}
+                          </button>
+                        </div>
+                      )}
+                      <p className="text-xs text-text3">We send a one-time code to confirm your number before enabling alerts.</p>
+                    </div>
+                  )}
+                </div>
               )}
             </Toggle>
             <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3 text-xs text-text3">
-              Per-launch alert controls are available on the bell icon for browser notifications. SMS controls will appear once SMS alerts launch.
+              Per-launch alert controls live on the bell icon. Free push alerts deliver to mobile devices; Premium adds browser delivery here on web.
             </div>
             <Toggle
               label={`Quiet hours (${quietHoursLabel})`}
               checked={form.quiet_hours_enabled}
-              onChange={(v) => setForm((f) => ({ ...f, quiet_hours_enabled: v }))}
+              onChange={(value) => setForm((current) => ({ ...current, quiet_hours_enabled: value }))}
               helper="Silence notifications during your window; batching resumes after."
             >
               <div className="mt-2 flex flex-col gap-2 text-sm text-text2 sm:flex-row">
@@ -687,7 +849,7 @@ export default function PreferencesPage() {
                     type="time"
                     className="rounded-lg border border-stroke bg-surface-0 px-2 py-1"
                     value={form.quiet_start_local}
-                    onChange={(e) => setForm((f) => ({ ...f, quiet_start_local: e.target.value }))}
+                    onChange={(event) => setForm((current) => ({ ...current, quiet_start_local: event.target.value }))}
                   />
                 </label>
                 <label className="flex items-center gap-2">
@@ -696,14 +858,19 @@ export default function PreferencesPage() {
                     type="time"
                     className="rounded-lg border border-stroke bg-surface-0 px-2 py-1"
                     value={form.quiet_end_local}
-                    onChange={(e) => setForm((f) => ({ ...f, quiet_end_local: e.target.value }))}
+                    onChange={(event) => setForm((current) => ({ ...current, quiet_end_local: event.target.value }))}
                   />
                 </label>
               </div>
             </Toggle>
 
-            <button type="button" className="btn rounded-lg px-4 py-2 text-sm" onClick={savePreferences} disabled={saving}>
-              {saving ? 'Saving…' : 'Save preferences'}
+            <button
+              type="button"
+              className="btn rounded-lg px-4 py-2 text-sm"
+              onClick={() => void savePreferences()}
+              disabled={updateNotificationPreferencesMutation.isPending}
+            >
+              {updateNotificationPreferencesMutation.isPending ? 'Saving…' : 'Save preferences'}
             </button>
           </form>
         </>
@@ -723,9 +890,9 @@ function Toggle({
   label: string;
   helper?: string;
   checked: boolean;
-  onChange: (v: boolean) => void;
+  onChange: (value: boolean) => void;
   disabled?: boolean;
-  children?: React.ReactNode;
+  children?: ReactNode;
 }) {
   const labelId = useId();
   const helperId = useId();
@@ -744,7 +911,9 @@ function Toggle({
         </div>
         <button
           type="button"
-          className={`flex h-6 w-11 items-center rounded-full border px-1 transition ${checked ? 'border-primary bg-[rgba(34,211,238,0.2)] justify-end' : 'border-stroke bg-surface-0 justify-start'} ${disabled ? 'cursor-not-allowed' : ''}`}
+          className={`flex h-6 w-11 items-center rounded-full border px-1 transition ${
+            checked ? 'border-primary bg-[rgba(34,211,238,0.2)] justify-end' : 'border-stroke bg-surface-0 justify-start'
+          } ${disabled ? 'cursor-not-allowed' : ''}`}
           onClick={() => {
             if (!disabled) onChange(!checked);
           }}
@@ -765,8 +934,8 @@ function Toggle({
 function arrayBufferToBase64(buffer: ArrayBuffer) {
   const bytes = new Uint8Array(buffer);
   let binary = '';
-  bytes.forEach((b) => {
-    binary += String.fromCharCode(b);
+  bytes.forEach((value) => {
+    binary += String.fromCharCode(value);
   });
   return btoa(binary);
 }
@@ -776,8 +945,20 @@ function urlBase64ToUint8Array(base64String: string) {
   const base64 = (base64String + padding).replaceAll('-', '+').replaceAll('_', '/');
   const rawData = atob(base64);
   const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; i += 1) {
-    outputArray[i] = rawData.charCodeAt(i);
+  for (let index = 0; index < rawData.length; index += 1) {
+    outputArray[index] = rawData.charCodeAt(index);
   }
   return outputArray;
+}
+
+function getErrorCode(error: unknown) {
+  return typeof (error as { code?: unknown })?.code === 'string' ? (error as { code: string }).code : null;
+}
+
+function normalizeAlertRuleToken(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
 }

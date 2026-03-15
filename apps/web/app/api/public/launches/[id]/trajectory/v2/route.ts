@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
+import { TRAJECTORY_CONTRACT_COLUMNS, buildTrajectoryPublicV2Response } from '@tminuszero/domain';
 import { createSupabaseServerClient } from '@/lib/server/supabaseServer';
-import { TRAJECTORY_CONTRACT_COLUMNS, buildTrajectoryPublicV2Response } from '@/lib/server/trajectoryContract';
 import { parseLaunchParam } from '@/lib/utils/launchParams';
 import { fetchArEligibleLaunches } from '@/lib/server/arEligibility';
 import { getViewerTier } from '@/lib/server/viewerTier';

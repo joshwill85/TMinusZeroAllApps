@@ -48,8 +48,38 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Mobile lint
+        run: npm run lint --workspace @tminuszero/mobile
+
+      - name: Build
+        run: npm run build
+
       - name: Type-check
         run: npm run type-check:ci
+
+      - name: Mobile type-check
+        run: npm run type-check:mobile
+
+      - name: V1 contracts
+        run: npm run test:v1-contracts
+
+      - name: Mobile query guard
+        run: npm run test:mobile-query-guard
+
+      - name: Mobile security guard
+        run: npm run test:mobile-security-guard
+
+      - name: Shared domain smoke
+        run: npm run test:shared-domain
+
+      - name: Phase 3 web closeout guard
+        run: npm run test:phase3-web-guard
+
+      - name: Web regression smoke
+        run: npm run test:web-regression
+
+      - name: Billing regression smoke
+        run: npm run test:billing-regression
 
       - name: Smoke tests
         run: npm run test:smoke
@@ -116,8 +146,16 @@ jobs:
             .artifacts/ar-trajectory-kpi-history.md
           if-no-files-found: ignore
 
-      - name: Build
-        run: npm run build
+      - name: Three-platform baseline evidence
+        run: npm run baseline:three-platform -- --out-dir=.artifacts/three-platform-baseline --ttfb-requests=25 --ttfb-warmup=5
+
+      - name: Upload three-platform baseline evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: three-platform-baseline-evidence
+          path: .artifacts/three-platform-baseline
+          if-no-files-found: ignore
 
   docker:
     runs-on: ubuntu-latest

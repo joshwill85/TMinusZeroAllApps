@@ -1,6 +1,114 @@
+import type { LaunchInfoUrl, LaunchVidUrl } from '@/lib/types/launch';
 import { Launch } from '@/lib/types/launch';
 import { extractUrlFromValue, normalizeNetPrecision } from '@/lib/ingestion/ll2Utils';
 import { resolveLaunchStatus } from '@/lib/server/launchStatus';
+
+function normalizeOptionalString(value: unknown) {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
+}
+
+function normalizeOptionalObject(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value;
+}
+
+function sanitizeLaunchInfoLinks(value: unknown): LaunchInfoUrl[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const links = value
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        return null;
+      }
+
+      const record = entry as Record<string, unknown>;
+      const url = normalizeOptionalString(record.url);
+      if (!url) {
+        return null;
+      }
+
+      const sanitized: LaunchInfoUrl = {
+        url
+      };
+
+      const title = normalizeOptionalString(record.title);
+      const description = normalizeOptionalString(record.description);
+      const source = normalizeOptionalString(record.source);
+      const featureImage = normalizeOptionalString(record.feature_image);
+      const type = normalizeOptionalObject(record.type);
+      const language = normalizeOptionalObject(record.language);
+
+      if (title) sanitized.title = title;
+      if (description) sanitized.description = description;
+      if (source) sanitized.source = source;
+      if (featureImage) sanitized.feature_image = featureImage;
+      if (type) sanitized.type = type as LaunchInfoUrl['type'];
+      if (language) sanitized.language = language as LaunchInfoUrl['language'];
+
+      return sanitized;
+    })
+    .filter((entry): entry is LaunchInfoUrl => entry !== null);
+
+  return links.length ? links : undefined;
+}
+
+function sanitizeLaunchVidLinks(value: unknown): LaunchVidUrl[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const links = value
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        return null;
+      }
+
+      const record = entry as Record<string, unknown>;
+      const url = normalizeOptionalString(record.url);
+      if (!url) {
+        return null;
+      }
+
+      const sanitized: LaunchVidUrl = {
+        url
+      };
+
+      const title = normalizeOptionalString(record.title);
+      const description = normalizeOptionalString(record.description);
+      const source = normalizeOptionalString(record.source);
+      const publisher = normalizeOptionalString(record.publisher);
+      const featureImage = normalizeOptionalString(record.feature_image);
+      const startTime = normalizeOptionalString(record.start_time);
+      const endTime = normalizeOptionalString(record.end_time);
+      const type = normalizeOptionalObject(record.type);
+      const language = normalizeOptionalObject(record.language);
+
+      if (title) sanitized.title = title;
+      if (description) sanitized.description = description;
+      if (source) sanitized.source = source;
+      if (publisher) sanitized.publisher = publisher;
+      if (featureImage) sanitized.feature_image = featureImage;
+      if (startTime) sanitized.start_time = startTime;
+      if (endTime) sanitized.end_time = endTime;
+      if (type) sanitized.type = type as LaunchVidUrl['type'];
+      if (language) sanitized.language = language as LaunchVidUrl['language'];
+      if (typeof record.priority === 'number' && Number.isFinite(record.priority)) {
+        sanitized.priority = Math.trunc(record.priority);
+      }
+
+      return sanitized;
+    })
+    .filter((entry): entry is LaunchVidUrl => entry !== null);
+
+  return links.length ? links : undefined;
+}
 
 export function mapPublicCacheRow(row: any): Launch {
   return {
@@ -54,8 +162,8 @@ export function mapPublicCacheRow(row: any): Launch {
       type: row.mission_type || undefined,
       description: row.mission_description || undefined,
       orbit: row.mission_orbit || undefined,
-      infoUrls: row.mission_info_urls || undefined,
-      vidUrls: row.mission_vid_urls || undefined,
+      infoUrls: sanitizeLaunchInfoLinks(row.mission_info_urls),
+      vidUrls: sanitizeLaunchVidLinks(row.mission_vid_urls),
       agencies: row.mission_agencies || undefined
     },
     pad: {
@@ -90,8 +198,8 @@ export function mapPublicCacheRow(row: any): Launch {
     programs: row.programs || undefined,
     crew: row.crew || undefined,
     payloads: row.payloads || undefined,
-    launchInfoUrls: row.launch_info_urls || undefined,
-    launchVidUrls: row.launch_vid_urls || undefined,
+    launchInfoUrls: sanitizeLaunchInfoLinks(row.launch_info_urls),
+    launchVidUrls: sanitizeLaunchVidLinks(row.launch_vid_urls),
     flightclubUrl: row.flightclub_url || undefined,
     hashtag: row.hashtag || undefined,
     probability: row.probability ?? undefined,
@@ -166,8 +274,8 @@ export function mapLiveLaunchRow(row: any): Launch {
       type: row.mission_type || undefined,
       description: row.mission_description || undefined,
       orbit: row.mission_orbit || undefined,
-      infoUrls: row.mission_info_urls || undefined,
-      vidUrls: row.mission_vid_urls || undefined,
+      infoUrls: sanitizeLaunchInfoLinks(row.mission_info_urls),
+      vidUrls: sanitizeLaunchVidLinks(row.mission_vid_urls),
       agencies: row.mission_agencies || undefined
     },
     pad: {
@@ -202,8 +310,8 @@ export function mapLiveLaunchRow(row: any): Launch {
     programs: row.programs || undefined,
     crew: row.crew || undefined,
     payloads: row.payloads || undefined,
-    launchInfoUrls: row.launch_info_urls || undefined,
-    launchVidUrls: row.launch_vid_urls || undefined,
+    launchInfoUrls: sanitizeLaunchInfoLinks(row.launch_info_urls),
+    launchVidUrls: sanitizeLaunchVidLinks(row.launch_vid_urls),
     flightclubUrl: row.flightclub_url || undefined,
     hashtag: row.hashtag || undefined,
     probability: row.probability ?? undefined,

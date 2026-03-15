@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useId, useState } from 'react';
+import { assertPasswordPolicy, PASSWORD_POLICY_HINT } from '@tminuszero/domain';
+import { browserApiClient } from '@/lib/api/client';
 import { getBrowserClient } from '@/lib/api/supabase';
 import type { EmailOtpType } from '@supabase/supabase-js';
 
@@ -163,8 +165,10 @@ export default function ResetPasswordClient() {
     e.preventDefault();
     setMessage(null);
 
-    if (password.length < 8) {
-      setMessage({ tone: 'error', text: 'Password must be at least 8 characters.' });
+    try {
+      assertPasswordPolicy(password);
+    } catch (error) {
+      setMessage({ tone: 'error', text: error instanceof Error ? error.message : 'Password does not meet the current policy.' });
       return;
     }
 
@@ -179,6 +183,13 @@ export default function ResetPasswordClient() {
       if (!supabase) throw new Error('Supabase not available');
       const { error } = await supabase.auth.updateUser({ password });
       if (error) throw error;
+      await browserApiClient
+        .recordAuthContext({
+          provider: 'email_password',
+          platform: 'web',
+          eventType: 'password_reset'
+        })
+        .catch(() => {});
       setMessage({ tone: 'success', text: 'Password updated. You can now sign in.' });
       setPassword('');
       setConfirmPassword('');
@@ -230,6 +241,7 @@ export default function ResetPasswordClient() {
               autoComplete="new-password"
               onChange={(e) => setPassword(e.target.value)}
             />
+            <span className="text-xs text-text3">{PASSWORD_POLICY_HINT}</span>
           </div>
           <div className="flex flex-col gap-1">
             <label htmlFor={confirmPasswordId} className="text-sm text-text2">

@@ -1,0 +1,35 @@
+{
+  "generatedAt": "2026-03-10T01:00:44.650Z",
+  "checks": [
+    {
+      "name": "middleware-no-in-memory-rate-limit",
+      "ok": true,
+      "detail": "apps/web/middleware.ts should not own correctness-critical rate limiting."
+    },
+    {
+      "name": "legacy-search-no-refresh-on-read",
+      "ok": true,
+      "detail": "siteSearch warm path must stay deprecated and search must not trigger freshness sync."
+    },
+    {
+      "name": "legacy-search-warm-is-no-op",
+      "ok": true,
+      "detail": "legacy /api/search warm path is retained only as a backward-compatible entrypoint."
+    },
+    {
+      "name": "legacy-subscription-no-reconcile-on-read",
+      "ok": true,
+      "detail": "legacy /api/me/subscription must not trigger Stripe reconciliation on read."
+    },
+    {
+      "name": "billing-summary-no-reconcile-on-read",
+      "ok": true,
+      "detail": "shared billing summary reads must not reconcile Stripe synchronously."
+    },
+    {
+      "name": "durable-rate-limit-applied-at-routes",
+      "ok": true,
+      "detail": "public and tokenized routes should use the durable DB-backed rate-limit helper."
+    }
+  ]
+}

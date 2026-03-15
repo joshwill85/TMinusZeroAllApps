@@ -1,0 +1,52 @@
+name: Acceptance Preflight
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'apps/mobile/**'
+      - 'apps/web/**'
+      - 'packages/**'
+      - 'scripts/**'
+      - 'docs/three-platform-*.md'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/acceptance-preflight.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CI: "true"
+      NEXT_TELEMETRY_DISABLED: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node (from .nvmrc)
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Toolchain doctor
+        run: npm run doctor
+
+      - name: Install (npm ci)
+        run: npm ci
+
+      - name: Acceptance preflight (repo-owned checks; mobile E2E remains separate)
+        run: npm run acceptance:preflight -- --out-dir=.artifacts/three-platform-acceptance --ttfb-requests=15 --ttfb-warmup=5
+
+      - name: Upload acceptance preflight artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: three-platform-acceptance-preflight
+          path: .artifacts/three-platform-acceptance
+          if-no-files-found: ignore

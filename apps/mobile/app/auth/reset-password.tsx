@@ -1,12 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Redirect, useLocalSearchParams } from 'expo-router';
 import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
+import { assertPasswordPolicy, PASSWORD_POLICY_HINT } from '@tminuszero/domain';
 import { mobileColorTokens } from '@tminuszero/design-tokens';
-import { updatePassword, verifyOtpTokenHash } from '@/src/auth/supabaseAuth';
+import { recordMobileAuthContext } from '@/src/auth/authContext';
+import { signOut, updatePassword, verifyOtpTokenHash } from '@/src/auth/supabaseAuth';
 import { AppScreen } from '@/src/components/AppScreen';
 import { ErrorStateCard, LoadingStateCard, SectionCard } from '@/src/components/SectionCard';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
-import { useMobileBootstrap } from '@/src/providers/AppProviders';
+import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 
 function readParam(value: string | string[] | undefined) {
   if (Array.isArray(value)) {
@@ -17,13 +19,11 @@ function readParam(value: string | string[] | undefined) {
 
 export default function ResetPasswordScreen() {
   const params = useLocalSearchParams<{
-    access_token?: string | string[];
-    refresh_token?: string | string[];
     token_hash?: string | string[];
     type?: string | string[];
     error_description?: string | string[];
   }>();
-  const { accessToken, persistSession, theme } = useMobileBootstrap();
+  const { accessToken, clearSession, persistSession, theme } = useMobileBootstrap();
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [status, setStatus] = useState<{
@@ -33,12 +33,23 @@ export default function ResetPasswordScreen() {
     mode: 'verifying',
     message: 'Verifying reset token.'
   });
+  const resolvedAttemptRef = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    const errorDescription = readParam(params.error_description).trim();
+    const tokenHash = readParam(params.token_hash).trim();
+    const type = readParam(params.type).trim();
+    const attemptKey = errorDescription ? `error:${errorDescription}` : `${type}:${tokenHash}`;
+    if (!attemptKey) {
+      return;
+    }
+    if (resolvedAttemptRef.current === attemptKey) {
+      return;
+    }
+    resolvedAttemptRef.current = attemptKey;
 
     async function resolveResetSession() {
-      const errorDescription = readParam(params.error_description).trim();
       if (errorDescription) {
         if (!cancelled) {
           setStatus({
@@ -48,46 +59,27 @@ export default function ResetPasswordScreen() {
         }
         return;
       }
-
-      const directAccessToken = readParam(params.access_token).trim();
-      const directRefreshToken = readParam(params.refresh_token).trim();
-      if (directAccessToken) {
-        await persistSession({
-          accessToken: directAccessToken,
-          refreshToken: directRefreshToken || null
-        });
-        if (!cancelled) {
-          setStatus({
-            mode: 'ready',
-            message: 'Choose a new password for this account.'
-          });
-        }
-        return;
-      }
-
-      if (accessToken) {
-        if (!cancelled) {
-          setStatus({
-            mode: 'ready',
-            message: 'Choose a new password for this account.'
-          });
-        }
-        return;
-      }
-
-      const tokenHash = readParam(params.token_hash).trim();
-      const type = readParam(params.type).trim();
       if (!tokenHash || !type) {
         if (!cancelled) {
           setStatus({
             mode: 'error',
-            message: 'The reset link did not include a usable token.'
+            message: 'The reset link did not include a valid verification payload. Mobile reset links must use the verified https callback with token_hash.'
           });
         }
         return;
       }
 
       try {
+        if (accessToken) {
+          if (!cancelled) {
+            setStatus({
+              mode: 'verifying',
+              message: 'Replacing the current session before verifying the reset link.'
+            });
+          }
+          await signOut(accessToken).catch(() => {});
+          await clearSession();
+        }
         const session = await verifyOtpTokenHash(tokenHash, type);
         await persistSession({
           accessToken: session.accessToken,
@@ -113,7 +105,7 @@ export default function ResetPasswordScreen() {
     return () => {
       cancelled = true;
     };
-  }, [accessToken, params.access_token, params.error_description, params.refresh_token, params.token_hash, params.type, persistSession]);
+  }, [accessToken, clearSession, params.error_description, params.token_hash, params.type, persistSession]);
 
   async function handleSubmit() {
     if (!accessToken) {
@@ -123,10 +115,12 @@ export default function ResetPasswordScreen() {
       });
       return;
     }
-    if (password.length < 8) {
+    try {
+      assertPasswordPolicy(password);
+    } catch (error) {
       setStatus({
         mode: 'error',
-        message: 'Password must be at least 8 characters.'
+        message: error instanceof Error ? error.message : 'Password does not meet the current policy.'
       });
       return;
     }
@@ -144,6 +138,10 @@ export default function ResetPasswordScreen() {
     });
     try {
       await updatePassword(accessToken, password);
+      await recordMobileAuthContext(accessToken, {
+        provider: 'email_password',
+        eventType: 'password_reset'
+      }).catch(() => {});
       setPassword('');
       setConfirmPassword('');
       setStatus({
@@ -163,7 +161,7 @@ export default function ResetPasswordScreen() {
   }
 
   return (
-    <AppScreen keyboardShouldPersistTaps="handled">
+    <AppScreen testID="auth-reset-screen" keyboardShouldPersistTaps="handled">
       <ScreenHeader
         eyebrow="Reset password"
         title="Finish recovery"
@@ -176,7 +174,9 @@ export default function ResetPasswordScreen() {
       {status.mode === 'ready' || status.mode === 'submitting' ? (
         <SectionCard title="New password" description={status.message}>
           <View style={{ gap: 12 }}>
+            <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>{PASSWORD_POLICY_HINT}</Text>
             <TextInput
+              testID="reset-password-input"
               value={password}
               onChangeText={setPassword}
               placeholder="New password"
@@ -194,6 +194,7 @@ export default function ResetPasswordScreen() {
               }}
             />
             <TextInput
+              testID="reset-password-confirm"
               value={confirmPassword}
               onChangeText={setConfirmPassword}
               placeholder="Confirm password"
@@ -211,6 +212,7 @@ export default function ResetPasswordScreen() {
               }}
             />
             <Pressable
+              testID="reset-password-submit"
               onPress={() => void handleSubmit()}
               disabled={status.mode === 'submitting'}
               style={{

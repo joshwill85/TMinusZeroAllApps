@@ -1,16 +1,13 @@
 import { notFound, redirect } from 'next/navigation';
+import { buildAuthHref } from '@tminuszero/navigation';
+import { TRAJECTORY_CONTRACT_COLUMNS, buildTrajectoryContract } from '@tminuszero/domain';
 import { mapPublicCacheRow } from '@/lib/server/transformers';
 import { isSupabaseConfigured } from '@/lib/server/env';
 import { createSupabaseServerClient } from '@/lib/server/supabaseServer';
 import { getViewerTier } from '@/lib/server/viewerTier';
 import { parseLaunchParam } from '@/lib/utils/launchParams';
 import { buildLaunchHref } from '@/lib/utils/launchLinks';
-import { buildAuthQuery } from '@/lib/utils/returnTo';
 import { fetchArEligibleLaunches } from '@/lib/server/arEligibility';
-import {
-  buildTrajectoryContract,
-  TRAJECTORY_CONTRACT_COLUMNS
-} from '@/lib/server/trajectoryContract';
 import { ArSession } from '@/components/ar/ArSession';
 
 export const dynamic = 'force-dynamic';
@@ -53,8 +50,7 @@ export default async function LaunchArPage({ params }: { params: { id: string } 
   const viewer = await getViewerTier();
   const nextPath = `/launches/${encodeURIComponent(parsed.raw)}/ar`;
   if (!viewer.isAuthed) {
-    const authQuery = buildAuthQuery({ returnTo: nextPath, intent: 'upgrade' });
-    redirect(`/auth/sign-in${authQuery ? `?${authQuery}` : ''}`);
+    redirect(buildAuthHref('sign-in', { returnTo: nextPath, intent: 'upgrade' }));
   }
   if (viewer.tier !== 'premium') {
     redirect(`/upgrade?return_to=${encodeURIComponent(nextPath)}`);

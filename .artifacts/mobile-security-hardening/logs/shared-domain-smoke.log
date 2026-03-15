@@ -1,0 +1,8 @@
+
+> tminuszero@0.1.0 test:shared-domain
+> TS_NODE_TRANSPILE_ONLY=1 node --experimental-specifier-resolution=node --loader ts-node/esm scripts/shared-domain-smoke.mts
+
+shared-domain-smoke: ok
+(node:79) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+--import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("ts-node/esm", pathToFileURL("./"));'
+(Use `node --trace-warnings ...` to show where the warning was created)

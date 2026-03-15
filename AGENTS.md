@@ -84,3 +84,98 @@ Use sub-agents **only when it materially improves quality, safety, or speed** vs
 - Require **actionable outputs**: recommended approach, risks, exact file-level changes, test plan, or diff-ready edits.
 - The main agent must **merge results**, resolve conflicts, ensure consistency, and run/verify checks before finalizing.
 - Default to **2–4 agents max**; add more only if the workstreams are truly independent.
+
+## 6) Three-Platform Product Scope (non-negotiable)
+
+### Repo truth
+
+- This repository contains all three customer surfaces plus the shared backend and shared packages.
+- `apps/web` is the web surface. It includes the public site, SEO/share surfaces, admin/internal surfaces, and the Next.js BFF/API layer.
+- `apps/mobile` is the single Expo/React Native native client for both iOS and Android.
+- `packages/*` is the shared layer for domain logic, contracts, API client, query policy, navigation intents, and design tokens.
+- `supabase/*` is the shared backend, schema, jobs, and operations layer.
+- Do not describe this repo as having separate iOS and Android source trees unless the task explicitly involves generated native projects.
+
+### Required platform matrix before non-trivial product work
+
+- For non-trivial product or engineering work, explicitly determine and state:
+  - `Web: included / not included`
+  - `iOS: included / not included`
+  - `Android: included / not included`
+  - `Admin/internal impact: yes / no`
+  - `Shared API/backend impact: yes / no`
+- If any surface is excluded, say why.
+- Also state whether the request is customer-facing or admin/internal.
+
+### Default scoping rules
+
+- If the user explicitly names a surface, scope analysis, planning, and implementation strictly to that surface unless they explicitly ask for more.
+- If the request is admin/internal, default to web-only.
+- If the request is customer-facing and clearly inside the current three-platform core, treat it as web + iOS + Android unless the user narrows scope.
+- If the request is customer-facing but outside the current three-platform core, do not silently expand it to all three; state the proposed platform matrix first.
+- Never silently widen a single-platform request into multiple surfaces.
+- Never silently narrow an unspecified request to one surface unless it is clearly web-only by policy or by browser/platform constraints.
+
+### Current three-platform core
+
+- The current cross-platform core is: launch feed, search, launch detail, auth/session and deep-link callback handling, saved items, watchlists, filter presets, preferences, notification settings, profile/account basics, entitlement reads, premium state, and push device registration.
+- For these flows, prefer aligned business rules and shared contracts across web, iOS, and Android.
+
+### Web-only by default
+
+- Keep these web-only unless the user explicitly overrides the rule:
+  - admin, moderation, ops, support, data-management, sponsorship, billing override, and business tooling
+  - SEO/distribution surfaces such as `robots`, `sitemaps`, OG image routes, web share redirect pages, and similar browser discovery surfaces
+  - tokenized/export-style web integrations and their management UIs, including RSS feeds, embed widgets, ICS/calendar-feed links, and similar copy/share artifacts
+  - Stripe checkout, billing portal, tip-jar flows, and other browser-first web payment flows
+  - browser-only capability surfaces such as service-worker flows, web push subscription UX, Add to Home Screen prompts, and the current web AR runtime
+  - internal/debug/revalidation/manual job trigger surfaces
+
+### Web-first unless explicitly requested for mobile parity
+
+- Default these to web-first rather than guaranteed three-platform parity:
+  - long-form docs, FAQ, roadmap, and editorial/program content
+  - provider/program/catalog encyclopedia-style pages and similar browsing-heavy reference surfaces
+  - advanced integrations management screens that are mostly token/link management
+
+### No silent scope drift
+
+- If a request would be awkward, non-standard, or clearly different across web, iOS, and Android, explain the split by surface before implementing.
+- Prefer platform-appropriate UX, navigation, links, gestures, permissions, billing flows, and notification behavior rather than forcing identical UI.
+- If Apple App Store or Google Play norms conflict with a web pattern, do not copy the web pattern blindly; explain the constraint and use the native approach.
+
+## 7) Shared Architecture & API Rules
+
+- Follow the repo’s domain-first sharing strategy, not UI-first sharing.
+- For mobile-critical or shared customer flows, prefer `packages/contracts`, `packages/api-client`, `packages/query`, `packages/navigation`, `packages/domain`, and additive `/api/v1` routes over new web-only ad hoc shapes.
+- Do not make breaking `/api/v1` contract changes without explicit approval and a compatibility plan.
+- Keep product behavior, business rules, naming, permissions, entitlement interpretation, and analytics semantics aligned across surfaces where practical.
+- Preserve the three-platform boundary rules: shared packages and `apps/mobile` must not depend on `next/*`, `apps/web/*`, `lib/server/*`, or browser/service-worker-only APIs.
+- Mobile-critical APIs must avoid sync-on-read, warm-on-read, or admin retry fallback behavior on the hot path.
+- Do not port web Stripe checkout or browser-notification patterns into native apps; use native billing, native links, native permissions, and native notification flows instead.
+- Treat AR as platform-specific. The current shipped/runtime AR experience is web-only unless the task explicitly concerns the later native AR architecture.
+
+## 8) Planning & Verification For Multi-Surface Work
+
+- For work that changes shared APIs plus two or more client surfaces, create or update a dated plan doc in `docs/` before major implementation.
+- Use `docs/three-platform-overhaul-plan.md` as the main architecture source of truth when the change affects the three-platform migration or shared foundations.
+- The plan should capture the platform matrix, contract/API changes, rollout order, rollback notes, unresolved decisions, and the verification set.
+- Keep refactors additive and slice by feature or contract where possible; avoid broad cross-surface rewrites without a written plan.
+- When touching `packages/*`, `apps/mobile`, or shared `/api/v1` flows, run the relevant checks under the pinned toolchain:
+  - `npm run doctor`
+  - `npm run check:three-platform:boundaries`
+  - `npm run test:v1-contracts`
+  - `npm run test:mobile-query-guard` when mobile query/shared client behavior changes
+  - `npm run type-check:ci`
+  - `npm run type-check:mobile` when mobile code changes
+  - `npm run lint`
+  - `npm run lint --workspace @tminuszero/mobile` when mobile code changes
+  - relevant Detox/mobile E2E when core mobile journeys or routing change and the environment supports it
+- If only one surface is touched, do not force unrelated platform work or unrelated verification unless the underlying shared contract changed.
+
+## 9) T-Minus Zero Product Boundary
+
+- Treat launch browsing, countdowns, launch detail, watchlists, alerts, personalization, saved views/presets, subscriptions/entitlements, and user-facing notification settings as likely cross-platform product areas.
+- Treat internal launch curation, data-source controls, moderation, sponsorship management, manual sync/backfill control, billing overrides, support tooling, observability, and ops dashboards as web-only admin areas by default.
+- If an unspecified request falls inside the current three-platform core, default to a three-surface platform matrix.
+- If an unspecified request falls outside the current three-platform core, propose the matrix first instead of silently assuming parity everywhere.

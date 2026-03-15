@@ -1,17 +1,18 @@
 'use client';
 
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import type { SearchResultV1 } from '@tminuszero/contracts';
+import { buildSearchHref } from '@tminuszero/navigation';
 import { useRouter } from 'next/navigation';
-import type { SiteSearchResult } from '@/lib/search/shared';
-import { SITE_SEARCH_MIN_QUERY_LENGTH, fetchSiteSearch, warmSiteSearch } from '@/lib/search/client';
+import { useSiteSearchQuery } from '@/lib/api/queries';
+import { SITE_SEARCH_MIN_QUERY_LENGTH } from '@/lib/search/client';
 import {
   formatSiteSearchShortDate,
   getSiteSearchBadge,
+  getSiteSearchHref,
   getSiteSearchPreview,
   isExternalSearchUrl
 } from '@/lib/search/presentation';
-
-const QUERY_DEBOUNCE_MS = 75;
 
 type SearchStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -20,25 +21,22 @@ export function LaunchSearchModal({ open, onClose }: { open: boolean; onClose: (
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [query, setQuery] = useState('');
   const deferredQuery = useDeferredValue(query);
-  const [results, setResults] = useState<SiteSearchResult[]>([]);
-  const [status, setStatus] = useState<SearchStatus>('idle');
-  const [error, setError] = useState<string | null>(null);
-  const [tookMs, setTookMs] = useState<number | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
 
   const trimmedQuery = query.trim();
   const deferredTrimmedQuery = deferredQuery.trim();
   const canSearch = deferredTrimmedQuery.length >= SITE_SEARCH_MIN_QUERY_LENGTH;
   const showIdleHint = trimmedQuery.length < SITE_SEARCH_MIN_QUERY_LENGTH;
+  const siteSearchQuery = useSiteSearchQuery(deferredTrimmedQuery, { limit: 8 });
+  const results = useMemo(() => siteSearchQuery.data?.results ?? [], [siteSearchQuery.data?.results]);
+  const status: SearchStatus = showIdleHint ? 'idle' : siteSearchQuery.isError ? 'error' : siteSearchQuery.isPending ? 'loading' : 'ready';
+  const error = siteSearchQuery.error instanceof Error ? siteSearchQuery.error.message : null;
+  const tookMs = siteSearchQuery.data?.tookMs ?? null;
   const selectedResult = results[activeIndex] || null;
 
   useEffect(() => {
     if (!open) {
       setQuery('');
-      setResults([]);
-      setStatus('idle');
-      setError(null);
-      setTookMs(null);
       setActiveIndex(0);
       return;
     }
@@ -48,14 +46,6 @@ export function LaunchSearchModal({ open, onClose }: { open: boolean; onClose: (
       inputRef.current?.select();
     }, 40);
     return () => window.clearTimeout(timeoutId);
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-
-    const controller = new AbortController();
-    warmSiteSearch(controller.signal);
-    return () => controller.abort();
   }, [open]);
 
   useEffect(() => {
@@ -77,48 +67,6 @@ export function LaunchSearchModal({ open, onClose }: { open: boolean; onClose: (
   }, [deferredTrimmedQuery]);
 
   useEffect(() => {
-    if (!open) return;
-
-    if (!canSearch) {
-      setResults([]);
-      setStatus('idle');
-      setError(null);
-      setTookMs(null);
-      return;
-    }
-
-    const controller = new AbortController();
-    setStatus('loading');
-    setError(null);
-
-    const timeoutId = window.setTimeout(() => {
-      fetchSiteSearch(deferredTrimmedQuery, {
-        signal: controller.signal,
-        limit: 8
-      })
-        .then((payload) => {
-          if (controller.signal.aborted) return;
-          setResults(payload.results);
-          setStatus('ready');
-          setError(null);
-          setTookMs(payload.tookMs);
-        })
-        .catch((fetchError) => {
-          if (controller.signal.aborted) return;
-          console.error('site search fetch error', fetchError);
-          setStatus('error');
-          setError(fetchError instanceof Error ? fetchError.message : 'search_query_failed');
-          setTookMs(null);
-        });
-    }, QUERY_DEBOUNCE_MS);
-
-    return () => {
-      controller.abort();
-      window.clearTimeout(timeoutId);
-    };
-  }, [canSearch, deferredTrimmedQuery, open]);
-
-  useEffect(() => {
     if (results.length === 0) {
       setActiveIndex(0);
       return;
@@ -138,21 +86,22 @@ export function LaunchSearchModal({ open, onClose }: { open: boolean; onClose: (
     return 'Search the full public site corpus.';
   }, [error, results.length, showIdleHint, status, tookMs]);
 
-  const openResult = (result: SiteSearchResult) => {
-    if (isExternalSearchUrl(result.url)) {
-      const opened = window.open(result.url, '_blank', 'noopener,noreferrer');
-      if (!opened) window.location.assign(result.url);
+  const openResult = (result: SearchResultV1) => {
+    const href = getSiteSearchHref(result);
+    if (isExternalSearchUrl(href)) {
+      const opened = window.open(href, '_blank', 'noopener,noreferrer');
+      if (!opened) window.location.assign(href);
       onClose();
       return;
     }
 
-    router.push(result.url);
+    router.push(href);
     onClose();
   };
 
   const openFullResults = () => {
     if (!trimmedQuery) return;
-    router.push(`/search?q=${encodeURIComponent(trimmedQuery)}`);
+    router.push(buildSearchHref(trimmedQuery));
     onClose();
   };
 
@@ -275,7 +224,7 @@ export function LaunchSearchModal({ open, onClose }: { open: boolean; onClose: (
                           <span className="truncate text-sm font-semibold text-text1">{result.title}</span>
                         </div>
                         <div className="mt-1 line-clamp-2 text-sm text-text3">{getSiteSearchPreview(result)}</div>
-                        <div className="mt-2 truncate text-[11px] uppercase tracking-[0.12em] text-text4">{result.url}</div>
+                        <div className="mt-2 truncate text-[11px] uppercase tracking-[0.12em] text-text4">{getSiteSearchHref(result)}</div>
                       </div>
                       <div className="shrink-0 text-[11px] uppercase tracking-[0.12em] text-text4">
                         {formatSiteSearchShortDate(result.publishedAt)}

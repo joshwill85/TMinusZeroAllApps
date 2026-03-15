@@ -35,7 +35,273 @@ const actionSchema = z.discriminatedUnion('action', [
 
 const requestSchema = z.union([updateSchema, actionSchema]);
 
-export async function GET() {
+const querySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  perPage: z.coerce.number().int().min(1).max(100).default(25),
+  q: z.string().trim().max(160).default(''),
+  provider: z.string().trim().max(40).default(''),
+  platform: z.string().trim().max(20).default('')
+});
+
+type AdminAuthUser = {
+  id: string;
+  email?: string | null;
+  created_at?: string | null;
+  last_sign_in_at?: string | null;
+  banned_until?: string | null;
+  app_metadata?: Record<string, unknown>;
+  user_metadata?: Record<string, unknown>;
+};
+
+type AdminUserSummary = {
+  user_id: string;
+  email: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  role: 'user' | 'admin';
+  status: string;
+  is_paid: boolean;
+  created_at: string | null;
+  last_sign_in_at: string | null;
+  banned_until: string | null;
+  providers: string[];
+  primary_provider: string | null;
+  platforms: string[];
+  last_sign_in_platform: string | null;
+  last_mobile_sign_in_at: string | null;
+  avatar_url: string | null;
+  identity_display_name: string | null;
+  email_is_private_relay: boolean;
+  recent_auth_events: Array<{
+    provider: string;
+    platform: string;
+    event_type: string;
+    created_at: string | null;
+  }>;
+};
+
+function normalizeProviderLabel(value: unknown) {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  if (!normalized) return null;
+  if (normalized === 'email' || normalized === 'email_password') return 'email_password';
+  return normalized;
+}
+
+function extractProviders(user: AdminAuthUser) {
+  const appMeta = ((user as { app_metadata?: Record<string, unknown> }).app_metadata || {}) as Record<string, unknown>;
+  const providerCandidates = [
+    normalizeProviderLabel(appMeta.provider),
+    ...(Array.isArray(appMeta.providers) ? appMeta.providers.map(normalizeProviderLabel) : [])
+  ].filter((value): value is string => Boolean(value));
+
+  if (providerCandidates.length === 0 && user.email) {
+    providerCandidates.push('email_password');
+  }
+
+  const providers = Array.from(new Set(providerCandidates));
+  return {
+    providers,
+    primaryProvider: providers[0] ?? null
+  };
+}
+
+function extractIdentityDisplayName(user: AdminAuthUser, profile?: { first_name?: string | null; last_name?: string | null }) {
+  const meta = ((user as { user_metadata?: Record<string, unknown> }).user_metadata || {}) as Record<string, unknown>;
+  const profileName = [profile?.first_name, profile?.last_name].filter(Boolean).join(' ').trim();
+  const metadataName = [meta.full_name, meta.name].find((value) => typeof value === 'string' && value.trim().length > 0);
+  if (typeof metadataName === 'string' && metadataName.trim()) return metadataName.trim();
+  return profileName || null;
+}
+
+function extractAvatarUrl(user: AdminAuthUser) {
+  const meta = ((user as { user_metadata?: Record<string, unknown> }).user_metadata || {}) as Record<string, unknown>;
+  const avatar = [meta.avatar_url, meta.picture].find((value) => typeof value === 'string' && value.trim().length > 0);
+  return typeof avatar === 'string' ? avatar.trim() : null;
+}
+
+function extractPlatforms(summary?: {
+  ever_used_web?: boolean | null;
+  ever_used_ios?: boolean | null;
+  ever_used_android?: boolean | null;
+  last_sign_in_platform?: string | null;
+}) {
+  const platforms: string[] = [];
+  if (summary?.ever_used_web) platforms.push('web');
+  if (summary?.ever_used_ios) platforms.push('ios');
+  if (summary?.ever_used_android) platforms.push('android');
+  if (summary?.last_sign_in_platform && !platforms.includes(summary.last_sign_in_platform)) {
+    platforms.push(summary.last_sign_in_platform);
+  }
+  return platforms;
+}
+
+function matchesQueryFilter(user: AdminUserSummary, filters: z.infer<typeof querySchema>) {
+  if (filters.provider && !user.providers.includes(filters.provider)) {
+    return false;
+  }
+
+  if (filters.platform && !user.platforms.includes(filters.platform) && user.last_sign_in_platform !== filters.platform) {
+    return false;
+  }
+
+  if (!filters.q) {
+    return true;
+  }
+
+  const query = filters.q.toLowerCase();
+  const haystack = [
+    user.user_id,
+    user.email,
+    user.first_name,
+    user.last_name,
+    user.identity_display_name,
+    user.status,
+    user.role,
+    ...user.providers,
+    ...user.platforms
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  return haystack.includes(query);
+}
+
+async function loadAdminUserBatch(admin: ReturnType<typeof createSupabaseAdminClient>, authUsers: AdminAuthUser[]) {
+  if (authUsers.length === 0) {
+    return [] as AdminUserSummary[];
+  }
+
+  const userIds = authUsers.map((user) => user.id);
+  const [{ data: profiles, error: profilesError }, { data: subscriptions, error: subscriptionsError }, { data: summaries, error: summariesError }, { data: recentEvents, error: recentEventsError }] =
+    await Promise.all([
+      admin.from('profiles').select('user_id, role, email, created_at, first_name, last_name').in('user_id', userIds),
+      admin.from('subscriptions').select('user_id, status, current_period_end').in('user_id', userIds),
+      admin
+        .from('user_surface_summary')
+        .select('user_id, last_sign_in_platform, last_mobile_sign_in_at, ever_used_web, ever_used_ios, ever_used_android')
+        .in('user_id', userIds),
+      admin
+        .from('user_sign_in_events')
+        .select('user_id, provider, platform, event_type, created_at')
+        .in('user_id', userIds)
+        .order('created_at', { ascending: false })
+    ]);
+
+  if (profilesError) {
+    console.error('admin profiles fetch error', profilesError);
+  }
+  if (subscriptionsError) {
+    console.error('admin subscriptions fetch error', subscriptionsError);
+  }
+  if (summariesError) {
+    console.error('admin user surface summary fetch error', summariesError);
+  }
+  if (recentEventsError) {
+    console.error('admin sign-in events fetch error', recentEventsError);
+  }
+
+  const profileMap = new Map<
+    string,
+    {
+      role?: string;
+      email?: string | null;
+      created_at?: string | null;
+      first_name?: string | null;
+      last_name?: string | null;
+    }
+  >();
+  (profiles || []).forEach((profile) => {
+    profileMap.set(profile.user_id, {
+      role: profile.role ?? 'user',
+      email: profile.email ?? null,
+      created_at: profile.created_at ?? null,
+      first_name: profile.first_name ?? null,
+      last_name: profile.last_name ?? null
+    });
+  });
+
+  const subscriptionMap = new Map<string, { status?: string | null; current_period_end?: string | null }>();
+  (subscriptions || []).forEach((subscription) => {
+    subscriptionMap.set(subscription.user_id, {
+      status: subscription.status ?? null,
+      current_period_end: subscription.current_period_end ?? null
+    });
+  });
+
+  const summaryMap = new Map<
+    string,
+    {
+      last_sign_in_platform?: string | null;
+      last_mobile_sign_in_at?: string | null;
+      ever_used_web?: boolean | null;
+      ever_used_ios?: boolean | null;
+      ever_used_android?: boolean | null;
+    }
+  >();
+  (summaries || []).forEach((summary) => {
+    summaryMap.set(summary.user_id, {
+      last_sign_in_platform: summary.last_sign_in_platform ?? null,
+      last_mobile_sign_in_at: summary.last_mobile_sign_in_at ?? null,
+      ever_used_web: summary.ever_used_web ?? false,
+      ever_used_ios: summary.ever_used_ios ?? false,
+      ever_used_android: summary.ever_used_android ?? false
+    });
+  });
+
+  const recentEventMap = new Map<string, AdminUserSummary['recent_auth_events']>();
+  (recentEvents || []).forEach((event) => {
+    const entries = recentEventMap.get(event.user_id) ?? [];
+    if (entries.length >= 3) return;
+    entries.push({
+      provider: String(event.provider || 'unknown'),
+      platform: String(event.platform || 'unknown'),
+      event_type: String(event.event_type || 'unknown'),
+      created_at: event.created_at ?? null
+    });
+    recentEventMap.set(event.user_id, entries);
+  });
+
+  return authUsers.map((user) => {
+    const profile = profileMap.get(user.id);
+    const subscription = subscriptionMap.get(user.id);
+    const summary = summaryMap.get(user.id);
+    const isPaid = isSubscriptionActive(subscription);
+    const { providers, primaryProvider } = extractProviders(user);
+    const userMeta = (user.user_metadata || {}) as Record<string, unknown>;
+    const role: AdminUserSummary['role'] = profile?.role === 'admin' ? 'admin' : 'user';
+    const status = role === 'admin' ? 'admin' : isPaid ? 'paid' : 'free';
+    const email = profile?.email ?? user.email ?? null;
+    const firstName = profile?.first_name ?? (typeof userMeta.first_name === 'string' ? userMeta.first_name : null);
+    const lastName = profile?.last_name ?? (typeof userMeta.last_name === 'string' ? userMeta.last_name : null);
+
+    return {
+      user_id: user.id,
+      email,
+      role,
+      created_at: profile?.created_at ?? user.created_at ?? null,
+      last_sign_in_at: user.last_sign_in_at ?? null,
+      banned_until: user.banned_until ?? null,
+      first_name: firstName,
+      last_name: lastName,
+      is_paid: isPaid,
+      status,
+      providers,
+      primary_provider: primaryProvider,
+      platforms: extractPlatforms(summary),
+      last_sign_in_platform: summary?.last_sign_in_platform ?? null,
+      last_mobile_sign_in_at: summary?.last_mobile_sign_in_at ?? null,
+      avatar_url: extractAvatarUrl(user),
+      identity_display_name: extractIdentityDisplayName(user, { first_name: firstName, last_name: lastName }),
+      email_is_private_relay: typeof email === 'string' && email.toLowerCase().endsWith('privaterelay.appleid.com'),
+      recent_auth_events: recentEventMap.get(user.id) ?? []
+    };
+  });
+}
+
+export async function GET(request: Request) {
   if (!isSupabaseConfigured() || !isSupabaseAdminConfigured()) {
     return NextResponse.json({ error: 'supabase_not_configured' }, { status: 503 });
   }
@@ -49,79 +315,51 @@ export async function GET() {
   const { data: profile } = await supabase.from('profiles').select('role').eq('user_id', user.id).maybeSingle();
   if (profile?.role !== 'admin') return NextResponse.json({ error: 'forbidden' }, { status: 403 });
 
+  const params = Object.fromEntries(new URL(request.url).searchParams.entries());
+  const parsedQuery = querySchema.safeParse(params);
+  if (!parsedQuery.success) {
+    return NextResponse.json({ error: 'invalid_query', detail: parsedQuery.error.flatten() }, { status: 400 });
+  }
+
+  const filters = parsedQuery.data;
   const admin = createSupabaseAdminClient();
-  const { data: usersData, error: usersError } = await admin.auth.admin.listUsers({ perPage: 200, page: 1 });
-  if (usersError || !usersData) {
-    console.error('admin users list error', usersError);
-    return NextResponse.json({ error: 'failed_to_load' }, { status: 500 });
-  }
+  const matchedUsers: AdminUserSummary[] = [];
+  const scanPerPage = Math.max(filters.perPage, 50);
+  const requiredMatches = filters.page * filters.perPage;
+  let scanPage = 1;
+  let hasSourceMore = true;
 
-  const userIds = usersData.users.map((u) => u.id);
-  const { data: profiles, error: profilesError } = await admin
-    .from('profiles')
-    .select('user_id, role, email, created_at, first_name, last_name')
-    .in('user_id', userIds);
-  if (profilesError) {
-    console.error('admin profiles fetch error', profilesError);
-  }
-
-  const { data: subscriptions, error: subscriptionsError } = await admin
-    .from('subscriptions')
-    .select('user_id, status, current_period_end')
-    .in('user_id', userIds);
-  if (subscriptionsError) {
-    console.error('admin subscriptions fetch error', subscriptionsError);
-  }
-
-  const profileMap = new Map<
-    string,
-    {
-      role?: string;
-      email?: string | null;
-      created_at?: string | null;
-      first_name?: string | null;
-      last_name?: string | null;
+  while (hasSourceMore && matchedUsers.length < requiredMatches) {
+    const { data: usersData, error: usersError } = await admin.auth.admin.listUsers({ perPage: scanPerPage, page: scanPage });
+    if (usersError || !usersData) {
+      console.error('admin users list error', usersError);
+      return NextResponse.json({ error: 'failed_to_load' }, { status: 500 });
     }
-  >();
-  (profiles || []).forEach((p) => {
-    profileMap.set(p.user_id, {
-      role: p.role ?? 'user',
-      email: p.email ?? null,
-      created_at: p.created_at ?? null,
-      first_name: p.first_name ?? null,
-      last_name: p.last_name ?? null
-    });
-  });
 
-  const subscriptionMap = new Map<string, { status?: string | null; current_period_end?: string | null }>();
-  (subscriptions || []).forEach((sub) => {
-    subscriptionMap.set(sub.user_id, { status: sub.status ?? null, current_period_end: sub.current_period_end ?? null });
-  });
+    const batchUsers = await loadAdminUserBatch(admin, usersData.users as AdminAuthUser[]);
+    matchedUsers.push(...batchUsers.filter((candidate) => matchesQueryFilter(candidate, filters)));
 
-  const users = usersData.users.map((u) => {
-    const profile = profileMap.get(u.id);
-    const subscription = subscriptionMap.get(u.id);
-    const isPaid = isSubscriptionActive(subscription);
-    const meta = (u.user_metadata || {}) as Record<string, any>;
-    const firstName = profile?.first_name ?? (typeof meta.first_name === 'string' ? meta.first_name : null);
-    const lastName = profile?.last_name ?? (typeof meta.last_name === 'string' ? meta.last_name : null);
-    const role = profile?.role === 'admin' ? 'admin' : 'user';
-    const status = role === 'admin' ? 'admin' : isPaid ? 'paid' : 'free';
-    return {
-      user_id: u.id,
-      email: profile?.email ?? u.email ?? null,
-      role,
-      created_at: profile?.created_at ?? u.created_at ?? null,
-      last_sign_in_at: u.last_sign_in_at ?? null,
-      banned_until: (u as { banned_until?: string | null }).banned_until ?? null,
-      first_name: firstName,
-      last_name: lastName,
-      is_paid: isPaid,
-      status
-    };
-  });
+    hasSourceMore = usersData.users.length === scanPerPage;
+    scanPage += 1;
 
-  return NextResponse.json({ users }, { headers: { 'Cache-Control': 'private, no-store' } });
+    if (scanPage > 25) {
+      break;
+    }
+  }
+
+  const startIndex = (filters.page - 1) * filters.perPage;
+  const users = matchedUsers.slice(startIndex, startIndex + filters.perPage);
+  const hasMore = matchedUsers.length > startIndex + filters.perPage || hasSourceMore;
+
+  return NextResponse.json(
+    {
+      users,
+      page: filters.page,
+      perPage: filters.perPage,
+      hasMore
+    },
+    { headers: { 'Cache-Control': 'private, no-store' } }
+  );
 }
 
 export async function POST(request: Request) {

@@ -1,0 +1,5 @@
+
+> tminuszero@0.1.0 check:three-platform:boundaries
+> node scripts/three-platform-boundary-check.cjs
+
+three-platform-boundary-check: ok (packages, apps/mobile)

@@ -1,0 +1,18 @@
+
+> tminuszero@0.1.0 type-check:ci
+> turbo run type-check:ci --filter=@tminuszero/web
+
+• Packages in scope: @tminuszero/web
+• Running type-check:ci in 1 packages
+• Remote caching disabled
+@tminuszero/web:type-check:ci: cache miss, executing e2d512e6a54c9872
+@tminuszero/web:type-check:ci: 
+@tminuszero/web:type-check:ci: > @tminuszero/web@0.0.0 type-check:ci
+@tminuszero/web:type-check:ci: > node -e "require('fs').mkdirSync('.next/cache/tsc',{recursive:true})" && tsc --noEmit -p tsconfig.json --pretty false
+@tminuszero/web:type-check:ci: 
+
+ Tasks:    1 successful, 1 total
+Cached:    0 cached, 1 total
+  Time:    11.678s 
+
+• turbo 2.8.14

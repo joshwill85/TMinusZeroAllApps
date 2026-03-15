@@ -2,33 +2,21 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { buildAuthHref, buildPrivacyChoicesHref, buildProfileHref } from '@tminuszero/navigation';
 import { getBrowserClient } from '@/lib/api/supabase';
+import { applyGuestViewerState, fetchAccountExport, useDeleteAccountMutation, usePrivacyPreferencesQuery, useProfileQuery, useUpdatePrivacyPreferencesMutation, useViewerSessionQuery } from '@/lib/api/queries';
 import { BRAND_NAME, SUPPORT_EMAIL } from '@/lib/brand';
-import { PRIVACY_COOKIES } from '@/lib/privacy/choices';
-import { readCookie, setCookie, deleteCookie } from '@/lib/privacy/clientCookies';
+import { PRIVACY_COOKIES, type PrivacyCookieName } from '@/lib/privacy/choices';
+import { deleteCookie, readCookie, setCookie } from '@/lib/privacy/clientCookies';
+import { ApiClientError } from '@tminuszero/api-client';
 
-type Profile = {
-  user_id: string;
-  email: string | null;
-  first_name?: string | null;
-  last_name?: string | null;
+type PrivacyPreferenceUpdates = {
+  optOutSaleShare?: boolean;
+  limitSensitive?: boolean;
+  blockThirdPartyEmbeds?: boolean;
+  gpcEnabled?: boolean;
 };
-
-type AccountPrivacyPreferences = {
-  opt_out_sale_share: boolean;
-  limit_sensitive: boolean;
-  block_third_party_embeds: boolean;
-  gpc_enabled: boolean;
-  created_at?: string | null;
-  updated_at?: string | null;
-};
-
-type AccountPrivacyPreferencesUpdate = Partial<
-  Pick<
-    AccountPrivacyPreferences,
-    'opt_out_sale_share' | 'limit_sensitive' | 'block_third_party_embeds' | 'gpc_enabled'
-  >
->;
 
 function isGpcEnabled() {
   if (typeof navigator === 'undefined') return false;
@@ -43,27 +31,57 @@ function readCookiePreferences() {
   };
 }
 
+function syncCookiePreference(name: PrivacyCookieName, enabled: boolean) {
+  if (enabled) setCookie(name, '1');
+  else deleteCookie(name);
+}
+
+function toMessage(error: unknown, fallback: string) {
+  if (error instanceof ApiClientError) {
+    if (error.code === 'unauthorized') return 'Sign in to manage account privacy preferences.';
+    if (error.code === 'supabase_not_configured') return 'Account features are unavailable in this environment.';
+    if (error.code === 'no_changes') return 'No changes to save.';
+  }
+  return error instanceof Error ? error.message : fallback;
+}
+
 export function PrivacyChoicesClient() {
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [authStatus, setAuthStatus] = useState<'loading' | 'authed' | 'guest'>('loading');
+  const queryClient = useQueryClient();
+  const viewerSessionQuery = useViewerSessionQuery();
+  const profileQuery = useProfileQuery();
+  const privacyPreferencesQuery = usePrivacyPreferencesQuery();
+  const updatePrivacyPreferencesMutation = useUpdatePrivacyPreferencesMutation();
+  const deleteAccountMutation = useDeleteAccountMutation();
   const [exporting, setExporting] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState('');
+  const [deleting, setDeleting] = useState(false);
   const [requestMessage, setRequestMessage] = useState<string | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [prefsMessage, setPrefsMessage] = useState<string | null>(null);
   const [prefsError, setPrefsError] = useState<string | null>(null);
-
-  const gpcEnabled = useMemo(() => isGpcEnabled(), []);
-
   const [optOutSaleShare, setOptOutSaleShare] = useState(false);
   const [limitSensitive, setLimitSensitive] = useState(false);
   const [blockEmbeds, setBlockEmbeds] = useState(false);
 
+  const gpcEnabled = useMemo(() => isGpcEnabled(), []);
+  const authStatus: 'loading' | 'authed' | 'guest' =
+    viewerSessionQuery.isPending && !viewerSessionQuery.data
+      ? 'loading'
+      : viewerSessionQuery.data?.viewerId
+        ? 'authed'
+        : 'guest';
+
+  const signedInLabel = useMemo(() => {
+    const profile = profileQuery.data;
+    const displayName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ');
+    return displayName || profile?.email || viewerSessionQuery.data?.email || 'your account';
+  }, [profileQuery.data, viewerSessionQuery.data?.email]);
+  const signInHref = buildAuthHref('sign-in', { returnTo: buildPrivacyChoicesHref() });
+  const accountHref = buildProfileHref();
+
   const saveAccountPreferences = useCallback(
-    async (updates: AccountPrivacyPreferencesUpdate, options?: { silent?: boolean }) => {
-      if (authStatus !== 'authed') return;
-      if (Object.keys(updates).length === 0) return;
+    async (updates: PrivacyPreferenceUpdates, options?: { silent?: boolean }) => {
+      if (authStatus !== 'authed' || Object.keys(updates).length === 0) return;
 
       const silent = options?.silent ?? false;
       if (!silent) {
@@ -72,57 +90,21 @@ export function PrivacyChoicesClient() {
       }
 
       try {
-        const res = await fetch('/api/me/privacy/preferences', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updates)
-        });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          const code = json?.error || 'failed_to_save';
-          if (code === 'unauthorized') throw new Error('Sign in to save preferences to your account.');
-          throw new Error(code);
+        await updatePrivacyPreferencesMutation.mutateAsync(updates);
+        if (!silent) {
+          setPrefsMessage('Saved.');
         }
-        if (!silent) setPrefsMessage('Saved.');
-      } catch (err: any) {
-        if (!silent) setPrefsError(err?.message || 'Unable to save preferences.');
+      } catch (error) {
+        if (!silent) {
+          setPrefsError(toMessage(error, 'Unable to save preferences.'));
+        }
       }
     },
-    [authStatus]
+    [authStatus, updatePrivacyPreferencesMutation]
   );
 
   useEffect(() => {
-    let active = true;
-    fetch('/api/me/profile', { cache: 'no-store' })
-      .then(async (res) => {
-        if (!res.ok) return null;
-        const json = await res.json().catch(() => ({}));
-        return (json.profile as Profile | null) || null;
-      })
-      .then((data) => {
-        if (!active) return;
-        if (data) {
-          setProfile(data);
-          setAuthStatus('authed');
-        } else {
-          setProfile(null);
-          setAuthStatus('guest');
-        }
-      })
-      .catch(() => {
-        if (!active) return;
-        setProfile(null);
-        setAuthStatus('guest');
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
     const cookiePrefs = readCookiePreferences();
-
     setOptOutSaleShare(cookiePrefs.optOutSaleShare);
     setLimitSensitive(cookiePrefs.limitSensitive);
     setBlockEmbeds(cookiePrefs.blockEmbeds);
@@ -135,80 +117,52 @@ export function PrivacyChoicesClient() {
   }, [gpcEnabled]);
 
   useEffect(() => {
-    if (authStatus !== 'authed') return;
-    let active = true;
+    if (authStatus !== 'authed' || !privacyPreferencesQuery.data) return;
 
-    const load = async () => {
-      try {
-        const res = await fetch('/api/me/privacy/preferences', { cache: 'no-store' });
-        const json = await res.json().catch(() => ({}));
-        if (!active) return;
-        if (!res.ok) return;
+    const cookiePrefs = readCookiePreferences();
+    const accountPrefs = privacyPreferencesQuery.data;
+    const nextSaleShare = gpcEnabled || cookiePrefs.optOutSaleShare || accountPrefs.optOutSaleShare;
+    const nextSensitive = cookiePrefs.limitSensitive || accountPrefs.limitSensitive;
+    const nextEmbeds = cookiePrefs.blockEmbeds || accountPrefs.blockThirdPartyEmbeds;
 
-        const account = (json.preferences as AccountPrivacyPreferences | null) || null;
-        const cookiePrefs = readCookiePreferences();
+    setOptOutSaleShare(nextSaleShare);
+    setLimitSensitive(nextSensitive);
+    setBlockEmbeds(nextEmbeds);
 
-        const nextSaleShare = gpcEnabled || cookiePrefs.optOutSaleShare || Boolean(account?.opt_out_sale_share);
-        const nextSensitive = cookiePrefs.limitSensitive || Boolean(account?.limit_sensitive);
-        const nextEmbeds = cookiePrefs.blockEmbeds || Boolean(account?.block_third_party_embeds);
+    syncCookiePreference(PRIVACY_COOKIES.optOutSaleShare, nextSaleShare);
+    syncCookiePreference(PRIVACY_COOKIES.limitSensitive, nextSensitive);
+    syncCookiePreference(PRIVACY_COOKIES.blockEmbeds, nextEmbeds);
 
-        setOptOutSaleShare(nextSaleShare);
-        setLimitSensitive(nextSensitive);
-        setBlockEmbeds(nextEmbeds);
-
-        if (nextSaleShare) setCookie(PRIVACY_COOKIES.optOutSaleShare, '1');
-        else deleteCookie(PRIVACY_COOKIES.optOutSaleShare);
-        if (nextSensitive) setCookie(PRIVACY_COOKIES.limitSensitive, '1');
-        else deleteCookie(PRIVACY_COOKIES.limitSensitive);
-        if (nextEmbeds) setCookie(PRIVACY_COOKIES.blockEmbeds, '1');
-        else deleteCookie(PRIVACY_COOKIES.blockEmbeds);
-
-        const promote: AccountPrivacyPreferencesUpdate = {};
-        if (nextSaleShare && !account?.opt_out_sale_share) promote.opt_out_sale_share = true;
-        if (nextSensitive && !account?.limit_sensitive) promote.limit_sensitive = true;
-        if (nextEmbeds && !account?.block_third_party_embeds) promote.block_third_party_embeds = true;
-        if (gpcEnabled && !account?.gpc_enabled) promote.gpc_enabled = true;
-        if (Object.keys(promote).length > 0) void saveAccountPreferences(promote, { silent: true });
-      } catch {
-        return;
-      }
-    };
-
-    void load();
-    return () => {
-      active = false;
-    };
-  }, [authStatus, gpcEnabled, saveAccountPreferences]);
-
-  const displayName = [profile?.first_name, profile?.last_name].filter(Boolean).join(' ');
-  const signedInLabel = displayName || profile?.email || 'your account';
+    const promote: PrivacyPreferenceUpdates = {};
+    if (nextSaleShare && !accountPrefs.optOutSaleShare) promote.optOutSaleShare = true;
+    if (nextSensitive && !accountPrefs.limitSensitive) promote.limitSensitive = true;
+    if (nextEmbeds && !accountPrefs.blockThirdPartyEmbeds) promote.blockThirdPartyEmbeds = true;
+    if (gpcEnabled && !accountPrefs.gpcEnabled) promote.gpcEnabled = true;
+    if (Object.keys(promote).length > 0) {
+      void saveAccountPreferences(promote, { silent: true });
+    }
+  }, [authStatus, gpcEnabled, privacyPreferencesQuery.data, saveAccountPreferences]);
 
   async function downloadExport() {
     setExporting(true);
     setRequestMessage(null);
     setRequestError(null);
-    try {
-      const res = await fetch('/api/me/export', { cache: 'no-store' });
-      const json = await res.json().catch(() => null);
-      if (!res.ok) {
-        const code = (json as any)?.error || 'export_failed';
-        if (code === 'unauthorized') throw new Error('Sign in to download your data.');
-        throw new Error(code);
-      }
 
-      const blob = new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' });
+    try {
+      const payload = await fetchAccountExport(queryClient);
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      const anchor = document.createElement('a');
       const date = new Date().toISOString().slice(0, 10);
-      a.href = url;
-      a.download = `tminuszero-data-export-${date}.json`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      anchor.href = url;
+      anchor.download = `tminuszero-data-export-${date}.json`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
       URL.revokeObjectURL(url);
       setRequestMessage('Export downloaded.');
-    } catch (err: any) {
-      setRequestError(err?.message || 'Export failed');
+    } catch (error) {
+      setRequestError(toMessage(error, 'Export failed'));
     } finally {
       setExporting(false);
     }
@@ -218,31 +172,30 @@ export function PrivacyChoicesClient() {
     setDeleting(true);
     setRequestMessage(null);
     setRequestError(null);
-    try {
-      const res = await fetch('/api/me/account/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirm: deleteConfirm })
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const code = json?.error || 'delete_failed';
-        if (code === 'confirm_required') throw new Error('Type DELETE to confirm.');
-        if (code === 'unauthorized') throw new Error('Sign in to delete your account.');
-        if (code === 'active_subscription') {
-          throw new Error('You have an active subscription and we could not cancel renewal automatically. Cancel billing first, then delete your account.');
-        }
-        throw new Error(code);
-      }
 
+    try {
+      await deleteAccountMutation.mutateAsync(deleteConfirm);
       const supabase = getBrowserClient();
       await supabase?.auth.signOut().catch(() => undefined);
+      applyGuestViewerState(queryClient);
       setRequestMessage('Account deleted.');
-      setProfile(null);
-      setAuthStatus('guest');
       setDeleteConfirm('');
-    } catch (err: any) {
-      setRequestError(err?.message || 'Delete failed');
+    } catch (error) {
+      if (error instanceof ApiClientError) {
+        if (error.code === 'confirm_required') {
+          setRequestError('Type DELETE to confirm.');
+        } else if (error.code === 'unauthorized') {
+          setRequestError('Sign in to delete your account.');
+        } else if (error.code === 'active_subscription') {
+          setRequestError(
+            'You have an active subscription and we could not cancel renewal automatically. Cancel billing first, then delete your account.'
+          );
+        } else {
+          setRequestError(error.code || 'Delete failed');
+        }
+      } else {
+        setRequestError(toMessage(error, 'Delete failed'));
+      }
     } finally {
       setDeleting(false);
     }
@@ -253,7 +206,7 @@ export function PrivacyChoicesClient() {
       <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
         <h2 className="text-lg font-semibold text-text1">Privacy Preferences</h2>
         <p className="mt-1 text-sm text-text3">
-          The current build does not “sell” or “share” personal information. These preferences are provided to support state privacy opt‑outs and to prepare for future optional
+          The current build does not “sell” or “share” personal information. These preferences are provided to support state privacy opt-outs and to prepare for future optional
           features.
         </p>
         <p className="mt-2 text-sm text-text3">
@@ -261,7 +214,7 @@ export function PrivacyChoicesClient() {
         </p>
         {gpcEnabled && (
           <div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
-            Your browser’s Global Privacy Control (GPC) signal is enabled. We treat this as an opt‑out of sale/sharing where applicable.
+            Your browser’s Global Privacy Control (GPC) signal is enabled. We treat this as an opt-out of sale/sharing where applicable.
           </div>
         )}
 
@@ -272,37 +225,34 @@ export function PrivacyChoicesClient() {
             disabled={gpcEnabled}
             onChange={(checked) => {
               setOptOutSaleShare(checked);
-              if (checked) setCookie(PRIVACY_COOKIES.optOutSaleShare, '1');
-              else deleteCookie(PRIVACY_COOKIES.optOutSaleShare);
+              syncCookiePreference(PRIVACY_COOKIES.optOutSaleShare, checked);
               setPrefsMessage(null);
               setPrefsError(null);
-              void saveAccountPreferences({ opt_out_sale_share: checked });
+              void saveAccountPreferences({ optOutSaleShare: checked });
             }}
-            helper="If we ever engage in “sale” or “sharing” as defined by certain state laws, this opt‑out will be applied."
+            helper="If we ever engage in “sale” or “sharing” as defined by certain state laws, this opt-out will be applied."
           />
           <Toggle
             label="Limit use of sensitive personal information"
             checked={limitSensitive}
             onChange={(checked) => {
               setLimitSensitive(checked);
-              if (checked) setCookie(PRIVACY_COOKIES.limitSensitive, '1');
-              else deleteCookie(PRIVACY_COOKIES.limitSensitive);
+              syncCookiePreference(PRIVACY_COOKIES.limitSensitive, checked);
               setPrefsMessage(null);
               setPrefsError(null);
-              void saveAccountPreferences({ limit_sensitive: checked });
+              void saveAccountPreferences({ limitSensitive: checked });
             }}
             helper="We only use sensitive data as needed to run the Service (authentication, security, billing). This preference is provided for state-law “limit” choices."
           />
           <Toggle
-            label="Block third‑party video embeds (YouTube/Vimeo)"
+            label="Block third-party video embeds (YouTube/Vimeo)"
             checked={blockEmbeds}
             onChange={(checked) => {
               setBlockEmbeds(checked);
-              if (checked) setCookie(PRIVACY_COOKIES.blockEmbeds, '1');
-              else deleteCookie(PRIVACY_COOKIES.blockEmbeds);
+              syncCookiePreference(PRIVACY_COOKIES.blockEmbeds, checked);
               setPrefsMessage(null);
               setPrefsError(null);
-              void saveAccountPreferences({ block_third_party_embeds: checked });
+              void saveAccountPreferences({ blockThirdPartyEmbeds: checked });
             }}
             helper="When enabled, embedded video players are disabled and you can use the external stream link instead."
           />
@@ -322,10 +272,10 @@ export function PrivacyChoicesClient() {
             setPrefsError(null);
             void saveAccountPreferences(
               {
-                opt_out_sale_share: false,
-                limit_sensitive: false,
-                block_third_party_embeds: false,
-                gpc_enabled: false
+                optOutSaleShare: false,
+                limitSensitive: false,
+                blockThirdPartyEmbeds: false,
+                gpcEnabled: false
               },
               { silent: true }
             );
@@ -342,7 +292,7 @@ export function PrivacyChoicesClient() {
 
       <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
         <h2 className="text-lg font-semibold text-text1">Your Privacy Requests</h2>
-        <p className="mt-1 text-sm text-text3">If you have an account, you can exercise certain rights self‑serve. Otherwise, contact us by email.</p>
+        <p className="mt-1 text-sm text-text3">If you have an account, you can exercise certain rights self-serve. Otherwise, contact us by email.</p>
 
         {authStatus === 'loading' ? (
           <div className="mt-3 text-sm text-text3">Loading…</div>
@@ -350,7 +300,7 @@ export function PrivacyChoicesClient() {
           <div className="mt-3 space-y-2 text-sm text-text2">
             <div>
               Sign in to download or delete your account data:{' '}
-              <Link className="text-primary hover:underline" href="/auth/sign-in">
+              <Link className="text-primary hover:underline" href={signInHref}>
                 Sign in
               </Link>
               .
@@ -367,14 +317,14 @@ export function PrivacyChoicesClient() {
           <div className="mt-3 space-y-4">
             <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3 text-sm text-text2">
               Signed in as <span className="text-text1">{signedInLabel}</span>. Manage and correct account profile details on{' '}
-              <Link className="text-primary hover:underline" href="/account">
+              <Link className="text-primary hover:underline" href={accountHref}>
                 Account
               </Link>
               .
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <button type="button" className="btn rounded-lg px-4 py-2 text-sm" onClick={downloadExport} disabled={exporting}>
+              <button type="button" className="btn rounded-lg px-4 py-2 text-sm" onClick={() => void downloadExport()} disabled={exporting}>
                 {exporting ? 'Preparing…' : 'Download my data'}
               </button>
               <a className="btn-secondary rounded-lg px-4 py-2 text-sm" href="/legal/privacy" aria-label="Privacy Notice">
@@ -393,12 +343,12 @@ export function PrivacyChoicesClient() {
                   className="flex-1 rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
                   placeholder="Type DELETE to confirm"
                   value={deleteConfirm}
-                  onChange={(e) => setDeleteConfirm(e.target.value)}
+                  onChange={(event) => setDeleteConfirm(event.target.value)}
                 />
                 <button
                   type="button"
                   className="btn-secondary rounded-lg px-4 py-2 text-sm"
-                  onClick={deleteAccount}
+                  onClick={() => void deleteAccount()}
                   disabled={deleting || deleteConfirm.trim().toUpperCase() !== 'DELETE'}
                 >
                   {deleting ? 'Deleting…' : 'Delete my account'}
@@ -406,7 +356,7 @@ export function PrivacyChoicesClient() {
               </div>
               <div className="mt-2 text-xs text-text3">
                 If you have an active subscription, we will try to cancel renewal before deletion. If that fails, cancel billing first in{' '}
-                <Link className="text-primary hover:underline" href="/account">
+                <Link className="text-primary hover:underline" href={accountHref}>
                   Account
                 </Link>
                 .
@@ -446,7 +396,7 @@ function Toggle({
         className="mt-1 h-4 w-4 rounded border-stroke bg-surface-0"
         checked={checked}
         disabled={disabled}
-        onChange={(e) => onChange(e.target.checked)}
+        onChange={(event) => onChange(event.target.checked)}
       />
     </label>
   );

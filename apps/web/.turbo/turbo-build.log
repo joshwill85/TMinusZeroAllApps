@@ -12,303 +12,161 @@
    Collecting page data ...
  ⚠ Using edge runtime on a page currently disables static generation for that page
    Generating static pages (0/90) ...
+cookie viewer session resolution failed n [Error]: Dynamic server usage: Route /api/live/launches/changed couldn't be rendered statically because it used `cookies`. See more info here: https://nextjs.org/docs/messages/dynamic-server-error
+    at l (/Users/petpawlooza/TMinusZero AllApps/apps/web/.next/server/chunks/4522.js:1:37219)
+    at u (/Users/petpawlooza/TMinusZero AllApps/apps/web/.next/server/chunks/1920.js:56:50534)
+    at _ (/Users/petpawlooza/TMinusZero AllApps/apps/web/.next/server/app/api/webhooks/stripe/route.js:1:14808)
+    at u (/Users/petpawlooza/TMinusZero AllApps/apps/web/.next/server/chunks/3630.js:9:18118)
+    at d (/Users/petpawlooza/TMinusZero AllApps/apps/web/.next/server/chunks/2352.js:1:1342)
+    at s (/Users/petpawlooza/TMinusZero AllApps/apps/web/.next/server/app/api/live/launches/[id]/version/route.js:1:8328)
+    at P (/Users/petpawlooza/TMinusZero AllApps/apps/web/.next/server/app/api/live/launches/changed/route.js:1:1521)
+    at /Users/petpawlooza/TMinusZero AllApps/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:38417
+    at /Users/petpawlooza/TMinusZero AllApps/node_modules/next/dist/server/lib/trace/tracer.js:140:36
+    at NoopContextManager.with (/Users/petpawlooza/TMinusZero AllApps/node_modules/next/dist/compiled/@opentelemetry/api/index.js:1:7062) {
+  description: "Route /api/live/launches/changed couldn't be rendered statically because it used `cookies`. See more info here: https://nextjs.org/docs/messages/dynamic-server-error",
+  digest: 'DYNAMIC_SERVER_USAGE'
+}
    Generating static pages (22/90) 
    Generating static pages (44/90) 
    Generating static pages (67/90) 
 [TMZ][BlueOriginHub][Server] timings [
   {
     phase: 'fetch',
-    step: 'fetchProgramContractDiscoveryPage',
-    ms: 20.86,
-    status: 'ok',
-    detail: null
-  },
-  {
-    phase: 'fetch',
-    step: 'fetchBlueOriginProgramSnapshot',
-    ms: 24.14,
+    step: 'fetchBlueOriginPassengersDatabaseOnly',
+    ms: 17.84,
     status: 'ok',
     detail: null
   },
   {
     phase: 'fetch',
     step: 'fetchBlueOriginContracts',
-    ms: 23.19,
+    ms: 107,
     status: 'ok',
     detail: null
   },
   {
     phase: 'fetch',
-    step: 'fetchBlueOriginPassengersDatabaseOnly',
-    ms: 23.12,
+    step: 'fetchProgramContractDiscoveryPage',
+    ms: 109.34,
     status: 'ok',
     detail: null
   },
   {
     phase: 'fetch',
     step: 'fetchBlueOriginVehicles',
-    ms: 14.59,
+    ms: 106.78,
     status: 'ok',
     detail: null
   },
   {
     phase: 'fetch',
     step: 'fetchBlueOriginEngines',
-    ms: 14.13,
-    status: 'ok',
-    detail: null
-  },
-  {
-    phase: 'fetch',
-    step: 'fetchBlueOriginPayloads',
-    ms: 41.73,
-    status: 'ok',
-    detail: null
-  },
-  {
-    phase: 'fetch',
-    step: 'fetchBlueOriginTimelineViewModel',
-    ms: 51.08,
+    ms: 105.67,
     status: 'ok',
     detail: null
   },
   {
     phase: 'fetch',
     step: 'fetchBlueOriginAuditTrailPage',
-    ms: 33.45,
+    ms: 125.3,
+    status: 'ok',
+    detail: null
+  },
+  {
+    phase: 'fetch',
+    step: 'fetchBlueOriginProgramSnapshot',
+    ms: 145.03,
     status: 'ok',
     detail: null
   },
   {
     phase: 'fetch',
     step: 'fetchBlueOriginYouTubeVideos',
-    ms: 162.34,
+    ms: 140.78,
+    status: 'ok',
+    detail: null
+  },
+  {
+    phase: 'fetch',
+    step: 'fetchBlueOriginPayloads',
+    ms: 145.24,
+    status: 'ok',
+    detail: null
+  },
+  {
+    phase: 'fetch',
+    step: 'fetchBlueOriginTimelineViewModel',
+    ms: 146.41,
     status: 'ok',
     detail: null
   },
   {
     phase: 'fetch',
     step: 'fetchBlueOriginMediaImages',
-    ms: 163.91,
+    ms: 140.32,
     status: 'ok',
     detail: null
   },
   {
     phase: 'fetch',
     step: 'fetchBlueOriginSocialPosts',
-    ms: 338.53,
+    ms: 265.89,
     status: 'ok',
     detail: null
   },
   {
     phase: 'transform',
     step: 'assembleLaunchRows',
-    ms: 0.15,
+    ms: 0.07,
     status: 'ok',
     detail: null
   },
   {
     phase: 'fetch',
     step: 'fetchBlueOriginManifestFactsByLaunchIds',
-    ms: 0.38,
+    ms: 0.23,
     status: 'ok',
     detail: null
   },
   {
     phase: 'fetch',
     step: 'fetchBlueOriginManifestLl2PayloadDataByLaunches',
-    ms: 0.22,
+    ms: 0.17,
     status: 'ok',
     detail: null
   },
   {
     phase: 'fetch',
     step: 'fetchBlueOriginManifestLl2SpacecraftFlightsByLaunches',
-    ms: 0.05,
+    ms: 0.04,
     status: 'ok',
     detail: null
   },
   {
     phase: 'transform',
     step: 'buildManifestCarouselItems',
-    ms: 0.55,
-    status: 'ok',
-    detail: null
-  },
-  {
-    phase: 'transform',
-    step: 'buildHardwareItems',
-    ms: 0.12,
-    status: 'ok',
-    detail: null
-  },
-  {
-    phase: 'transform',
-    step: 'buildProcurementEntries',
-    ms: 0.01,
-    status: 'ok',
-    detail: null
-  },
-  {
-    phase: 'transform',
-    step: 'buildSignalEntries',
-    ms: 0.97,
-    status: 'ok',
-    detail: null
-  },
-  {
-    phase: 'transform',
-    step: 'buildMediaItems',
     ms: 0.29,
     status: 'ok',
     detail: null
   },
   {
-    phase: 'server-total',
-    step: 'blueOriginProgramPage',
-    ms: 351.35,
-    status: 'ok',
-    detail: null
-  }
-]
-[TMZ][BlueOriginHub][Server] timings [
-  {
-    phase: 'fetch',
-    step: 'fetchProgramContractDiscoveryPage',
-    ms: 1.4,
-    status: 'ok',
-    detail: null
-  },
-  {
-    phase: 'fetch',
-    step: 'fetchBlueOriginProgramSnapshot',
-    ms: 1.47,
-    status: 'ok',
-    detail: null
-  },
-  {
-    phase: 'fetch',
-    step: 'fetchBlueOriginContracts',
-    ms: 1.43,
-    status: 'ok',
-    detail: null
-  },
-  {
-    phase: 'fetch',
-    step: 'fetchBlueOriginPassengersDatabaseOnly',
-    ms: 1.42,
-    status: 'ok',
-    detail: null
-  },
-  {
-    phase: 'fetch',
-    step: 'fetchBlueOriginVehicles',
-    ms: 1.4,
-    status: 'ok',
-    detail: null
-  },
-  {
-    phase: 'fetch',
-    step: 'fetchBlueOriginEngines',
-    ms: 1.39,
-    status: 'ok',
-    detail: null
-  },
-  {
-    phase: 'fetch',
-    step: 'fetchBlueOriginPayloads',
-    ms: 4.91,
-    status: 'ok',
-    detail: null
-  },
-  {
-    phase: 'fetch',
-    step: 'fetchBlueOriginTimelineViewModel',
-    ms: 5.3,
-    status: 'ok',
-    detail: null
-  },
-  {
-    phase: 'fetch',
-    step: 'fetchBlueOriginAuditTrailPage',
-    ms: 4.85,
-    status: 'ok',
-    detail: null
-  },
-  {
-    phase: 'fetch',
-    step: 'fetchBlueOriginYouTubeVideos',
-    ms: 120.69,
-    status: 'ok',
-    detail: null
-  },
-  {
-    phase: 'fetch',
-    step: 'fetchBlueOriginMediaImages',
-    ms: 123.43,
-    status: 'ok',
-    detail: null
-  },
-  {
-    phase: 'fetch',
-    step: 'fetchBlueOriginSocialPosts',
-    ms: 342.26,
-    status: 'ok',
-    detail: null
-  },
-  {
-    phase: 'transform',
-    step: 'assembleLaunchRows',
-    ms: 0,
-    status: 'ok',
-    detail: null
-  },
-  {
-    phase: 'fetch',
-    step: 'fetchBlueOriginManifestFactsByLaunchIds',
-    ms: 0.01,
-    status: 'ok',
-    detail: null
-  },
-  {
-    phase: 'fetch',
-    step: 'fetchBlueOriginManifestLl2PayloadDataByLaunches',
-    ms: 0.01,
-    status: 'ok',
-    detail: null
-  },
-  {
-    phase: 'fetch',
-    step: 'fetchBlueOriginManifestLl2SpacecraftFlightsByLaunches',
-    ms: 0.01,
-    status: 'ok',
-    detail: null
-  },
-  {
-    phase: 'transform',
-    step: 'buildManifestCarouselItems',
-    ms: 0.03,
-    status: 'ok',
-    detail: null
-  },
-  {
     phase: 'transform',
     step: 'buildHardwareItems',
-    ms: 0.03,
+    ms: 0.07,
     status: 'ok',
     detail: null
   },
   {
     phase: 'transform',
     step: 'buildProcurementEntries',
-    ms: 0,
+    ms: 0.01,
     status: 'ok',
     detail: null
   },
   {
     phase: 'transform',
     step: 'buildSignalEntries',
-    ms: 0.2,
+    ms: 0.29,
     status: 'ok',
     detail: null
   },
@@ -322,7 +180,163 @@
   {
     phase: 'server-total',
     step: 'blueOriginProgramPage',
-    ms: 342.73,
+    ms: 271.99,
+    status: 'ok',
+    detail: null
+  }
+]
+[TMZ][BlueOriginHub][Server] timings [
+  {
+    phase: 'fetch',
+    step: 'fetchBlueOriginPassengersDatabaseOnly',
+    ms: 7.96,
+    status: 'ok',
+    detail: null
+  },
+  {
+    phase: 'fetch',
+    step: 'fetchBlueOriginContracts',
+    ms: 84.87,
+    status: 'ok',
+    detail: null
+  },
+  {
+    phase: 'fetch',
+    step: 'fetchProgramContractDiscoveryPage',
+    ms: 88.65,
+    status: 'ok',
+    detail: null
+  },
+  {
+    phase: 'fetch',
+    step: 'fetchBlueOriginVehicles',
+    ms: 85.03,
+    status: 'ok',
+    detail: null
+  },
+  {
+    phase: 'fetch',
+    step: 'fetchBlueOriginEngines',
+    ms: 85.5,
+    status: 'ok',
+    detail: null
+  },
+  {
+    phase: 'fetch',
+    step: 'fetchBlueOriginAuditTrailPage',
+    ms: 108.96,
+    status: 'ok',
+    detail: null
+  },
+  {
+    phase: 'fetch',
+    step: 'fetchBlueOriginProgramSnapshot',
+    ms: 124.39,
+    status: 'ok',
+    detail: null
+  },
+  {
+    phase: 'fetch',
+    step: 'fetchBlueOriginYouTubeVideos',
+    ms: 124.52,
+    status: 'ok',
+    detail: null
+  },
+  {
+    phase: 'fetch',
+    step: 'fetchBlueOriginPayloads',
+    ms: 125.8,
+    status: 'ok',
+    detail: null
+  },
+  {
+    phase: 'fetch',
+    step: 'fetchBlueOriginTimelineViewModel',
+    ms: 126.35,
+    status: 'ok',
+    detail: null
+  },
+  {
+    phase: 'fetch',
+    step: 'fetchBlueOriginMediaImages',
+    ms: 124.67,
+    status: 'ok',
+    detail: null
+  },
+  {
+    phase: 'fetch',
+    step: 'fetchBlueOriginSocialPosts',
+    ms: 307.56,
+    status: 'ok',
+    detail: null
+  },
+  {
+    phase: 'transform',
+    step: 'assembleLaunchRows',
+    ms: 0,
+    status: 'ok',
+    detail: null
+  },
+  {
+    phase: 'fetch',
+    step: 'fetchBlueOriginManifestFactsByLaunchIds',
+    ms: 0.01,
+    status: 'ok',
+    detail: null
+  },
+  {
+    phase: 'fetch',
+    step: 'fetchBlueOriginManifestLl2PayloadDataByLaunches',
+    ms: 0.01,
+    status: 'ok',
+    detail: null
+  },
+  {
+    phase: 'fetch',
+    step: 'fetchBlueOriginManifestLl2SpacecraftFlightsByLaunches',
+    ms: 0.01,
+    status: 'ok',
+    detail: null
+  },
+  {
+    phase: 'transform',
+    step: 'buildManifestCarouselItems',
+    ms: 0.02,
+    status: 'ok',
+    detail: null
+  },
+  {
+    phase: 'transform',
+    step: 'buildHardwareItems',
+    ms: 0.04,
+    status: 'ok',
+    detail: null
+  },
+  {
+    phase: 'transform',
+    step: 'buildProcurementEntries',
+    ms: 0,
+    status: 'ok',
+    detail: null
+  },
+  {
+    phase: 'transform',
+    step: 'buildSignalEntries',
+    ms: 0.12,
+    status: 'ok',
+    detail: null
+  },
+  {
+    phase: 'transform',
+    step: 'buildMediaItems',
+    ms: 0.02,
+    status: 'ok',
+    detail: null
+  },
+  {
+    phase: 'server-total',
+    step: 'blueOriginProgramPage',
+    ms: 312.06,
     status: 'ok',
     detail: null
   }
@@ -331,283 +345,313 @@
    Finalizing page optimization ...
    Collecting build traces ...
 
-Route (app)                                          Size     First Load JS
-┌ ƒ /                                                22.3 kB         216 kB
-├ ○ /_not-found                                      219 B          87.7 kB
-├ ○ /about                                           1.13 kB        88.7 kB
-├ ○ /account                                         9.46 kB         166 kB
-├ ○ /account/integrations                            5.29 kB         102 kB
-├ ○ /account/saved                                   5.05 kB         101 kB
-├ ○ /admin                                           3.58 kB        99.8 kB
-├ ○ /admin/billing                                   2.18 kB        89.7 kB
-├ ○ /admin/coupons                                   2.89 kB        90.4 kB
-├ ○ /admin/feedback                                  1.73 kB        89.3 kB
-├ ○ /admin/ops                                       8.06 kB         104 kB
-├ ○ /admin/ops/metrics                               4.73 kB         101 kB
-├ ○ /admin/ops/trajectory                            6.32 kB         103 kB
-├ ○ /admin/usaspending                               4.86 kB        92.4 kB
-├ ○ /admin/users                                     2.83 kB        90.4 kB
-├ ƒ /api/admin/backfills                             0 B                0 B
-├ ƒ /api/admin/billing                               0 B                0 B
-├ ƒ /api/admin/coupons                               0 B                0 B
-├ ƒ /api/admin/feedback                              0 B                0 B
-├ ƒ /api/admin/ingestion-runs                        0 B                0 B
-├ ƒ /api/admin/metrics/job-io                        0 B                0 B
-├ ƒ /api/admin/metrics/query-io                      0 B                0 B
-├ ƒ /api/admin/metrics/scheduler                     0 B                0 B
-├ ƒ /api/admin/metrics/series                        0 B                0 B
-├ ƒ /api/admin/metrics/summary                       0 B                0 B
-├ ƒ /api/admin/settings                              0 B                0 B
-├ ƒ /api/admin/summary                               0 B                0 B
-├ ƒ /api/admin/sync                                  0 B                0 B
-├ ƒ /api/admin/trajectory/contract/[id]              0 B                0 B
-├ ƒ /api/admin/trajectory/eligible                   0 B                0 B
-├ ƒ /api/admin/trajectory/inspect/[id]               0 B                0 B
-├ ƒ /api/admin/usaspending/reviews                   0 B                0 B
-├ ƒ /api/admin/users                                 0 B                0 B
-├ ƒ /api/artemis/contracts                           0 B                0 B
-├ ƒ /api/artemis/contracts/[piid]/actions            0 B                0 B
-├ ƒ /api/artemis/contracts/[piid]/notices            0 B                0 B
-├ ƒ /api/artemis/contracts/[piid]/spending           0 B                0 B
-├ ƒ /api/billing/cancel                              0 B                0 B
-├ ƒ /api/billing/checkout                            0 B                0 B
-├ ƒ /api/billing/default-payment-method              0 B                0 B
-├ ƒ /api/billing/portal                              0 B                0 B
-├ ƒ /api/billing/resume                              0 B                0 B
-├ ƒ /api/billing/setup-intent                        0 B                0 B
-├ ƒ /api/calendar/[token]                            0 B                0 B
-├ ƒ /api/debug-og/[id]                               0 B                0 B
-├ ƒ /api/embed/next-launch                           0 B                0 B
-├ ƒ /api/feedback                                    0 B                0 B
-├ ƒ /api/filters                                     0 B                0 B
-├ ƒ /api/internal/revalidate/blue-origin             0 B                0 B
-├ ƒ /api/launches/[id]/ics                           0 B                0 B
-├ ƒ /api/launches/[id]/pad-satellite                 0 B                0 B
-├ ƒ /api/launches/ics                                0 B                0 B
-├ ƒ /api/live/launches                               0 B                0 B
-├ ƒ /api/live/launches/[id]/version                  0 B                0 B
-├ ƒ /api/live/launches/changed                       0 B                0 B
-├ ƒ /api/live/launches/version                       0 B                0 B
-├ ƒ /api/me/account/delete                           0 B                0 B
-├ ƒ /api/me/calendar-feeds                           0 B                0 B
-├ ƒ /api/me/calendar-feeds/[id]                      0 B                0 B
-├ ƒ /api/me/calendar-feeds/[id]/rotate               0 B                0 B
-├ ƒ /api/me/calendar-token                           0 B                0 B
-├ ƒ /api/me/embed-token                              0 B                0 B
-├ ƒ /api/me/embed-widgets                            0 B                0 B
-├ ƒ /api/me/embed-widgets/[id]                       0 B                0 B
-├ ƒ /api/me/embed-widgets/[id]/rotate                0 B                0 B
-├ ƒ /api/me/export                                   0 B                0 B
-├ ƒ /api/me/filter-presets                           0 B                0 B
-├ ƒ /api/me/filter-presets/[id]                      0 B                0 B
-├ ƒ /api/me/marketing-email                          0 B                0 B
-├ ƒ /api/me/notifications/launches/[id]              0 B                0 B
-├ ƒ /api/me/notifications/preferences                0 B                0 B
-├ ƒ /api/me/notifications/push/subscribe             0 B                0 B
-├ ƒ /api/me/notifications/push/test                  0 B                0 B
-├ ƒ /api/me/notifications/push/unsubscribe           0 B                0 B
-├ ƒ /api/me/privacy/preferences                      0 B                0 B
-├ ƒ /api/me/profile                                  0 B                0 B
-├ ƒ /api/me/rocket-volatility                        0 B                0 B
-├ ƒ /api/me/rss-feeds                                0 B                0 B
-├ ƒ /api/me/rss-feeds/[id]                           0 B                0 B
-├ ƒ /api/me/rss-feeds/[id]/rotate                    0 B                0 B
-├ ƒ /api/me/subscription                             0 B                0 B
-├ ƒ /api/me/watchlists                               0 B                0 B
-├ ƒ /api/me/watchlists/[id]                          0 B                0 B
-├ ƒ /api/me/watchlists/[id]/launches                 0 B                0 B
-├ ƒ /api/me/watchlists/[id]/rules                    0 B                0 B
-├ ƒ /api/me/watchlists/[id]/rules/[ruleId]           0 B                0 B
-├ ƒ /api/news/stream                                 0 B                0 B
-├ ƒ /api/notifications/sms/inbound                   0 B                0 B
-├ ƒ /api/notifications/sms/verify                    0 B                0 B
-├ ƒ /api/notifications/sms/verify/check              0 B                0 B
-├ ƒ /api/og/launch/[id]                              0 B                0 B
-├ ƒ /api/og/site                                     0 B                0 B
-├ ƒ /api/pad-satellite                               0 B                0 B
-├ ƒ /api/public/ar/runtime-policy                    0 B                0 B
-├ ƒ /api/public/ar/telemetry/session                 0 B                0 B
-├ ƒ /api/public/artemis/content                      0 B                0 B
-├ ƒ /api/public/artemis/evidence                     0 B                0 B
-├ ƒ /api/public/artemis/timeline                     0 B                0 B
-├ ƒ /api/public/blue-origin/content                  0 B                0 B
-├ ƒ /api/public/blue-origin/contracts                0 B                0 B
-├ ƒ /api/public/blue-origin/contracts/[contractKey]  0 B                0 B
-├ ƒ /api/public/blue-origin/engines                  0 B                0 B
-├ ƒ /api/public/blue-origin/engines/[slug]           0 B                0 B
-├ ƒ /api/public/blue-origin/evidence                 0 B                0 B
-├ ƒ /api/public/blue-origin/flights                  0 B                0 B
-├ ƒ /api/public/blue-origin/passengers               0 B                0 B
-├ ƒ /api/public/blue-origin/payloads                 0 B                0 B
-├ ƒ /api/public/blue-origin/procurement              0 B                0 B
-├ ƒ /api/public/blue-origin/timeline                 0 B                0 B
-├ ƒ /api/public/blue-origin/vehicles                 0 B                0 B
-├ ƒ /api/public/blue-origin/vehicles/[slug]          0 B                0 B
-├ ƒ /api/public/catalog                              0 B                0 B
-├ ƒ /api/public/contracts                            0 B                0 B
-├ ƒ /api/public/contracts/[contractUid]              0 B                0 B
-├ ƒ /api/public/contracts/story/[storyKey]           0 B                0 B
-├ ƒ /api/public/launches                             0 B                0 B
-├ ƒ /api/public/launches/[id]/faa-airspace           0 B                0 B
-├ ƒ /api/public/launches/[id]/jep                    0 B                0 B
-├ ƒ /api/public/launches/[id]/trajectory             0 B                0 B
-├ ƒ /api/public/launches/[id]/trajectory/v2          0 B                0 B
-├ ƒ /api/public/launches/ar-eligible                 0 B                0 B
-├ ƒ /api/public/launches/changed                     0 B                0 B
-├ ƒ /api/public/provider-schedule                    0 B                0 B
-├ ƒ /api/public/spacex/contracts                     0 B                0 B
-├ ƒ /api/public/spacex/contracts/[contractKey]       0 B                0 B
-├ ƒ /api/public/spacex/drone-ships                   0 B                0 B
-├ ƒ /api/public/spacex/drone-ships/[slug]            0 B                0 B
-├ ƒ /api/public/spacex/engines                       0 B                0 B
-├ ƒ /api/public/spacex/engines/[slug]                0 B                0 B
-├ ƒ /api/public/spacex/finance                       0 B                0 B
-├ ƒ /api/public/spacex/flights                       0 B                0 B
-├ ƒ /api/public/spacex/flights/[slug]                0 B                0 B
-├ ƒ /api/public/spacex/passengers                    0 B                0 B
-├ ƒ /api/public/spacex/payloads                      0 B                0 B
-├ ƒ /api/public/spacex/usaspending                   0 B                0 B
-├ ƒ /api/public/spacex/vehicles                      0 B                0 B
-├ ƒ /api/public/spacex/vehicles/[slug]               0 B                0 B
-├ ƒ /api/public/starship/evidence                    0 B                0 B
-├ ƒ /api/public/starship/timeline                    0 B                0 B
-├ ƒ /api/search                                      0 B                0 B
-├ ƒ /api/search/index                                0 B                0 B
-├ ƒ /api/tipjar/checkout                             0 B                0 B
-├ ƒ /api/tipjar/intent                               0 B                0 B
-├ ƒ /api/tipjar/portal                               0 B                0 B
-├ ƒ /api/tipjar/subscribe                            0 B                0 B
-├ ƒ /api/unsubscribe                                 0 B                0 B
-├ ƒ /api/v1/launches                                 0 B                0 B
-├ ƒ /api/v1/launches/[id]                            0 B                0 B
-├ ƒ /api/v1/me/filter-presets                        0 B                0 B
-├ ƒ /api/v1/me/launch-notifications/[id]             0 B                0 B
-├ ƒ /api/v1/me/notification-preferences              0 B                0 B
-├ ƒ /api/v1/me/profile                               0 B                0 B
-├ ƒ /api/v1/me/push-devices                          0 B                0 B
-├ ƒ /api/v1/me/watchlists                            0 B                0 B
-├ ƒ /api/v1/search                                   0 B                0 B
-├ ƒ /api/v1/viewer/entitlements                      0 B                0 B
-├ ƒ /api/v1/viewer/session                           0 B                0 B
-├ ƒ /api/webhooks/stripe                             0 B                0 B
-├ ƒ /artemis                                         27.2 kB         139 kB
-├ ○ /artemis-2                                       219 B          87.7 kB
-├ ○ /artemis-4                                       219 B          87.7 kB
-├ ○ /artemis-5                                       219 B          87.7 kB
-├ ○ /artemis-6                                       219 B          87.7 kB
-├ ○ /artemis-7                                       219 B          87.7 kB
-├ ○ /artemis-i                                       1.72 kB         113 kB
-├ ○ /artemis-ii                                      1.83 kB         113 kB
-├ ○ /artemis-iii                                     1.83 kB         113 kB
-├ ○ /artemis-iv                                      1.83 kB         113 kB
-├ ○ /artemis-v                                       1.83 kB         113 kB
-├ ○ /artemis-vi                                      1.83 kB         113 kB
-├ ○ /artemis-vii                                     1.83 kB         113 kB
-├ ƒ /artemis/awardees                                242 B           102 kB
-├ ƒ /artemis/awardees/[slug]                         242 B           102 kB
-├ ƒ /artemis/content                                 242 B           102 kB
-├ ƒ /artemis/contracts                               242 B           102 kB
-├ ƒ /artemis/contracts/[piid]                        242 B           102 kB
-├ ○ /auth/callback                                   3.08 kB         154 kB
-├ ○ /auth/forgot-password                            1.66 kB         152 kB
-├ ○ /auth/reset-password                             2.5 kB          153 kB
-├ ƒ /auth/sign-in                                    195 B           159 kB
-├ ○ /auth/sign-up                                    791 B           159 kB
-├ ƒ /auth/verify                                     0 B                0 B
-├ ○ /be-4                                            219 B          87.7 kB
-├ ○ /blue-moon                                       219 B          87.7 kB
-├ ○ /blue-origin                                     13 kB           109 kB
-├ ƒ /blue-origin/contracts                           1.54 kB         103 kB
-├ ƒ /blue-origin/contracts/[contractKey]             1.54 kB         103 kB
-├ ○ /blue-origin/engines                             242 B           102 kB
-├ ƒ /blue-origin/engines/[slug]                      1.54 kB         103 kB
-├ ○ /blue-origin/flights                             1.54 kB         103 kB
-├ ƒ /blue-origin/flights/[slug]                      219 B          87.7 kB
-├ ○ /blue-origin/missions                            1.54 kB         103 kB
-├ ƒ /blue-origin/missions/[mission]                  2.46 kB         114 kB
-├ ○ /blue-origin/travelers                           1.54 kB         103 kB
-├ ○ /blue-origin/travelers/[slug]                    1.54 kB         103 kB
-├ ○ /blue-origin/vehicles                            242 B           102 kB
-├ ƒ /blue-origin/vehicles/[slug]                     1.54 kB         103 kB
-├ ○ /blue-ring                                       219 B          87.7 kB
-├ ƒ /catalog                                         234 B          96.5 kB
-├ ƒ /catalog/[entity]                                234 B          96.5 kB
-├ ƒ /catalog/[entity]/[id]                           234 B          96.5 kB
-├ ƒ /contracts                                       234 B          96.5 kB
-├ ƒ /contracts/[contractUid]                         234 B          96.5 kB
-├ ○ /docs/about                                      219 B          87.7 kB
-├ ○ /docs/faq                                        219 B          87.7 kB
-├ ○ /docs/roadmap                                    219 B          87.7 kB
-├ ○ /docs/sms-opt-in                                 232 B          96.5 kB
-├ ƒ /embed/next-launch                               1.5 kB          140 kB
-├ ƒ /icon-192.png                                    0 B                0 B
-├ ƒ /icon-512.png                                    0 B                0 B
-├ ○ /info                                            234 B          96.5 kB
-├ ○ /jellyfish-effect                                234 B          96.5 kB
-├ ○ /launch-providers                                234 B          96.5 kB
-├ ƒ /launch-providers/[slug]                         234 B          96.5 kB
-├ ƒ /launches/[id]                                   60 kB           177 kB
-├ ƒ /launches/[id]/ar                                50.6 kB         147 kB
-├ ƒ /launches/[id]/opengraph-image                   0 B                0 B
-├ ƒ /launches/[id]/opengraph-image/[version]         0 B                0 B
-├ ƒ /launches/[id]/opengraph-image/[version]/jpeg    0 B                0 B
-├ ○ /legal/data                                      219 B          87.7 kB
-├ ○ /legal/privacy                                   219 B          87.7 kB
-├ ○ /legal/privacy-choices                           4.42 kB         155 kB
-├ ○ /legal/sms                                       219 B          87.7 kB
-├ ○ /legal/terms                                     219 B          87.7 kB
-├ ƒ /locations/[id]                                  234 B          96.5 kB
-├ ○ /manifest.webmanifest                            0 B                0 B
-├ ○ /me/preferences                                  5.95 kB         157 kB
-├ ○ /new-glenn                                       219 B          87.7 kB
-├ ○ /new-shepard                                     219 B          87.7 kB
-├ ƒ /news                                            6.11 kB         112 kB
-├ ƒ /opengraph-image                                 0 B                0 B
-├ ƒ /opengraph-image/jpeg                            0 B                0 B
-├ ƒ /providers/[slug]                                234 B          96.5 kB
-├ ○ /robots.txt                                      0 B                0 B
-├ ƒ /rockets/[id]                                    2.85 kB        99.1 kB
-├ ƒ /rss/[token]                                     0 B                0 B
-├ ƒ /satellites                                      234 B          96.5 kB
-├ ƒ /satellites/[norad]                              234 B          96.5 kB
-├ ƒ /satellites/owners                               232 B          96.5 kB
-├ ƒ /satellites/owners/[owner]                       234 B          96.5 kB
-├ ○ /search                                          3.64 kB        91.2 kB
-├ ƒ /share/launch-debug/[id]                         307 B          96.6 kB
-├ ƒ /share/launch-fast/[id]                          0 B                0 B
-├ ƒ /share/launch/[id]                               0 B                0 B
-├ ƒ /share/site                                      307 B          96.6 kB
-├ ƒ /sitemap-catalog.xml                             0 B                0 B
-├ ƒ /sitemap-entities.xml                            0 B                0 B
-├ ƒ /sitemap-launches.xml                            0 B                0 B
-├ ƒ /sitemap-satellite-owners.xml                    0 B                0 B
-├ ƒ /sitemap-satellites.xml                          0 B                0 B
-├ ƒ /sitemap.xml                                     0 B                0 B
-├ ○ /spacex                                          4.91 kB         101 kB
-├ ƒ /spacex/contracts                                242 B           102 kB
-├ ƒ /spacex/contracts/[contractKey]                  242 B           102 kB
-├ ○ /spacex/drone-ships                              242 B           102 kB
-├ ƒ /spacex/drone-ships/[slug]                       242 B           102 kB
-├ ○ /spacex/engines                                  242 B           102 kB
-├ ƒ /spacex/engines/[slug]                           242 B           102 kB
-├ ○ /spacex/flights                                  242 B           102 kB
-├ ƒ /spacex/flights/[slug]                           1.27 kB         113 kB
-├ ○ /spacex/jellyfish-effect                         219 B          87.7 kB
-├ ○ /spacex/missions                                 242 B           102 kB
-├ ƒ /spacex/missions/[mission]                       1.27 kB         113 kB
-├ ○ /spacex/vehicles                                 242 B           102 kB
-├ ƒ /spacex/vehicles/[slug]                          242 B           102 kB
-├ ƒ /starship                                        11.9 kB         118 kB
-├ ƒ /starship/[slug]                                 1.25 kB         108 kB
-├ ƒ /unsubscribe                                     234 B          96.5 kB
-└ ○ /upgrade                                         3.54 kB         154 kB
-+ First Load JS shared by all                        87.5 kB
-  ├ chunks/1528-5e873d7525308366.js                  31.9 kB
-  ├ chunks/1dd3208c-2f74f4160995530b.js              53.6 kB
-  └ other shared chunks (total)                      2.03 kB
+Route (app)                                               Size     First Load JS
+┌ ƒ /                                                     20.6 kB         199 kB
+├ ○ /_not-found                                           218 B          87.7 kB
+├ ƒ /.well-known/apple-app-site-association               0 B                0 B
+├ ƒ /.well-known/assetlinks.json                          0 B                0 B
+├ ○ /about                                                1.13 kB        88.7 kB
+├ ○ /account                                              9.95 kB         204 kB
+├ ○ /account/integrations                                 4.79 kB         139 kB
+├ ○ /account/saved                                        5.06 kB         140 kB
+├ ○ /admin                                                3.58 kB        99.8 kB
+├ ○ /admin/billing                                        3.61 kB        91.1 kB
+├ ○ /admin/coupons                                        2.89 kB        90.4 kB
+├ ○ /admin/feedback                                       1.73 kB        89.3 kB
+├ ○ /admin/ops                                            8.06 kB         104 kB
+├ ○ /admin/ops/metrics                                    4.73 kB         101 kB
+├ ○ /admin/ops/trajectory                                 6.32 kB         103 kB
+├ ○ /admin/usaspending                                    4.86 kB        92.4 kB
+├ ○ /admin/users                                          2.83 kB        90.4 kB
+├ ƒ /api/admin/backfills                                  0 B                0 B
+├ ƒ /api/admin/billing                                    0 B                0 B
+├ ƒ /api/admin/coupons                                    0 B                0 B
+├ ƒ /api/admin/feedback                                   0 B                0 B
+├ ƒ /api/admin/ingestion-runs                             0 B                0 B
+├ ƒ /api/admin/metrics/job-io                             0 B                0 B
+├ ƒ /api/admin/metrics/query-io                           0 B                0 B
+├ ƒ /api/admin/metrics/scheduler                          0 B                0 B
+├ ƒ /api/admin/metrics/series                             0 B                0 B
+├ ƒ /api/admin/metrics/summary                            0 B                0 B
+├ ƒ /api/admin/settings                                   0 B                0 B
+├ ƒ /api/admin/summary                                    0 B                0 B
+├ ƒ /api/admin/sync                                       0 B                0 B
+├ ƒ /api/admin/trajectory/contract/[id]                   0 B                0 B
+├ ƒ /api/admin/trajectory/eligible                        0 B                0 B
+├ ƒ /api/admin/trajectory/inspect/[id]                    0 B                0 B
+├ ƒ /api/admin/usaspending/reviews                        0 B                0 B
+├ ƒ /api/admin/users                                      0 B                0 B
+├ ƒ /api/artemis/contracts                                0 B                0 B
+├ ƒ /api/artemis/contracts/[piid]/actions                 0 B                0 B
+├ ƒ /api/artemis/contracts/[piid]/notices                 0 B                0 B
+├ ƒ /api/artemis/contracts/[piid]/spending                0 B                0 B
+├ ƒ /api/billing/cancel                                   0 B                0 B
+├ ƒ /api/billing/checkout                                 0 B                0 B
+├ ƒ /api/billing/default-payment-method                   0 B                0 B
+├ ƒ /api/billing/portal                                   0 B                0 B
+├ ƒ /api/billing/resume                                   0 B                0 B
+├ ƒ /api/billing/setup-intent                             0 B                0 B
+├ ƒ /api/calendar/[token]                                 0 B                0 B
+├ ƒ /api/debug-og/[id]                                    0 B                0 B
+├ ƒ /api/embed/next-launch                                0 B                0 B
+├ ƒ /api/feedback                                         0 B                0 B
+├ ƒ /api/filters                                          0 B                0 B
+├ ƒ /api/internal/revalidate/blue-origin                  0 B                0 B
+├ ƒ /api/launches/[id]/ics                                0 B                0 B
+├ ƒ /api/launches/[id]/pad-satellite                      0 B                0 B
+├ ƒ /api/launches/ics                                     0 B                0 B
+├ ƒ /api/live/launches                                    0 B                0 B
+├ ƒ /api/live/launches/[id]/version                       0 B                0 B
+├ ƒ /api/live/launches/changed                            0 B                0 B
+├ ƒ /api/live/launches/version                            0 B                0 B
+├ ƒ /api/me/account/delete                                0 B                0 B
+├ ƒ /api/me/calendar-feeds                                0 B                0 B
+├ ƒ /api/me/calendar-feeds/[id]                           0 B                0 B
+├ ƒ /api/me/calendar-feeds/[id]/rotate                    0 B                0 B
+├ ƒ /api/me/calendar-token                                0 B                0 B
+├ ƒ /api/me/embed-token                                   0 B                0 B
+├ ƒ /api/me/embed-widgets                                 0 B                0 B
+├ ƒ /api/me/embed-widgets/[id]                            0 B                0 B
+├ ƒ /api/me/embed-widgets/[id]/rotate                     0 B                0 B
+├ ƒ /api/me/export                                        0 B                0 B
+├ ƒ /api/me/filter-presets                                0 B                0 B
+├ ƒ /api/me/filter-presets/[id]                           0 B                0 B
+├ ƒ /api/me/marketing-email                               0 B                0 B
+├ ƒ /api/me/notifications/launches/[id]                   0 B                0 B
+├ ƒ /api/me/notifications/preferences                     0 B                0 B
+├ ƒ /api/me/notifications/push/subscribe                  0 B                0 B
+├ ƒ /api/me/notifications/push/test                       0 B                0 B
+├ ƒ /api/me/notifications/push/unsubscribe                0 B                0 B
+├ ƒ /api/me/privacy/preferences                           0 B                0 B
+├ ƒ /api/me/profile                                       0 B                0 B
+├ ƒ /api/me/rocket-volatility                             0 B                0 B
+├ ƒ /api/me/rss-feeds                                     0 B                0 B
+├ ƒ /api/me/rss-feeds/[id]                                0 B                0 B
+├ ƒ /api/me/rss-feeds/[id]/rotate                         0 B                0 B
+├ ƒ /api/me/subscription                                  0 B                0 B
+├ ƒ /api/me/watchlists                                    0 B                0 B
+├ ƒ /api/me/watchlists/[id]                               0 B                0 B
+├ ƒ /api/me/watchlists/[id]/launches                      0 B                0 B
+├ ƒ /api/me/watchlists/[id]/rules                         0 B                0 B
+├ ƒ /api/me/watchlists/[id]/rules/[ruleId]                0 B                0 B
+├ ƒ /api/news/stream                                      0 B                0 B
+├ ƒ /api/notifications/sms/inbound                        0 B                0 B
+├ ƒ /api/notifications/sms/verify                         0 B                0 B
+├ ƒ /api/notifications/sms/verify/check                   0 B                0 B
+├ ƒ /api/og/launch/[id]                                   0 B                0 B
+├ ƒ /api/og/site                                          0 B                0 B
+├ ƒ /api/pad-satellite                                    0 B                0 B
+├ ƒ /api/public/ar/runtime-policy                         0 B                0 B
+├ ƒ /api/public/ar/telemetry/session                      0 B                0 B
+├ ƒ /api/public/artemis/content                           0 B                0 B
+├ ƒ /api/public/artemis/evidence                          0 B                0 B
+├ ƒ /api/public/artemis/timeline                          0 B                0 B
+├ ƒ /api/public/blue-origin/content                       0 B                0 B
+├ ƒ /api/public/blue-origin/contracts                     0 B                0 B
+├ ƒ /api/public/blue-origin/contracts/[contractKey]       0 B                0 B
+├ ƒ /api/public/blue-origin/engines                       0 B                0 B
+├ ƒ /api/public/blue-origin/engines/[slug]                0 B                0 B
+├ ƒ /api/public/blue-origin/evidence                      0 B                0 B
+├ ƒ /api/public/blue-origin/flights                       0 B                0 B
+├ ƒ /api/public/blue-origin/passengers                    0 B                0 B
+├ ƒ /api/public/blue-origin/payloads                      0 B                0 B
+├ ƒ /api/public/blue-origin/procurement                   0 B                0 B
+├ ƒ /api/public/blue-origin/timeline                      0 B                0 B
+├ ƒ /api/public/blue-origin/vehicles                      0 B                0 B
+├ ƒ /api/public/blue-origin/vehicles/[slug]               0 B                0 B
+├ ƒ /api/public/catalog                                   0 B                0 B
+├ ƒ /api/public/contracts                                 0 B                0 B
+├ ƒ /api/public/contracts/[contractUid]                   0 B                0 B
+├ ƒ /api/public/contracts/story/[storyKey]                0 B                0 B
+├ ƒ /api/public/launches                                  0 B                0 B
+├ ƒ /api/public/launches/[id]/faa-airspace                0 B                0 B
+├ ƒ /api/public/launches/[id]/jep                         0 B                0 B
+├ ƒ /api/public/launches/[id]/trajectory                  0 B                0 B
+├ ƒ /api/public/launches/[id]/trajectory/v2               0 B                0 B
+├ ƒ /api/public/launches/ar-eligible                      0 B                0 B
+├ ƒ /api/public/launches/changed                          0 B                0 B
+├ ƒ /api/public/provider-schedule                         0 B                0 B
+├ ƒ /api/public/spacex/contracts                          0 B                0 B
+├ ƒ /api/public/spacex/contracts/[contractKey]            0 B                0 B
+├ ƒ /api/public/spacex/drone-ships                        0 B                0 B
+├ ƒ /api/public/spacex/drone-ships/[slug]                 0 B                0 B
+├ ƒ /api/public/spacex/engines                            0 B                0 B
+├ ƒ /api/public/spacex/engines/[slug]                     0 B                0 B
+├ ƒ /api/public/spacex/finance                            0 B                0 B
+├ ƒ /api/public/spacex/flights                            0 B                0 B
+├ ƒ /api/public/spacex/flights/[slug]                     0 B                0 B
+├ ƒ /api/public/spacex/passengers                         0 B                0 B
+├ ƒ /api/public/spacex/payloads                           0 B                0 B
+├ ƒ /api/public/spacex/usaspending                        0 B                0 B
+├ ƒ /api/public/spacex/vehicles                           0 B                0 B
+├ ƒ /api/public/spacex/vehicles/[slug]                    0 B                0 B
+├ ƒ /api/public/starship/evidence                         0 B                0 B
+├ ƒ /api/public/starship/timeline                         0 B                0 B
+├ ƒ /api/search                                           0 B                0 B
+├ ƒ /api/search/index                                     0 B                0 B
+├ ƒ /api/tipjar/checkout                                  0 B                0 B
+├ ƒ /api/tipjar/intent                                    0 B                0 B
+├ ƒ /api/tipjar/portal                                    0 B                0 B
+├ ƒ /api/tipjar/subscribe                                 0 B                0 B
+├ ƒ /api/unsubscribe                                      0 B                0 B
+├ ƒ /api/v1/launches                                      0 B                0 B
+├ ƒ /api/v1/launches/[id]                                 0 B                0 B
+├ ƒ /api/v1/launches/changed                              0 B                0 B
+├ ƒ /api/v1/me/account/delete                             0 B                0 B
+├ ƒ /api/v1/me/billing/apple/sync                         0 B                0 B
+├ ƒ /api/v1/me/billing/catalog                            0 B                0 B
+├ ƒ /api/v1/me/billing/google/sync                        0 B                0 B
+├ ƒ /api/v1/me/billing/summary                            0 B                0 B
+├ ƒ /api/v1/me/calendar-feeds                             0 B                0 B
+├ ƒ /api/v1/me/calendar-feeds/[id]                        0 B                0 B
+├ ƒ /api/v1/me/calendar-feeds/[id]/rotate                 0 B                0 B
+├ ƒ /api/v1/me/embed-widgets                              0 B                0 B
+├ ƒ /api/v1/me/embed-widgets/[id]                         0 B                0 B
+├ ƒ /api/v1/me/embed-widgets/[id]/rotate                  0 B                0 B
+├ ƒ /api/v1/me/export                                     0 B                0 B
+├ ƒ /api/v1/me/filter-presets                             0 B                0 B
+├ ƒ /api/v1/me/filter-presets/[id]                        0 B                0 B
+├ ƒ /api/v1/me/launch-notifications/[id]                  0 B                0 B
+├ ƒ /api/v1/me/marketing-email                            0 B                0 B
+├ ƒ /api/v1/me/notification-preferences                   0 B                0 B
+├ ƒ /api/v1/me/notification-preferences/sms/verify        0 B                0 B
+├ ƒ /api/v1/me/notification-preferences/sms/verify/check  0 B                0 B
+├ ƒ /api/v1/me/privacy/preferences                        0 B                0 B
+├ ƒ /api/v1/me/profile                                    0 B                0 B
+├ ƒ /api/v1/me/push-devices                               0 B                0 B
+├ ƒ /api/v1/me/push-devices/test                          0 B                0 B
+├ ƒ /api/v1/me/rss-feeds                                  0 B                0 B
+├ ƒ /api/v1/me/rss-feeds/[id]                             0 B                0 B
+├ ƒ /api/v1/me/rss-feeds/[id]/rotate                      0 B                0 B
+├ ƒ /api/v1/me/watchlists                                 0 B                0 B
+├ ƒ /api/v1/me/watchlists/[id]                            0 B                0 B
+├ ƒ /api/v1/me/watchlists/[id]/rules                      0 B                0 B
+├ ƒ /api/v1/me/watchlists/[id]/rules/[ruleId]             0 B                0 B
+├ ƒ /api/v1/search                                        0 B                0 B
+├ ƒ /api/v1/viewer/entitlements                           0 B                0 B
+├ ƒ /api/v1/viewer/session                                0 B                0 B
+├ ƒ /api/webhooks/apple-app-store                         0 B                0 B
+├ ƒ /api/webhooks/google-play                             0 B                0 B
+├ ƒ /api/webhooks/stripe                                  0 B                0 B
+├ ƒ /apple-app-site-association                           0 B                0 B
+├ ƒ /artemis                                              27.3 kB         140 kB
+├ ○ /artemis-2                                            218 B          87.7 kB
+├ ○ /artemis-4                                            218 B          87.7 kB
+├ ○ /artemis-5                                            218 B          87.7 kB
+├ ○ /artemis-6                                            218 B          87.7 kB
+├ ○ /artemis-7                                            218 B          87.7 kB
+├ ○ /artemis-i                                            1.72 kB         113 kB
+├ ○ /artemis-ii                                           1.99 kB         115 kB
+├ ○ /artemis-iii                                          1.99 kB         115 kB
+├ ○ /artemis-iv                                           1.99 kB         115 kB
+├ ○ /artemis-v                                            1.99 kB         115 kB
+├ ○ /artemis-vi                                           1.99 kB         115 kB
+├ ○ /artemis-vii                                          1.99 kB         115 kB
+├ ƒ /artemis/awardees                                     242 B           102 kB
+├ ƒ /artemis/awardees/[slug]                              242 B           102 kB
+├ ƒ /artemis/content                                      242 B           102 kB
+├ ƒ /artemis/contracts                                    242 B           102 kB
+├ ƒ /artemis/contracts/[piid]                             242 B           102 kB
+├ ○ /auth/callback                                        3.56 kB         192 kB
+├ ○ /auth/forgot-password                                 2.54 kB         153 kB
+├ ○ /auth/reset-password                                  3.4 kB          154 kB
+├ ƒ /auth/sign-in                                         196 B           159 kB
+├ ○ /auth/sign-up                                         785 B           160 kB
+├ ƒ /auth/verify                                          0 B                0 B
+├ ○ /be-4                                                 218 B          87.7 kB
+├ ○ /blue-moon                                            219 B          87.7 kB
+├ ○ /blue-origin                                          13 kB           109 kB
+├ ƒ /blue-origin/contracts                                1.54 kB         103 kB
+├ ƒ /blue-origin/contracts/[contractKey]                  1.54 kB         103 kB
+├ ○ /blue-origin/engines                                  241 B           102 kB
+├ ƒ /blue-origin/engines/[slug]                           1.54 kB         103 kB
+├ ○ /blue-origin/flights                                  1.54 kB         103 kB
+├ ƒ /blue-origin/flights/[slug]                           218 B          87.7 kB
+├ ○ /blue-origin/missions                                 1.54 kB         103 kB
+├ ƒ /blue-origin/missions/[mission]                       2.6 kB          115 kB
+├ ○ /blue-origin/travelers                                1.54 kB         103 kB
+├ ○ /blue-origin/travelers/[slug]                         1.54 kB         103 kB
+├ ○ /blue-origin/vehicles                                 241 B           102 kB
+├ ƒ /blue-origin/vehicles/[slug]                          1.54 kB         103 kB
+├ ○ /blue-ring                                            219 B          87.7 kB
+├ ƒ /catalog                                              234 B          96.5 kB
+├ ƒ /catalog/[entity]                                     234 B          96.5 kB
+├ ƒ /catalog/[entity]/[id]                                233 B          96.5 kB
+├ ƒ /contracts                                            234 B          96.5 kB
+├ ƒ /contracts/[contractUid]                              234 B          96.5 kB
+├ ○ /docs/about                                           218 B          87.7 kB
+├ ○ /docs/faq                                             218 B          87.7 kB
+├ ○ /docs/roadmap                                         219 B          87.7 kB
+├ ○ /docs/sms-opt-in                                      234 B          96.5 kB
+├ ƒ /embed/next-launch                                    692 B           179 kB
+├ ƒ /icon-192.png                                         0 B                0 B
+├ ƒ /icon-512.png                                         0 B                0 B
+├ ○ /info                                                 234 B          96.5 kB
+├ ○ /jellyfish-effect                                     234 B          96.5 kB
+├ ○ /launch-providers                                     234 B          96.5 kB
+├ ƒ /launch-providers/[slug]                              234 B          96.5 kB
+├ ƒ /launches/[id]                                        58.2 kB         215 kB
+├ ƒ /launches/[id]/ar                                     49.9 kB         147 kB
+├ ƒ /launches/[id]/opengraph-image                        0 B                0 B
+├ ƒ /launches/[id]/opengraph-image/[version]              0 B                0 B
+├ ƒ /launches/[id]/opengraph-image/[version]/jpeg         0 B                0 B
+├ ○ /legal/data                                           218 B          87.7 kB
+├ ○ /legal/privacy                                        219 B          87.7 kB
+├ ○ /legal/privacy-choices                                5.27 kB         193 kB
+├ ○ /legal/sms                                            218 B          87.7 kB
+├ ○ /legal/terms                                          219 B          87.7 kB
+├ ƒ /locations/[id]                                       234 B          96.5 kB
+├ ○ /manifest.webmanifest                                 0 B                0 B
+├ ○ /me/preferences                                       5.91 kB         194 kB
+├ ○ /new-glenn                                            218 B          87.7 kB
+├ ○ /new-shepard                                          218 B          87.7 kB
+├ ƒ /news                                                 6.15 kB         114 kB
+├ ƒ /opengraph-image                                      0 B                0 B
+├ ƒ /opengraph-image/jpeg                                 0 B                0 B
+├ ƒ /providers/[slug]                                     234 B          96.5 kB
+├ ○ /robots.txt                                           0 B                0 B
+├ ƒ /rockets/[id]                                         2.85 kB        99.1 kB
+├ ƒ /rss/[token]                                          0 B                0 B
+├ ƒ /satellites                                           233 B          96.5 kB
+├ ƒ /satellites/[norad]                                   232 B          96.5 kB
+├ ƒ /satellites/owners                                    233 B          96.5 kB
+├ ƒ /satellites/owners/[owner]                            234 B          96.5 kB
+├ ○ /search                                               3.12 kB         128 kB
+├ ƒ /share/launch-debug/[id]                              306 B          96.6 kB
+├ ƒ /share/launch-fast/[id]                               0 B                0 B
+├ ƒ /share/launch/[id]                                    0 B                0 B
+├ ƒ /share/site                                           306 B          96.6 kB
+├ ƒ /sitemap-catalog.xml                                  0 B                0 B
+├ ƒ /sitemap-entities.xml                                 0 B                0 B
+├ ƒ /sitemap-launches.xml                                 0 B                0 B
+├ ƒ /sitemap-satellite-owners.xml                         0 B                0 B
+├ ƒ /sitemap-satellites.xml                               0 B                0 B
+├ ƒ /sitemap.xml                                          0 B                0 B
+├ ○ /spacex                                               4.91 kB         101 kB
+├ ƒ /spacex/contracts                                     242 B           102 kB
+├ ƒ /spacex/contracts/[contractKey]                       242 B           102 kB
+├ ○ /spacex/drone-ships                                   242 B           102 kB
+├ ƒ /spacex/drone-ships/[slug]                            242 B           102 kB
+├ ○ /spacex/engines                                       242 B           102 kB
+├ ƒ /spacex/engines/[slug]                                242 B           102 kB
+├ ○ /spacex/flights                                       242 B           102 kB
+├ ƒ /spacex/flights/[slug]                                1.42 kB         114 kB
+├ ○ /spacex/jellyfish-effect                              218 B          87.7 kB
+├ ○ /spacex/missions                                      242 B           102 kB
+├ ƒ /spacex/missions/[mission]                            1.42 kB         114 kB
+├ ○ /spacex/vehicles                                      242 B           102 kB
+├ ƒ /spacex/vehicles/[slug]                               242 B           102 kB
+├ ƒ /starship                                             12 kB           120 kB
+├ ƒ /starship/[slug]                                      1.41 kB         109 kB
+├ ƒ /unsubscribe                                          234 B          96.5 kB
+└ ○ /upgrade                                              3.4 kB          137 kB
++ First Load JS shared by all                             87.5 kB
+  ├ chunks/1528-311a6ebfd51d0896.js                       31.9 kB
+  ├ chunks/1dd3208c-e203a2901718568c.js                   53.6 kB
+  └ other shared chunks (total)                           2.03 kB
 
 
-ƒ Middleware                                         76.1 kB
+ƒ Middleware                                              75.1 kB
 
 ○  (Static)   prerendered as static content
 ƒ  (Dynamic)  server-rendered on demand

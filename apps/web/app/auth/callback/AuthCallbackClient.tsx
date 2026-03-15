@@ -1,17 +1,45 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { type QueryClient, useQueryClient } from '@tanstack/react-query';
+import type { AuthProviderV1 } from '@tminuszero/contracts';
+import { buildAuthCallbackHref, buildAuthHref, readAuthIntent, readReturnTo, sanitizeReturnTo } from '@tminuszero/navigation';
+import { sharedQueryKeys } from '@tminuszero/query';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import { browserApiClient } from '@/lib/api/client';
 import { getBrowserClient } from '@/lib/api/supabase';
 import type { EmailOtpType } from '@supabase/supabase-js';
-import { buildAuthQuery, readAuthIntent, readReturnTo, withAuthQuery } from '@/lib/utils/returnTo';
+import { invalidateViewerScopedQueries } from '@/lib/api/queries';
+import { getSharedProfile, updateSharedProfile } from '@/lib/api/webAccountAdapters';
 
 type Status = 'working' | 'error' | 'missing';
 type OAuthProvider = 'google' | 'twitter';
 
 const POST_CONFIRM_NEXT_STORAGE_KEY = 'tmn_auth_post_confirm_next';
 const PENDING_PROFILE_STORAGE_KEY = 'tmn_auth_pending_profile';
+
+function normalizeAuthProvider(value: unknown): 'apple' | 'google' | 'email_link' | 'unknown' {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+
+  if (normalized === 'apple') return 'apple';
+  if (normalized === 'google') return 'google';
+  return 'unknown';
+}
+
+function inferEmailLinkProvider(type: string | null) {
+  const normalized = String(type || '')
+    .trim()
+    .toLowerCase();
+
+  if (normalized === 'signup' || normalized === 'magiclink' || normalized === 'invite' || normalized === 'recovery' || normalized === 'email') {
+    return 'email_link' as const;
+  }
+
+  return 'unknown' as const;
+}
 
 function readHashParams() {
   if (typeof window === 'undefined') return new URLSearchParams();
@@ -39,14 +67,10 @@ function clearAuthParams() {
 }
 
 function safeNextPath(value: string | null) {
-  const trimmed = (value || '').trim();
-  if (!trimmed) return '/';
-  if (!trimmed.startsWith('/')) return '/';
-  if (trimmed.startsWith('//')) return '/';
-  return trimmed;
+  return sanitizeReturnTo(value, '/');
 }
 
-async function maybeApplyPendingProfile() {
+async function maybeApplyPendingProfile(queryClient: QueryClient) {
   if (typeof window === 'undefined') return;
   let pending: { first_name?: string; last_name?: string } | null = null;
   try {
@@ -63,28 +87,44 @@ async function maybeApplyPendingProfile() {
   if (!firstName || !lastName) return;
 
   try {
-    const profileRes = await fetch('/api/me/profile', { cache: 'no-store' });
-    const profileJson = await profileRes.json().catch(() => ({}));
-    const current = profileJson?.profile || null;
-    const hasFirst = typeof current?.first_name === 'string' && current.first_name.trim().length > 0;
-    const hasLast = typeof current?.last_name === 'string' && current.last_name.trim().length > 0;
+    const current = await getSharedProfile().catch(() => null);
+    const hasFirst = typeof current?.firstName === 'string' && current.firstName.trim().length > 0;
+    const hasLast = typeof current?.lastName === 'string' && current.lastName.trim().length > 0;
     if (hasFirst && hasLast) return;
 
-    const payload: Record<string, string> = {};
-    if (!hasFirst) payload.first_name = firstName;
-    if (!hasLast) payload.last_name = lastName;
-    await fetch('/api/me/profile', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    }).catch(() => undefined);
+    const nextProfile = await updateSharedProfile({
+      ...(hasFirst ? {} : { firstName }),
+      ...(hasLast ? {} : { lastName })
+    });
+    queryClient.setQueryData(sharedQueryKeys.profile, nextProfile);
   } catch {
     return;
   }
 }
 
+async function recordWebCallbackContext(type: string | null) {
+  const supabase = getBrowserClient();
+  let provider: Extract<AuthProviderV1, 'apple' | 'google' | 'email_link' | 'unknown'> = inferEmailLinkProvider(type);
+
+  if (provider === 'unknown' && supabase) {
+    const {
+      data: { user }
+    } = await supabase.auth.getUser().catch(() => ({ data: { user: null } }));
+    provider = normalizeAuthProvider((user?.app_metadata as Record<string, unknown> | undefined)?.provider);
+  }
+
+  await browserApiClient
+    .recordAuthContext({
+      provider,
+      platform: 'web',
+      eventType: 'oauth_callback'
+    })
+    .catch(() => {});
+}
+
 export default function AuthCallbackClient() {
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
   const queryString = searchParams.toString();
   const [status, setStatus] = useState<Status>('working');
   const [message, setMessage] = useState<string | null>(null);
@@ -93,7 +133,7 @@ export default function AuthCallbackClient() {
   const [retryingProvider, setRetryingProvider] = useState<OAuthProvider | null>(null);
   const authIntent = readAuthIntent(searchParams);
 
-  const signInHref = withAuthQuery('/auth/sign-in', { returnTo: postAuthNextPath, intent: authIntent });
+  const signInHref = buildAuthHref('sign-in', { returnTo: postAuthNextPath, intent: authIntent });
 
   async function retryOAuth(provider: OAuthProvider) {
     setRetryingProvider(provider);
@@ -103,8 +143,7 @@ export default function AuthCallbackClient() {
       if (!supabase) throw new Error('Supabase not available.');
 
       const baseUrl = window.location.origin.replace(/\/+$/, '');
-      const callbackQuery = buildAuthQuery({ returnTo: postAuthNextPath, intent: authIntent });
-      const callbackUrl = `${baseUrl}/auth/callback${callbackQuery ? `?${callbackQuery}` : ''}`;
+      const callbackUrl = `${baseUrl}${buildAuthCallbackHref({ returnTo: postAuthNextPath, intent: authIntent })}`;
       try {
         window.localStorage.setItem(POST_CONFIRM_NEXT_STORAGE_KEY, postAuthNextPath);
       } catch {}
@@ -188,10 +227,12 @@ export default function AuthCallbackClient() {
           return;
         }
         setPkceMissing(false);
+        await recordWebCallbackContext(null);
         try {
           window.localStorage.removeItem(POST_CONFIRM_NEXT_STORAGE_KEY);
         } catch {}
-        await maybeApplyPendingProfile();
+        invalidateViewerScopedQueries(queryClient);
+        await maybeApplyPendingProfile(queryClient);
         clearAuthParams();
         window.location.replace(redirectTo);
         return;
@@ -209,10 +250,12 @@ export default function AuthCallbackClient() {
           return;
         }
         setPkceMissing(false);
+        await recordWebCallbackContext(type);
         try {
           window.localStorage.removeItem(POST_CONFIRM_NEXT_STORAGE_KEY);
         } catch {}
-        await maybeApplyPendingProfile();
+        invalidateViewerScopedQueries(queryClient);
+        await maybeApplyPendingProfile(queryClient);
         clearAuthParams();
         window.location.replace(redirectTo);
         return;
@@ -231,10 +274,12 @@ export default function AuthCallbackClient() {
           return;
         }
         setPkceMissing(false);
+        await recordWebCallbackContext(null);
         try {
           window.localStorage.removeItem(POST_CONFIRM_NEXT_STORAGE_KEY);
         } catch {}
-        await maybeApplyPendingProfile();
+        invalidateViewerScopedQueries(queryClient);
+        await maybeApplyPendingProfile(queryClient);
         clearAuthParams();
         window.location.replace(redirectTo);
         return;
@@ -251,7 +296,7 @@ export default function AuthCallbackClient() {
     return () => {
       cancelled = true;
     };
-  }, [queryString]);
+  }, [queryClient, queryString]);
 
   if (status === 'error') {
     return (

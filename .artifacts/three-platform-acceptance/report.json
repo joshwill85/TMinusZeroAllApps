@@ -1,0 +1,201 @@
+{
+  "generatedAt": "2026-03-09T03:04:33.908Z",
+  "outDir": "/workspace/.artifacts/three-platform-acceptance",
+  "includeMobileE2E": false,
+  "billingEvidenceUserId": null,
+  "steps": [
+    {
+      "name": "Mobile E2E acceptance",
+      "command": "",
+      "status": "skipped",
+      "exitCode": null,
+      "startedAt": "2026-03-09T03:02:55.060Z",
+      "endedAt": "2026-03-09T03:02:55.060Z",
+      "durationMs": 0,
+      "logFile": null,
+      "note": "Run separately with `npm run mobile:e2e:acceptance` or the Mobile E2E workflow."
+    },
+    {
+      "name": "Toolchain doctor",
+      "command": "npm run doctor",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-09T03:02:55.060Z",
+      "endedAt": "2026-03-09T03:02:55.152Z",
+      "durationMs": 92,
+      "logFile": ".artifacts/three-platform-acceptance/logs/toolchain-doctor.log",
+      "note": null
+    },
+    {
+      "name": "Three-platform boundary check",
+      "command": "npm run check:three-platform:boundaries",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-09T03:02:55.153Z",
+      "endedAt": "2026-03-09T03:02:55.260Z",
+      "durationMs": 107,
+      "logFile": ".artifacts/three-platform-acceptance/logs/three-platform-boundary-check.log",
+      "note": null
+    },
+    {
+      "name": "Shared domain smoke",
+      "command": "npm run test:shared-domain",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-09T03:02:55.261Z",
+      "endedAt": "2026-03-09T03:02:55.763Z",
+      "durationMs": 502,
+      "logFile": ".artifacts/three-platform-acceptance/logs/shared-domain-smoke.log",
+      "note": null
+    },
+    {
+      "name": "Phase 3 web closeout guard",
+      "command": "npm run test:phase3-web-guard",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-09T03:02:55.764Z",
+      "endedAt": "2026-03-09T03:02:56.215Z",
+      "durationMs": 451,
+      "logFile": ".artifacts/three-platform-acceptance/logs/phase-3-web-closeout-guard.log",
+      "note": null
+    },
+    {
+      "name": "Web regression smoke",
+      "command": "npm run test:web-regression",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-09T03:02:56.215Z",
+      "endedAt": "2026-03-09T03:02:56.522Z",
+      "durationMs": 307,
+      "logFile": ".artifacts/three-platform-acceptance/logs/web-regression-smoke.log",
+      "note": null
+    },
+    {
+      "name": "Billing regression smoke",
+      "command": "npm run test:billing-regression -- --out=/workspace/.artifacts/three-platform-acceptance/billing/billing-regression.json",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-09T03:02:56.523Z",
+      "endedAt": "2026-03-09T03:02:56.788Z",
+      "durationMs": 265,
+      "logFile": ".artifacts/three-platform-acceptance/logs/billing-regression-smoke.log",
+      "note": null
+    },
+    {
+      "name": "V1 contracts",
+      "command": "npm run test:v1-contracts",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-09T03:02:56.789Z",
+      "endedAt": "2026-03-09T03:02:57.137Z",
+      "durationMs": 348,
+      "logFile": ".artifacts/three-platform-acceptance/logs/v1-contracts.log",
+      "note": null
+    },
+    {
+      "name": "Mobile query guard",
+      "command": "npm run test:mobile-query-guard",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-09T03:02:57.138Z",
+      "endedAt": "2026-03-09T03:02:57.549Z",
+      "durationMs": 411,
+      "logFile": ".artifacts/three-platform-acceptance/logs/mobile-query-guard.log",
+      "note": null
+    },
+    {
+      "name": "Mobile type-check",
+      "command": "npm run type-check:mobile",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-09T03:02:57.550Z",
+      "endedAt": "2026-03-09T03:03:00.779Z",
+      "durationMs": 3229,
+      "logFile": ".artifacts/three-platform-acceptance/logs/mobile-type-check.log",
+      "note": null
+    },
+    {
+      "name": "Mobile lint",
+      "command": "npm run lint --workspace @tminuszero/mobile",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-09T03:03:00.780Z",
+      "endedAt": "2026-03-09T03:03:02.461Z",
+      "durationMs": 1681,
+      "logFile": ".artifacts/three-platform-acceptance/logs/mobile-lint.log",
+      "note": null
+    },
+    {
+      "name": "Web lint",
+      "command": "npm run lint",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-09T03:03:02.462Z",
+      "endedAt": "2026-03-09T03:03:11.669Z",
+      "durationMs": 9207,
+      "logFile": ".artifacts/three-platform-acceptance/logs/web-lint.log",
+      "note": null
+    },
+    {
+      "name": "Smoke tests",
+      "command": "npm run test:smoke",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-09T03:03:11.671Z",
+      "endedAt": "2026-03-09T03:03:12.722Z",
+      "durationMs": 1051,
+      "logFile": ".artifacts/three-platform-acceptance/logs/smoke-tests.log",
+      "note": null
+    },
+    {
+      "name": "Web build",
+      "command": "npm run build",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-09T03:03:12.722Z",
+      "endedAt": "2026-03-09T03:04:19.934Z",
+      "durationMs": 67212,
+      "logFile": ".artifacts/three-platform-acceptance/logs/web-build.log",
+      "note": null
+    },
+    {
+      "name": "Web type-check after build",
+      "command": "npm run type-check:ci",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-09T03:04:19.935Z",
+      "endedAt": "2026-03-09T03:04:31.866Z",
+      "durationMs": 11931,
+      "logFile": ".artifacts/three-platform-acceptance/logs/web-type-check-after-build.log",
+      "note": null
+    },
+    {
+      "name": "Three-platform baseline capture",
+      "command": "npm run baseline:three-platform -- --out-dir=/workspace/.artifacts/three-platform-acceptance/baseline --ttfb-requests=5 --ttfb-warmup=2",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-09T03:04:31.867Z",
+      "endedAt": "2026-03-09T03:04:33.702Z",
+      "durationMs": 1835,
+      "logFile": ".artifacts/three-platform-acceptance/logs/three-platform-baseline-capture.log",
+      "note": null
+    },
+    {
+      "name": "Billing evidence export",
+      "command": "npm run export:billing-evidence -- --out=/workspace/.artifacts/three-platform-acceptance/billing/billing-evidence.json --skip-when-unavailable",
+      "status": "passed",
+      "exitCode": 0,
+      "startedAt": "2026-03-09T03:04:33.702Z",
+      "endedAt": "2026-03-09T03:04:33.905Z",
+      "durationMs": 203,
+      "logFile": ".artifacts/three-platform-acceptance/logs/billing-evidence-export.log",
+      "note": null
+    }
+  ],
+  "artifacts": {
+    "baselineDir": "/workspace/.artifacts/three-platform-acceptance/baseline",
+    "billingEvidence": "/workspace/.artifacts/three-platform-acceptance/billing/billing-evidence.json",
+    "billingRegression": "/workspace/.artifacts/three-platform-acceptance/billing/billing-regression.json",
+    "summaryMarkdown": "/workspace/.artifacts/three-platform-acceptance/summary.md"
+  }
+}

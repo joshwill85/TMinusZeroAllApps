@@ -3,21 +3,21 @@
 import Link from 'next/link';
 import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
+import { buildAuthHref, buildUpgradeHref } from '@tminuszero/navigation';
 import { BRAND_NAME } from '@/lib/brand';
-import { withAuthQuery } from '@/lib/utils/returnTo';
 
 const PREMIUM_PRICE_LABEL = '$3.99/mo';
 
 const PREMIUM_FEATURES = [
   'Live updates every 15 seconds',
   'Full change log (see what changed)',
-  'Watchlists (“My Launches”) + saved presets',
-  'Alerts (email + browser notifications)',
-  'Calendar exports + subscriptions (.ics) with filters and optional reminders',
+  'Saved/default filters + follows (“My Launches”)',
+  'Advanced alerts + browser notifications',
+  'Recurring calendar feeds (.ics) from presets, follows, or all future launches',
   'RSS + Atom feeds for any filtered feed',
   'Embeddable “Next launch” widget (token link)',
   'Enhanced forecast insights (select launches)',
-  'AR trajectory overlay'
+  'Launch-day email + AR trajectory overlay'
 ];
 
 export function PremiumUpsellModal({
@@ -46,9 +46,9 @@ export function PremiumUpsellModal({
   if (!open) return null;
 
   const returnTo = pathname || '/';
-  const signUpHref = withAuthQuery('/auth/sign-up', { returnTo, intent: 'upgrade' });
-  const signInHref = withAuthQuery('/auth/sign-in', { returnTo, intent: 'upgrade' });
-  const upgradeHref = pathname ? `/upgrade?return_to=${encodeURIComponent(pathname)}` : '/upgrade';
+  const signUpHref = buildAuthHref('sign-up', { returnTo, intent: 'upgrade' });
+  const signInHref = buildAuthHref('sign-in', { returnTo, intent: 'upgrade' });
+  const upgradeHref = buildUpgradeHref({ returnTo: pathname || null });
 
   const title = featureLabel ? `Unlock ${featureLabel}` : 'Unlock Premium';
 
@@ -65,7 +65,7 @@ export function PremiumUpsellModal({
           <div>
             <div className="text-xs uppercase tracking-[0.1em] text-text3">Premium</div>
             <div className="text-base font-semibold text-text1">{title}</div>
-            <div className="mt-1 text-xs text-text3">Live updates, alerts, watchlists, and feed integrations (calendar + RSS/Atom).</div>
+            <div className="mt-1 text-xs text-text3">Live updates, saved filters/follows, browser alerts, and recurring feed integrations.</div>
           </div>
           <button className="text-sm text-text3 hover:text-text1" onClick={onClose}>
             Close

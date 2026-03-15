@@ -2,9 +2,18 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createSupabaseAdminClient } from '../_shared/supabase.ts';
 import { requireJobAuth } from '../_shared/jobAuth.ts';
 import { getSettings, readBooleanSetting, readNumberSetting, readStringArraySetting, readStringSetting } from '../_shared/settings.ts';
-import { allowNwsFallbackForObserverSource } from '../../../lib/jep/fallbackPolicy.ts';
+import {
+  combineJepWeatherFactors,
+  computeJepCloudObstructionFactor,
+  computeJepWeatherContrastFactor,
+  computeJepWeatherFactor,
+  deriveJepCloudObstructionImpact,
+  deriveJepWeatherContrastImpact
+} from '../../../apps/web/lib/jep/weather.ts';
 
 const OPEN_METEO_BASE = 'https://api.open-meteo.com/v1/forecast';
+const NWS_BASE = 'https://api.weather.gov';
+const NWS_USER_AGENT = Deno.env.get('NWS_USER_AGENT') || 'TMinusZero/0.1 (support@tminuszero.app)';
 const EARTH_RADIUS_KM = 6371;
 const SHADOW_H0_KM = 12;
 const RE_KM = 6371;
@@ -12,13 +21,14 @@ const PAD_OBSERVER_HASH = 'pad';
 const LOS_ELEVATION_THRESHOLD_DEG = 5;
 const SNAPSHOT_LOCK_LOOKBACK_HOURS = 24;
 const POST_LAUNCH_COMPUTE_GRACE_HOURS = 2;
+const NWS_POINTS_CACHE_HOURS = 24;
 
 const DEFAULTS = {
   enabled: true,
   horizonDays: 16,
   maxLaunchesPerRun: 120,
   weatherCacheMinutes: 10,
-  modelVersion: 'jep_v3',
+  modelVersion: 'jep_v5',
   openMeteoUsModels: ['best_match', 'gfs_seamless'],
   observerLookbackDays: 14,
   observerRegistryLimit: 128,
@@ -57,6 +67,7 @@ type ScoreRow = {
   launch_id: string;
   observer_location_hash: string | null;
   input_hash: string;
+  computed_at: string | null;
   expires_at: string | null;
   snapshot_at: string | null;
 };
@@ -68,16 +79,32 @@ type DueLaunch = {
 
 type TrajectoryRow = {
   launch_id: string;
+  generated_at?: string | null;
   confidence_tier: string | null;
   freshness_state: string | null;
   lineage_complete: boolean | null;
   product: Record<string, unknown> | null;
 };
 
-type NwsRow = {
-  launch_id: string;
-  issued_at: string | null;
-  data: Record<string, unknown> | null;
+type NwsPointRow = {
+  id?: string;
+  coord_key: string;
+  ll2_pad_id: number | null;
+  latitude: number;
+  longitude: number;
+  cwa: string | null;
+  grid_id: string;
+  grid_x: number;
+  grid_y: number;
+  forecast_url: string;
+  forecast_hourly_url: string;
+  forecast_grid_data_url: string | null;
+  time_zone: string | null;
+  county_url: string | null;
+  forecast_zone_url: string | null;
+  raw?: unknown;
+  fetched_at: string;
+  updated_at: string;
 };
 
 type Sample = {
@@ -90,14 +117,20 @@ type Sample = {
 };
 
 type WeatherPoint = {
-  source: 'open_meteo' | 'nws' | 'none';
+  source: 'open_meteo' | 'nws' | 'mixed' | 'none';
   cloudCoverTotal: number | null;
   cloudCoverLow: number | null;
+  cloudCoverMid: number | null;
+  cloudCoverHigh: number | null;
   fetchedAtMs: number | null;
 };
 
 type WeatherResolution = WeatherPoint & {
+  skyCoverPct: number | null;
+  ceilingFt: number | null;
   openMeteoFetched: boolean;
+  nwsPointFetched: boolean;
+  nwsGridFetched: boolean;
 };
 
 type OpenMeteoForecast = {
@@ -105,6 +138,13 @@ type OpenMeteoForecast = {
   timesMs: number[];
   cloudCoverTotal: Array<number | null>;
   cloudCoverLow: Array<number | null>;
+  cloudCoverMid: Array<number | null>;
+  cloudCoverHigh: Array<number | null>;
+};
+
+type NwsGridForecast = {
+  updatedAtMs: number | null;
+  properties: Record<string, unknown> | null;
 };
 
 type ObserverRegistryRow = {
@@ -119,6 +159,73 @@ type ObserverPoint = {
   latDeg: number;
   lonDeg: number;
   source: 'pad' | 'observer_registry';
+};
+
+type WeatherSamplingMode = 'visible_path' | 'sunlit_path' | 'modeled_path' | 'observer_only';
+
+type WeatherSamplingPoint = {
+  role: 'path_start' | 'path_mid' | 'path_end';
+  latDeg: number;
+  lonDeg: number;
+  tPlusSec: number | null;
+  altitudeM: number | null;
+  azimuthDeg: number | null;
+  elevationDeg: number | null;
+};
+
+type WeatherSamplingPlan = {
+  mode: WeatherSamplingMode;
+  note: string;
+  points: WeatherSamplingPoint[];
+};
+
+type WeatherAssessmentPoint = {
+  role: 'observer' | 'path_start' | 'path_mid' | 'path_end' | 'pad';
+  source: 'nws' | 'open_meteo' | 'mixed' | 'none';
+  totalCloudPct: number | null;
+  lowCloudPct: number | null;
+  midCloudPct: number | null;
+  highCloudPct: number | null;
+  skyCoverPct: number | null;
+  ceilingFt: number | null;
+  obstructionFactor: number | null;
+  obstructionLevel: 'clear' | 'partly_obstructed' | 'likely_blocked' | 'unknown';
+  note: string | null;
+};
+
+type WeatherAssessment = {
+  weatherFactor: number;
+  primarySource: 'open_meteo' | 'nws' | 'mixed' | 'none';
+  fetchedAtMs: number | null;
+  openMeteoFetchCount: number;
+  nwsPointFetchCount: number;
+  nwsGridFetchCount: number;
+  sourceUsed: 'nws_path_sampling' | 'open_meteo_path_fallback' | 'mixed_nws_open_meteo' | 'geometry_only';
+  samplingMode: WeatherSamplingMode;
+  samplingNote: string | null;
+  contrastFactor: number | null;
+  obstructionFactor: number | null;
+  mainBlocker:
+    | 'observer_low_ceiling'
+    | 'observer_sky_cover'
+    | 'path_low_ceiling'
+    | 'path_sky_cover'
+    | 'observer_low_clouds'
+    | 'observer_mid_clouds'
+    | 'observer_high_clouds'
+    | 'mixed'
+    | 'unknown';
+  observer: WeatherAssessmentPoint | null;
+  alongPath: {
+    source: 'nws' | 'open_meteo' | 'mixed' | 'none';
+    samplesConsidered: number;
+    worstRole: 'path_start' | 'path_mid' | 'path_end' | null;
+    skyCoverPct: number | null;
+    ceilingFt: number | null;
+    obstructionLevel: 'clear' | 'partly_obstructed' | 'likely_blocked' | 'unknown';
+    note: string | null;
+  } | null;
+  pad: WeatherAssessmentPoint | null;
 };
 
 type JepCalibrationBand = 'VERY_LOW' | 'LOW' | 'MEDIUM' | 'HIGH' | 'VERY_HIGH' | 'UNKNOWN';
@@ -177,10 +284,12 @@ serve(async (req) => {
     weatherSourceResolvedTotal: 0,
     weatherSourceResolvedOpenMeteo: 0,
     weatherSourceResolvedNws: 0,
+    weatherSourceResolvedMixed: 0,
     weatherSourceResolvedNone: 0,
     weatherSourceUpsertedTotal: 0,
     weatherSourceUpsertedOpenMeteo: 0,
     weatherSourceUpsertedNws: 0,
+    weatherSourceUpsertedMixed: 0,
     weatherSourceUpsertedNone: 0,
     errors: [] as Array<Record<string, unknown>>
   };
@@ -275,6 +384,7 @@ serve(async (req) => {
 
     const launchIds = launches.map((row) => row.launch_id);
     const existingScores = await loadExistingScores(supabase, launchIds);
+    const trajectoryFreshnessByLaunch = await loadTrajectoryFreshness(supabase, launchIds);
     const due: DueLaunch[] = [];
 
     for (const launch of launches) {
@@ -290,7 +400,7 @@ serve(async (req) => {
       });
       const launchDue = observers.some((observer) => {
         const key = scoreKey(launch.launch_id, observer.hash);
-        return isDueObserver(launch, existingScores.get(key), nowMs);
+        return isDueObserver(launch, existingScores.get(key), nowMs, trajectoryFreshnessByLaunch.get(launch.launch_id) ?? null);
       });
       if (!launchDue) continue;
       due.push({ launch, observers });
@@ -306,8 +416,9 @@ serve(async (req) => {
 
     const dueIds = due.map((item) => item.launch.launch_id);
     const trajectories = await loadTrajectories(supabase, dueIds);
-    const nwsByLaunch = await loadNwsRows(supabase, dueIds);
     const weatherCache = new Map<string, { atMs: number; forecast: OpenMeteoForecast | null }>();
+    const nwsPointCache = new Map<string, NwsPointRow | null>();
+    const nwsGridCache = new Map<string, NwsGridForecast | null>();
     const upserts: Record<string, unknown>[] = [];
     const snapshotLocksByLaunch = new Map<string, Set<string>>();
 
@@ -385,32 +496,38 @@ serve(async (req) => {
           });
           const illuminationFactor = illumination.factor;
           const losFactor = los.factor;
+          const samplingPlan = buildWeatherSamplingPlan({
+            samples,
+            observerLatDeg: observer.latDeg,
+            observerLonDeg: observer.lonDeg,
+            solarDepressionDeg: depressionDeg
+          });
 
-          const weather = await resolveObserverWeather({
+          const weather = await resolveWeatherAssessment({
+            supabase,
             observer,
             launch,
             targetMs: netMs,
+            samplingPlan,
             weatherCache,
+            nwsPointCache,
+            nwsGridCache,
             weatherCacheMinutes,
-            openMeteoUsModels,
-            isUsObserver: isLikelyUsCoordinate(observer.latDeg, observer.lonDeg),
-            // The cached NWS rows are launch-site forecasts, so only pad observers can reuse them safely.
-            allowNwsFallback: allowNwsFallbackForObserverSource(observer.source),
-            nws: nwsByLaunch.get(launch.launch_id) || null
+            openMeteoUsModels
           });
 
-          if (weather.openMeteoFetched) {
-            stats.weatherFetches = Number(stats.weatherFetches || 0) + 1;
+          if (weather.openMeteoFetchCount > 0) {
+            stats.weatherFetches = Number(stats.weatherFetches || 0) + weather.openMeteoFetchCount;
           }
-          if (weather.source === 'none') {
+          if (weather.sourceUsed === 'geometry_only') {
             stats.weatherFallbacks = Number(stats.weatherFallbacks || 0) + 1;
           }
-          incrementWeatherSourceStats(stats, weather.source, 'resolved');
+          incrementWeatherSourceStats(stats, weather.primarySource, 'resolved');
 
-          const weatherFactor = computeWeatherFactor(weather.cloudCoverTotal, weather.cloudCoverLow);
-          const geometryOnlyFallback = weather.source === 'none';
+          const weatherFactor = weather.weatherFactor;
+          const geometryOnlyFallback = weather.primarySource === 'none' || weather.sourceUsed === 'geometry_only';
           const score = computeScore(illuminationFactor, darknessFactor, losFactor, weatherFactor);
-          const weatherConfidence = mapWeatherConfidence(weather.fetchedAtMs, nowMs, weather.source);
+          const weatherConfidence = mapWeatherConfidence(weather.fetchedAtMs, nowMs, weather.primarySource);
           const probability = computeCalibratedProbability({
             score,
             illuminationFactor,
@@ -435,7 +552,8 @@ serve(async (req) => {
             observerSource: observer.source,
             weatherConfidence,
             trajectoryConfidence,
-            timeConfidence
+            timeConfidence,
+            weatherAssessment: weather
           });
 
           const inputPayload = {
@@ -454,12 +572,14 @@ serve(async (req) => {
             sunlitMarginKm: illumination.sunlitMarginKm,
             losVisibleFraction: round(los.visibleFraction, 4),
             weatherFreshnessMin,
-            cloudCoverTotal: toInt(weather.cloudCoverTotal),
-            cloudCoverLow: toInt(weather.cloudCoverLow),
+            cloudCoverTotal: toInt(weather.observer?.totalCloudPct ?? null),
+            cloudCoverLow: toInt(weather.observer?.lowCloudPct ?? null),
+            cloudCoverMid: toInt(weather.observer?.midCloudPct ?? null),
+            cloudCoverHigh: toInt(weather.observer?.highCloudPct ?? null),
             timeConfidence,
             trajectoryConfidence,
             weatherConfidence,
-            weatherSource: weather.source,
+            weatherSource: weather.primarySource,
             azimuthSource,
             geometryOnlyFallback,
             explainability
@@ -493,18 +613,31 @@ serve(async (req) => {
             weather_factor: round(weatherFactor, 3),
             weather_freshness_min: weatherFreshnessMin,
             solar_depression_deg: round(depressionDeg, 3),
-            cloud_cover_pct: toInt(weather.cloudCoverTotal),
-            cloud_cover_low_pct: toInt(weather.cloudCoverLow),
+            cloud_cover_pct: toInt(weather.observer?.totalCloudPct ?? null),
+            cloud_cover_low_pct: toInt(weather.observer?.lowCloudPct ?? null),
+            cloud_cover_mid_pct: toInt(weather.observer?.midCloudPct ?? null),
+            cloud_cover_high_pct: toInt(weather.observer?.highCloudPct ?? null),
             time_confidence: timeConfidence,
             trajectory_confidence: trajectoryConfidence,
             weather_confidence: weatherConfidence,
-            weather_source: weather.source,
+            weather_source: weather.primarySource,
             azimuth_source: azimuthSource,
             geometry_only_fallback: geometryOnlyFallback,
             explainability: {
               ...explainability,
               sunlitMarginKm: illumination.sunlitMarginKm,
-              losVisibleFraction: round(los.visibleFraction, 4)
+              losVisibleFraction: round(los.visibleFraction, 4),
+              weatherDetails: {
+                sourceUsed: weather.sourceUsed,
+                mainBlocker: weather.mainBlocker,
+                obstructionFactor: weather.obstructionFactor,
+                contrastFactor: weather.contrastFactor,
+                samplingMode: weather.samplingMode,
+                samplingNote: weather.samplingNote,
+                observer: weather.observer,
+                alongPath: weather.alongPath,
+                pad: weather.pad
+              }
             },
             model_version: modelVersion,
             input_hash: inputHash,
@@ -513,7 +646,7 @@ serve(async (req) => {
             snapshot_at: launchPassedT0 ? nowIso : null,
             updated_at: nowIso
           });
-          incrementWeatherSourceStats(stats, weather.source, 'upserted');
+          incrementWeatherSourceStats(stats, weather.primarySource, 'upserted');
 
           launchComputed = true;
           stats.observerVariantsComputed = Number(stats.observerVariantsComputed || 0) + 1;
@@ -580,7 +713,7 @@ async function loadExistingScores(
     const slice = launchIds.slice(i, i + chunkSize);
     const { data, error } = await supabase
       .from('launch_jep_scores')
-      .select('launch_id, observer_location_hash, input_hash, expires_at, snapshot_at')
+      .select('launch_id, observer_location_hash, input_hash, computed_at, expires_at, snapshot_at')
       .in('launch_id', slice);
     if (error) throw error;
     for (const row of (data || []) as ScoreRow[]) {
@@ -589,6 +722,28 @@ async function loadExistingScores(
     }
   }
   return byKey;
+}
+
+async function loadTrajectoryFreshness(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  launchIds: string[]
+) {
+  const byId = new Map<string, number>();
+  const chunkSize = 200;
+  for (let i = 0; i < launchIds.length; i += chunkSize) {
+    const slice = launchIds.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from('launch_trajectory_products')
+      .select('launch_id, generated_at')
+      .in('launch_id', slice);
+    if (error) throw error;
+    for (const row of (data || []) as Array<{ launch_id: string; generated_at?: string | null }>) {
+      const generatedAtMs = typeof row.generated_at === 'string' ? Date.parse(row.generated_at) : Number.NaN;
+      if (!Number.isFinite(generatedAtMs)) continue;
+      byId.set(row.launch_id, generatedAtMs);
+    }
+  }
+  return byId;
 }
 
 async function loadTrajectories(
@@ -605,27 +760,6 @@ async function loadTrajectories(
       .in('launch_id', slice);
     if (error) throw error;
     for (const row of (data || []) as TrajectoryRow[]) {
-      byId.set(row.launch_id, row);
-    }
-  }
-  return byId;
-}
-
-async function loadNwsRows(
-  supabase: ReturnType<typeof createSupabaseAdminClient>,
-  launchIds: string[]
-) {
-  const byId = new Map<string, NwsRow>();
-  const chunkSize = 200;
-  for (let i = 0; i < launchIds.length; i += chunkSize) {
-    const slice = launchIds.slice(i, i + chunkSize);
-    const { data, error } = await supabase
-      .from('launch_weather')
-      .select('launch_id, issued_at, data')
-      .eq('source', 'nws')
-      .in('launch_id', slice);
-    if (error) throw error;
-    for (const row of (data || []) as NwsRow[]) {
       byId.set(row.launch_id, row);
     }
   }
@@ -734,6 +868,15 @@ function incrementWeatherSourceStats(
     stats[key] = Number(stats[key] || 0) + 1;
     return;
   }
+  if (source === 'mixed') {
+    const mixedKey = `${prefix}Mixed`;
+    const nwsKey = `${prefix}Nws`;
+    const openMeteoKey = `${prefix}OpenMeteo`;
+    stats[mixedKey] = Number(stats[mixedKey] || 0) + 1;
+    stats[nwsKey] = Number(stats[nwsKey] || 0) + 1;
+    stats[openMeteoKey] = Number(stats[openMeteoKey] || 0) + 1;
+    return;
+  }
   const key = `${prefix}None`;
   stats[key] = Number(stats[key] || 0) + 1;
 }
@@ -750,12 +893,21 @@ function isScoreEligible(row: LaunchRow, nowMs: number) {
   return true;
 }
 
-function isDueObserver(row: LaunchRow, existing: ScoreRow | undefined, nowMs: number) {
+function isDueObserver(
+  row: LaunchRow,
+  existing: ScoreRow | undefined,
+  nowMs: number,
+  trajectoryGeneratedAtMs: number | null = null
+) {
   if (isSnapshotLocked(existing)) return false;
   const netMs = Date.parse(String(row.net || ''));
   if (!Number.isFinite(netMs)) return true;
   if (netMs <= nowMs) return true;
   if (!existing || !existing.expires_at) return true;
+  if (trajectoryGeneratedAtMs != null) {
+    const computedAtMs = existing.computed_at ? Date.parse(existing.computed_at) : Number.NaN;
+    if (!Number.isFinite(computedAtMs) || trajectoryGeneratedAtMs > computedAtMs) return true;
+  }
   const expiresAtMs = Date.parse(existing.expires_at);
   if (!Number.isFinite(expiresAtMs)) return true;
   if (expiresAtMs <= nowMs) return true;
@@ -778,92 +930,246 @@ function intervalMinutesForLaunch(netMs: number, nowMs: number) {
   return 1440;
 }
 
-async function resolveObserverWeather({
+async function resolveWeatherAssessment({
+  supabase,
   observer,
   launch,
   targetMs,
+  samplingPlan,
   weatherCache,
+  nwsPointCache,
+  nwsGridCache,
   weatherCacheMinutes,
-  openMeteoUsModels,
-  isUsObserver,
-  allowNwsFallback,
-  nws
+  openMeteoUsModels
 }: {
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
   observer: ObserverPoint;
   launch: LaunchRow;
   targetMs: number;
+  samplingPlan: WeatherSamplingPlan | null;
   weatherCache: Map<string, { atMs: number; forecast: OpenMeteoForecast | null }>;
+  nwsPointCache: Map<string, NwsPointRow | null>;
+  nwsGridCache: Map<string, NwsGridForecast | null>;
   weatherCacheMinutes: number;
   openMeteoUsModels: string[];
-  isUsObserver: boolean;
-  allowNwsFallback: boolean;
-  nws: NwsRow | null;
-}): Promise<WeatherResolution> {
-  const lat = observer.latDeg;
-  const lon = observer.lonDeg;
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-    return {
-      source: 'none',
-      cloudCoverTotal: null,
-      cloudCoverLow: null,
-      fetchedAtMs: null,
-      openMeteoFetched: false
-    };
+}): Promise<WeatherAssessment> {
+  const observerWeather = await resolvePointWeather({
+    supabase,
+    launch,
+    lat: observer.latDeg,
+    lon: observer.lonDeg,
+    targetMs,
+    weatherCache,
+    nwsPointCache,
+    nwsGridCache,
+    weatherCacheMinutes,
+    openMeteoUsModels
+  });
+  const padWeather =
+    samePoint(observer.latDeg, observer.lonDeg, Number(launch.pad_latitude), Number(launch.pad_longitude))
+      ? observerWeather
+      : await resolvePointWeather({
+          supabase,
+          launch,
+          lat: Number(launch.pad_latitude),
+          lon: Number(launch.pad_longitude),
+          targetMs,
+          weatherCache,
+          nwsPointCache,
+          nwsGridCache,
+          weatherCacheMinutes,
+          openMeteoUsModels
+        });
+
+  const pathPoints = samplingPlan?.points ?? [];
+  const pathWeather = [] as Array<{ point: WeatherSamplingPoint; weather: WeatherResolution }>;
+  for (const point of pathPoints) {
+    pathWeather.push({
+      point,
+      weather: await resolvePointWeather({
+        supabase,
+        launch,
+        lat: point.latDeg,
+        lon: point.lonDeg,
+        targetMs,
+        weatherCache,
+        nwsPointCache,
+        nwsGridCache,
+        weatherCacheMinutes,
+        openMeteoUsModels
+      })
+    });
   }
 
-  const key = `${lat.toFixed(2)},${lon.toFixed(2)}`;
-  const nowMs = Date.now();
-  let openMeteoFetched = false;
+  const contrastFactor = deriveContrastFactor(observerWeather);
+  const obstructionFactor = deriveObstructionFactor(observerWeather, pathWeather);
+  const fallbackLayerFactor = computeJepWeatherFactor({
+    cloudCoverTotal: observerWeather.cloudCoverTotal,
+    cloudCoverLow: observerWeather.cloudCoverLow,
+    cloudCoverMid: observerWeather.cloudCoverMid,
+    cloudCoverHigh: observerWeather.cloudCoverHigh
+  });
+  const weatherFactor =
+    obstructionFactor != null || contrastFactor != null
+      ? combineJepWeatherFactors({
+          obstructionFactor: obstructionFactor ?? fallbackLayerFactor,
+          contrastFactor: contrastFactor ?? fallbackLayerFactor
+        })
+      : fallbackLayerFactor;
 
-  const cached = weatherCache.get(key);
-  let forecast = cached?.forecast || null;
-  if (!cached || nowMs - cached.atMs > weatherCacheMinutes * 60 * 1000) {
-    forecast = await fetchOpenMeteoForecast({
+  const usedSources = [observerWeather, padWeather, ...pathWeather.map((entry) => entry.weather)]
+    .map((entry) => entry.source)
+    .filter((entry) => entry !== 'none');
+  const primarySource = summarizeSource(usedSources);
+  const sourceUsed =
+    primarySource === 'mixed'
+      ? 'mixed_nws_open_meteo'
+      : primarySource === 'nws'
+        ? 'nws_path_sampling'
+        : primarySource === 'open_meteo'
+          ? 'open_meteo_path_fallback'
+          : 'geometry_only';
+  const fetchedAtMs = minFinite([
+    observerWeather.fetchedAtMs,
+    padWeather.fetchedAtMs,
+    ...pathWeather.map((entry) => entry.weather.fetchedAtMs)
+  ]);
+  const observerSummary = summarizeAssessmentPoint('observer', observerWeather);
+  const pathSummary = summarizePathAssessment(pathWeather);
+  const padSummary = summarizeAssessmentPoint('pad', padWeather);
+
+  return {
+    weatherFactor: round(clamp(weatherFactor, 0.08, 1), 3),
+    primarySource,
+    fetchedAtMs,
+    openMeteoFetchCount:
+      Number(observerWeather.openMeteoFetched) +
+      Number(padWeather.openMeteoFetched && padWeather !== observerWeather) +
+      pathWeather.reduce((sum, entry) => sum + Number(entry.weather.openMeteoFetched), 0),
+    nwsPointFetchCount:
+      Number(observerWeather.nwsPointFetched) +
+      Number(padWeather.nwsPointFetched && padWeather !== observerWeather) +
+      pathWeather.reduce((sum, entry) => sum + Number(entry.weather.nwsPointFetched), 0),
+    nwsGridFetchCount:
+      Number(observerWeather.nwsGridFetched) +
+      Number(padWeather.nwsGridFetched && padWeather !== observerWeather) +
+      pathWeather.reduce((sum, entry) => sum + Number(entry.weather.nwsGridFetched), 0),
+    sourceUsed,
+    samplingMode: samplingPlan?.mode ?? 'observer_only',
+    samplingNote: samplingPlan?.note ?? 'Using the observer point only because no plume path sample was available.',
+    contrastFactor: contrastFactor != null ? round(contrastFactor, 3) : null,
+    obstructionFactor: obstructionFactor != null ? round(obstructionFactor, 3) : null,
+    mainBlocker: deriveMainWeatherBlocker({
+      observerWeather,
+      pathWeather,
+      observerSummary,
+      pathSummary
+    }),
+    observer: observerSummary,
+    alongPath: pathSummary,
+    pad: padSummary
+  };
+}
+
+async function resolvePointWeather({
+  supabase,
+  launch,
+  lat,
+  lon,
+  targetMs,
+  weatherCache,
+  nwsPointCache,
+  nwsGridCache,
+  weatherCacheMinutes,
+  openMeteoUsModels
+}: {
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  launch: LaunchRow;
+  lat: number;
+  lon: number;
+  targetMs: number;
+  weatherCache: Map<string, { atMs: number; forecast: OpenMeteoForecast | null }>;
+  nwsPointCache: Map<string, NwsPointRow | null>;
+  nwsGridCache: Map<string, NwsGridForecast | null>;
+  weatherCacheMinutes: number;
+  openMeteoUsModels: string[];
+}): Promise<WeatherResolution> {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return emptyWeatherResolution();
+  }
+
+  const isUsLocation = isLikelyUsCoordinate(lat, lon) || isUsCountryCode(launch.pad_country_code);
+  let openMeteoFetched = false;
+  let nwsPointFetched = false;
+  let nwsGridFetched = false;
+  let cloudCoverTotal: number | null = null;
+  let cloudCoverLow: number | null = null;
+  let cloudCoverMid: number | null = null;
+  let cloudCoverHigh: number | null = null;
+  let skyCoverPct: number | null = null;
+  let ceilingFt: number | null = null;
+  let fetchedAtCandidates: Array<number | null> = [];
+
+  const forecast = await resolveOpenMeteoForecast({
+    lat,
+    lon,
+    isUsLocation,
+    targetMs,
+    weatherCache,
+    weatherCacheMinutes,
+    openMeteoUsModels
+  });
+  if (forecast != null) {
+    cloudCoverTotal = forecast.cloudCoverTotal;
+    cloudCoverLow = forecast.cloudCoverLow;
+    cloudCoverMid = forecast.cloudCoverMid;
+    cloudCoverHigh = forecast.cloudCoverHigh;
+    fetchedAtCandidates.push(forecast.fetchedAtMs);
+    openMeteoFetched = forecast.openMeteoFetched;
+  }
+
+  if (isUsLocation) {
+    const nwsPoint = await resolveNwsPoint({
+      supabase,
       lat,
       lon,
-      isUsLocation: isUsObserver || String(launch.pad_country_code || '').toUpperCase() === 'US',
-      usModels: openMeteoUsModels
+      ll2PadId: null,
+      nwsPointCache
     });
-    weatherCache.set(key, { atMs: nowMs, forecast });
-    openMeteoFetched = Boolean(forecast);
-  }
-
-  if (forecast && forecast.timesMs.length) {
-    const idx = nearestTimeIndex(forecast.timesMs, targetMs);
-    if (idx >= 0) {
-      const total = idx < forecast.cloudCoverTotal.length ? forecast.cloudCoverTotal[idx] : null;
-      const low = idx < forecast.cloudCoverLow.length ? forecast.cloudCoverLow[idx] : null;
-      if (total != null || low != null) {
-        return {
-          source: 'open_meteo',
-          cloudCoverTotal: total,
-          cloudCoverLow: low,
-          fetchedAtMs: forecast.fetchedAtMs,
-          openMeteoFetched
-        };
+    nwsPointFetched = nwsPoint.pointFetched;
+    if (nwsPoint.row?.forecast_grid_data_url) {
+      const grid = await resolveNwsGridForecast(nwsPoint.row.forecast_grid_data_url, nwsGridCache);
+      nwsGridFetched = grid.gridFetched;
+      if (grid.forecast?.properties) {
+        const sample = sampleNwsGridForecast(grid.forecast.properties, targetMs);
+        skyCoverPct = sample.skyCoverPct;
+        ceilingFt = sample.ceilingFt;
+        fetchedAtCandidates.push(grid.forecast.updatedAtMs);
       }
     }
   }
 
-  if (allowNwsFallback) {
-    const nwsCloud = parseNwsCloud(nws?.data ?? null, targetMs);
-    if (nwsCloud.total != null || nwsCloud.low != null) {
-      return {
-        source: 'nws',
-        cloudCoverTotal: nwsCloud.total,
-        cloudCoverLow: nwsCloud.low,
-        fetchedAtMs: nws?.issued_at ? Date.parse(nws.issued_at) || nowMs : nowMs,
-        openMeteoFetched
-      };
-    }
-  }
+  const source =
+    (skyCoverPct != null || ceilingFt != null) && (cloudCoverTotal != null || cloudCoverLow != null || cloudCoverMid != null || cloudCoverHigh != null)
+      ? 'mixed'
+      : skyCoverPct != null || ceilingFt != null
+        ? 'nws'
+        : cloudCoverTotal != null || cloudCoverLow != null || cloudCoverMid != null || cloudCoverHigh != null
+          ? 'open_meteo'
+          : 'none';
 
   return {
-    source: 'none',
-    cloudCoverTotal: null,
-    cloudCoverLow: null,
-    fetchedAtMs: null,
-    openMeteoFetched
+    source,
+    cloudCoverTotal,
+    cloudCoverLow,
+    cloudCoverMid,
+    cloudCoverHigh,
+    skyCoverPct: skyCoverPct ?? cloudCoverTotal,
+    ceilingFt,
+    fetchedAtMs: minFinite(fetchedAtCandidates),
+    openMeteoFetched,
+    nwsPointFetched,
+    nwsGridFetched
   };
 }
 
@@ -905,19 +1211,25 @@ async function fetchOpenMeteoForecast({
       const timesRaw = Array.isArray(hourly?.time) ? (hourly.time as unknown[]) : [];
       const cloudCoverRaw = Array.isArray(hourly?.cloud_cover) ? (hourly.cloud_cover as unknown[]) : [];
       const cloudCoverLowRaw = Array.isArray(hourly?.cloud_cover_low) ? (hourly.cloud_cover_low as unknown[]) : [];
+      const cloudCoverMidRaw = Array.isArray(hourly?.cloud_cover_mid) ? (hourly.cloud_cover_mid as unknown[]) : [];
+      const cloudCoverHighRaw = Array.isArray(hourly?.cloud_cover_high) ? (hourly.cloud_cover_high as unknown[]) : [];
       if (!timesRaw.length || !cloudCoverRaw.length) continue;
 
       const timesMs: number[] = [];
       const cloudCoverTotal: Array<number | null> = [];
       const cloudCoverLow: Array<number | null> = [];
+      const cloudCoverMid: Array<number | null> = [];
+      const cloudCoverHigh: Array<number | null> = [];
 
-      const maxLen = Math.max(timesRaw.length, cloudCoverRaw.length, cloudCoverLowRaw.length);
+      const maxLen = Math.max(timesRaw.length, cloudCoverRaw.length, cloudCoverLowRaw.length, cloudCoverMidRaw.length, cloudCoverHighRaw.length);
       for (let i = 0; i < maxLen; i += 1) {
         const t = Date.parse(String(timesRaw[i] || ''));
         if (!Number.isFinite(t)) continue;
         timesMs.push(t);
         cloudCoverTotal.push(toFiniteNumber(cloudCoverRaw[i]));
         cloudCoverLow.push(toFiniteNumber(cloudCoverLowRaw[i]));
+        cloudCoverMid.push(toFiniteNumber(cloudCoverMidRaw[i]));
+        cloudCoverHigh.push(toFiniteNumber(cloudCoverHighRaw[i]));
       }
 
       if (!timesMs.length) continue;
@@ -926,7 +1238,9 @@ async function fetchOpenMeteoForecast({
         fetchedAtMs: Date.now(),
         timesMs,
         cloudCoverTotal,
-        cloudCoverLow
+        cloudCoverLow,
+        cloudCoverMid,
+        cloudCoverHigh
       } as OpenMeteoForecast;
     }
     return null;
@@ -935,6 +1249,53 @@ async function fetchOpenMeteoForecast({
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function resolveOpenMeteoForecast({
+  lat,
+  lon,
+  isUsLocation,
+  targetMs,
+  weatherCache,
+  weatherCacheMinutes,
+  openMeteoUsModels
+}: {
+  lat: number;
+  lon: number;
+  isUsLocation: boolean;
+  targetMs: number;
+  weatherCache: Map<string, { atMs: number; forecast: OpenMeteoForecast | null }>;
+  weatherCacheMinutes: number;
+  openMeteoUsModels: string[];
+}) {
+  const key = `${lat.toFixed(2)},${lon.toFixed(2)}`;
+  const nowMs = Date.now();
+  let openMeteoFetched = false;
+
+  const cached = weatherCache.get(key);
+  let forecast = cached?.forecast || null;
+  if (!cached || nowMs - cached.atMs > weatherCacheMinutes * 60 * 1000) {
+    forecast = await fetchOpenMeteoForecast({
+      lat,
+      lon,
+      isUsLocation,
+      usModels: openMeteoUsModels
+    });
+    weatherCache.set(key, { atMs: nowMs, forecast });
+    openMeteoFetched = Boolean(forecast);
+  }
+
+  if (!forecast || !forecast.timesMs.length) return null;
+  const idx = nearestTimeIndex(forecast.timesMs, targetMs);
+  if (idx < 0) return null;
+  return {
+    cloudCoverTotal: idx < forecast.cloudCoverTotal.length ? forecast.cloudCoverTotal[idx] : null,
+    cloudCoverLow: idx < forecast.cloudCoverLow.length ? forecast.cloudCoverLow[idx] : null,
+    cloudCoverMid: idx < forecast.cloudCoverMid.length ? forecast.cloudCoverMid[idx] : null,
+    cloudCoverHigh: idx < forecast.cloudCoverHigh.length ? forecast.cloudCoverHigh[idx] : null,
+    fetchedAtMs: forecast.fetchedAtMs,
+    openMeteoFetched
+  };
 }
 
 function nearestTimeIndex(timesMs: number[], targetMs: number) {
@@ -952,56 +1313,150 @@ function nearestTimeIndex(timesMs: number[], targetMs: number) {
   return bestIdx;
 }
 
-function parseNwsCloud(data: Record<string, unknown> | null, targetMs: number) {
-  if (!data) return { total: null as number | null, low: null as number | null };
-  const period = data.period && typeof data.period === 'object' ? (data.period as Record<string, unknown>) : null;
-  const periodTotal = toFiniteNumber(
-    period?.cloudCover ?? period?.skyCover ?? (period?.cloudCover as any)?.value ?? (period?.skyCover as any)?.value
-  );
-  const periodLow = toFiniteNumber(
-    (period?.cloudCoverLow as any)?.value ??
-      (period?.cloudCoverLow as any) ??
-      (period?.skyCoverLow as any)?.value ??
-      (period?.skyCoverLow as any)
-  );
-  const topLevelTotal = toFiniteNumber(
-    (data as any)?.cloudCoverPct ?? (data as any)?.cloudCover ?? (data as any)?.skyCoverPct ?? (data as any)?.skyCover
-  );
-  const topLevelLow = toFiniteNumber(
-    (data as any)?.cloudCoverLowPct ?? (data as any)?.cloudCoverLow ?? (data as any)?.skyCoverLowPct ?? (data as any)?.skyCoverLow
-  );
-  const gridTotal = extractNwsGridSkyCover(data, targetMs);
-  const total = firstFiniteNumber(periodTotal, topLevelTotal, gridTotal);
-  const low = firstFiniteNumber(periodLow, topLevelLow);
-  return { total, low };
-}
-
-function extractNwsGridSkyCover(data: Record<string, unknown>, targetMs: number) {
-  const dataAny = data as any;
-  const direct = toFiniteNumber(dataAny?.gridSkyCoverPct);
-  if (direct != null) return direct;
-
-  const values = resolveNwsSkyCoverValues(data);
-  if (!values.length) return null;
-  return pickNwsGridValue(values, targetMs);
-}
-
-function resolveNwsSkyCoverValues(data: Record<string, unknown>) {
-  const dataAny = data as any;
-  const candidateArrays = [
-    dataAny?.forecastGridData?.properties?.skyCover?.values,
-    dataAny?.gridData?.properties?.skyCover?.values,
-    dataAny?.grid?.skyCover?.values,
-    dataAny?.skyCover?.values,
-    dataAny?.skyCoverValues
-  ];
-  for (const value of candidateArrays) {
-    if (Array.isArray(value) && value.length) return value as Array<Record<string, unknown>>;
+async function resolveNwsPoint({
+  supabase,
+  lat,
+  lon,
+  ll2PadId,
+  nwsPointCache
+}: {
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  lat: number;
+  lon: number;
+  ll2PadId: number | null;
+  nwsPointCache: Map<string, NwsPointRow | null>;
+}) {
+  const coordKey = toCoordKey(lat, lon);
+  if (nwsPointCache.has(coordKey)) {
+    return {
+      row: nwsPointCache.get(coordKey) || null,
+      pointFetched: false
+    };
   }
-  return [] as Array<Record<string, unknown>>;
+
+  const { data, error } = await supabase.from('nws_points').select('*').eq('coord_key', coordKey).maybeSingle();
+  if (error) throw error;
+  const existing = (data as NwsPointRow | null) ?? null;
+  const staleBeforeIso = new Date(Date.now() - NWS_POINTS_CACHE_HOURS * 60 * 60 * 1000).toISOString();
+  if (existing && existing.forecast_grid_data_url && existing.fetched_at >= staleBeforeIso) {
+    nwsPointCache.set(coordKey, existing);
+    return { row: existing, pointFetched: false };
+  }
+
+  const fetched = await fetchNwsPoints(lat, lon);
+  const payload = {
+    coord_key: coordKey,
+    ll2_pad_id: ll2PadId,
+    latitude: lat,
+    longitude: lon,
+    cwa: fetched.cwa,
+    grid_id: fetched.gridId,
+    grid_x: fetched.gridX,
+    grid_y: fetched.gridY,
+    forecast_url: fetched.forecast,
+    forecast_hourly_url: fetched.forecastHourly,
+    forecast_grid_data_url: fetched.forecastGridData,
+    time_zone: fetched.timeZone,
+    county_url: fetched.county,
+    forecast_zone_url: fetched.forecastZone,
+    raw: fetched.raw,
+    fetched_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+  const { data: upserted, error: upsertError } = await supabase
+    .from('nws_points')
+    .upsert(payload, { onConflict: 'coord_key' })
+    .select('*')
+    .maybeSingle();
+  if (upsertError) throw upsertError;
+  const row = (upserted as NwsPointRow | null) ?? null;
+  nwsPointCache.set(coordKey, row);
+  return { row, pointFetched: true };
 }
 
-function pickNwsGridValue(values: Array<Record<string, unknown>>, targetMs: number) {
+async function fetchNwsPoints(lat: number, lon: number) {
+  const url = `${NWS_BASE}/points/${lat},${lon}`;
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': NWS_USER_AGENT,
+      accept: 'application/geo+json'
+    }
+  });
+  if (!res.ok) throw new Error(`nws_points_${res.status}`);
+  const json = await res.json();
+  const props = json?.properties || {};
+  const gridId = String(props.gridId || props.gridID || '').trim();
+  const gridX = Number(props.gridX);
+  const gridY = Number(props.gridY);
+  const forecast = String(props.forecast || '').trim();
+  const forecastHourly = String(props.forecastHourly || '').trim();
+  const forecastGridData = String(props.forecastGridData || '').trim();
+  const timeZone = typeof props.timeZone === 'string' ? props.timeZone : null;
+  const cwa = typeof props.cwa === 'string' ? props.cwa : null;
+  const county = typeof props.county === 'string' ? props.county : null;
+  const forecastZone = typeof props.forecastZone === 'string' ? props.forecastZone : null;
+
+  if (!gridId || !Number.isFinite(gridX) || !Number.isFinite(gridY) || !forecast || !forecastHourly) {
+    throw new Error('nws_points_missing_fields');
+  }
+
+  return {
+    gridId,
+    gridX: Math.trunc(gridX),
+    gridY: Math.trunc(gridY),
+    forecast,
+    forecastHourly,
+    forecastGridData: forecastGridData || null,
+    timeZone,
+    cwa,
+    county,
+    forecastZone,
+    raw: json
+  };
+}
+
+async function resolveNwsGridForecast(url: string, nwsGridCache: Map<string, NwsGridForecast | null>) {
+  if (nwsGridCache.has(url)) {
+    return {
+      forecast: nwsGridCache.get(url) || null,
+      gridFetched: false
+    };
+  }
+
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': NWS_USER_AGENT,
+      accept: 'application/geo+json'
+    }
+  });
+  if (!res.ok) throw new Error(`nws_grid_${res.status}`);
+  const json = await res.json();
+  const forecast: NwsGridForecast = {
+    updatedAtMs: Date.parse(String(json?.properties?.updateTime || json?.properties?.generatedAt || '')) || Date.now(),
+    properties: json?.properties && typeof json.properties === 'object' ? (json.properties as Record<string, unknown>) : null
+  };
+  nwsGridCache.set(url, forecast);
+  return {
+    forecast,
+    gridFetched: true
+  };
+}
+
+function sampleNwsGridForecast(properties: Record<string, unknown>, targetMs: number) {
+  return {
+    skyCoverPct: extractNwsGridField(properties, 'skyCover', targetMs, { clampMin: 0, clampMax: 100 }),
+    ceilingFt: extractNwsGridField(properties, 'ceiling', targetMs, { clampMin: 0 })
+  };
+}
+
+function extractNwsGridField(
+  properties: Record<string, unknown>,
+  field: string,
+  targetMs: number,
+  options: { clampMin?: number; clampMax?: number } = {}
+) {
+  const candidate = (properties as Record<string, any>)[field];
+  const values = Array.isArray(candidate?.values) ? (candidate.values as Array<Record<string, unknown>>) : [];
   if (!values.length) return null;
 
   let nearest: number | null = null;
@@ -1010,21 +1465,22 @@ function pickNwsGridValue(values: Array<Record<string, unknown>>, targetMs: numb
   for (const row of values) {
     const value = toFiniteNumber((row as any)?.value);
     if (value == null) continue;
-
     const { startMs, endMs } = parseNwsValidTime((row as any)?.validTime);
     if (startMs == null) continue;
+    const normalized = clampMaybe(value, options.clampMin ?? null, options.clampMax ?? null);
+
     if (targetMs >= startMs && (endMs == null || targetMs < endMs)) {
-      return clamp(value, 0, 100);
+      return normalized;
     }
 
     const diff = Math.abs(startMs - targetMs);
     if (diff < nearestDiff) {
       nearestDiff = diff;
-      nearest = value;
+      nearest = normalized;
     }
   }
 
-  return nearest != null ? clamp(nearest, 0, 100) : null;
+  return nearest;
 }
 
 function parseNwsValidTime(raw: unknown) {
@@ -1053,6 +1509,379 @@ function parseIsoDurationMs(raw: unknown) {
   return totalMs;
 }
 
+function buildWeatherSamplingPlan({
+  samples,
+  observerLatDeg,
+  observerLonDeg,
+  solarDepressionDeg
+}: {
+  samples: Sample[];
+  observerLatDeg: number;
+  observerLonDeg: number;
+  solarDepressionDeg: number;
+}): WeatherSamplingPlan | null {
+  if (!samples.length) return null;
+  const shadowKm = computeShadowHeightKm(solarDepressionDeg);
+  const filtered = samples.filter((sample) => sample.tPlusSec >= 60 && sample.tPlusSec <= resolveJellyfishEndSeconds(samples, null));
+  if (!filtered.length) return null;
+
+  const scored = filtered.map((sample) => {
+    const altKm = sample.altM / 1000;
+    const sunlit = altKm > shadowKm;
+    const elevationDeg = elevationFromObserverDeg({
+      observerLatDeg,
+      observerLonDeg,
+      targetLatDeg: sample.latDeg,
+      targetLonDeg: sample.lonDeg,
+      targetAltM: sample.altM
+    });
+    return {
+      sample,
+      sunlit,
+      visible: sunlit && Number.isFinite(elevationDeg) && elevationDeg >= LOS_ELEVATION_THRESHOLD_DEG,
+      elevationDeg
+    };
+  });
+
+  const visible = scored.filter((entry) => entry.visible);
+  const sunlit = scored.filter((entry) => entry.sunlit);
+  const selected = visible.length > 0 ? visible : sunlit.length > 0 ? sunlit : scored;
+  const mode: WeatherSamplingMode =
+    visible.length > 0 ? 'visible_path' : sunlit.length > 0 ? 'sunlit_path' : 'modeled_path';
+  const pointSamples = selectWeatherPathSamples(selected);
+
+  return {
+    mode,
+    note:
+      mode === 'visible_path'
+        ? 'Sampling the start, middle, and end of the currently visible plume path.'
+        : mode === 'sunlit_path'
+          ? 'No clear visible segment is modeled, so the weather check follows the strongest sunlit part of the path.'
+          : 'No visible or sunlit plume segment is modeled, so the weather check follows the broader modeled ascent path for planning only.',
+    points: pointSamples.map((entry, index, items) => ({
+      role: weatherPathRole(index, items.length),
+      latDeg: entry.sample.latDeg,
+      lonDeg: entry.sample.lonDeg,
+      tPlusSec: Math.round(entry.sample.tPlusSec),
+      altitudeM: Math.round(entry.sample.altM),
+      azimuthDeg: round(entry.sample.azimuthDeg, 1),
+      elevationDeg: round(entry.elevationDeg, 1)
+    }))
+  };
+}
+
+function selectWeatherPathSamples(samples: Array<{ sample: Sample; elevationDeg: number }>) {
+  if (samples.length <= 1) return samples.slice(0, 1);
+  if (samples.length === 2) return [samples[0], samples[1]];
+  const midIndex = Math.floor((samples.length - 1) / 2);
+  return [samples[0], samples[midIndex], samples[samples.length - 1]];
+}
+
+function weatherPathRole(index: number, count: number): WeatherSamplingPoint['role'] {
+  if (count === 1) return 'path_mid';
+  if (count === 2) return index === 0 ? 'path_start' : 'path_end';
+  return index === 0 ? 'path_start' : index === count - 1 ? 'path_end' : 'path_mid';
+}
+
+function deriveContrastFactor(weather: WeatherResolution) {
+  if (
+    weather.cloudCoverTotal == null &&
+    weather.cloudCoverLow == null &&
+    weather.cloudCoverMid == null &&
+    weather.cloudCoverHigh == null
+  ) {
+    return null;
+  }
+
+  return computeJepWeatherContrastFactor({
+    cloudCoverTotal: weather.cloudCoverTotal,
+    cloudCoverLow: weather.cloudCoverLow,
+    cloudCoverMid: weather.cloudCoverMid,
+    cloudCoverHigh: weather.cloudCoverHigh
+  });
+}
+
+function deriveObstructionFactor(
+  observerWeather: WeatherResolution,
+  pathWeather: Array<{ point: WeatherSamplingPoint; weather: WeatherResolution }>
+) {
+  const weighted: Array<{ weight: number; factor: number }> = [];
+
+  const observerImpact = deriveJepCloudObstructionImpact({
+    skyCoverPct: observerWeather.skyCoverPct,
+    ceilingFt: observerWeather.ceilingFt
+  });
+  if (observerImpact.level !== 'unknown') {
+    weighted.push({ weight: 0.45, factor: observerImpact.factor });
+  }
+
+  for (const entry of pathWeather) {
+    const impact = deriveJepCloudObstructionImpact({
+      skyCoverPct: entry.weather.skyCoverPct,
+      ceilingFt: entry.weather.ceilingFt,
+      elevationDeg: entry.point.elevationDeg
+    });
+    if (impact.level === 'unknown') continue;
+    const weight = entry.point.role === 'path_start' ? 0.25 : entry.point.role === 'path_mid' ? 0.2 : 0.1;
+    weighted.push({ weight, factor: impact.factor });
+  }
+
+  if (!weighted.length) return null;
+  const totalWeight = weighted.reduce((sum, entry) => sum + entry.weight, 0);
+  const weightedAverage = weighted.reduce((sum, entry) => sum + entry.weight * entry.factor, 0) / totalWeight;
+  const worstFactor = weighted.reduce((lowest, entry) => Math.min(lowest, entry.factor), 1);
+  return clamp(weightedAverage * 0.75 + worstFactor * 0.25, 0.08, 1);
+}
+
+function summarizeAssessmentPoint(
+  role: WeatherAssessmentPoint['role'],
+  weather: WeatherResolution
+): WeatherAssessmentPoint | null {
+  if (
+    weather.cloudCoverTotal == null &&
+    weather.cloudCoverLow == null &&
+    weather.cloudCoverMid == null &&
+    weather.cloudCoverHigh == null &&
+    weather.skyCoverPct == null &&
+    weather.ceilingFt == null
+  ) {
+    return null;
+  }
+
+  const obstruction = deriveJepCloudObstructionImpact({
+    skyCoverPct: weather.skyCoverPct,
+    ceilingFt: weather.ceilingFt
+  });
+  return {
+    role,
+    source: weather.source,
+    totalCloudPct: toInt(weather.cloudCoverTotal),
+    lowCloudPct: toInt(weather.cloudCoverLow),
+    midCloudPct: toInt(weather.cloudCoverMid),
+    highCloudPct: toInt(weather.cloudCoverHigh),
+    skyCoverPct: toInt(weather.skyCoverPct),
+    ceilingFt: weather.ceilingFt != null ? clampInt(weather.ceilingFt, 0, 60000) : null,
+    obstructionFactor: round(obstruction.factor, 3),
+    obstructionLevel: obstruction.level,
+    note: formatAssessmentPointNote(role, weather, obstruction)
+  };
+}
+
+function summarizePathAssessment(pathWeather: Array<{ point: WeatherSamplingPoint; weather: WeatherResolution }>) {
+  if (!pathWeather.length) return null;
+
+  const pathPoints = pathWeather
+    .map((entry) => ({
+      role: entry.point.role,
+      source: entry.weather.source,
+      skyCoverPct: entry.weather.skyCoverPct,
+      ceilingFt: entry.weather.ceilingFt,
+      obstruction: deriveJepCloudObstructionImpact({
+        skyCoverPct: entry.weather.skyCoverPct,
+        ceilingFt: entry.weather.ceilingFt,
+        elevationDeg: entry.point.elevationDeg
+      })
+    }))
+    .filter((entry) => entry.obstruction.level !== 'unknown');
+
+  if (!pathPoints.length) {
+    return {
+      source: 'none' as const,
+      samplesConsidered: 0,
+      worstRole: null,
+      skyCoverPct: null,
+      ceilingFt: null,
+      obstructionLevel: 'unknown' as const,
+      note: null
+    };
+  }
+
+  const worst = pathPoints.reduce((current, entry) =>
+    entry.obstruction.factor < current.obstruction.factor ? entry : current
+  );
+  return {
+    source: summarizeSource(pathPoints.map((entry) => entry.source)),
+    samplesConsidered: pathPoints.length,
+    worstRole: worst.role,
+    skyCoverPct: toInt(worst.skyCoverPct),
+    ceilingFt: worst.ceilingFt != null ? clampInt(worst.ceilingFt, 0, 60000) : null,
+    obstructionLevel: worst.obstruction.level,
+    note: formatPathAssessmentNote(worst)
+  };
+}
+
+function deriveMainWeatherBlocker({
+  observerWeather,
+  pathWeather,
+  observerSummary,
+  pathSummary
+}: {
+  observerWeather: WeatherResolution;
+  pathWeather: Array<{ point: WeatherSamplingPoint; weather: WeatherResolution }>;
+  observerSummary: WeatherAssessmentPoint | null;
+  pathSummary: WeatherAssessment['alongPath'];
+}): WeatherAssessment['mainBlocker'] {
+  const observerObstruction = deriveJepCloudObstructionImpact({
+    skyCoverPct: observerWeather.skyCoverPct,
+    ceilingFt: observerWeather.ceilingFt
+  });
+  const observerContrast = deriveJepWeatherContrastImpact({
+    cloudCoverTotal: observerWeather.cloudCoverTotal,
+    cloudCoverLow: observerWeather.cloudCoverLow,
+    cloudCoverMid: observerWeather.cloudCoverMid,
+    cloudCoverHigh: observerWeather.cloudCoverHigh
+  });
+  const pathWorst = pathWeather
+    .map((entry) => ({
+      role: entry.point.role,
+      obstruction: deriveJepCloudObstructionImpact({
+        skyCoverPct: entry.weather.skyCoverPct,
+        ceilingFt: entry.weather.ceilingFt,
+        elevationDeg: entry.point.elevationDeg
+      })
+    }))
+    .filter((entry) => entry.obstruction.level !== 'unknown')
+    .reduce((current, entry) => {
+      if (!current) return entry;
+      return entry.obstruction.penalties.combined > current.obstruction.penalties.combined ? entry : current;
+    }, null as { role: WeatherSamplingPoint['role']; obstruction: ReturnType<typeof deriveJepCloudObstructionImpact> } | null);
+
+  if (pathWorst && pathWorst.obstruction.penalties.combined >= observerObstruction.penalties.combined + 0.08) {
+    if (pathWorst.obstruction.penalties.ceiling >= pathWorst.obstruction.penalties.sky && pathSummary?.ceilingFt != null) {
+      return 'path_low_ceiling';
+    }
+    return 'path_sky_cover';
+  }
+
+  if (observerSummary) {
+    if (observerObstruction.penalties.ceiling >= observerObstruction.penalties.sky && observerSummary.ceilingFt != null) {
+      return 'observer_low_ceiling';
+    }
+    if (observerObstruction.penalties.sky >= 0.2 && observerSummary.skyCoverPct != null) {
+      return 'observer_sky_cover';
+    }
+  }
+
+  if (observerContrast.dominantBlocker === 'low') return 'observer_low_clouds';
+  if (observerContrast.dominantBlocker === 'mid') return 'observer_mid_clouds';
+  if (observerContrast.dominantBlocker === 'high') return 'observer_high_clouds';
+  if (observerContrast.dominantBlocker === 'mixed') return 'mixed';
+  return 'unknown';
+}
+
+function formatAssessmentPointNote(
+  role: WeatherAssessmentPoint['role'],
+  weather: WeatherResolution,
+  obstruction: ReturnType<typeof deriveJepCloudObstructionImpact>
+) {
+  const label = role === 'observer' ? 'At your location' : role === 'pad' ? 'At the pad' : 'At this path sample';
+  if (obstruction.level === 'likely_blocked') {
+    if (weather.ceilingFt != null && weather.ceilingFt <= 4000) {
+      return `${label}, a low ceiling near ${Math.round(weather.ceilingFt)} ft makes the plume path look blocked.`;
+    }
+    if (weather.skyCoverPct != null) {
+      return `${label}, sky cover near ${Math.round(weather.skyCoverPct)}% makes blockage likely.`;
+    }
+  }
+  if (obstruction.level === 'partly_obstructed') {
+    if (weather.ceilingFt != null) {
+      return `${label}, cloud structure near ${Math.round(weather.ceilingFt)} ft could partly obstruct the plume.`;
+    }
+    if (weather.skyCoverPct != null) {
+      return `${label}, sky cover near ${Math.round(weather.skyCoverPct)}% softens the weather outlook.`;
+    }
+  }
+  if (obstruction.level === 'clear') {
+    return `${label}, clouds are not the main blocker right now.`;
+  }
+  return null;
+}
+
+function formatPathAssessmentNote(worst: {
+  role: WeatherSamplingPoint['role'];
+  skyCoverPct: number | null;
+  ceilingFt: number | null;
+  obstruction: ReturnType<typeof deriveJepCloudObstructionImpact>;
+}) {
+  const position = worst.role === 'path_start' ? 'early' : worst.role === 'path_mid' ? 'middle' : 'late';
+  if (worst.obstruction.level === 'likely_blocked') {
+    if (worst.ceilingFt != null && worst.ceilingFt <= 4000) {
+      return `The ${position} plume path runs under a low ceiling near ${Math.round(worst.ceilingFt)} ft, so blockage looks likely.`;
+    }
+    if (worst.skyCoverPct != null) {
+      return `The ${position} plume path sits under sky cover near ${Math.round(worst.skyCoverPct)}%, so blockage looks likely.`;
+    }
+  }
+  if (worst.obstruction.level === 'partly_obstructed') {
+    if (worst.ceilingFt != null) {
+      return `The ${position} plume path may be partly obstructed by cloud layers near ${Math.round(worst.ceilingFt)} ft.`;
+    }
+    if (worst.skyCoverPct != null) {
+      return `The ${position} plume path runs through sky cover near ${Math.round(worst.skyCoverPct)}%, which could soften visibility.`;
+    }
+  }
+  return 'Clouds along the modeled plume path are not the main blocker right now.';
+}
+
+function summarizeSource(sources: Array<WeatherPoint['source']>) {
+  const unique = [...new Set(sources.filter((source) => source !== 'none'))];
+  if (!unique.length) return 'none' as const;
+  if (unique.length > 1 || unique[0] === 'mixed') return 'mixed' as const;
+  return unique[0] as 'open_meteo' | 'nws';
+}
+
+function samePoint(aLat: number, aLon: number, bLat: number, bLon: number) {
+  return Number.isFinite(aLat) && Number.isFinite(aLon) && Number.isFinite(bLat) && Number.isFinite(bLon)
+    ? Math.abs(aLat - bLat) < 0.0001 && Math.abs(aLon - bLon) < 0.0001
+    : false;
+}
+
+function emptyWeatherResolution(): WeatherResolution {
+  return {
+    source: 'none',
+    cloudCoverTotal: null,
+    cloudCoverLow: null,
+    cloudCoverMid: null,
+    cloudCoverHigh: null,
+    skyCoverPct: null,
+    ceilingFt: null,
+    fetchedAtMs: null,
+    openMeteoFetched: false,
+    nwsPointFetched: false,
+    nwsGridFetched: false
+  };
+}
+
+function minFinite(values: Array<number | null>) {
+  const finite = values.filter((value): value is number => value != null && Number.isFinite(value));
+  if (!finite.length) return null;
+  return Math.min(...finite);
+}
+
+function clampMaybe(value: number, min: number | null, max: number | null) {
+  let result = value;
+  if (min != null) result = Math.max(min, result);
+  if (max != null) result = Math.min(max, result);
+  return result;
+}
+
+function toCoordKey(lat: number, lon: number) {
+  const latFixed = normalizeCoord(lat).toFixed(4);
+  const lonFixed = normalizeCoord(lon).toFixed(4);
+  return `${latFixed},${lonFixed}`;
+}
+
+function normalizeCoord(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  const rounded = Math.round(value * 10_000) / 10_000;
+  return Object.is(rounded, -0) ? 0 : rounded;
+}
+
+function isUsCountryCode(value: string | null) {
+  const normalized = String(value || '').trim().toUpperCase();
+  return normalized === 'US' || normalized === 'USA';
+}
+
 function normalizeModelList(input: string[], fallback: string[]) {
   const deduped = new Set<string>();
   for (const raw of input) {
@@ -1075,15 +1904,6 @@ function firstFiniteNumber(...values: Array<number | null>) {
     if (value != null && Number.isFinite(value)) return value;
   }
   return null;
-}
-
-function computeWeatherFactor(cloudCoverTotal: number | null, cloudCoverLow: number | null) {
-  const low = cloudCoverLow != null ? clamp(cloudCoverLow, 0, 100) : null;
-  const total = cloudCoverTotal != null ? clamp(cloudCoverTotal, 0, 100) : null;
-  if (low != null && low > 40) return 0;
-  if (total == null) return 1;
-  if (total < 20) return 1;
-  return clamp(1 - (total - 20) / 70, 0, 1);
 }
 
 function mapTimeConfidence(netPrecision: string | null) {
@@ -1180,7 +2000,8 @@ function buildExplainability({
   observerSource,
   weatherConfidence,
   trajectoryConfidence,
-  timeConfidence
+  timeConfidence,
+  weatherAssessment
 }: {
   illuminationFactor: number;
   darknessFactor: number;
@@ -1191,6 +2012,7 @@ function buildExplainability({
   weatherConfidence: string;
   trajectoryConfidence: string;
   timeConfidence: string;
+  weatherAssessment: WeatherAssessment;
 }) {
   const reasonCodes: string[] = [];
   if (geometryOnlyFallback) reasonCodes.push('geometry_only_weather_fallback');
@@ -1198,6 +2020,9 @@ function buildExplainability({
   if (weatherConfidence === 'LOW' || weatherConfidence === 'UNKNOWN') reasonCodes.push('weather_confidence_limited');
   if (trajectoryConfidence === 'LOW' || trajectoryConfidence === 'UNKNOWN') reasonCodes.push('trajectory_confidence_limited');
   if (timeConfidence === 'LOW' || timeConfidence === 'UNKNOWN') reasonCodes.push('time_confidence_limited');
+  if (weatherAssessment.samplingMode !== 'observer_only') reasonCodes.push('weather_path_sampling');
+  if (weatherAssessment.sourceUsed === 'mixed_nws_open_meteo') reasonCodes.push('weather_mixed_sources');
+  if (weatherAssessment.mainBlocker !== 'unknown') reasonCodes.push(`weather_blocker_${weatherAssessment.mainBlocker}`);
   if (!reasonCodes.length) reasonCodes.push('nominal');
 
   return {

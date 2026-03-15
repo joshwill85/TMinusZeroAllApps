@@ -1,0 +1,365 @@
+{
+  "generatedAt": "2026-03-09T01:50:36.298Z",
+  "requestCounts": {
+    "generatedAt": "2026-03-09T01:50:34.658Z",
+    "scenarios": [
+      {
+        "name": "viewer bootstrap",
+        "assertions": [
+          "viewer session bootstrap dedupes to one request",
+          "viewer entitlements bootstrap dedupes to one request"
+        ],
+        "counts": {
+          "totalRequests": 2,
+          "requestsByPath": {
+            "GET /api/v1/viewer/entitlements": 1,
+            "GET /api/v1/viewer/session": 1
+          }
+        }
+      },
+      {
+        "name": "feed bootstrap",
+        "assertions": [
+          "feed bootstrap uses one launches request",
+          "feed saved-state bootstrap reuses preset and watchlist cache on repeat reads"
+        ],
+        "counts": {
+          "totalRequests": 5,
+          "requestsByPath": {
+            "GET /api/v1/launches?limit=20&region=all": 1,
+            "GET /api/v1/me/filter-presets": 1,
+            "GET /api/v1/me/watchlists": 1,
+            "GET /api/v1/viewer/entitlements": 1,
+            "GET /api/v1/viewer/session": 1
+          }
+        }
+      },
+      {
+        "name": "search fan-out and cache",
+        "assertions": [
+          "normalized duplicate search queries reuse one /api/v1/search request"
+        ],
+        "counts": {
+          "totalRequests": 1,
+          "requestsByPath": {
+            "GET /api/v1/search?q=starlink": 1
+          }
+        }
+      },
+      {
+        "name": "account bootstrap",
+        "assertions": [
+          "account bootstrap reuses profile, marketing email, notification preferences, and launch-day filter caches"
+        ],
+        "counts": {
+          "totalRequests": 6,
+          "requestsByPath": {
+            "GET /api/filters?mode=live&region=all": 1,
+            "GET /api/v1/me/marketing-email": 1,
+            "GET /api/v1/me/notification-preferences": 1,
+            "GET /api/v1/me/profile": 1,
+            "GET /api/v1/viewer/entitlements": 1,
+            "GET /api/v1/viewer/session": 1
+          }
+        }
+      },
+      {
+        "name": "saved bootstrap",
+        "assertions": [
+          "saved bootstrap uses one preset request",
+          "saved bootstrap uses one watchlist request"
+        ],
+        "counts": {
+          "totalRequests": 4,
+          "requestsByPath": {
+            "GET /api/v1/me/filter-presets": 1,
+            "GET /api/v1/me/watchlists": 1,
+            "GET /api/v1/viewer/entitlements": 1,
+            "GET /api/v1/viewer/session": 1
+          }
+        }
+      },
+      {
+        "name": "preferences bootstrap",
+        "assertions": [
+          "preferences bootstrap keeps notification preferences app-scoped and reusable"
+        ],
+        "counts": {
+          "totalRequests": 3,
+          "requestsByPath": {
+            "GET /api/v1/me/notification-preferences": 1,
+            "GET /api/v1/viewer/entitlements": 1,
+            "GET /api/v1/viewer/session": 1
+          }
+        }
+      }
+    ]
+  },
+  "webGuard": {
+    "generatedAt": "2026-03-09T01:50:35.158Z",
+    "mobileCriticalFilesScanned": 28,
+    "totalWebFilesScanned": 669,
+    "totalRawApiFetchCount": 37,
+    "rawApiFetchFiles": [
+      {
+        "file": "apps/web/app/admin/ops/page.tsx",
+        "count": 5
+      },
+      {
+        "file": "apps/web/app/admin/coupons/page.tsx",
+        "count": 3
+      },
+      {
+        "file": "apps/web/app/admin/ops/trajectory/page.tsx",
+        "count": 3
+      },
+      {
+        "file": "apps/web/app/admin/users/page.tsx",
+        "count": 2
+      },
+      {
+        "file": "apps/web/app/blue-origin/_components/BlueOriginProcurementLedger.tsx",
+        "count": 2
+      },
+      {
+        "file": "apps/web/app/spacex/_components/SpaceXUsaspendingAwardsPanel.tsx",
+        "count": 2
+      },
+      {
+        "file": "apps/web/components/TipJarFooter.tsx",
+        "count": 2
+      },
+      {
+        "file": "apps/web/components/TipJarModal.tsx",
+        "count": 2
+      },
+      {
+        "file": "apps/web/lib/ar/telemetryClient.ts",
+        "count": 2
+      },
+      {
+        "file": "apps/web/app/admin/billing/page.tsx",
+        "count": 1
+      },
+      {
+        "file": "apps/web/app/admin/feedback/page.tsx",
+        "count": 1
+      },
+      {
+        "file": "apps/web/app/admin/usaspending/page.tsx",
+        "count": 1
+      },
+      {
+        "file": "apps/web/app/blue-origin/_components/BlueOriginSignalLog.tsx",
+        "count": 1
+      },
+      {
+        "file": "apps/web/components/ar/CameraGuideButton.tsx",
+        "count": 1
+      },
+      {
+        "file": "apps/web/components/artemis/dashboard/ViewBudget.tsx",
+        "count": 1
+      },
+      {
+        "file": "apps/web/components/embed/EmbeddedNextLaunchCard.tsx",
+        "count": 1
+      },
+      {
+        "file": "apps/web/components/FeedbackWidget.tsx",
+        "count": 1
+      },
+      {
+        "file": "apps/web/components/JepScoreClient.tsx",
+        "count": 1
+      },
+      {
+        "file": "apps/web/components/LaunchCalendar.tsx",
+        "count": 1
+      },
+      {
+        "file": "apps/web/components/news/CommLinkStream.tsx",
+        "count": 1
+      },
+      {
+        "file": "apps/web/components/RocketVolatilitySection.tsx",
+        "count": 1
+      },
+      {
+        "file": "apps/web/components/TipJarRecurringPanel.tsx",
+        "count": 1
+      },
+      {
+        "file": "apps/web/lib/ar/runtimePolicyClient.ts",
+        "count": 1
+      }
+    ],
+    "mobileCriticalViolations": [],
+    "surfaceExpectations": [
+      {
+        "file": "apps/web/components/LaunchFeed.tsx",
+        "ok": true,
+        "missingTokens": []
+      },
+      {
+        "file": "apps/web/app/account/page.tsx",
+        "ok": true,
+        "missingTokens": []
+      },
+      {
+        "file": "apps/web/app/account/saved/page.tsx",
+        "ok": true,
+        "missingTokens": []
+      },
+      {
+        "file": "apps/web/app/me/preferences/page.tsx",
+        "ok": true,
+        "missingTokens": []
+      },
+      {
+        "file": "apps/web/app/auth/callback/AuthCallbackClient.tsx",
+        "ok": true,
+        "missingTokens": []
+      },
+      {
+        "file": "apps/web/components/UpgradePageContent.tsx",
+        "ok": true,
+        "missingTokens": []
+      }
+    ]
+  },
+  "ttfb": {
+    "status": "captured",
+    "reason": null,
+    "report": {
+      "generatedAt": "2026-03-09T01:50:36.221Z",
+      "requests": 15,
+      "warmupRequests": 5,
+      "thresholdMs": null,
+      "routes": [
+        {
+          "route": "/api/v1/launches?limit=20&region=all",
+          "accept": "application/json",
+          "min": 1.505625000000009,
+          "max": 53.93495800000005,
+          "mean": 6.544102733333322,
+          "p50": 2.6289580000000115,
+          "p95": 53.93495800000005
+        },
+        {
+          "route": "/api/v1/search?q=starlink&limit=8",
+          "accept": "application/json",
+          "min": 1.093708000000106,
+          "max": 2.61850000000004,
+          "mean": 1.6158361999999897,
+          "p50": 1.3714580000000751,
+          "p95": 2.61850000000004
+        }
+      ]
+    }
+  },
+  "ciTaskGraph": {
+    "generatedAt": "2026-03-09T01:50:36.298Z",
+    "workspaceCount": 8,
+    "workspaces": [
+      {
+        "name": "@tminuszero/mobile",
+        "path": "apps/mobile",
+        "tasks": [
+          "lint",
+          "type-check"
+        ]
+      },
+      {
+        "name": "@tminuszero/web",
+        "path": "apps/web",
+        "tasks": [
+          "lint",
+          "type-check",
+          "type-check:ci",
+          "build"
+        ]
+      },
+      {
+        "name": "@tminuszero/api-client",
+        "path": "packages/api-client",
+        "tasks": []
+      },
+      {
+        "name": "@tminuszero/contracts",
+        "path": "packages/contracts",
+        "tasks": []
+      },
+      {
+        "name": "@tminuszero/design-tokens",
+        "path": "packages/design-tokens",
+        "tasks": []
+      },
+      {
+        "name": "@tminuszero/domain",
+        "path": "packages/domain",
+        "tasks": []
+      },
+      {
+        "name": "@tminuszero/navigation",
+        "path": "packages/navigation",
+        "tasks": []
+      },
+      {
+        "name": "@tminuszero/query",
+        "path": "packages/query",
+        "tasks": []
+      }
+    ],
+    "turboTasks": [
+      {
+        "task": "lint",
+        "dependsOn": [],
+        "outputs": [
+          ".eslintcache"
+        ]
+      },
+      {
+        "task": "type-check",
+        "dependsOn": [
+          "^type-check"
+        ],
+        "outputs": [
+          ".next/cache/tsc/**",
+          "dist/**/*.d.ts",
+          "dist/**/*.d.ts.map"
+        ]
+      },
+      {
+        "task": "type-check:ci",
+        "dependsOn": [
+          "^type-check:ci"
+        ],
+        "outputs": [
+          ".next/cache/tsc/**"
+        ]
+      },
+      {
+        "task": "build",
+        "dependsOn": [
+          "^build"
+        ],
+        "outputs": [
+          ".next/**",
+          "dist/**"
+        ]
+      }
+    ],
+    "ciRelevantWorkspaceTaskCounts": {
+      "lint": 2,
+      "type-check": 2,
+      "type-check:ci": 1,
+      "build": 1
+    },
+    "dependencyEdgeCount": 3
+  },
+  "gaps": [
+    "Feed render and scroll performance still require a browser/device harness or manual trace capture; this script records request/cache evidence only.",
+    "Auth-return and upgrade intent are guarded statically through source-shape checks, not end-to-end browser execution."
+  ]
+}

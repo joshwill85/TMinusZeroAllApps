@@ -3,8 +3,14 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import clsx from 'clsx';
+import { ApiClientError } from '@tminuszero/api-client';
+import { buildAuthHref, buildPreferencesHref, buildUpgradeHref } from '@tminuszero/navigation';
 import { useSearchParams } from 'next/navigation';
 import { type CSSProperties, type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
+import {
+  useLaunchNotificationPreferenceQuery,
+  useUpdateLaunchNotificationPreferenceMutation
+} from '@/lib/api/queries';
 import { Launch } from '@/lib/types/launch';
 import { useSharedNow } from '@/lib/client/useSharedNow';
 import { LIFTOFF_VISIBILITY_SECONDS, NEXT_LAUNCH_RETENTION_MS } from '@/lib/constants/launchTimeline';
@@ -51,6 +57,9 @@ export function LaunchCard({
   onAlertsNudgeClick,
   isAuthed = false,
   isPaid = false,
+  canUseBasicAlertRules = false,
+  canUseBrowserLaunchAlerts = false,
+  canUseOneOffCalendar = false,
   isArEligible = false,
   onOpenUpsell,
   blockThirdPartyEmbeds = false,
@@ -72,6 +81,9 @@ export function LaunchCard({
   onAlertsNudgeClick?: () => void;
   isAuthed?: boolean;
   isPaid?: boolean;
+  canUseBasicAlertRules?: boolean;
+  canUseBrowserLaunchAlerts?: boolean;
+  canUseOneOffCalendar?: boolean;
   isArEligible?: boolean;
   onOpenUpsell?: (featureLabel?: string) => void;
   blockThirdPartyEmbeds?: boolean;
@@ -306,12 +318,8 @@ export function LaunchCard({
 
   const share = useMemo(() => buildLaunchShare(launch), [launch]);
   const [alertsOpen, setAlertsOpen] = useState(false);
-  const [alertsLoading, setAlertsLoading] = useState(false);
-  const [alertsSaving, setAlertsSaving] = useState(false);
   const [alertsError, setAlertsError] = useState<string | null>(null);
   const [alertsNotice, setAlertsNotice] = useState<string | null>(null);
-  const [alertsLoaded, setAlertsLoaded] = useState(false);
-  const [alertsLoadedChannel, setAlertsLoadedChannel] = useState<'sms' | 'push' | null>(null);
   const [alertsChannel, setAlertsChannel] = useState<'sms' | 'push'>(() => (SMS_NOTIFICATIONS_COMING_SOON ? 'push' : 'sms'));
   const [alertsNudgeLatched, setAlertsNudgeLatched] = useState(showAlertsNudge);
   const [alertsSaved, setAlertsSaved] = useState<LaunchAlertPrefs>(DEFAULT_LAUNCH_ALERTS);
@@ -319,6 +327,12 @@ export function LaunchCard({
   const [smsStatus, setSmsStatus] = useState<{ enabled: boolean; verified: boolean } | null>(null);
   const [smsSystemEnabled, setSmsSystemEnabled] = useState<boolean | null>(null);
   const [pushStatus, setPushStatus] = useState<{ enabled: boolean; subscribed: boolean } | null>(null);
+  const alertsQuery = useLaunchNotificationPreferenceQuery(launch.id, alertsChannel, {
+    enabled: alertsOpen && isAuthed && !(alertsChannel === 'sms' && SMS_NOTIFICATIONS_COMING_SOON)
+  });
+  const alertsMutation = useUpdateLaunchNotificationPreferenceMutation(launch.id, alertsChannel);
+  const alertsLoading = alertsQuery.isFetching;
+  const alertsSaving = alertsMutation.isPending;
 
   useEffect(() => {
     if (showAlertsNudge) setAlertsNudgeLatched(true);
@@ -492,7 +506,7 @@ export function LaunchCard({
 
   const smsComingSoon = SMS_NOTIFICATIONS_COMING_SOON || smsSystemEnabled === false;
   const canManageSms = isAuthed && isPaid && smsStatus?.enabled && smsStatus?.verified && !smsComingSoon;
-  const canManagePush = isAuthed && isPaid && pushStatus?.enabled && pushStatus?.subscribed;
+  const canManagePush = isAuthed && canUseBasicAlertRules && pushStatus?.enabled && pushStatus?.subscribed;
   const canManageAlerts = alertsChannel === 'sms' ? canManageSms : canManagePush;
   const normalizedSavedAlerts = useMemo(() => normalizeLaunchAlertPrefs(alertsSaved, userTz), [alertsSaved, userTz]);
   const normalizedDraftAlerts = useMemo(() => normalizeLaunchAlertPrefs(alertsDraft, userTz), [alertsDraft, userTz]);
@@ -510,9 +524,6 @@ export function LaunchCard({
     setAlertsOpen(true);
     setAlertsError(null);
     setAlertsNotice(null);
-    if (isAuthed && !(alertsChannel === 'sms' && smsComingSoon) && (!alertsLoaded || alertsLoadedChannel !== alertsChannel)) {
-      void loadAlerts(alertsChannel);
-    }
   };
 
   const closeAlerts = () => {
@@ -522,31 +533,38 @@ export function LaunchCard({
     setAlertsDraft(alertsSaved);
   };
 
-  async function loadAlerts(channel: 'sms' | 'push') {
-    setAlertsLoading(true);
-    setAlertsError(null);
-    try {
-      const res = await fetch(`/api/me/notifications/launches/${launch.id}?channel=${encodeURIComponent(channel)}`, { cache: 'no-store' });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || 'Failed to load alerts');
-      const nextPrefs = normalizeLaunchAlertPrefs(json.preferences || DEFAULT_LAUNCH_ALERTS, userTz);
-      setAlertsSaved(nextPrefs);
-      setAlertsDraft(nextPrefs);
-      setAlertsLoaded(true);
-      setAlertsLoadedChannel(channel);
-
-      if (channel === 'sms') {
-        setSmsStatus({ enabled: !!json.sms?.enabled, verified: !!json.sms?.verified });
-        setSmsSystemEnabled(typeof json.smsSystemEnabled === 'boolean' ? json.smsSystemEnabled : null);
-      } else {
-        setPushStatus({ enabled: !!json.push?.enabled, subscribed: !!json.push?.subscribed });
-      }
-    } catch (err: any) {
-      setAlertsError(err.message || 'Failed to load alerts');
-    } finally {
-      setAlertsLoading(false);
+  useEffect(() => {
+    if (!alertsOpen) return;
+    if (alertsQuery.isError) {
+      setAlertsError(alertsQuery.error instanceof Error ? alertsQuery.error.message : 'Failed to load alerts');
     }
-  }
+  }, [alertsOpen, alertsQuery.error, alertsQuery.isError]);
+
+  useEffect(() => {
+    if (!alertsQuery.data) return;
+
+    const nextPrefs = normalizeLaunchAlertPrefs(alertsQuery.data.preference, userTz);
+    setAlertsSaved(nextPrefs);
+    setAlertsDraft(nextPrefs);
+    setAlertsError(null);
+    setSmsStatus(
+      alertsQuery.data.smsStatus
+        ? {
+            enabled: alertsQuery.data.smsStatus.enabled,
+            verified: alertsQuery.data.smsStatus.verified
+          }
+        : null
+    );
+    setSmsSystemEnabled(alertsQuery.data.smsStatus?.systemEnabled ?? null);
+    setPushStatus(
+      alertsQuery.data.pushStatus
+        ? {
+            enabled: alertsQuery.data.pushStatus.enabled,
+            subscribed: alertsQuery.data.pushStatus.subscribed
+          }
+        : null
+    );
+  }, [alertsChannel, alertsQuery.data, userTz]);
 
   async function saveAlerts() {
     if (alertsChannel === 'sms' && smsComingSoon) {
@@ -561,42 +579,61 @@ export function LaunchCard({
       return;
     }
 
-    setAlertsSaving(true);
     setAlertsError(null);
     setAlertsNotice(null);
     try {
-      const res = await fetch(`/api/me/notifications/launches/${launch.id}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          channel: alertsChannel,
-          ...normalized
-        })
+      const payload = await alertsMutation.mutateAsync({
+        channel: alertsChannel,
+        mode: normalized.mode,
+        timezone: normalized.timezone,
+        tMinusMinutes: normalized.t_minus_minutes,
+        localTimes: normalized.local_times,
+        notifyStatusChange: normalized.notify_status_change,
+        notifyNetChange: normalized.notify_net_change
       });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        if (json.error === 'subscription_required') throw new Error('Upgrade to Premium to enable alerts.');
-        if (alertsChannel === 'sms') {
-          if (json.error === 'sms_system_disabled') throw new Error('SMS alerts are coming soon.');
-          if (json.error === 'sms_not_verified') throw new Error('Verify your phone in Preferences before enabling alerts.');
-          if (json.error === 'sms_not_enabled') throw new Error('Enable SMS opt-in in Preferences first.');
-        }
-        if (alertsChannel === 'push') {
-          if (json.error === 'push_not_enabled') throw new Error('Enable browser notifications in Preferences first.');
-          if (json.error === 'push_not_subscribed') throw new Error('Subscribe a device in Preferences first.');
-        }
-        if (json.error === 'launch_not_available') throw new Error('This launch is no longer available for alerts.');
-        if (res.status === 401) throw new Error('Sign in to manage alerts.');
-        throw new Error(json.error || 'Failed to save alerts');
-      }
-      const nextPrefs = normalizeLaunchAlertPrefs(json.preferences || normalized, userTz);
+      const nextPrefs = normalizeLaunchAlertPrefs(payload.preference || normalized, userTz);
       setAlertsSaved(nextPrefs);
       setAlertsDraft(nextPrefs);
       setAlertsNotice('Alerts saved.');
-    } catch (err: any) {
-      setAlertsError(err.message || 'Failed to save alerts');
-    } finally {
-      setAlertsSaving(false);
+    } catch (error) {
+      if (error instanceof ApiClientError) {
+        if (error.code === 'subscription_required') {
+          setAlertsError(alertsChannel === 'sms' ? 'Upgrade to Premium to enable SMS alerts.' : 'Upgrade to Premium to enable browser alerts.');
+          return;
+        }
+        if (alertsChannel === 'sms') {
+          if (error.code === 'sms_system_disabled') {
+            setAlertsError('SMS alerts are coming soon.');
+            return;
+          }
+          if (error.code === 'sms_not_verified') {
+            setAlertsError('Verify your phone in Preferences before enabling alerts.');
+            return;
+          }
+          if (error.code === 'sms_not_enabled') {
+            setAlertsError('Enable SMS opt-in in Preferences first.');
+            return;
+          }
+        }
+        if (alertsChannel === 'push') {
+          if (error.code === 'push_not_enabled') {
+            setAlertsError('Enable push alerts in Preferences first.');
+            return;
+          }
+          if (error.code === 'push_not_subscribed') {
+            setAlertsError('Subscribe a device in Preferences first.');
+            return;
+          }
+        }
+        if (error.status === 401) {
+          setAlertsError('Sign in to manage alerts.');
+          return;
+        }
+        setAlertsError(error.code || 'Failed to save alerts');
+        return;
+      }
+
+      setAlertsError(error instanceof Error ? error.message : 'Failed to save alerts');
     }
   }
 
@@ -1091,9 +1128,9 @@ export function LaunchCard({
                 hasActiveAlerts && 'border-primary text-primary'
               )}
               onClick={() => {
-                if (!isPaid && canUpsell) {
+                if (isAuthed && !canUseBasicAlertRules && canUpsell) {
                   if (showAlertsNudge) onAlertsNudgeClick?.();
-                  onOpenUpsell?.('alerts (email + browser notifications)');
+                  onOpenUpsell?.('browser alerts');
                   return;
                 }
                 if (alertsOpen) {
@@ -1110,10 +1147,10 @@ export function LaunchCard({
               <BellIcon className="h-4 w-4" />
               {alertsNudgeLatched && <span className="text-[11px] font-semibold uppercase tracking-[0.14em]">Alerts</span>}
               {hasActiveAlerts && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-primary shadow-glow" />}
-              {!isPaid && canUpsell && <CornerLockBadge />}
+              {isAuthed && !canUseBasicAlertRules && canUpsell && <CornerLockBadge />}
             </button>
             <ShareButton url={share.path} title={share.title} text={share.text} variant="icon" />
-            {!isPast && <AddToCalendarButton launch={launch} variant="icon" requiresPremium isPremium={isPaid} isAuthed={isAuthed} />}
+            {!isPast && <AddToCalendarButton launch={launch} variant="icon" requiresAuth={!canUseOneOffCalendar} isAuthed={isAuthed} />}
           </div>
         </div>
 
@@ -1123,7 +1160,13 @@ export function LaunchCard({
               <div>
                 <div className="text-xs uppercase tracking-[0.12em] text-text3">Launch alerts</div>
                 <div className="text-sm text-text2">
-                  {alertsChannel === 'push' ? 'Browser notifications (web push).' : smsComingSoon ? 'SMS alerts (coming soon).' : 'SMS alerts.'}
+                  {alertsChannel === 'push'
+                    ? canUseBrowserLaunchAlerts
+                      ? 'Push alerts on this browser and your mobile devices.'
+                      : 'Push alerts on your signed-in iOS and Android devices.'
+                    : smsComingSoon
+                      ? 'SMS alerts (coming soon).'
+                      : 'SMS alerts.'}
                 </div>
               </div>
               <button type="button" className="text-xs text-text3 hover:text-text1" onClick={closeAlerts}>
@@ -1139,19 +1182,16 @@ export function LaunchCard({
             {!alertsLoading && (
               <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <AlertModeButton
-                  label="Browser notifications"
-                  helper="Web push (Premium)"
+                  label="Push alerts"
+                  helper={canUseBrowserLaunchAlerts ? 'Browser + mobile push' : 'Mobile push on iOS/Android'}
                   active={alertsChannel === 'push'}
                   onClick={() => {
                     if (alertsChannel === 'push') return;
                     setAlertsChannel('push');
-                    setAlertsLoaded(false);
-                    setAlertsLoadedChannel(null);
                     setAlertsSaved(DEFAULT_LAUNCH_ALERTS);
                     setAlertsDraft(DEFAULT_LAUNCH_ALERTS);
                     setAlertsError(null);
                     setAlertsNotice(null);
-                    if (isAuthed) void loadAlerts('push');
                   }}
                 />
                 <AlertModeButton
@@ -1163,13 +1203,10 @@ export function LaunchCard({
                     if (smsComingSoon) return;
                     if (alertsChannel === 'sms') return;
                     setAlertsChannel('sms');
-                    setAlertsLoaded(false);
-                    setAlertsLoadedChannel(null);
                     setAlertsSaved(DEFAULT_LAUNCH_ALERTS);
                     setAlertsDraft(DEFAULT_LAUNCH_ALERTS);
                     setAlertsError(null);
                     setAlertsNotice(null);
-                    if (isAuthed) void loadAlerts('sms');
                   }}
                 />
               </div>
@@ -1178,20 +1215,22 @@ export function LaunchCard({
             {!alertsLoading && !isAuthed && (
               <div className="mt-3 rounded-lg border border-stroke bg-surface-1 p-2 text-xs text-text2">
                 Sign in to enable launch alerts.{' '}
-                <Link className="text-primary" href="/auth/sign-in">
+                <Link className="text-primary" href={buildAuthHref('sign-in', { returnTo: launchHref, intent: 'upgrade' })}>
                   Sign in
                 </Link>
               </div>
             )}
 
             {!alertsLoading && isAuthed && !isPaid && (
-              <div className="mt-3 rounded-lg border border-stroke bg-surface-1 p-2 text-xs text-text2">
-                Launch alerts are a Premium feature.{' '}
-                <Link className="text-primary" href="/upgrade">
-                  Upgrade
-                </Link>{' '}
-                to enable alerts.
-              </div>
+              alertsChannel === 'push' && canUseBasicAlertRules && !canUseBrowserLaunchAlerts ? (
+                <div className="mt-3 rounded-lg border border-stroke bg-surface-1 p-2 text-xs text-text2">
+                  Free push alerts go to your signed-in iOS and Android devices.{' '}
+                  <Link className="text-primary" href={buildUpgradeHref({ returnTo: launchHref })}>
+                    Upgrade
+                  </Link>{' '}
+                  if you also want browser delivery on web.
+                </div>
+              ) : null
             )}
 
             {!alertsLoading && alertsChannel === 'sms' && smsComingSoon && (
@@ -1203,18 +1242,20 @@ export function LaunchCard({
             {!alertsLoading && alertsChannel === 'sms' && !smsComingSoon && isAuthed && isPaid && smsStatus && (!smsStatus.verified || !smsStatus.enabled) && (
               <div className="mt-3 rounded-lg border border-stroke bg-surface-1 p-2 text-xs text-text2">
                 {smsStatus.verified ? 'Enable SMS opt-in in Preferences to use alerts.' : 'Verify your phone in Preferences to enable alerts.'}{' '}
-                <Link className="text-primary" href="/me/preferences">
+                <Link className="text-primary" href={buildPreferencesHref()}>
                   Open Preferences
                 </Link>
               </div>
             )}
 
-            {!alertsLoading && alertsChannel === 'push' && isAuthed && isPaid && pushStatus && (!pushStatus.enabled || !pushStatus.subscribed) && (
+            {!alertsLoading && alertsChannel === 'push' && isAuthed && canUseBasicAlertRules && pushStatus && (!pushStatus.enabled || !pushStatus.subscribed) && (
               <div className="mt-3 rounded-lg border border-stroke bg-surface-1 p-2 text-xs text-text2">
                 {pushStatus.enabled
-                  ? 'Subscribe a device in Preferences to enable alerts.'
-                  : 'Enable browser notifications in Preferences to enable alerts.'}{' '}
-                <Link className="text-primary" href="/me/preferences">
+                  ? canUseBrowserLaunchAlerts
+                    ? 'Subscribe this browser or register a mobile device in Preferences to enable alerts.'
+                    : 'Register an iOS or Android device in Preferences to enable free push alerts.'
+                  : 'Enable push alerts in Preferences to enable alerts.'}{' '}
+                <Link className="text-primary" href={buildPreferencesHref()}>
                   Open Preferences
                 </Link>
               </div>
@@ -1996,13 +2037,30 @@ function normalizeLocalTime(value: string) {
   return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
-function normalizeLaunchAlertPrefs(prefs: LaunchAlertPrefs, userTz: string): LaunchAlertPrefs {
-  const notify_status_change = Boolean(prefs?.notify_status_change);
-  const notify_net_change = Boolean(prefs?.notify_net_change);
+function normalizeLaunchAlertPrefs(
+  prefs:
+    | LaunchAlertPrefs
+    | {
+        mode?: 't_minus' | 'local_time';
+        timezone?: string;
+        tMinusMinutes?: number[];
+        localTimes?: string[];
+        notifyStatusChange?: boolean;
+        notifyNetChange?: boolean;
+      },
+  userTz: string
+): LaunchAlertPrefs {
+  const notify_status_change = Boolean(
+    'notify_status_change' in prefs ? prefs.notify_status_change : prefs.notifyStatusChange
+  );
+  const notify_net_change = Boolean('notify_net_change' in prefs ? prefs.notify_net_change : prefs.notifyNetChange);
   const mode = prefs?.mode === 'local_time' ? 'local_time' : 't_minus';
+  const rawTMinus = 't_minus_minutes' in prefs ? prefs.t_minus_minutes : prefs.tMinusMinutes;
+  const rawLocalTimes = 'local_times' in prefs ? prefs.local_times : prefs.localTimes;
+  const rawTimezone = 'timezone' in prefs ? prefs.timezone : userTz;
 
   if (mode === 't_minus') {
-    const t_minus_minutes = Array.from(new Set((prefs.t_minus_minutes || []).filter((v) => Number.isFinite(v)) as number[]))
+    const t_minus_minutes = Array.from(new Set((rawTMinus || []).filter((v) => Number.isFinite(v)) as number[]))
       .filter((v) => T_MINUS_OPTIONS.includes(v))
       .sort((a, b) => a - b)
       .slice(0, 2);
@@ -2016,8 +2074,8 @@ function normalizeLaunchAlertPrefs(prefs: LaunchAlertPrefs, userTz: string): Lau
     };
   }
 
-  const timezone = String(prefs?.timezone || userTz || 'UTC').trim() || 'UTC';
-  const local_times = Array.from(new Set((prefs.local_times || []).map((t) => normalizeLocalTime(String(t))).filter(Boolean) as string[]))
+  const timezone = String(rawTimezone || userTz || 'UTC').trim() || 'UTC';
+  const local_times = Array.from(new Set((rawLocalTimes || []).map((t) => normalizeLocalTime(String(t))).filter(Boolean) as string[]))
     .sort()
     .slice(0, 2);
 

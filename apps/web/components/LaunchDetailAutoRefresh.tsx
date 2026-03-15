@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { getNextAlignedRefreshMs, getTierRefreshSeconds, type ViewerTier } from '@/lib/tiers';
+import { getNextAlignedRefreshMs, getTierRefreshSeconds, type ViewerTier } from '@tminuszero/domain';
 
 const LAUNCH_ROUTE_TRACE_KEY = '__tmzBlueOriginRouteTrace';
 const LAUNCH_PERF_SLOW_RESOURCE_MS = 150;

@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Suspense } from 'react';
+import { buildAuthHref, readAuthIntent, readReturnTo } from '@tminuszero/navigation';
 import { AuthForm } from '@/components/AuthForm';
 import { BRAND_NAME } from '@/lib/brand';
-import { buildAuthQuery, readAuthIntent, readReturnTo } from '@/lib/utils/returnTo';
 
 export const metadata: Metadata = {
   title: `Sign in | ${BRAND_NAME}`,
@@ -23,11 +23,10 @@ export default function SignInPage({
       return Array.isArray(value) ? value[0] || null : null;
     }
   };
-  const signUpQuery = buildAuthQuery({
+  const signUpHref = buildAuthHref('sign-up', {
     returnTo: readReturnTo(reader),
     intent: readAuthIntent(reader)
   });
-  const signUpHref = signUpQuery ? `/auth/sign-up?${signUpQuery}` : '/auth/sign-up';
 
   return (
     <div className="space-y-4">

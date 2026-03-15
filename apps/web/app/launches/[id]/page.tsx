@@ -36,7 +36,7 @@ import { createSupabaseAdminClient, createSupabaseServerClient } from '@/lib/ser
 import { getViewerTier } from '@/lib/server/viewerTier';
 import { fetchLaunchJepScore } from '@/lib/server/jep';
 import { resolveJepObserverFromHeaders } from '@/lib/server/jepObserver';
-import type { ViewerTier } from '@/lib/tiers';
+import { formatTrajectoryMilestoneOffsetLabel, resolveTrajectoryMilestones, type ViewerTier } from '@tminuszero/domain';
 import type { LaunchJepScore } from '@/lib/types/jep';
 import type {
   LaunchDetailEnrichment,
@@ -51,7 +51,6 @@ import type {
 } from '@/lib/types/launch';
 import { buildLaunchShare } from '@/lib/share';
 import { SITE_META } from '@/lib/server/siteMeta';
-import { formatTrajectoryMilestoneOffsetLabel, resolveTrajectoryMilestones } from '@/lib/trajectory/milestones';
 import { parseIsoDurationToMs } from '@/lib/utils/launchMilestones';
 import { parseLaunchParam } from '@/lib/utils/launchParams';
 import { resolveProviderLogoUrl } from '@/lib/utils/providerLogo';
@@ -2579,8 +2578,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
                     launch={launch}
                     variant="icon"
                     showAddBadge
-                    requiresPremium
-                    isPremium={viewer.tier === 'premium'}
+                    requiresAuth={!viewer.capabilities.canUseOneOffCalendar}
                     isAuthed={isAuthed}
                   />
                   {SMS_NOTIFICATIONS_COMING_SOON && (

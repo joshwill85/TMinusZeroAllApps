@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { useMobileBootstrap } from '@/src/providers/AppProviders';
+import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 
 export default function TabsLayout() {
   const { theme } = useMobileBootstrap();
@@ -7,27 +7,19 @@ export default function TabsLayout() {
   return (
     <Tabs
       screenOptions={{
-        headerStyle: { backgroundColor: theme.surface },
-        headerTintColor: theme.foreground,
-        headerTitleStyle: { fontWeight: '700' },
-        headerShadowVisible: false,
+        headerShown: false,
         sceneStyle: { backgroundColor: theme.background },
         tabBarStyle: {
-          backgroundColor: theme.surface,
-          borderTopColor: theme.stroke
+          display: 'none'
         },
-        tabBarActiveTintColor: theme.accent,
-        tabBarInactiveTintColor: theme.muted,
-        tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: '700'
-        }
+        tabBarButton: () => null
       }}
     >
       <Tabs.Screen name="feed" options={{ title: 'Feed' }} />
+      <Tabs.Screen name="calendar" options={{ title: 'Calendar' }} />
       <Tabs.Screen name="search" options={{ title: 'Search' }} />
       <Tabs.Screen name="saved" options={{ title: 'Saved' }} />
-      <Tabs.Screen name="preferences" options={{ title: 'Prefs' }} />
+      <Tabs.Screen name="preferences" options={{ title: 'Settings' }} />
       <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
     </Tabs>
   );

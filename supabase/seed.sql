@@ -1,0 +1,3 @@
+-- The default local Supabase seed stays intentionally empty.
+-- Use `npm run seed:three-platform:local` or `npm run acceptance:local`
+-- to load the deterministic three-platform acceptance fixtures.

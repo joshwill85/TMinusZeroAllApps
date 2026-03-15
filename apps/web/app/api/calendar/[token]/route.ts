@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { buildIcsCalendar } from '@/lib/calendar/ics';
 import { normalizeNetPrecision } from '@/lib/ingestion/ll2Utils';
+import { enforceDurableRateLimit } from '@/lib/server/apiRateLimit';
 import { createSupabaseAdminClient } from '@/lib/server/supabaseServer';
 import { getUserAccessEntitlementById } from '@/lib/server/entitlements';
 import { getSiteUrl, isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
@@ -28,6 +29,16 @@ export async function GET(request: Request, { params }: { params: { token: strin
   const token = parseTokenParam(params.token);
   if (!token) {
     return NextResponse.json({ error: 'not_found' }, { status: 404, headers: { 'Cache-Control': 'no-store' } });
+  }
+
+  const rateLimited = await enforceDurableRateLimit(request, {
+    scope: 'api_calendar',
+    limit: 30,
+    windowSeconds: 60,
+    tokenKey: token
+  });
+  if (rateLimited) {
+    return rateLimited;
   }
 
   const admin = createSupabaseAdminClient();

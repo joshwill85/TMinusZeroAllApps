@@ -1,4 +1,4 @@
-import type { SearchResultType } from '@/lib/search/shared';
+import type { SearchResultType } from '@tminuszero/domain';
 
 export type StaticSearchDocument = {
   docId: string;

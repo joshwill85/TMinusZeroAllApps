@@ -185,7 +185,7 @@ function makeFilterFallbackHeaders(canUseAdmin: boolean) {
 }
 
 async function fetchFilterFallback(
-  supabase: ReturnType<typeof createSupabaseServerClient>,
+  supabase: ReturnType<typeof createSupabaseServerClient> | ReturnType<typeof createSupabaseAdminClient>,
   args: FilterOptionQueryArgs
 ): Promise<FilterOptionPayload | null> {
   const tableName = args.mode === 'live' ? 'launches' : 'launches_public_cache';
@@ -311,13 +311,14 @@ export async function GET(request: Request) {
     const canUseAdmin = isSupabaseAdminConfigured();
 
     if (mode === 'live') {
-      const viewer = await getViewerTier();
+      const viewer = await getViewerTier({ request, reconcileStripe: false });
       if (viewer.tier !== 'premium') {
         mode = 'public';
       }
     }
 
     const filterMode: FilterRequestMode = mode === 'live' && canUseAdmin ? 'live' : 'public';
+    const fallbackClient = filterMode === 'live' && canUseAdmin ? createSupabaseAdminClient() : supabase;
     const filterArgs: FilterOptionQueryArgs = {
       mode: filterMode,
       region,
@@ -350,7 +351,7 @@ export async function GET(request: Request) {
     }
 
     if (shouldUseDynamicOptions) {
-      const dynamicPayload = await fetchFilterFallback(supabase, filterArgs);
+      const dynamicPayload = await fetchFilterFallback(fallbackClient, filterArgs);
       if (!dynamicPayload) {
         return NextResponse.json({ error: 'filters_failed' }, { status: 500 });
       }
@@ -376,7 +377,7 @@ export async function GET(request: Request) {
         if (!error) {
           const rpcPayload = parseFilterPayload(data);
           const fallbackPayload =
-            rpcPayload.states.length === 0 ? await fetchFilterFallback(supabase, filterArgs) : null;
+            rpcPayload.states.length === 0 ? await fetchFilterFallback(fallbackClient, filterArgs) : null;
           const payload =
             fallbackPayload && fallbackPayload.states.length > rpcPayload.states.length ? fallbackPayload : rpcPayload;
 
@@ -394,7 +395,7 @@ export async function GET(request: Request) {
       }
     }
 
-    const fallback = await fetchFilterFallback(supabase, filterArgs);
+    const fallback = await fetchFilterFallback(fallbackClient, filterArgs);
     if (!fallback) {
       return NextResponse.json({ error: 'filters_failed' }, { status: 500 });
     }

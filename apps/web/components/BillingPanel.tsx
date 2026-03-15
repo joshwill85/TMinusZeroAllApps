@@ -4,16 +4,18 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
 import { isPaidSubscriptionStatus, normalizeSubscriptionStatus } from '@/lib/billing/shared';
+import { WebBillingAdapterError } from '@/lib/api/webBillingAdapters';
+import {
+  useBillingSummaryQuery,
+  useCancelBillingSubscriptionMutation,
+  useOpenBillingPortalMutation,
+  useResumeBillingSubscriptionMutation,
+  useStartBillingCheckoutMutation,
+  useStartBillingSetupIntentMutation,
+  useUpdateDefaultPaymentMethodMutation,
+  useViewerSessionQuery
+} from '@/lib/api/queries';
 import { getStripePublishableKey } from '@/lib/env/public';
-
-type SubscriptionState = {
-  status: string;
-  isPaid: boolean;
-  cancelAtPeriodEnd?: boolean;
-  currentPeriodEnd?: string | null;
-  stripePriceId?: string | null;
-  source?: string;
-};
 
 const publishableKey = getStripePublishableKey();
 const stripePromise = publishableKey ? loadStripe(publishableKey) : null;
@@ -41,14 +43,34 @@ const appearance = {
   }
 } as const;
 
+const guestBillingSummary = {
+  provider: 'none',
+  productKey: null,
+  status: 'none',
+  isPaid: false,
+  cancelAtPeriodEnd: false,
+  currentPeriodEnd: null,
+  managementMode: 'none',
+  managementUrl: null,
+  providerMessage: null,
+  providerProductId: null
+} as const;
+
 function readCheckoutParam() {
   if (typeof window === 'undefined') return null;
   return new URLSearchParams(window.location.search).get('checkout');
 }
 
 export function BillingPanel() {
-  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [subscription, setSubscription] = useState<SubscriptionState | null>(null);
+  const viewerSessionQuery = useViewerSessionQuery();
+  const billingSummaryQuery = useBillingSummaryQuery();
+  const startBillingCheckoutMutation = useStartBillingCheckoutMutation();
+  const openBillingPortalMutation = useOpenBillingPortalMutation();
+  const startBillingSetupIntentMutation = useStartBillingSetupIntentMutation();
+  const updateDefaultPaymentMethodMutation = useUpdateDefaultPaymentMethodMutation();
+  const cancelBillingSubscriptionMutation = useCancelBillingSubscriptionMutation();
+  const resumeBillingSubscriptionMutation = useResumeBillingSubscriptionMutation();
+
   const [notice, setNotice] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<'checkout' | 'cancel' | 'resume' | 'portal' | null>(null);
   const [setupClientSecret, setSetupClientSecret] = useState<string | null>(null);
@@ -61,64 +83,53 @@ export function BillingPanel() {
     if (checkout === 'cancel') setNotice('Checkout canceled. You can resume anytime.');
   }, []);
 
-  const fetchSubscription = async () => {
-    try {
-      const res = await fetch('/api/me/subscription', { cache: 'no-store' });
-      if (res.status === 401) {
-        setSubscription({ status: 'none', isPaid: false, source: 'guest' });
-        setStatus('ready');
-        return;
-      }
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || 'failed_to_load');
-      setSubscription(json);
-      setStatus('ready');
-    } catch (err) {
-      console.error('subscription fetch error', err);
-      setStatus('error');
-    }
-  };
+  const isGuestViewer = !viewerSessionQuery.isPending && !viewerSessionQuery.data?.viewerId;
+  const summary = isGuestViewer ? guestBillingSummary : billingSummaryQuery.data ?? null;
+  const status: 'loading' | 'ready' | 'error' =
+    viewerSessionQuery.isPending || (!isGuestViewer && billingSummaryQuery.isPending)
+      ? 'loading'
+      : !isGuestViewer && billingSummaryQuery.isError
+      ? 'error'
+      : 'ready';
 
-  useEffect(() => {
-    fetchSubscription();
-  }, []);
-
-  const subscriptionStatus = normalizeSubscriptionStatus(subscription?.status);
+  const subscriptionStatus = normalizeSubscriptionStatus(summary?.status);
+  const provider = summary?.provider ?? 'none';
   const hasBilling = subscriptionStatus !== 'none' && subscriptionStatus !== 'stub';
-  const isPaid = Boolean(subscription?.isPaid) || isPaidSubscriptionStatus(subscriptionStatus);
-  const isCanceled = subscriptionStatus === 'canceled' || subscriptionStatus === 'incomplete_expired';
+  const isPaid = Boolean(summary?.isPaid) || isPaidSubscriptionStatus(subscriptionStatus);
+  const isCanceled = subscriptionStatus === 'canceled' || subscriptionStatus === 'incomplete_expired' || subscriptionStatus === 'expired';
   const hasBillingIssue = subscriptionStatus === 'past_due' || subscriptionStatus === 'unpaid' || subscriptionStatus === 'incomplete';
-  const cancelAtPeriodEnd = subscription?.cancelAtPeriodEnd;
-  const currentPeriodEnd = subscription?.currentPeriodEnd ? new Date(subscription.currentPeriodEnd) : null;
+  const cancelAtPeriodEnd = summary?.cancelAtPeriodEnd ?? false;
+  const currentPeriodEnd = summary?.currentPeriodEnd ? new Date(summary.currentPeriodEnd) : null;
   const renewalLabel = currentPeriodEnd ? formatDate(currentPeriodEnd) : 'Next period end';
-  const canManageBilling = hasBilling;
+  const isExternalProvider = provider === 'apple_app_store' || provider === 'google_play';
+  const canManageStripeBilling = summary?.managementMode === 'stripe_portal';
+
+  async function refreshBilling() {
+    await billingSummaryQuery.refetch();
+  }
 
   const startCheckout = async () => {
     setBusyAction('checkout');
     setNotice(null);
     try {
-      const res = await fetch('/api/billing/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ returnTo: '/account' })
-      });
-      const json = await res.json().catch(() => ({}));
-      if (res.ok && json?.url) {
-        window.location.href = json.url;
-        return;
+      const payload = await startBillingCheckoutMutation.mutateAsync('/account');
+      if (!payload?.url) {
+        throw new Error('checkout_failed');
       }
-      if (json?.error === 'already_subscribed') {
-        await fetchSubscription();
-        setNotice('Premium is already active.');
-        return;
-      }
-      if (json?.error === 'payment_issue') {
-        await fetchSubscription();
-        setNotice('Your subscription needs attention. Update your payment method or manage billing.');
-        return;
-      }
-      throw new Error(json?.error || 'checkout_failed');
+      window.location.href = payload.url;
     } catch (err) {
+      if (err instanceof WebBillingAdapterError) {
+        if (err.code === 'already_subscribed') {
+          await refreshBilling();
+          setNotice('Premium is already active.');
+          return;
+        }
+        if (err.code === 'payment_issue') {
+          await refreshBilling();
+          setNotice('Your subscription needs attention. Update your payment method or manage billing.');
+          return;
+        }
+      }
       console.error('checkout error', err);
       setNotice('Unable to start checkout.');
     } finally {
@@ -129,10 +140,11 @@ export function BillingPanel() {
   const openPortal = async () => {
     setBusyAction('portal');
     try {
-      const res = await fetch('/api/billing/portal', { method: 'POST' });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json?.url) throw new Error(json?.error || 'portal_failed');
-      window.location.href = json.url;
+      const payload = await openBillingPortalMutation.mutateAsync();
+      if (!payload?.url) {
+        throw new Error('portal_failed');
+      }
+      window.location.href = payload.url;
     } catch (err) {
       console.error('portal error', err);
       setNotice('Unable to open the billing portal.');
@@ -149,10 +161,8 @@ export function BillingPanel() {
     setSetupError(null);
     setSetupSuccess(false);
     try {
-      const res = await fetch('/api/billing/setup-intent', { method: 'POST' });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json?.clientSecret) throw new Error(json?.error || 'setup_failed');
-      setSetupClientSecret(json.clientSecret);
+      const payload = await startBillingSetupIntentMutation.mutateAsync();
+      setSetupClientSecret(payload.clientSecret);
     } catch (err) {
       console.error('setup intent error', err);
       setSetupError('Unable to start payment update.');
@@ -162,21 +172,10 @@ export function BillingPanel() {
   const cancelSubscription = async () => {
     setBusyAction('cancel');
     try {
-      const res = await fetch('/api/billing/cancel', { method: 'POST' });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || 'cancel_failed');
-      const nextPeriodEnd = json.currentPeriodEnd ? new Date(json.currentPeriodEnd) : null;
-      setSubscription((prev) =>
-        prev
-          ? {
-              ...prev,
-              status: json.status ?? prev.status,
-              cancelAtPeriodEnd: true,
-              currentPeriodEnd: json.currentPeriodEnd ?? prev.currentPeriodEnd
-            }
-          : prev
-      );
+      const payload = await cancelBillingSubscriptionMutation.mutateAsync();
+      const nextPeriodEnd = payload.currentPeriodEnd ? new Date(payload.currentPeriodEnd) : null;
       setNotice(nextPeriodEnd ? `Subscription will cancel on ${formatDate(nextPeriodEnd)}.` : 'Subscription will cancel at period end.');
+      await refreshBilling();
     } catch (err) {
       console.error('cancel error', err);
       setNotice('Unable to cancel subscription.');
@@ -188,21 +187,10 @@ export function BillingPanel() {
   const resumeSubscription = async () => {
     setBusyAction('resume');
     try {
-      const res = await fetch('/api/billing/resume', { method: 'POST' });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || 'resume_failed');
-      const nextPeriodEnd = json.currentPeriodEnd ? new Date(json.currentPeriodEnd) : null;
-      setSubscription((prev) =>
-        prev
-          ? {
-              ...prev,
-              status: json.status ?? prev.status,
-              cancelAtPeriodEnd: false,
-              currentPeriodEnd: json.currentPeriodEnd ?? prev.currentPeriodEnd
-            }
-          : prev
-      );
+      const payload = await resumeBillingSubscriptionMutation.mutateAsync();
+      const nextPeriodEnd = payload.currentPeriodEnd ? new Date(payload.currentPeriodEnd) : null;
       setNotice(nextPeriodEnd ? `Subscription resumed. Renews on ${formatDate(nextPeriodEnd)}.` : 'Subscription resumed.');
+      await refreshBilling();
     } catch (err) {
       console.error('resume error', err);
       setNotice('Unable to resume subscription.');
@@ -212,7 +200,7 @@ export function BillingPanel() {
   };
 
   const planTitle = isPaid ? 'Premium plan' : hasBillingIssue ? 'Billing issue' : 'Free plan';
-  const statusLabel = subscription?.status ? formatStatus(subscription.status) : 'Unknown';
+  const statusLabel = summary?.status ? formatStatus(summary.status) : 'Unknown';
 
   return (
     <div className="rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
@@ -230,7 +218,7 @@ export function BillingPanel() {
       {status === 'error' && <div className="mt-3 text-xs text-danger">Unable to load billing status.</div>}
       {notice && <div className="mt-3 rounded-lg border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-2 text-xs text-text2">{notice}</div>}
 
-      {status === 'ready' && (
+      {status === 'ready' && summary && (
         <div className="mt-3 space-y-3">
           {hasBilling ? (
             <div className="space-y-2">
@@ -238,34 +226,56 @@ export function BillingPanel() {
                 {hasBillingIssue
                   ? 'Payment issue detected. Update your payment method or manage billing.'
                   : isCanceled
-                  ? 'Subscription canceled'
-                  : cancelAtPeriodEnd
-                    ? `Cancels on ${renewalLabel}`
-                    : currentPeriodEnd
-                      ? `Renews on ${renewalLabel}`
-                      : 'Subscription active'}
+                    ? 'Subscription canceled'
+                    : cancelAtPeriodEnd
+                      ? `Cancels on ${renewalLabel}`
+                      : currentPeriodEnd
+                        ? `Renews on ${renewalLabel}`
+                        : 'Subscription active'}
               </div>
+
+              {summary.providerMessage && (
+                <div className="rounded-lg border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-2 text-xs text-text2">
+                  {summary.providerMessage}
+                </div>
+              )}
+
               <div className="flex flex-wrap gap-2">
-                <button
-                  className="btn-secondary rounded-lg px-3 py-2 text-xs"
-                  onClick={startSetupIntent}
-                  disabled={!stripePromise || Boolean(setupClientSecret)}
-                >
-                  Update payment method
-                </button>
-                {!isCanceled && !cancelAtPeriodEnd ? (
-                  <button className="btn-secondary rounded-lg px-3 py-2 text-xs" onClick={cancelSubscription} disabled={busyAction === 'cancel'}>
-                    {busyAction === 'cancel' ? 'Canceling…' : 'Cancel subscription'}
-                  </button>
-                ) : !isCanceled ? (
-                  <button className="btn-secondary rounded-lg px-3 py-2 text-xs" onClick={resumeSubscription} disabled={busyAction === 'resume'}>
-                    {busyAction === 'resume' ? 'Resuming…' : 'Resume subscription'}
-                  </button>
-                ) : null}
-                {canManageBilling && (
-                  <button className="btn-secondary rounded-lg px-3 py-2 text-xs" onClick={openPortal} disabled={busyAction === 'portal'}>
-                    {busyAction === 'portal' ? 'Opening…' : 'Manage billing'}
-                  </button>
+                {isExternalProvider ? (
+                  summary.managementUrl ? (
+                    <a
+                      className="btn-secondary rounded-lg px-3 py-2 text-xs"
+                      href={summary.managementUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {provider === 'apple_app_store' ? 'Manage in App Store' : 'Manage in Google Play'}
+                    </a>
+                  ) : null
+                ) : (
+                  <>
+                    <button
+                      className="btn-secondary rounded-lg px-3 py-2 text-xs"
+                      onClick={startSetupIntent}
+                      disabled={!stripePromise || Boolean(setupClientSecret) || startBillingSetupIntentMutation.isPending}
+                    >
+                      {startBillingSetupIntentMutation.isPending ? 'Starting…' : 'Update payment method'}
+                    </button>
+                    {!isCanceled && !cancelAtPeriodEnd ? (
+                      <button className="btn-secondary rounded-lg px-3 py-2 text-xs" onClick={cancelSubscription} disabled={busyAction === 'cancel'}>
+                        {busyAction === 'cancel' ? 'Canceling…' : 'Cancel subscription'}
+                      </button>
+                    ) : !isCanceled ? (
+                      <button className="btn-secondary rounded-lg px-3 py-2 text-xs" onClick={resumeSubscription} disabled={busyAction === 'resume'}>
+                        {busyAction === 'resume' ? 'Resuming…' : 'Resume subscription'}
+                      </button>
+                    ) : null}
+                    {canManageStripeBilling && (
+                      <button className="btn-secondary rounded-lg px-3 py-2 text-xs" onClick={openPortal} disabled={busyAction === 'portal'}>
+                        {busyAction === 'portal' ? 'Opening…' : 'Manage billing'}
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -280,18 +290,20 @@ export function BillingPanel() {
             </div>
           )}
 
-          {setupClientSecret && stripePromise && (
+          {setupClientSecret && stripePromise && !isExternalProvider && (
             <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3">
               <div className="text-xs uppercase tracking-[0.08em] text-text3">Update payment method</div>
               <Elements stripe={stripePromise} options={{ clientSecret: setupClientSecret, appearance }}>
                 <PaymentMethodForm
                   amountLabel={isPaid ? 'Premium payment method' : 'payment method'}
                   onClose={() => setSetupClientSecret(null)}
-                  onSuccess={() => {
+                  onSuccess={async () => {
                     setSetupSuccess(true);
                     setSetupClientSecret(null);
+                    await refreshBilling();
                   }}
                   onError={(message) => setSetupError(message)}
+                  onSubmitPaymentMethod={(paymentMethod) => updateDefaultPaymentMethodMutation.mutateAsync(paymentMethod)}
                 />
               </Elements>
               {setupError && <div className="mt-2 text-xs text-danger">{setupError}</div>}
@@ -308,12 +320,14 @@ function PaymentMethodForm({
   amountLabel,
   onClose,
   onSuccess,
-  onError
+  onError,
+  onSubmitPaymentMethod
 }: {
   amountLabel: string;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: () => void | Promise<void>;
   onError: (message: string) => void;
+  onSubmitPaymentMethod: (paymentMethod: string) => Promise<unknown>;
 }) {
   const stripe = useStripe();
   const elements = useElements();
@@ -346,20 +360,14 @@ function PaymentMethodForm({
       return;
     }
 
-    const res = await fetch('/api/billing/default-payment-method', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ paymentMethod })
-    });
-
-    if (!res.ok) {
+    try {
+      await onSubmitPaymentMethod(paymentMethod);
+      await onSuccess();
+    } catch {
       onError('Unable to save payment method.');
+    } finally {
       setSubmitting(false);
-      return;
     }
-
-    onSuccess();
-    setSubmitting(false);
   };
 
   return (
@@ -389,6 +397,10 @@ function formatStatus(status: string) {
   if (normalized === 'incomplete') return 'Incomplete';
   if (normalized === 'incomplete_expired') return 'Expired';
   if (normalized === 'paused') return 'Paused';
+  if (normalized === 'expired') return 'Expired';
+  if (normalized === 'revoked') return 'Revoked';
+  if (normalized === 'pending') return 'Pending';
+  if (normalized === 'on_hold') return 'On hold';
   return status;
 }
 

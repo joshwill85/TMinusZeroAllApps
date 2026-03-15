@@ -1,22 +1,23 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { buildAuthHref, buildProfileHref } from '@tminuszero/navigation';
 import { sanitizeReturnToPath } from '@/lib/billing/shared';
-import { getBrowserClient } from '@/lib/api/supabase';
-import { withAuthQuery } from '@/lib/utils/returnTo';
+import { WebBillingAdapterError } from '@/lib/api/webBillingAdapters';
+import { useStartBillingCheckoutMutation, useViewerEntitlementsQuery, useViewerSessionQuery } from '@/lib/api/queries';
 
 const FEATURES = [
   'Live updates every 15 seconds',
   'Full change log (see what changed)',
-  'Watchlists (“My Launches”) + saved presets',
-  'Alerts (email + browser notifications)',
-  'Calendar exports + subscriptions (.ics) with filters and optional reminders',
+  'Saved/default filters + follows (“My Launches”)',
+  'Advanced alerts + browser notifications',
+  'Recurring calendar feeds (.ics) from presets, follows, or all future launches',
   'RSS + Atom feeds for any filtered feed',
   'Embeddable “Next launch” widget (token link)',
   'Enhanced forecast insights (select launches)',
-  'AR trajectory overlay'
+  'Launch-day email + AR trajectory overlay'
 ];
 
 const SUBSCRIPTION_CONFIRMATION_MAX_ATTEMPTS = 20;
@@ -46,73 +47,59 @@ function isAccountReturnPath(path: string) {
 
 export function UpgradePageContent() {
   const searchParams = useSearchParams();
+  const { data: viewerSession, isPending: viewerSessionPending } = useViewerSessionQuery();
+  const {
+    data: entitlements,
+    isPending: entitlementsPending,
+    refetch: refetchEntitlements
+  } = useViewerEntitlementsQuery();
+  const startBillingCheckoutMutation = useStartBillingCheckoutMutation();
   const returnTo = sanitizeReturnToPath(searchParams.get('return_to'), '/account');
   const canceled = searchParams.get('checkout') === 'cancel';
   const succeeded = searchParams.get('checkout') === 'success';
   const autostart = searchParams.get('autostart') === '1';
-  const [authStatus, setAuthStatus] = useState<'loading' | 'authed' | 'guest'>('loading');
   const [subscriptionState, setSubscriptionState] = useState<'idle' | 'checking' | 'paid' | 'unpaid'>('idle');
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autostarted, setAutostarted] = useState(false);
-  const signInHref = withAuthQuery('/auth/sign-in', { returnTo, intent: 'upgrade' });
-  const signUpHref = withAuthQuery('/auth/sign-up', { returnTo, intent: 'upgrade' });
+  const signInHref = buildAuthHref('sign-in', { returnTo, intent: 'upgrade' });
+  const signUpHref = buildAuthHref('sign-up', { returnTo, intent: 'upgrade' });
   const successReturnTo = isAccountReturnPath(returnTo) ? appendPremiumStatus(returnTo, 'welcome') : returnTo;
   const paymentIssueReturnTo = appendPremiumStatus('/account', 'payment_issue');
-
-  useEffect(() => {
-    const supabase = getBrowserClient();
-    if (!supabase) {
-      setAuthStatus('guest');
-      return;
-    }
-    let active = true;
-    supabase.auth
-      .getUser()
-      .then((result: any) => {
-        if (!active) return;
-        setAuthStatus(result?.data?.user ? 'authed' : 'guest');
-      })
-      .catch(() => {
-        if (!active) return;
-        setAuthStatus('guest');
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+  const authStatus: 'loading' | 'authed' | 'guest' =
+    viewerSessionPending && !viewerSession
+      ? 'loading'
+      : viewerSession?.viewerId
+        ? 'authed'
+        : 'guest';
+  const isPaid = entitlements?.isPaid === true;
+  const busy = startBillingCheckoutMutation.isPending;
 
   const startCheckout = useCallback(async () => {
     if (busy) return;
-    setBusy(true);
     setError(null);
+
     try {
-      const res = await fetch('/api/billing/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ returnTo })
-      });
-      const json = await res.json().catch(() => ({}));
-      if (res.ok && json?.url) {
-        window.location.href = json.url;
-        return;
+      const payload = await startBillingCheckoutMutation.mutateAsync(returnTo);
+      if (!payload?.url) {
+        throw new Error('checkout_failed');
       }
-      if (json?.error === 'already_subscribed') {
-        window.location.replace(json?.returnTo || returnTo);
-        return;
-      }
-      if (json?.error === 'payment_issue') {
-        window.location.replace(paymentIssueReturnTo);
-        return;
-      }
-      throw new Error(json?.error || 'checkout_failed');
+      window.location.href = payload.url;
     } catch (err) {
+      if (err instanceof WebBillingAdapterError) {
+        if (err.code === 'already_subscribed') {
+          window.location.replace(err.returnTo || returnTo);
+          return;
+        }
+        if (err.code === 'payment_issue') {
+          window.location.replace(paymentIssueReturnTo);
+          return;
+        }
+      }
+
       console.error('checkout error', err);
       setError('Unable to start checkout.');
-    } finally {
-      setBusy(false);
     }
-  }, [busy, paymentIssueReturnTo, returnTo]);
+  }, [busy, paymentIssueReturnTo, returnTo, startBillingCheckoutMutation]);
 
   useEffect(() => {
     if (authStatus !== 'authed') {
@@ -120,45 +107,57 @@ export function UpgradePageContent() {
       return;
     }
 
+    if (isPaid) {
+      setSubscriptionState('paid');
+      if (succeeded) {
+        window.location.replace(successReturnTo);
+      }
+      return;
+    }
+
+    if (!succeeded) {
+      setSubscriptionState(entitlementsPending && !entitlements ? 'checking' : 'unpaid');
+      return;
+    }
+
     let active = true;
     let timeoutId: number | null = null;
     let attempts = 0;
 
-    const checkSubscription = async () => {
+    const checkEntitlements = async () => {
       if (!active) return;
       setSubscriptionState('checking');
 
       try {
-        const res = await fetch('/api/me/subscription', { cache: 'no-store' });
-        const json = await res.json().catch(() => ({}));
+        const result = await refetchEntitlements();
         if (!active) return;
 
-        if (res.ok && json?.isPaid) {
+        if (result.data?.isPaid === true) {
           setSubscriptionState('paid');
-          window.location.replace(succeeded ? successReturnTo : returnTo);
+          window.location.replace(successReturnTo);
           return;
         }
       } catch (err) {
         if (!active) return;
-        console.warn('subscription check warning', err);
+        console.warn('entitlement check warning', err);
       }
 
       attempts += 1;
-      if (succeeded && attempts < SUBSCRIPTION_CONFIRMATION_MAX_ATTEMPTS) {
-        timeoutId = window.setTimeout(checkSubscription, SUBSCRIPTION_CONFIRMATION_RETRY_MS);
+      if (attempts < SUBSCRIPTION_CONFIRMATION_MAX_ATTEMPTS) {
+        timeoutId = window.setTimeout(checkEntitlements, SUBSCRIPTION_CONFIRMATION_RETRY_MS);
         return;
       }
 
       setSubscriptionState('unpaid');
     };
 
-    checkSubscription().catch(() => undefined);
+    void checkEntitlements();
 
     return () => {
       active = false;
       if (timeoutId) window.clearTimeout(timeoutId);
     };
-  }, [authStatus, returnTo, succeeded, successReturnTo]);
+  }, [authStatus, entitlements, entitlementsPending, isPaid, refetchEntitlements, succeeded, successReturnTo]);
 
   useEffect(() => {
     if (!autostart || autostarted) return;
@@ -166,14 +165,14 @@ export function UpgradePageContent() {
     if (authStatus !== 'authed' || subscriptionState !== 'unpaid') return;
     setAutostarted(true);
 
-    startCheckout().catch(() => undefined);
+    void startCheckout();
   }, [authStatus, autostart, autostarted, canceled, startCheckout, subscriptionState, succeeded]);
 
   return (
     <div className="mx-auto flex min-h-[70vh] w-full max-w-4xl flex-col gap-6 px-4 py-12 md:px-6">
       <div>
         <h1 className="text-3xl font-semibold text-text1">Upgrade to Premium</h1>
-        <p className="mt-1 text-text2">Unlock live data, alerts, watchlists, and feed integrations (calendar + RSS/Atom).</p>
+        <p className="mt-1 text-text2">Unlock live data, saved filters/follows, browser alerts, and recurring feed integrations.</p>
       </div>
 
       {succeeded && (
@@ -203,7 +202,9 @@ export function UpgradePageContent() {
       <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded-2xl border border-stroke bg-surface-1 p-5">
           <div className="text-xs uppercase tracking-[0.1em] text-text3">Premium</div>
-          <div className="mt-2 text-3xl font-semibold text-text1">$3.99<span className="text-base text-text3">/mo</span></div>
+          <div className="mt-2 text-3xl font-semibold text-text1">
+            $3.99<span className="text-base text-text3">/mo</span>
+          </div>
           <ul className="mt-4 space-y-2 text-sm text-text2">
             {FEATURES.map((feature) => (
               <li key={feature}>• {feature}</li>
@@ -235,7 +236,7 @@ export function UpgradePageContent() {
           )}
           <p className="mt-3 text-xs text-text3">
             Renews monthly until canceled. Cancel anytime from{' '}
-            <Link className="text-primary hover:underline" href="/account">
+            <Link className="text-primary hover:underline" href={buildProfileHref()}>
               Account
             </Link>
             . By subscribing, you agree to the{' '}
@@ -258,9 +259,9 @@ export function UpgradePageContent() {
             <li>• Basic filters</li>
             <li>• Weather forecast (NWS, when available)</li>
           </ul>
-          <div className="mt-5 rounded-lg border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-2 text-xs text-text3">
-            You can upgrade anytime.
-          </div>
+          <p className="mt-5 text-sm text-text3">
+            Keep browsing for free. Upgrade when you want live data, saved/default filters, follows, browser alerts, and recurring integrations.
+          </p>
         </div>
       </div>
     </div>

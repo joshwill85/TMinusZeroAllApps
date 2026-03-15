@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { createSupabaseAdminClient } from '@/lib/server/supabaseServer';
+import { enforceDurableRateLimit } from '@/lib/server/apiRateLimit';
 import { getSiteUrl, isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
 import { getUserAccessEntitlementById } from '@/lib/server/entitlements';
 import { parseLaunchRegion, US_PAD_COUNTRY_CODES } from '@/lib/server/us';
@@ -29,6 +30,16 @@ export async function GET(request: Request, { params }: { params: { token: strin
   const token = parseTokenParam(rawParam);
   if (!token) {
     return NextResponse.json({ error: 'not_found' }, { status: 404, headers: { 'Cache-Control': 'no-store' } });
+  }
+
+  const rateLimited = await enforceDurableRateLimit(request, {
+    scope: 'rss_feed',
+    limit: 30,
+    windowSeconds: 60,
+    tokenKey: token
+  });
+  if (rateLimited) {
+    return rateLimited;
   }
 
   const admin = createSupabaseAdminClient();

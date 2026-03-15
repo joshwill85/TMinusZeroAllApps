@@ -3,13 +3,42 @@
     "name": "T-Minus Zero",
     "slug": "tminuszero-mobile",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "icon": "./ios/TMinusZero/Images.xcassets/AppIcon.appiconset/App-Icon-1024x1024@1x.png",
+    "orientation": "default",
     "scheme": "tminuszero",
     "userInterfaceStyle": "automatic",
+    "ios": {
+      "bundleIdentifier": "app.tminuszero.mobile",
+      "supportsTablet": true,
+      "deploymentTarget": "15.1",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to use the camera for premium AR trajectory guidance.",
+        "NSMotionUsageDescription": "Allow $(PRODUCT_NAME) to access motion sensors for premium AR trajectory tracking.",
+        "NSLocationWhenInUseUsageDescription": "Allow $(PRODUCT_NAME) to use your location to align premium AR trajectory guidance with the launch site."
+      }
+    },
+    "android": {
+      "package": "app.tminuszero.mobile"
+    },
     "plugins": [
       "expo-router",
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-notifications",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "15.1"
+          }
+        }
+      ],
+      "expo-iap"
     ],
+    "extra": {
+      "eas": {
+        "projectId": ""
+      }
+    },
     "experiments": {
       "typedRoutes": true
     }

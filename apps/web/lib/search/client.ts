@@ -1,4 +1,5 @@
-import type { SiteSearchResponse } from '@/lib/search/shared';
+import { browserApiClient } from '@/lib/api/client';
+import type { SiteSearchResponse } from '@tminuszero/domain';
 
 export const SITE_SEARCH_MIN_QUERY_LENGTH = 2;
 const SITE_SEARCH_CACHE_TTL_MS = 30_000;
@@ -47,28 +48,36 @@ export async function fetchSiteSearch(
   }
 
   const params = new URLSearchParams({
-    q: trimmed,
-    limit: String(limit),
-    offset: String(offset)
+    q: trimmed
   });
   if (options?.types) params.set('types', options.types);
 
-  const response = await fetch(`/api/search?${params.toString()}`, {
-    signal: options?.signal,
-    cache: 'no-store'
-  });
-  const payload = (await response.json().catch(() => ({}))) as Partial<SiteSearchResponse> & { error?: string };
-  if (!response.ok) {
-    throw new Error(payload?.error || 'search_query_failed');
+  if (options?.signal?.aborted) {
+    throw new DOMException('The operation was aborted.', 'AbortError');
   }
 
+  const payload = await browserApiClient.search(trimmed, {
+    limit,
+    offset,
+    types: options?.types ? options.types.split(',').map((value) => value.trim()).filter(Boolean) : undefined
+  });
   const normalized: SiteSearchResponse = {
-    query: typeof payload.query === 'string' ? payload.query : trimmed,
-    results: Array.isArray(payload.results) ? payload.results : [],
-    tookMs: Number.isFinite(payload.tookMs) ? Number(payload.tookMs) : 0,
-    limit: Number.isFinite(payload.limit) ? Number(payload.limit) : limit,
-    offset: Number.isFinite(payload.offset) ? Number(payload.offset) : offset,
-    hasMore: Boolean(payload.hasMore)
+    query: payload.query,
+    results: payload.results.map((result) => ({
+      id: result.id,
+      type: result.type as SiteSearchResponse['results'][number]['type'],
+      title: result.title,
+      subtitle: result.subtitle,
+      summary: result.summary,
+      url: result.href,
+      imageUrl: result.imageUrl,
+      publishedAt: result.publishedAt,
+      badge: result.badge
+    })),
+    tookMs: payload.tookMs,
+    limit: payload.limit,
+    offset: payload.offset,
+    hasMore: payload.hasMore
   };
 
   searchResponseCache.set(cacheKey, {
@@ -80,5 +89,7 @@ export async function fetchSiteSearch(
 }
 
 export async function warmSiteSearch(signal?: AbortSignal) {
-  await fetch('/api/search?warm=1', { signal, cache: 'no-store' }).catch(() => undefined);
+  if (signal?.aborted) {
+    throw new DOMException('The operation was aborted.', 'AbortError');
+  }
 }

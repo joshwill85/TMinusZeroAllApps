@@ -1,0 +1,26 @@
+
+> tminuszero@0.1.0 lint
+> turbo run lint --filter=@tminuszero/web
+
+• Packages in scope: @tminuszero/web
+• Running lint in 1 packages
+• Remote caching disabled
+@tminuszero/web:lint: cache miss, executing 00899f349ec4be59
+@tminuszero/web:lint: 
+@tminuszero/web:lint: > @tminuszero/web@0.0.0 lint
+@tminuszero/web:lint: > next lint --cache-location .eslintcache
+@tminuszero/web:lint: 
+@tminuszero/web:lint: ✔ No ESLint warnings or errors
+
+ Tasks:    1 successful, 1 total
+Cached:    0 cached, 1 total
+  Time:    9.065s 
+
+
+Attention:
+Turborepo now collects completely anonymous telemetry regarding usage.
+This information is used to shape the Turborepo roadmap and prioritize features.
+You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
+https://turborepo.dev/docs/telemetry
+
+• turbo 2.8.14

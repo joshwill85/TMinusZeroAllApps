@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { buildAuthCallbackHref } from '@tminuszero/navigation';
 
 function hasAuthTokensInHash(hash: string) {
   const trimmed = hash.startsWith('#') ? hash.slice(1) : hash;
@@ -25,7 +26,7 @@ export function AuthReturnRedirect() {
     if (!hasAuthTokensInHash(hash) && !hasAuthErrorInHash(hash)) return;
 
     const current = new URL(window.location.href);
-    const callback = new URL('/auth/callback', current.origin);
+    const callback = new URL(buildAuthCallbackHref(), current.origin);
     callback.search = current.search;
     callback.hash = current.hash;
     window.location.replace(callback.toString());
@@ -33,4 +34,3 @@ export function AuthReturnRedirect() {
 
   return null;
 }
-

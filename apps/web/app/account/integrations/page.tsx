@@ -1,137 +1,66 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import clsx from 'clsx';
-import type { LaunchFilter } from '@/lib/types/launch';
-
-type SubscriptionSnapshot = {
-  isAuthed: boolean;
-  isPaid: boolean;
-  isAdmin: boolean;
-  tier?: string;
-};
-
-type NamedFeed = {
-  id: string;
-  name: string;
-  token: string;
-  filters?: LaunchFilter;
-  alarm_minutes_before?: number | null;
-  created_at?: string;
-  updated_at?: string;
-};
-
-type EmbedWidget = {
-  id: string;
-  name: string;
-  token: string;
-  widget_type?: string;
-  filters?: LaunchFilter;
-  preset_id?: string | null;
-  watchlist_id?: string | null;
-  created_at?: string;
-  updated_at?: string;
-};
+import type { CalendarFeedV1, EmbedWidgetV1, RssFeedV1 } from '@tminuszero/api-client';
+import { buildAuthHref, buildProfileHref } from '@tminuszero/navigation';
+import {
+  useCalendarFeedsQuery,
+  useDeleteCalendarFeedMutation,
+  useDeleteEmbedWidgetMutation,
+  useDeleteRssFeedMutation,
+  useEmbedWidgetsQuery,
+  useRotateCalendarFeedMutation,
+  useRotateEmbedWidgetMutation,
+  useRotateRssFeedMutation,
+  useRssFeedsQuery,
+  useUpdateCalendarFeedMutation,
+  useUpdateEmbedWidgetMutation,
+  useUpdateRssFeedMutation,
+  useViewerEntitlementsQuery,
+  useViewerSessionQuery
+} from '@/lib/api/queries';
 
 type CopyState = 'idle' | 'copied' | 'error';
 
 export default function IntegrationsPage() {
-  const [subscription, setSubscription] = useState<SubscriptionSnapshot | null>(null);
-  const [status, setStatus] = useState<'loading' | 'authed' | 'guest'>('loading');
-  const [loading, setLoading] = useState(false);
+  const viewerSessionQuery = useViewerSessionQuery();
+  const entitlementsQuery = useViewerEntitlementsQuery();
+  const status: 'loading' | 'authed' | 'guest' = viewerSessionQuery.isPending
+    ? 'loading'
+    : viewerSessionQuery.data?.viewerId
+      ? 'authed'
+      : 'guest';
+  const isPaid = entitlementsQuery.data?.isPaid ?? false;
+  const entitlementsLoading = status === 'authed' && entitlementsQuery.isPending && !entitlementsQuery.data;
+  const calendarFeedsQuery = useCalendarFeedsQuery({ enabled: status === 'authed' && isPaid });
+  const rssFeedsQuery = useRssFeedsQuery({ enabled: status === 'authed' && isPaid });
+  const embedWidgetsQuery = useEmbedWidgetsQuery({ enabled: status === 'authed' && isPaid });
+  const updateCalendarFeedMutation = useUpdateCalendarFeedMutation();
+  const deleteCalendarFeedMutation = useDeleteCalendarFeedMutation();
+  const rotateCalendarFeedMutation = useRotateCalendarFeedMutation();
+  const updateRssFeedMutation = useUpdateRssFeedMutation();
+  const deleteRssFeedMutation = useDeleteRssFeedMutation();
+  const rotateRssFeedMutation = useRotateRssFeedMutation();
+  const updateEmbedWidgetMutation = useUpdateEmbedWidgetMutation();
+  const deleteEmbedWidgetMutation = useDeleteEmbedWidgetMutation();
+  const rotateEmbedWidgetMutation = useRotateEmbedWidgetMutation();
+
   const [error, setError] = useState<string | null>(null);
-
-  const [calendarFeeds, setCalendarFeeds] = useState<NamedFeed[]>([]);
-  const [rssFeeds, setRssFeeds] = useState<NamedFeed[]>([]);
-  const [embedWidgets, setEmbedWidgets] = useState<EmbedWidget[]>([]);
-
   const [copyState, setCopyState] = useState<Record<string, CopyState>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
 
   const baseUrl = useMemo(() => resolveBaseUrl(), []);
-
-  useEffect(() => {
-    let active = true;
-
-    fetch('/api/me/subscription', { cache: 'no-store' })
-      .then(async (res) => {
-        const json = await res.json().catch(() => ({}));
-        if (!active) return;
-        setSubscription({
-          isAuthed: Boolean(json?.isAuthed),
-          isPaid: Boolean(json?.isPaid),
-          isAdmin: Boolean(json?.isAdmin),
-          tier: typeof json?.tier === 'string' ? json.tier : undefined
-        });
-        setStatus(json?.isAuthed ? 'authed' : 'guest');
-      })
-      .catch((err) => {
-        if (!active) return;
-        console.error('subscription load error', err);
-        setSubscription({ isAuthed: false, isPaid: false, isAdmin: false });
-        setStatus('guest');
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (status !== 'authed') return;
-    if (!subscription?.isPaid) {
-      setCalendarFeeds([]);
-      setRssFeeds([]);
-      setEmbedWidgets([]);
-      return;
-    }
-
-    let active = true;
-    setLoading(true);
-    setError(null);
-
-    Promise.all([
-      fetch('/api/me/calendar-feeds', { cache: 'no-store' }),
-      fetch('/api/me/rss-feeds', { cache: 'no-store' }),
-      fetch('/api/me/embed-widgets', { cache: 'no-store' })
-    ])
-      .then(async ([calendarRes, rssRes, widgetsRes]) => {
-        const [calendarJson, rssJson, widgetsJson] = await Promise.all([
-          calendarRes.json().catch(() => ({})),
-          rssRes.json().catch(() => ({})),
-          widgetsRes.json().catch(() => ({}))
-        ]);
-
-        if (!active) return;
-
-        if (!calendarRes.ok && calendarRes.status === 402) {
-          setError('Premium required to manage integrations.');
-          return;
-        }
-
-        if (!calendarRes.ok) throw new Error(calendarJson?.error || 'Failed to load calendar feeds.');
-        if (!rssRes.ok) throw new Error(rssJson?.error || 'Failed to load RSS feeds.');
-        if (!widgetsRes.ok) throw new Error(widgetsJson?.error || 'Failed to load embed widgets.');
-
-        setCalendarFeeds(Array.isArray(calendarJson?.feeds) ? calendarJson.feeds : []);
-        setRssFeeds(Array.isArray(rssJson?.feeds) ? rssJson.feeds : []);
-        setEmbedWidgets(Array.isArray(widgetsJson?.widgets) ? widgetsJson.widgets : []);
-      })
-      .catch((err) => {
-        if (!active) return;
-        console.error('integrations load error', err);
-        setError(err?.message || 'Unable to load integrations.');
-      })
-      .finally(() => {
-        if (!active) return;
-        setLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [status, subscription?.isPaid]);
+  const calendarFeeds = calendarFeedsQuery.data?.feeds ?? [];
+  const rssFeeds = rssFeedsQuery.data?.feeds ?? [];
+  const embedWidgets = embedWidgetsQuery.data?.widgets ?? [];
+  const loadingIntegrations = status === 'authed' && isPaid && (calendarFeedsQuery.isPending || rssFeedsQuery.isPending || embedWidgetsQuery.isPending);
+  const queryError =
+    status === 'authed' && isPaid
+      ? calendarFeedsQuery.error || rssFeedsQuery.error || embedWidgetsQuery.error || (entitlementsQuery.error ?? null)
+      : entitlementsQuery.error;
+  const activeError = error ?? (queryError ? getErrorMessage(queryError, 'Unable to load integrations.') : null);
 
   async function copyText(key: string, value: string | null) {
     try {
@@ -144,69 +73,56 @@ export default function IntegrationsPage() {
     }
   }
 
-  async function renameFeed(kind: 'calendar' | 'rss', feed: NamedFeed) {
+  async function renameFeed(kind: 'calendar' | 'rss', feed: CalendarFeedV1 | RssFeedV1) {
     const next = window.prompt('Rename feed', feed.name)?.trim();
     if (!next || next === feed.name) return;
 
     const key = `${kind}:rename:${feed.id}`;
     if (busy[key]) return;
     setBusy((prev) => ({ ...prev, [key]: true }));
+    setError(null);
 
     try {
-      const res = await fetch(`/api/me/${kind}-feeds/${encodeURIComponent(feed.id)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: next }),
-        cache: 'no-store'
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || `rename_http_${res.status}`);
-      const updated = json?.feed;
-      if (!updated?.id) throw new Error('rename_failed');
-
-      if (kind === 'calendar') setCalendarFeeds((prev) => prev.map((f) => (f.id === feed.id ? { ...f, name: next } : f)));
-      if (kind === 'rss') setRssFeeds((prev) => prev.map((f) => (f.id === feed.id ? { ...f, name: next } : f)));
-    } catch (err) {
-      console.error('rename feed error', err);
+      if (kind === 'calendar') {
+        await updateCalendarFeedMutation.mutateAsync({ feedId: feed.id, payload: { name: next } });
+      } else {
+        await updateRssFeedMutation.mutateAsync({ feedId: feed.id, payload: { name: next } });
+      }
+    } catch (mutationError: unknown) {
+      console.error('rename feed error', mutationError);
       setError('Unable to rename feed.');
     } finally {
       setBusy((prev) => ({ ...prev, [key]: false }));
     }
   }
 
-  async function rotateFeed(kind: 'calendar' | 'rss', feed: NamedFeed) {
+  async function rotateFeed(kind: 'calendar' | 'rss', feed: CalendarFeedV1 | RssFeedV1) {
     const ok = window.confirm('Rotate token? Existing subscriptions using the old token will stop working.');
     if (!ok) return;
 
     const key = `${kind}:rotate:${feed.id}`;
     if (busy[key]) return;
     setBusy((prev) => ({ ...prev, [key]: true }));
+    setError(null);
 
     try {
-      const res = await fetch(`/api/me/${kind}-feeds/${encodeURIComponent(feed.id)}/rotate`, {
-        method: 'POST',
-        cache: 'no-store'
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || `rotate_http_${res.status}`);
-      const token = json?.feed?.token ? String(json.feed.token) : null;
-      if (!token) throw new Error('token_missing');
-
-      const update = (items: NamedFeed[]) => items.map((f) => (f.id === feed.id ? { ...f, token } : f));
-      if (kind === 'calendar') setCalendarFeeds(update);
-      if (kind === 'rss') setRssFeeds(update);
-    } catch (err) {
-      console.error('rotate feed error', err);
+      if (kind === 'calendar') {
+        await rotateCalendarFeedMutation.mutateAsync(feed.id);
+      } else {
+        await rotateRssFeedMutation.mutateAsync(feed.id);
+      }
+    } catch (mutationError: unknown) {
+      console.error('rotate feed error', mutationError);
       setError('Unable to rotate token.');
     } finally {
       setBusy((prev) => ({ ...prev, [key]: false }));
     }
   }
 
-  async function updateCalendarReminder(feed: NamedFeed) {
+  async function updateCalendarReminder(feed: CalendarFeedV1) {
     const current =
-      typeof feed.alarm_minutes_before === 'number' && Number.isFinite(feed.alarm_minutes_before)
-        ? String(Math.trunc(feed.alarm_minutes_before))
+      typeof feed.alarmMinutesBefore === 'number' && Number.isFinite(feed.alarmMinutesBefore)
+        ? String(Math.trunc(feed.alarmMinutesBefore))
         : '';
     const nextRaw = window.prompt('Reminder minutes before launch (blank for none)', current);
     if (nextRaw == null) return;
@@ -214,12 +130,12 @@ export default function IntegrationsPage() {
     const trimmed = nextRaw.trim();
     let next: number | null = null;
     if (trimmed) {
-      const n = Number(trimmed);
-      if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0 || n > 10080) {
+      const value = Number(trimmed);
+      if (!Number.isFinite(value) || !Number.isInteger(value) || value < 0 || value > 10080) {
         setError('Reminder must be an integer between 0 and 10080 (7 days).');
         return;
       }
-      next = n;
+      next = value;
     }
 
     const key = `calendar:reminder:${feed.id}`;
@@ -228,111 +144,95 @@ export default function IntegrationsPage() {
     setError(null);
 
     try {
-      const res = await fetch(`/api/me/calendar-feeds/${encodeURIComponent(feed.id)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ alarm_minutes_before: next }),
-        cache: 'no-store'
+      await updateCalendarFeedMutation.mutateAsync({
+        feedId: feed.id,
+        payload: { alarmMinutesBefore: next }
       });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || `reminder_http_${res.status}`);
-
-      setCalendarFeeds((prev) => prev.map((f) => (f.id === feed.id ? { ...f, alarm_minutes_before: next } : f)));
-    } catch (err) {
-      console.error('update calendar reminder error', err);
+    } catch (mutationError: unknown) {
+      console.error('update calendar reminder error', mutationError);
       setError('Unable to update calendar reminders.');
     } finally {
       setBusy((prev) => ({ ...prev, [key]: false }));
     }
   }
 
-  async function deleteFeed(kind: 'calendar' | 'rss', feed: NamedFeed) {
+  async function deleteFeed(kind: 'calendar' | 'rss', feed: CalendarFeedV1 | RssFeedV1) {
     const ok = window.confirm('Delete this feed? Existing subscriptions will stop working.');
     if (!ok) return;
 
     const key = `${kind}:delete:${feed.id}`;
     if (busy[key]) return;
     setBusy((prev) => ({ ...prev, [key]: true }));
+    setError(null);
 
     try {
-      const res = await fetch(`/api/me/${kind}-feeds/${encodeURIComponent(feed.id)}`, { method: 'DELETE', cache: 'no-store' });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || `delete_http_${res.status}`);
-
-      if (kind === 'calendar') setCalendarFeeds((prev) => prev.filter((f) => f.id !== feed.id));
-      if (kind === 'rss') setRssFeeds((prev) => prev.filter((f) => f.id !== feed.id));
-    } catch (err) {
-      console.error('delete feed error', err);
+      if (kind === 'calendar') {
+        await deleteCalendarFeedMutation.mutateAsync(feed.id);
+      } else {
+        await deleteRssFeedMutation.mutateAsync(feed.id);
+      }
+    } catch (mutationError: unknown) {
+      console.error('delete feed error', mutationError);
       setError('Unable to delete feed.');
     } finally {
       setBusy((prev) => ({ ...prev, [key]: false }));
     }
   }
 
-  async function renameWidget(widget: EmbedWidget) {
+  async function renameWidget(widget: EmbedWidgetV1) {
     const next = window.prompt('Rename widget', widget.name)?.trim();
     if (!next || next === widget.name) return;
 
     const key = `widget:rename:${widget.id}`;
     if (busy[key]) return;
     setBusy((prev) => ({ ...prev, [key]: true }));
+    setError(null);
 
     try {
-      const res = await fetch(`/api/me/embed-widgets/${encodeURIComponent(widget.id)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: next }),
-        cache: 'no-store'
+      await updateEmbedWidgetMutation.mutateAsync({
+        widgetId: widget.id,
+        payload: { name: next }
       });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || `rename_http_${res.status}`);
-      setEmbedWidgets((prev) => prev.map((w) => (w.id === widget.id ? { ...w, name: next } : w)));
-    } catch (err) {
-      console.error('rename widget error', err);
+    } catch (mutationError: unknown) {
+      console.error('rename widget error', mutationError);
       setError('Unable to rename widget.');
     } finally {
       setBusy((prev) => ({ ...prev, [key]: false }));
     }
   }
 
-  async function rotateWidget(widget: EmbedWidget) {
+  async function rotateWidget(widget: EmbedWidgetV1) {
     const ok = window.confirm('Rotate token? Existing embeds using the old token will stop working.');
     if (!ok) return;
 
     const key = `widget:rotate:${widget.id}`;
     if (busy[key]) return;
     setBusy((prev) => ({ ...prev, [key]: true }));
+    setError(null);
 
     try {
-      const res = await fetch(`/api/me/embed-widgets/${encodeURIComponent(widget.id)}/rotate`, { method: 'POST', cache: 'no-store' });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || `rotate_http_${res.status}`);
-      const token = json?.widget?.token ? String(json.widget.token) : null;
-      if (!token) throw new Error('token_missing');
-      setEmbedWidgets((prev) => prev.map((w) => (w.id === widget.id ? { ...w, token } : w)));
-    } catch (err) {
-      console.error('rotate widget error', err);
+      await rotateEmbedWidgetMutation.mutateAsync(widget.id);
+    } catch (mutationError: unknown) {
+      console.error('rotate widget error', mutationError);
       setError('Unable to rotate widget token.');
     } finally {
       setBusy((prev) => ({ ...prev, [key]: false }));
     }
   }
 
-  async function revokeWidget(widget: EmbedWidget) {
+  async function revokeWidget(widget: EmbedWidgetV1) {
     const ok = window.confirm('Revoke this widget? Existing embeds will stop working.');
     if (!ok) return;
 
     const key = `widget:revoke:${widget.id}`;
     if (busy[key]) return;
     setBusy((prev) => ({ ...prev, [key]: true }));
+    setError(null);
 
     try {
-      const res = await fetch(`/api/me/embed-widgets/${encodeURIComponent(widget.id)}`, { method: 'DELETE', cache: 'no-store' });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || `delete_http_${res.status}`);
-      setEmbedWidgets((prev) => prev.filter((w) => w.id !== widget.id));
-    } catch (err) {
-      console.error('revoke widget error', err);
+      await deleteEmbedWidgetMutation.mutateAsync(widget.id);
+    } catch (mutationError: unknown) {
+      console.error('revoke widget error', mutationError);
       setError('Unable to revoke widget.');
     } finally {
       setBusy((prev) => ({ ...prev, [key]: false }));
@@ -347,48 +247,46 @@ export default function IntegrationsPage() {
           <h1 className="text-3xl font-semibold text-text1">Integrations</h1>
           <p className="mt-1 text-sm text-text3">Manage your calendar feeds, RSS feeds, and embeddable widgets.</p>
         </div>
-        <Link href="/account" className="text-sm text-primary hover:underline">
+        <Link href={buildProfileHref()} className="text-sm text-primary hover:underline">
           Back to profile
         </Link>
       </div>
 
-      {error && (
-        <div className="mt-4 rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
-          {error}
-        </div>
+      {activeError && (
+        <div className="mt-4 rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">{activeError}</div>
       )}
 
-      {status === 'loading' && <p className="mt-4 text-text3">Loading…</p>}
+      {(status === 'loading' || entitlementsLoading) && <p className="mt-4 text-text3">Loading…</p>}
 
       {status === 'guest' && (
         <p className="mt-4 text-text2">
           You are not signed in.{' '}
-          <Link className="text-primary hover:underline" href="/auth/sign-in">
+          <Link className="text-primary hover:underline" href={buildAuthHref('sign-in', { returnTo: '/account/integrations' })}>
             Sign in
           </Link>{' '}
           to manage integrations.
         </p>
       )}
 
-      {status === 'authed' && subscription?.isPaid !== true && (
+      {status === 'authed' && !entitlementsLoading && isPaid !== true && (
         <div className="mt-4 rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
           <div className="text-xs uppercase tracking-[0.1em] text-text3">Premium</div>
           <div className="mt-1 text-base font-semibold text-text1">Integrations are Premium-only</div>
           <div className="mt-1 text-xs text-text3">
             Calendar feeds, RSS feeds, and embeds use live data and tokenized links. Upgrade to Premium to enable and manage them.
           </div>
-          <Link className="mt-3 inline-block text-sm text-primary hover:underline" href="/account">
+          <Link className="mt-3 inline-block text-sm text-primary hover:underline" href={buildProfileHref()}>
             View billing options
           </Link>
         </div>
       )}
 
-      {status === 'authed' && subscription?.isPaid === true && (
+      {status === 'authed' && !entitlementsLoading && isPaid === true && (
         <>
           <Section
             title="Calendar feeds"
             description="Private, tokenized .ics subscriptions (live Premium schedule)."
-            emptyLabel={loading ? 'Loading calendar feeds…' : 'No calendar feeds yet. Create one from Bulk export on the home page.'}
+            emptyLabel={loadingIntegrations ? 'Loading calendar feeds…' : 'No calendar feeds yet. Create one from Bulk export on the home page.'}
             items={calendarFeeds}
             renderItem={(feed) => {
               const urls = buildCalendarUrls(baseUrl, feed.token);
@@ -402,12 +300,15 @@ export default function IntegrationsPage() {
                     <div className="min-w-0">
                       <div className="truncate text-sm font-semibold text-text1">{feed.name}</div>
                       <div className="mt-1 text-xs text-text3">
-                        {formatUpdated(feed.updated_at || feed.created_at)} • {formatCalendarReminder(feed.alarm_minutes_before)}
+                        {formatUpdated(feed.updatedAt || feed.createdAt)} • {formatCalendarReminder(feed.alarmMinutesBefore)}
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <a
-                        className={clsx('btn-secondary rounded-lg border border-stroke px-3 py-2 text-xs text-text1 hover:border-primary', !urls.httpsUrl && 'pointer-events-none opacity-50')}
+                        className={clsx(
+                          'btn-secondary rounded-lg border border-stroke px-3 py-2 text-xs text-text1 hover:border-primary',
+                          !urls.httpsUrl && 'pointer-events-none opacity-50'
+                        )}
                         href={urls.webcalUrl || undefined}
                         aria-disabled={!urls.webcalUrl}
                         tabIndex={urls.webcalUrl ? undefined : -1}
@@ -470,7 +371,7 @@ export default function IntegrationsPage() {
           <Section
             title="RSS feeds"
             description="Private RSS links (live Premium schedule)."
-            emptyLabel={loading ? 'Loading RSS feeds…' : 'No RSS feeds yet. Create one from the RSS button on the home page.'}
+            emptyLabel={loadingIntegrations ? 'Loading RSS feeds…' : 'No RSS feeds yet. Create one from the RSS button on the home page.'}
             items={rssFeeds}
             renderItem={(feed) => {
               const urls = buildRssUrls(baseUrl, feed.token);
@@ -482,7 +383,7 @@ export default function IntegrationsPage() {
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-semibold text-text1">{feed.name}</div>
-                      <div className="mt-1 text-xs text-text3">{formatUpdated(feed.updated_at || feed.created_at)}</div>
+                      <div className="mt-1 text-xs text-text3">{formatUpdated(feed.updatedAt || feed.createdAt)}</div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <a
@@ -566,7 +467,7 @@ export default function IntegrationsPage() {
           <Section
             title="Embeds"
             description="Per-widget tokens (revocable per embed)."
-            emptyLabel={loading ? 'Loading embed widgets…' : 'No embed widgets yet. Create one from the Embed button on the home page.'}
+            emptyLabel={loadingIntegrations ? 'Loading embed widgets…' : 'No embed widgets yet. Create one from the Embed button on the home page.'}
             items={embedWidgets}
             renderItem={(widget) => {
               const urls = buildEmbedUrls(baseUrl, widget.token);
@@ -578,11 +479,14 @@ export default function IntegrationsPage() {
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-semibold text-text1">{widget.name}</div>
-                      <div className="mt-1 text-xs text-text3">{formatUpdated(widget.updated_at || widget.created_at)}</div>
+                      <div className="mt-1 text-xs text-text3">{formatUpdated(widget.updatedAt || widget.createdAt)}</div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <a
-                        className={clsx('btn-secondary rounded-lg border border-stroke px-3 py-2 text-xs text-text1 hover:border-primary', !urls.srcUrl && 'pointer-events-none opacity-50')}
+                        className={clsx(
+                          'btn-secondary rounded-lg border border-stroke px-3 py-2 text-xs text-text1 hover:border-primary',
+                          !urls.srcUrl && 'pointer-events-none opacity-50'
+                        )}
                         href={urls.srcUrl || undefined}
                         aria-disabled={!urls.srcUrl}
                         tabIndex={urls.srcUrl ? undefined : -1}
@@ -679,20 +583,20 @@ function buildEmbedUrls(baseUrl: string, token: string) {
 
 function formatUpdated(value?: string | null) {
   if (!value) return '—';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '—';
-  return `Updated ${d.toLocaleString()}`;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return `Updated ${date.toLocaleString()}`;
 }
 
 function formatCalendarReminder(value?: unknown) {
   if (value == null) return 'Reminders: none';
-  const n = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(n)) return 'Reminders: none';
-  const minutes = Math.trunc(n);
-  if (minutes <= 0) return 'Reminders: at launch';
-  if (minutes === 60) return 'Reminders: 1 hour';
-  if (minutes === 1440) return 'Reminders: 1 day';
-  return `Reminders: ${minutes}m`;
+  const minutes = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(minutes)) return 'Reminders: none';
+  const normalized = Math.trunc(minutes);
+  if (normalized <= 0) return 'Reminders: at launch';
+  if (normalized === 60) return 'Reminders: 1 hour';
+  if (normalized === 1440) return 'Reminders: 1 day';
+  return `Reminders: ${normalized}m`;
 }
 
 function Section<T>({
@@ -722,4 +626,8 @@ function Section<T>({
       </div>
     </section>
   );
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
 }

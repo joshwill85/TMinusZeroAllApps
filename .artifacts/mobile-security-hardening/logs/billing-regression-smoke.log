@@ -1,0 +1,5 @@
+
+> tminuszero@0.1.0 test:billing-regression
+> ts-node --project tsconfig.scripts.json --transpile-only -r tsconfig-paths/register scripts/billing-regression-smoke.ts --out=/workspace/.artifacts/mobile-security-hardening/billing/billing-regression.json
+
+billing-regression-smoke: ok

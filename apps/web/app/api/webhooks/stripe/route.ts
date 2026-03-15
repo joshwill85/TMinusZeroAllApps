@@ -4,6 +4,13 @@ import { stripe } from '@/lib/api/stripe';
 import { mirrorStripeCustomerMapping, mirrorStripeEntitlement } from '@/lib/server/providerEntitlements';
 import { createSupabaseAdminClient } from '@/lib/server/supabaseServer';
 import { isStripeConfigured, isStripeWebhookConfigured, isSupabaseAdminConfigured } from '@/lib/server/env';
+import {
+  createOrGetWebhookEventRecord,
+  logWebhookEventFailure,
+  markWebhookEventFailed,
+  markWebhookEventProcessed,
+  wasWebhookEventProcessed
+} from '@/lib/server/webhookEvents';
 
 export async function POST(request: Request) {
   if (!isStripeConfigured() || !isStripeWebhookConfigured()) {
@@ -40,10 +47,9 @@ export async function POST(request: Request) {
   }
 
   if (!event) {
-    await admin.from('webhook_events').insert({
+    await logWebhookEventFailure(admin, {
       source: 'stripe',
-      payload_hash: payloadHash,
-      processed: false,
+      payloadHash,
       error: lastError?.message || 'signature_verification_failed'
     });
     return NextResponse.json({ error: 'invalid_signature' }, { status: 400 });
@@ -51,26 +57,25 @@ export async function POST(request: Request) {
 
   const eventId = typeof event?.id === 'string' ? event.id : null;
   if (!eventId) {
-    await admin.from('webhook_events').insert({
+    await logWebhookEventFailure(admin, {
       source: 'stripe',
-      payload_hash: payloadHash,
-      processed: false,
+      payloadHash,
       error: 'missing_event_id'
     });
     return NextResponse.json({ error: 'invalid_event' }, { status: 400 });
   }
 
-  const webhookRowId = await createOrGetWebhookEventRowId(admin, {
+  const webhookRow = await createOrGetWebhookEventRecord(admin, {
     source: 'stripe',
     eventId,
     payloadHash
   });
 
-  if (!webhookRowId.id) {
+  if (!webhookRow.id) {
     return NextResponse.json({ error: 'failed_to_log_webhook_event' }, { status: 500 });
   }
 
-  if (webhookRowId.supportsEventId) {
+  if (webhookRow.supportsEventId) {
     const existingProcessed = await wasWebhookEventProcessed(admin, { source: 'stripe', eventId });
     if (existingProcessed) {
       return NextResponse.json({ received: true, duplicate: true });
@@ -79,89 +84,17 @@ export async function POST(request: Request) {
 
   try {
     await handleStripeEvent(admin, event);
-    const { error: processedUpdateError } = await admin.from('webhook_events').update({ processed: true, error: null }).eq('id', webhookRowId.id);
-    if (processedUpdateError) {
-      throw processedUpdateError;
-    }
+    await markWebhookEventProcessed(admin, { id: webhookRow.id });
   } catch (err: any) {
     console.error('stripe webhook processing error', err);
-    await admin
-      .from('webhook_events')
-      .update({ processed: false, error: err?.message || 'processing_failed' })
-      .eq('id', webhookRowId.id);
+    await markWebhookEventFailed(admin, {
+      id: webhookRow.id,
+      error: err?.message || 'processing_failed'
+    });
     return NextResponse.json({ error: 'processing_failed' }, { status: 500 });
   }
 
   return NextResponse.json({ received: true });
-}
-
-async function createOrGetWebhookEventRowId(
-  admin: ReturnType<typeof createSupabaseAdminClient>,
-  {
-    source,
-    eventId,
-    payloadHash
-  }: {
-    source: string;
-    eventId: string;
-    payloadHash: string;
-  }
-): Promise<{ id: number | null; supportsEventId: boolean }> {
-  const insertRes = await admin
-    .from('webhook_events')
-    .insert({ source, event_id: eventId, payload_hash: payloadHash, processed: false })
-    .select('id')
-    .maybeSingle();
-
-  if (!insertRes.error && insertRes.data?.id != null) {
-    return { id: Number(insertRes.data.id), supportsEventId: true };
-  }
-
-  const missingEventIdColumn =
-    insertRes.error &&
-    String(insertRes.error?.message || '').toLowerCase().includes('column') &&
-    String(insertRes.error?.message || '').toLowerCase().includes('event_id') &&
-    String(insertRes.error?.message || '').toLowerCase().includes('does not exist');
-  if (missingEventIdColumn) {
-    const legacyRes = await admin
-      .from('webhook_events')
-      .insert({ source, payload_hash: payloadHash, processed: false })
-      .select('id')
-      .maybeSingle();
-
-    if (legacyRes.error) {
-      console.error('webhook_events legacy insert error', legacyRes.error);
-      return { id: null, supportsEventId: false };
-    }
-
-    return { id: legacyRes.data?.id != null ? Number(legacyRes.data.id) : null, supportsEventId: false };
-  }
-
-  const code = String((insertRes.error as any)?.code || '');
-  const isDuplicate = code === '23505' || String(insertRes.error?.message || '').toLowerCase().includes('duplicate');
-  if (!isDuplicate) {
-    console.error('webhook_events insert error', insertRes.error);
-    return { id: null, supportsEventId: true };
-  }
-
-  const existingRes = await admin.from('webhook_events').select('id').eq('source', source).eq('event_id', eventId).maybeSingle();
-  if (existingRes.error) {
-    console.error('webhook_events lookup error', existingRes.error);
-    return { id: null, supportsEventId: true };
-  }
-  return { id: existingRes.data?.id != null ? Number(existingRes.data.id) : null, supportsEventId: true };
-}
-
-async function wasWebhookEventProcessed(
-  admin: ReturnType<typeof createSupabaseAdminClient>,
-  { source, eventId }: { source: string; eventId: string }
-): Promise<boolean> {
-  const { data, error } = await admin.from('webhook_events').select('processed').eq('source', source).eq('event_id', eventId).maybeSingle();
-  if (error) {
-    console.warn('webhook_events processed lookup warning', error);
-    return false;
-  }
-  return data?.processed === true;
 }
 
 async function handleStripeEvent(admin: ReturnType<typeof createSupabaseAdminClient>, event: any) {

@@ -1,0 +1,115 @@
+
+> @tminuszero/web@0.0.0 dev
+> next dev
+
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3000
+  - Experiments (use with caution):
+    · externalDir
+
+ ✓ Starting...
+ ✓ Ready in 2.9s
+ ✓ Compiled /middleware in 410ms (162 modules)
+ ○ Compiling /api/v1/viewer/session ...
+ ✓ Compiled /api/v1/viewer/session in 1845ms (1253 modules)
+ GET /api/v1/viewer/session 200 in 2053ms
+<w> [webpack.cache.PackFileCacheStrategy] Serializing big strings (122kiB) impacts deserialization performance (consider using Buffer instead and decode when needed)
+[?25h
+
+> @tminuszero/web@0.0.0 dev
+> next dev
+
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3000
+  - Experiments (use with caution):
+    · externalDir
+
+ ✓ Starting...
+ ✓ Ready in 1140ms
+ ✓ Compiled /middleware in 323ms (162 modules)
+ ○ Compiling /api/v1/viewer/session ...
+ ✓ Compiled /api/v1/viewer/session in 1683ms (1253 modules)
+ GET /api/v1/viewer/session 200 in 1886ms
+<w> [webpack.cache.PackFileCacheStrategy] Serializing big strings (122kiB) impacts deserialization performance (consider using Buffer instead and decode when needed)
+[?25h
+
+> @tminuszero/web@0.0.0 dev
+> next dev
+
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3000
+  - Experiments (use with caution):
+    · externalDir
+
+ ✓ Starting...
+ ✓ Ready in 1367ms
+ ✓ Compiled /middleware in 134ms (162 modules)
+ ○ Compiling /api/v1/viewer/session ...
+ ✓ Compiled /api/v1/viewer/session in 1937ms (1253 modules)
+ GET /api/v1/viewer/session 200 in 2158ms
+[?25h
+
+> @tminuszero/web@0.0.0 dev
+> next dev
+
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3000
+  - Experiments (use with caution):
+    · externalDir
+
+ ✓ Starting...
+ ✓ Ready in 1237ms
+ ✓ Compiled /middleware in 107ms (162 modules)
+ ○ Compiling /api/v1/viewer/session ...
+ ✓ Compiled /api/v1/viewer/session in 1870ms (1253 modules)
+ GET /api/v1/viewer/session 200 in 2075ms
+[?25h
+
+> @tminuszero/web@0.0.0 dev
+> next dev
+
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3000
+  - Experiments (use with caution):
+    · externalDir
+
+ ✓ Starting...
+ ✓ Ready in 1340ms
+ ✓ Compiled /middleware in 111ms (162 modules)
+ ○ Compiling /api/v1/viewer/session ...
+ ✓ Compiled /api/v1/viewer/session in 1983ms (1253 modules)
+ GET /api/v1/viewer/session 200 in 2363ms
+[?25h
+
+> @tminuszero/web@0.0.0 dev
+> next dev
+
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3000
+  - Experiments (use with caution):
+    · externalDir
+
+ ✓ Starting...
+ ✓ Ready in 1497ms
+ ✓ Compiled /middleware in 113ms (162 modules)
+ ○ Compiling /api/v1/viewer/session ...
+ ✓ Compiled /api/v1/viewer/session in 873ms (1253 modules)
+ GET /api/v1/viewer/session 200 in 1087ms
+[?25h
+
+> @tminuszero/web@0.0.0 dev
+> next dev
+
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3000
+  - Experiments (use with caution):
+    · externalDir
+
+ ✓ Starting...
+ ✓ Ready in 1349ms
+ ✓ Compiled /middleware in 388ms (162 modules)
+ ○ Compiling /api/v1/viewer/session ...
+ ✓ Compiled /api/v1/viewer/session in 1749ms (1253 modules)
+ GET /api/v1/viewer/session 200 in 2037ms
+<w> [webpack.cache.PackFileCacheStrategy] Serializing big strings (122kiB) impacts deserialization performance (consider using Buffer instead and decode when needed)
+[?25h

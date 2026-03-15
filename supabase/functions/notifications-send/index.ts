@@ -260,23 +260,192 @@ function computePushTtlSeconds(eventType: string | null | undefined) {
   return 10 * 60;
 }
 
-async function sendPushNotifications(supabase: ReturnType<typeof createSupabaseAdminClient>) {
-  const config = getWebPushConfig();
-  if (!isWebPushConfigured(config)) {
-    await upsertOpsAlert(supabase, {
-      key: 'web_push_not_configured',
-      severity: 'critical',
-      message: 'Web push is not configured; push notifications cannot be delivered.',
-      details: {
-        has_subject: Boolean(config.subject),
-        has_public_key: Boolean(config.publicKey),
-        has_private_key: Boolean(config.privateKey)
-      }
-    });
-    return { processed: 0, sent: 0, skipped: 0, failed: 0, requeued: 0, reason: 'web_push_not_configured' };
+type WebPushDestination = {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+};
+
+type ExpoPushDevice = {
+  id: string;
+  installationId: string;
+  token: string;
+  platform: string;
+};
+
+type ExpoPushReceipt = {
+  ticketId: string | null;
+  receiptStatus: 'ok' | 'error' | 'pending';
+  failureReason: string | null;
+  disableDevice: boolean;
+  retryable: boolean;
+};
+
+function isExpoPushToken(token: string) {
+  return /^ExponentPushToken\[[^\]]+\]$/.test(token) || /^ExpoPushToken\[[^\]]+\]$/.test(token);
+}
+
+function shouldDisableExpoDevice(reason: string | null) {
+  const normalized = String(reason || '').trim();
+  return normalized === 'DeviceNotRegistered' || normalized === 'invalid_expo_push_token';
+}
+
+async function updateExpoPushDeviceStatus(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  deviceId: string,
+  updates: Record<string, unknown>
+) {
+  const payload = {
+    ...updates,
+    updated_at: new Date().toISOString()
+  };
+  const { error } = await supabase.from('notification_push_devices').update(payload).eq('id', deviceId);
+  if (error) console.warn('notification push device update warning', error.message);
+}
+
+async function sendExpoPushMessage({
+  token,
+  title,
+  message,
+  url,
+  launchId,
+  eventType,
+  ttlSeconds
+}: {
+  token: string;
+  title: string;
+  message: string;
+  url: string;
+  launchId: string | null | undefined;
+  eventType: string | null | undefined;
+  ttlSeconds: number;
+}): Promise<ExpoPushReceipt> {
+  if (!isExpoPushToken(token)) {
+    return {
+      ticketId: null,
+      receiptStatus: 'error',
+      failureReason: 'invalid_expo_push_token',
+      disableDevice: true,
+      retryable: false
+    };
   }
 
-  await resolveOpsAlert(supabase, 'web_push_not_configured');
+  const sendResponse = await fetch('https://exp.host/--/api/v2/push/send', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    },
+    body: JSON.stringify({
+      to: token,
+      title,
+      body: message,
+      sound: 'default',
+      ttl: ttlSeconds,
+      data: {
+        url,
+        launchId: launchId ?? null,
+        eventType: eventType ?? null
+      }
+    })
+  });
+
+  const sendJson = await sendResponse.json().catch(() => null);
+  if (!sendResponse.ok) {
+    const status = sendResponse.status;
+    return {
+      ticketId: null,
+      receiptStatus: 'error',
+      failureReason: `expo_push_http_${status}`,
+      disableDevice: false,
+      retryable: status === 429 || status >= 500
+    };
+  }
+
+  const ticket = sendJson?.data && !Array.isArray(sendJson.data) ? sendJson.data : Array.isArray(sendJson?.data) ? sendJson.data[0] : null;
+  if (ticket?.status === 'error') {
+    const failureReason = typeof ticket?.details?.error === 'string' ? ticket.details.error : typeof ticket?.message === 'string' ? ticket.message : 'expo_push_ticket_error';
+    return {
+      ticketId: null,
+      receiptStatus: 'error',
+      failureReason,
+      disableDevice: shouldDisableExpoDevice(failureReason),
+      retryable: false
+    };
+  }
+
+  const ticketId = typeof ticket?.id === 'string' ? ticket.id : null;
+  if (!ticketId) {
+    return {
+      ticketId: null,
+      receiptStatus: 'pending',
+      failureReason: null,
+      disableDevice: false,
+      retryable: false
+    };
+  }
+
+  const receiptResponse = await fetch('https://exp.host/--/api/v2/push/getReceipts', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    },
+    body: JSON.stringify({ ids: [ticketId] })
+  });
+
+  const receiptJson = await receiptResponse.json().catch(() => null);
+  if (!receiptResponse.ok) {
+    const status = receiptResponse.status;
+    return {
+      ticketId,
+      receiptStatus: 'pending',
+      failureReason: `expo_receipt_http_${status}`,
+      disableDevice: false,
+      retryable: status === 429 || status >= 500
+    };
+  }
+
+  const receipt = receiptJson?.data?.[ticketId];
+  if (!receipt) {
+    return {
+      ticketId,
+      receiptStatus: 'pending',
+      failureReason: null,
+      disableDevice: false,
+      retryable: false
+    };
+  }
+
+  if (receipt.status === 'ok') {
+    return {
+      ticketId,
+      receiptStatus: 'ok',
+      failureReason: null,
+      disableDevice: false,
+      retryable: false
+    };
+  }
+
+  const failureReason =
+    typeof receipt?.details?.error === 'string'
+      ? receipt.details.error
+      : typeof receipt?.message === 'string'
+        ? receipt.message
+        : 'expo_push_receipt_error';
+
+  return {
+    ticketId,
+    receiptStatus: 'error',
+    failureReason,
+    disableDevice: shouldDisableExpoDevice(failureReason),
+    retryable: false
+  };
+}
+
+async function sendPushNotifications(supabase: ReturnType<typeof createSupabaseAdminClient>) {
+  const config = getWebPushConfig();
+  const webPushConfigured = isWebPushConfigured(config);
 
   const { data: batch, error: claimError } = await supabase.rpc('claim_notifications_outbox', {
     batch_size: DEFAULT_BATCH_SIZE,
@@ -291,17 +460,24 @@ async function sendPushNotifications(supabase: ReturnType<typeof createSupabaseA
   }
 
   const userIds = Array.from(new Set(rows.map((row) => row.user_id)));
-  const [prefsRes, subsRes, profilesRes, pushSubsRes] = await Promise.all([
+  const [prefsRes, subsRes, profilesRes, pushSubsRes, pushDevicesRes] = await Promise.all([
     supabase.from('notification_preferences').select('user_id, push_enabled').in('user_id', userIds),
     supabase.from('subscriptions').select('user_id, status').in('user_id', userIds),
     supabase.from('profiles').select('user_id, role, email').in('user_id', userIds),
-    supabase.from('push_subscriptions').select('user_id, endpoint, p256dh, auth').in('user_id', userIds)
+    supabase.from('push_subscriptions').select('user_id, endpoint, p256dh, auth').in('user_id', userIds),
+    supabase
+      .from('notification_push_devices')
+      .select('id, user_id, installation_id, token, platform')
+      .eq('is_active', true)
+      .eq('push_provider', 'expo')
+      .in('user_id', userIds)
   ]);
 
   if (prefsRes.error) throw prefsRes.error;
   if (subsRes.error) throw subsRes.error;
   if (profilesRes.error) throw profilesRes.error;
   if (pushSubsRes.error) throw pushSubsRes.error;
+  if (pushDevicesRes.error) throw pushDevicesRes.error;
 
   const prefsByUser = new Map<string, PrefRow>();
   (prefsRes.data || []).forEach((row: PrefRow) => prefsByUser.set(row.user_id, row));
@@ -310,8 +486,7 @@ async function sendPushNotifications(supabase: ReturnType<typeof createSupabaseA
   const rolesByUser = new Map<string, string | null>();
   (profilesRes.data || []).forEach((row: ProfileRow) => rolesByUser.set(row.user_id, row.role ?? null));
 
-  type PushSub = { endpoint: string; p256dh: string; auth: string };
-  const pushSubsByUser = new Map<string, PushSub[]>();
+  const pushSubsByUser = new Map<string, WebPushDestination[]>();
   (pushSubsRes.data || []).forEach((row: any) => {
     const userId = String(row.user_id || '').trim();
     const endpoint = String(row.endpoint || '').trim();
@@ -322,6 +497,34 @@ async function sendPushNotifications(supabase: ReturnType<typeof createSupabaseA
     list.push({ endpoint, p256dh, auth });
     pushSubsByUser.set(userId, list);
   });
+
+  const pushDevicesByUser = new Map<string, ExpoPushDevice[]>();
+  (pushDevicesRes.data || []).forEach((row: any) => {
+    const userId = String(row.user_id || '').trim();
+    const id = String(row.id || '').trim();
+    const installationId = String(row.installation_id || '').trim();
+    const token = String(row.token || '').trim();
+    const platform = String(row.platform || '').trim();
+    if (!userId || !id || !installationId || !token || !platform) return;
+    const list = pushDevicesByUser.get(userId) || [];
+    list.push({ id, installationId, token, platform });
+    pushDevicesByUser.set(userId, list);
+  });
+
+  if (!webPushConfigured && Array.from(pushSubsByUser.values()).some((list) => list.length > 0)) {
+    await upsertOpsAlert(supabase, {
+      key: 'web_push_not_configured',
+      severity: 'critical',
+      message: 'Web push is not configured; browser push notifications cannot be delivered.',
+      details: {
+        has_subject: Boolean(config.subject),
+        has_public_key: Boolean(config.publicKey),
+        has_private_key: Boolean(config.privateKey)
+      }
+    });
+  } else {
+    await resolveOpsAlert(supabase, 'web_push_not_configured');
+  }
 
   const stats = {
     processed: rows.length,
@@ -347,17 +550,15 @@ async function sendPushNotifications(supabase: ReturnType<typeof createSupabaseA
       return;
     }
 
-    const subs = pushSubsByUser.get(row.user_id) || [];
-    if (!subs.length) {
-      await markSkipped(supabase, row.id, 'push_not_subscribed');
-      stats.skipped += 1;
-      return;
-    }
-
+    const rawSubs = pushSubsByUser.get(row.user_id) || [];
+    const expoDevices = pushDevicesByUser.get(row.user_id) || [];
     const sub = subsByUser.get(row.user_id);
     const isAdmin = rolesByUser.get(row.user_id) === 'admin';
-    if (!isAdmin && !isSubscriptionActiveStatus(sub?.status)) {
-      await markSkipped(supabase, row.id, 'subscription_inactive');
+    const hasPaidPushAccess = isAdmin || isSubscriptionActiveStatus(sub?.status);
+    const subs = hasPaidPushAccess ? rawSubs : [];
+
+    if (!subs.length && !expoDevices.length) {
+      await markSkipped(supabase, row.id, hasPaidPushAccess ? 'push_not_registered' : 'browser_push_requires_premium');
       stats.skipped += 1;
       return;
     }
@@ -385,49 +586,104 @@ async function sendPushNotifications(supabase: ReturnType<typeof createSupabaseA
     let anySuccess = false;
     let retryableFailure = false;
     let lastErrorMessage = '';
+    let providerId = '';
 
-    for (const ps of subs) {
+    if (webPushConfigured) {
+      for (const ps of subs) {
+        try {
+          const subscription = {
+            endpoint: ps.endpoint,
+            expirationTime: null,
+            keys: { p256dh: ps.p256dh, auth: ps.auth }
+          };
+
+          const payload = await buildPushPayload(
+            { data: body, options: { ttl: computePushTtlSeconds(row.event_type) } },
+            subscription,
+            { subject: config.subject, publicKey: config.publicKey, privateKey: config.privateKey }
+          );
+
+          const res = await fetch(subscription.endpoint, payload);
+          if (res.ok) {
+            anySuccess = true;
+            providerId = providerId || 'web_push';
+            continue;
+          }
+
+          if (res.status === 404 || res.status === 410) {
+            const { error: deleteError } = await supabase
+              .from('push_subscriptions')
+              .delete()
+              .eq('user_id', row.user_id)
+              .eq('endpoint', subscription.endpoint);
+            if (deleteError) console.warn('push subscription delete warning', deleteError.message);
+            continue;
+          }
+
+          const err = new Error(`web_push_error_${res.status}`);
+          (err as any).status = res.status;
+          throw err;
+        } catch (err) {
+          const { retryable, message: errorMessage } = normalizeSendError(err);
+          lastErrorMessage = errorMessage;
+          if (retryable) retryableFailure = true;
+        }
+      }
+    } else if (subs.length) {
+      lastErrorMessage = 'web_push_not_configured';
+    }
+
+    for (const device of expoDevices) {
       try {
-        const subscription = {
-          endpoint: ps.endpoint,
-          expirationTime: null,
-          keys: { p256dh: ps.p256dh, auth: ps.auth }
-        };
+        const receipt = await sendExpoPushMessage({
+          token: device.token,
+          title,
+          message,
+          url,
+          launchId: row.launch_id,
+          eventType: row.event_type,
+          ttlSeconds: computePushTtlSeconds(row.event_type)
+        });
 
-        const payload = await buildPushPayload(
-          { data: body, options: { ttl: computePushTtlSeconds(row.event_type) } },
-          subscription,
-          { subject: config.subject, publicKey: config.publicKey, privateKey: config.privateKey }
-        );
-
-        const res = await fetch(subscription.endpoint, payload);
-        if (res.ok) {
+        if (receipt.receiptStatus === 'ok' || receipt.receiptStatus === 'pending') {
           anySuccess = true;
+          providerId = providerId || (receipt.ticketId ? `expo:${receipt.ticketId}` : 'expo_push');
+          await updateExpoPushDeviceStatus(supabase, device.id, {
+            last_sent_at: new Date().toISOString(),
+            last_receipt_at: receipt.receiptStatus === 'ok' ? new Date().toISOString() : null,
+            last_failure_reason: receipt.failureReason
+          });
           continue;
         }
 
-        if (res.status === 404 || res.status === 410) {
-          const { error: deleteError } = await supabase
-            .from('push_subscriptions')
-            .delete()
-            .eq('user_id', row.user_id)
-            .eq('endpoint', subscription.endpoint);
-          if (deleteError) console.warn('push subscription delete warning', deleteError.message);
+        lastErrorMessage = receipt.failureReason || 'expo_push_delivery_failed';
+        if (receipt.disableDevice) {
+          await updateExpoPushDeviceStatus(supabase, device.id, {
+            is_active: false,
+            disabled_at: new Date().toISOString(),
+            last_receipt_at: new Date().toISOString(),
+            last_failure_reason: lastErrorMessage
+          });
           continue;
         }
 
-        const err = new Error(`web_push_error_${res.status}`);
-        (err as any).status = res.status;
-        throw err;
+        await updateExpoPushDeviceStatus(supabase, device.id, {
+          last_receipt_at: new Date().toISOString(),
+          last_failure_reason: lastErrorMessage
+        });
+        if (receipt.retryable) retryableFailure = true;
       } catch (err) {
         const { retryable, message: errorMessage } = normalizeSendError(err);
         lastErrorMessage = errorMessage;
+        await updateExpoPushDeviceStatus(supabase, device.id, {
+          last_failure_reason: errorMessage
+        });
         if (retryable) retryableFailure = true;
       }
     }
 
     if (anySuccess) {
-      await markSent(supabase, row.id, 'web_push');
+      await markSent(supabase, row.id, providerId || 'push');
       stats.sent += 1;
       return;
     }

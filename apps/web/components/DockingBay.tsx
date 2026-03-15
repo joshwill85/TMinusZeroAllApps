@@ -4,10 +4,11 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { buildAuthHref, buildPrivacyChoicesHref, buildProfileHref, buildUpgradeHref } from '@tminuszero/navigation';
 import type { RailProfile } from './DesktopRail';
 import { CalendarBadge } from './CalendarBadge';
 import { BRAND_NAME } from '@/lib/brand';
-import type { ViewerTier } from '@/lib/tiers';
+import type { ViewerTier } from '@tminuszero/domain';
 
 type DockingBayProps = {
   profile: RailProfile;
@@ -26,7 +27,7 @@ export function DockingBay({ profile, isAdmin, viewerTier, onOpenCalendar, onOpe
   const [open, setOpen] = useState(false);
   const closeTimeoutRef = useRef<number | null>(null);
 
-  const accountHref = profile ? '/account' : '/auth/sign-in';
+  const accountHref = profile ? buildProfileHref() : buildAuthHref('sign-in');
   const accountLabel = profile?.first_name?.trim() || 'Account';
   const accountInitials = profileInitials(profile);
 
@@ -42,7 +43,7 @@ export function DockingBay({ profile, isAdmin, viewerTier, onOpenCalendar, onOpe
         { label: 'About', href: '/about' },
         { label: 'FAQ', href: '/docs/faq' },
         { label: 'SMS Opt-In', href: '/docs/sms-opt-in' },
-        viewerTier && viewerTier !== 'premium' ? { label: 'Premium · $3.99/mo', href: '/upgrade' } : null,
+        viewerTier && viewerTier !== 'premium' ? { label: 'Premium · $3.99/mo', href: buildUpgradeHref() } : null,
         { label: accountLabel, href: accountHref },
         isAdmin ? { label: 'Admin', href: '/admin' } : null
       ].filter(Boolean) as Array<{ label: string; href: string }>,
@@ -53,7 +54,7 @@ export function DockingBay({ profile, isAdmin, viewerTier, onOpenCalendar, onOpe
     () => [
       { label: 'Terms', href: '/legal/terms' },
       { label: 'Privacy', href: '/legal/privacy' },
-      { label: 'Privacy Choices', href: '/legal/privacy-choices' },
+      { label: 'Privacy Choices', href: buildPrivacyChoicesHref() },
       { label: 'Data Use', href: '/legal/data' }
     ],
     []
@@ -101,6 +102,7 @@ export function DockingBay({ profile, isAdmin, viewerTier, onOpenCalendar, onOpe
   }, []);
 
   const homeActive = pathname === '/';
+  const calendarActive = pathname.startsWith('/calendar');
   const newsActive = pathname.startsWith('/news');
   const infoActive =
     pathname.startsWith('/info') ||
@@ -151,7 +153,7 @@ export function DockingBay({ profile, isAdmin, viewerTier, onOpenCalendar, onOpe
                 </Link>
                 <button
                   type="button"
-                  className={dockIconClass}
+                  className={clsx(dockIconClass, calendarActive && dockIconActiveClass)}
                   onClick={onOpenCalendar}
                   aria-label="Calendar"
                 >

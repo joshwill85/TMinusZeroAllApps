@@ -1,0 +1,655 @@
+
+> tminuszero@0.1.0 build
+> turbo run build --filter=@tminuszero/web
+
+• Packages in scope: @tminuszero/web
+• Running build in 1 packages
+• Remote caching disabled
+@tminuszero/web:build: cache miss, executing be16e8d87a8d6f60
+@tminuszero/web:build: 
+@tminuszero/web:build: > @tminuszero/web@0.0.0 build
+@tminuszero/web:build: > next build
+@tminuszero/web:build: 
+@tminuszero/web:build:   ▲ Next.js 14.2.35
+@tminuszero/web:build:   - Experiments (use with caution):
+@tminuszero/web:build:     · externalDir
+@tminuszero/web:build: 
+@tminuszero/web:build:    Creating an optimized production build ...
+@tminuszero/web:build:  ✓ Compiled successfully
+@tminuszero/web:build:    Linting and checking validity of types ...
+@tminuszero/web:build:    Collecting page data ...
+@tminuszero/web:build:  ⚠ Using edge runtime on a page currently disables static generation for that page
+@tminuszero/web:build:    Generating static pages (0/90) ...
+@tminuszero/web:build:    Generating static pages (22/90) 
+@tminuszero/web:build:    Generating static pages (44/90) 
+@tminuszero/web:build:    Generating static pages (67/90) 
+@tminuszero/web:build: [TMZ][BlueOriginHub][Server] timings [
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchProgramContractDiscoveryPage',
+@tminuszero/web:build:     ms: 5.01,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginProgramSnapshot',
+@tminuszero/web:build:     ms: 5.37,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginContracts',
+@tminuszero/web:build:     ms: 4.9,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginPassengersDatabaseOnly',
+@tminuszero/web:build:     ms: 4.79,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginVehicles',
+@tminuszero/web:build:     ms: 4.56,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginEngines',
+@tminuszero/web:build:     ms: 4.51,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginPayloads',
+@tminuszero/web:build:     ms: 6.43,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginTimelineViewModel',
+@tminuszero/web:build:     ms: 7.05,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginAuditTrailPage',
+@tminuszero/web:build:     ms: 3.3,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginYouTubeVideos',
+@tminuszero/web:build:     ms: 61.74,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginMediaImages',
+@tminuszero/web:build:     ms: 64.88,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginSocialPosts',
+@tminuszero/web:build:     ms: 228.53,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'transform',
+@tminuszero/web:build:     step: 'assembleLaunchRows',
+@tminuszero/web:build:     ms: 0.09,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginManifestFactsByLaunchIds',
+@tminuszero/web:build:     ms: 0.23,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginManifestLl2PayloadDataByLaunches',
+@tminuszero/web:build:     ms: 0.17,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginManifestLl2SpacecraftFlightsByLaunches',
+@tminuszero/web:build:     ms: 0.05,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'transform',
+@tminuszero/web:build:     step: 'buildManifestCarouselItems',
+@tminuszero/web:build:     ms: 0.28,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'transform',
+@tminuszero/web:build:     step: 'buildHardwareItems',
+@tminuszero/web:build:     ms: 0.11,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'transform',
+@tminuszero/web:build:     step: 'buildProcurementEntries',
+@tminuszero/web:build:     ms: 0.01,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'transform',
+@tminuszero/web:build:     step: 'buildSignalEntries',
+@tminuszero/web:build:     ms: 0.33,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'transform',
+@tminuszero/web:build:     step: 'buildMediaItems',
+@tminuszero/web:build:     ms: 0.05,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'server-total',
+@tminuszero/web:build:     step: 'blueOriginProgramPage',
+@tminuszero/web:build:     ms: 230.55,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   }
+@tminuszero/web:build: ]
+@tminuszero/web:build: [TMZ][BlueOriginHub][Server] timings [
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchProgramContractDiscoveryPage',
+@tminuszero/web:build:     ms: 1.38,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginProgramSnapshot',
+@tminuszero/web:build:     ms: 1.44,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginContracts',
+@tminuszero/web:build:     ms: 1.4,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginPassengersDatabaseOnly',
+@tminuszero/web:build:     ms: 1.39,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginVehicles',
+@tminuszero/web:build:     ms: 1.37,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginEngines',
+@tminuszero/web:build:     ms: 1.35,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginPayloads',
+@tminuszero/web:build:     ms: 1.99,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginTimelineViewModel',
+@tminuszero/web:build:     ms: 2.23,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginAuditTrailPage',
+@tminuszero/web:build:     ms: 1.58,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginYouTubeVideos',
+@tminuszero/web:build:     ms: 56.32,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginMediaImages',
+@tminuszero/web:build:     ms: 59.56,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginSocialPosts',
+@tminuszero/web:build:     ms: 289.65,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'transform',
+@tminuszero/web:build:     step: 'assembleLaunchRows',
+@tminuszero/web:build:     ms: 0,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginManifestFactsByLaunchIds',
+@tminuszero/web:build:     ms: 0.01,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginManifestLl2PayloadDataByLaunches',
+@tminuszero/web:build:     ms: 0.01,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'fetch',
+@tminuszero/web:build:     step: 'fetchBlueOriginManifestLl2SpacecraftFlightsByLaunches',
+@tminuszero/web:build:     ms: 0.01,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'transform',
+@tminuszero/web:build:     step: 'buildManifestCarouselItems',
+@tminuszero/web:build:     ms: 0.02,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'transform',
+@tminuszero/web:build:     step: 'buildHardwareItems',
+@tminuszero/web:build:     ms: 0.03,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'transform',
+@tminuszero/web:build:     step: 'buildProcurementEntries',
+@tminuszero/web:build:     ms: 0,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'transform',
+@tminuszero/web:build:     step: 'buildSignalEntries',
+@tminuszero/web:build:     ms: 0.16,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'transform',
+@tminuszero/web:build:     step: 'buildMediaItems',
+@tminuszero/web:build:     ms: 0.03,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   },
+@tminuszero/web:build:   {
+@tminuszero/web:build:     phase: 'server-total',
+@tminuszero/web:build:     step: 'blueOriginProgramPage',
+@tminuszero/web:build:     ms: 290.07,
+@tminuszero/web:build:     status: 'ok',
+@tminuszero/web:build:     detail: null
+@tminuszero/web:build:   }
+@tminuszero/web:build: ]
+@tminuszero/web:build:  ✓ Generating static pages (90/90)
+@tminuszero/web:build:    Finalizing page optimization ...
+@tminuszero/web:build:    Collecting build traces ...
+@tminuszero/web:build: 
+@tminuszero/web:build: Route (app)                                               Size     First Load JS
+@tminuszero/web:build: ┌ ƒ /                                                     20.6 kB         199 kB
+@tminuszero/web:build: ├ ○ /_not-found                                           219 B          87.7 kB
+@tminuszero/web:build: ├ ○ /about                                                1.13 kB        88.7 kB
+@tminuszero/web:build: ├ ○ /account                                              9.8 kB          203 kB
+@tminuszero/web:build: ├ ○ /account/integrations                                 4.82 kB         139 kB
+@tminuszero/web:build: ├ ○ /account/saved                                        5.06 kB         140 kB
+@tminuszero/web:build: ├ ○ /admin                                                3.58 kB        99.8 kB
+@tminuszero/web:build: ├ ○ /admin/billing                                        3.6 kB         91.1 kB
+@tminuszero/web:build: ├ ○ /admin/coupons                                        2.89 kB        90.4 kB
+@tminuszero/web:build: ├ ○ /admin/feedback                                       1.73 kB        89.3 kB
+@tminuszero/web:build: ├ ○ /admin/ops                                            8.06 kB         104 kB
+@tminuszero/web:build: ├ ○ /admin/ops/metrics                                    4.73 kB         101 kB
+@tminuszero/web:build: ├ ○ /admin/ops/trajectory                                 6.32 kB         103 kB
+@tminuszero/web:build: ├ ○ /admin/usaspending                                    4.86 kB        92.4 kB
+@tminuszero/web:build: ├ ○ /admin/users                                          2.83 kB        90.4 kB
+@tminuszero/web:build: ├ ƒ /api/admin/backfills                                  0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/admin/billing                                    0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/admin/coupons                                    0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/admin/feedback                                   0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/admin/ingestion-runs                             0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/admin/metrics/job-io                             0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/admin/metrics/query-io                           0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/admin/metrics/scheduler                          0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/admin/metrics/series                             0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/admin/metrics/summary                            0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/admin/settings                                   0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/admin/summary                                    0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/admin/sync                                       0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/admin/trajectory/contract/[id]                   0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/admin/trajectory/eligible                        0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/admin/trajectory/inspect/[id]                    0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/admin/usaspending/reviews                        0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/admin/users                                      0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/artemis/contracts                                0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/artemis/contracts/[piid]/actions                 0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/artemis/contracts/[piid]/notices                 0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/artemis/contracts/[piid]/spending                0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/billing/cancel                                   0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/billing/checkout                                 0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/billing/default-payment-method                   0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/billing/portal                                   0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/billing/resume                                   0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/billing/setup-intent                             0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/calendar/[token]                                 0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/debug-og/[id]                                    0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/embed/next-launch                                0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/feedback                                         0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/filters                                          0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/internal/revalidate/blue-origin                  0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/launches/[id]/ics                                0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/launches/[id]/pad-satellite                      0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/launches/ics                                     0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/live/launches                                    0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/live/launches/[id]/version                       0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/live/launches/changed                            0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/live/launches/version                            0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/account/delete                                0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/calendar-feeds                                0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/calendar-feeds/[id]                           0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/calendar-feeds/[id]/rotate                    0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/calendar-token                                0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/embed-token                                   0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/embed-widgets                                 0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/embed-widgets/[id]                            0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/embed-widgets/[id]/rotate                     0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/export                                        0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/filter-presets                                0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/filter-presets/[id]                           0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/marketing-email                               0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/notifications/launches/[id]                   0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/notifications/preferences                     0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/notifications/push/subscribe                  0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/notifications/push/test                       0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/notifications/push/unsubscribe                0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/privacy/preferences                           0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/profile                                       0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/rocket-volatility                             0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/rss-feeds                                     0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/rss-feeds/[id]                                0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/rss-feeds/[id]/rotate                         0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/subscription                                  0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/watchlists                                    0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/watchlists/[id]                               0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/watchlists/[id]/launches                      0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/watchlists/[id]/rules                         0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/me/watchlists/[id]/rules/[ruleId]                0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/news/stream                                      0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/notifications/sms/inbound                        0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/notifications/sms/verify                         0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/notifications/sms/verify/check                   0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/og/launch/[id]                                   0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/og/site                                          0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/pad-satellite                                    0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/ar/runtime-policy                         0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/ar/telemetry/session                      0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/artemis/content                           0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/artemis/evidence                          0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/artemis/timeline                          0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/blue-origin/content                       0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/blue-origin/contracts                     0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/blue-origin/contracts/[contractKey]       0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/blue-origin/engines                       0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/blue-origin/engines/[slug]                0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/blue-origin/evidence                      0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/blue-origin/flights                       0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/blue-origin/passengers                    0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/blue-origin/payloads                      0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/blue-origin/procurement                   0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/blue-origin/timeline                      0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/blue-origin/vehicles                      0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/blue-origin/vehicles/[slug]               0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/catalog                                   0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/contracts                                 0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/contracts/[contractUid]                   0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/contracts/story/[storyKey]                0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/launches                                  0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/launches/[id]/faa-airspace                0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/launches/[id]/jep                         0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/launches/[id]/trajectory                  0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/launches/[id]/trajectory/v2               0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/launches/ar-eligible                      0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/launches/changed                          0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/provider-schedule                         0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/spacex/contracts                          0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/spacex/contracts/[contractKey]            0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/spacex/drone-ships                        0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/spacex/drone-ships/[slug]                 0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/spacex/engines                            0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/spacex/engines/[slug]                     0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/spacex/finance                            0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/spacex/flights                            0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/spacex/flights/[slug]                     0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/spacex/passengers                         0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/spacex/payloads                           0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/spacex/usaspending                        0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/spacex/vehicles                           0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/spacex/vehicles/[slug]                    0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/starship/evidence                         0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/public/starship/timeline                         0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/search                                           0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/search/index                                     0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/tipjar/checkout                                  0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/tipjar/intent                                    0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/tipjar/portal                                    0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/tipjar/subscribe                                 0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/unsubscribe                                      0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/launches                                      0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/launches/[id]                                 0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/launches/changed                              0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/account/delete                             0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/billing/apple/sync                         0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/billing/catalog                            0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/billing/google/sync                        0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/billing/summary                            0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/calendar-feeds                             0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/calendar-feeds/[id]                        0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/calendar-feeds/[id]/rotate                 0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/embed-widgets                              0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/embed-widgets/[id]                         0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/embed-widgets/[id]/rotate                  0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/export                                     0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/filter-presets                             0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/filter-presets/[id]                        0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/launch-notifications/[id]                  0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/marketing-email                            0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/notification-preferences                   0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/notification-preferences/sms/verify        0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/notification-preferences/sms/verify/check  0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/privacy/preferences                        0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/profile                                    0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/push-devices                               0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/push-devices/test                          0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/rss-feeds                                  0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/rss-feeds/[id]                             0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/rss-feeds/[id]/rotate                      0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/watchlists                                 0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/watchlists/[id]                            0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/watchlists/[id]/rules                      0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/me/watchlists/[id]/rules/[ruleId]             0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/search                                        0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/viewer/entitlements                           0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/v1/viewer/session                                0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/webhooks/apple-app-store                         0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/webhooks/google-play                             0 B                0 B
+@tminuszero/web:build: ├ ƒ /api/webhooks/stripe                                  0 B                0 B
+@tminuszero/web:build: ├ ƒ /artemis                                              27.3 kB         140 kB
+@tminuszero/web:build: ├ ○ /artemis-2                                            219 B          87.7 kB
+@tminuszero/web:build: ├ ○ /artemis-4                                            219 B          87.7 kB
+@tminuszero/web:build: ├ ○ /artemis-5                                            219 B          87.7 kB
+@tminuszero/web:build: ├ ○ /artemis-6                                            219 B          87.7 kB
+@tminuszero/web:build: ├ ○ /artemis-7                                            219 B          87.7 kB
+@tminuszero/web:build: ├ ○ /artemis-i                                            1.72 kB         113 kB
+@tminuszero/web:build: ├ ○ /artemis-ii                                           1.99 kB         115 kB
+@tminuszero/web:build: ├ ○ /artemis-iii                                          1.99 kB         115 kB
+@tminuszero/web:build: ├ ○ /artemis-iv                                           1.99 kB         115 kB
+@tminuszero/web:build: ├ ○ /artemis-v                                            1.99 kB         115 kB
+@tminuszero/web:build: ├ ○ /artemis-vi                                           1.99 kB         115 kB
+@tminuszero/web:build: ├ ○ /artemis-vii                                          1.99 kB         115 kB
+@tminuszero/web:build: ├ ƒ /artemis/awardees                                     242 B           102 kB
+@tminuszero/web:build: ├ ƒ /artemis/awardees/[slug]                              242 B           102 kB
+@tminuszero/web:build: ├ ƒ /artemis/content                                      242 B           102 kB
+@tminuszero/web:build: ├ ƒ /artemis/contracts                                    242 B           102 kB
+@tminuszero/web:build: ├ ƒ /artemis/contracts/[piid]                             242 B           102 kB
+@tminuszero/web:build: ├ ○ /auth/callback                                        3.45 kB         191 kB
+@tminuszero/web:build: ├ ○ /auth/forgot-password                                 2.42 kB         153 kB
+@tminuszero/web:build: ├ ○ /auth/reset-password                                  3.27 kB         153 kB
+@tminuszero/web:build: ├ ƒ /auth/sign-in                                         195 B           159 kB
+@tminuszero/web:build: ├ ○ /auth/sign-up                                         784 B           160 kB
+@tminuszero/web:build: ├ ƒ /auth/verify                                          0 B                0 B
+@tminuszero/web:build: ├ ○ /be-4                                                 219 B          87.7 kB
+@tminuszero/web:build: ├ ○ /blue-moon                                            219 B          87.7 kB
+@tminuszero/web:build: ├ ○ /blue-origin                                          13 kB           109 kB
+@tminuszero/web:build: ├ ƒ /blue-origin/contracts                                1.54 kB         103 kB
+@tminuszero/web:build: ├ ƒ /blue-origin/contracts/[contractKey]                  1.54 kB         103 kB
+@tminuszero/web:build: ├ ○ /blue-origin/engines                                  241 B           102 kB
+@tminuszero/web:build: ├ ƒ /blue-origin/engines/[slug]                           1.54 kB         103 kB
+@tminuszero/web:build: ├ ○ /blue-origin/flights                                  1.54 kB         103 kB
+@tminuszero/web:build: ├ ƒ /blue-origin/flights/[slug]                           219 B          87.7 kB
+@tminuszero/web:build: ├ ○ /blue-origin/missions                                 1.54 kB         103 kB
+@tminuszero/web:build: ├ ƒ /blue-origin/missions/[mission]                       2.6 kB          115 kB
+@tminuszero/web:build: ├ ○ /blue-origin/travelers                                1.54 kB         103 kB
+@tminuszero/web:build: ├ ○ /blue-origin/travelers/[slug]                         1.54 kB         103 kB
+@tminuszero/web:build: ├ ○ /blue-origin/vehicles                                 241 B           102 kB
+@tminuszero/web:build: ├ ƒ /blue-origin/vehicles/[slug]                          1.54 kB         103 kB
+@tminuszero/web:build: ├ ○ /blue-ring                                            219 B          87.7 kB
+@tminuszero/web:build: ├ ƒ /catalog                                              234 B          96.5 kB
+@tminuszero/web:build: ├ ƒ /catalog/[entity]                                     234 B          96.5 kB
+@tminuszero/web:build: ├ ƒ /catalog/[entity]/[id]                                234 B          96.5 kB
+@tminuszero/web:build: ├ ƒ /contracts                                            234 B          96.5 kB
+@tminuszero/web:build: ├ ƒ /contracts/[contractUid]                              233 B          96.5 kB
+@tminuszero/web:build: ├ ○ /docs/about                                           219 B          87.7 kB
+@tminuszero/web:build: ├ ○ /docs/faq                                             219 B          87.7 kB
+@tminuszero/web:build: ├ ○ /docs/roadmap                                         219 B          87.7 kB
+@tminuszero/web:build: ├ ○ /docs/sms-opt-in                                      234 B          96.5 kB
+@tminuszero/web:build: ├ ƒ /embed/next-launch                                    693 B           179 kB
+@tminuszero/web:build: ├ ƒ /icon-192.png                                         0 B                0 B
+@tminuszero/web:build: ├ ƒ /icon-512.png                                         0 B                0 B
+@tminuszero/web:build: ├ ○ /info                                                 234 B          96.5 kB
+@tminuszero/web:build: ├ ○ /jellyfish-effect                                     233 B          96.5 kB
+@tminuszero/web:build: ├ ○ /launch-providers                                     233 B          96.5 kB
+@tminuszero/web:build: ├ ƒ /launch-providers/[slug]                              233 B          96.5 kB
+@tminuszero/web:build: ├ ƒ /launches/[id]                                        58.2 kB         215 kB
+@tminuszero/web:build: ├ ƒ /launches/[id]/ar                                     49.9 kB         147 kB
+@tminuszero/web:build: ├ ƒ /launches/[id]/opengraph-image                        0 B                0 B
+@tminuszero/web:build: ├ ƒ /launches/[id]/opengraph-image/[version]              0 B                0 B
+@tminuszero/web:build: ├ ƒ /launches/[id]/opengraph-image/[version]/jpeg         0 B                0 B
+@tminuszero/web:build: ├ ○ /legal/data                                           219 B          87.7 kB
+@tminuszero/web:build: ├ ○ /legal/privacy                                        219 B          87.7 kB
+@tminuszero/web:build: ├ ○ /legal/privacy-choices                                5.14 kB         193 kB
+@tminuszero/web:build: ├ ○ /legal/sms                                            219 B          87.7 kB
+@tminuszero/web:build: ├ ○ /legal/terms                                          219 B          87.7 kB
+@tminuszero/web:build: ├ ƒ /locations/[id]                                       233 B          96.5 kB
+@tminuszero/web:build: ├ ○ /manifest.webmanifest                                 0 B                0 B
+@tminuszero/web:build: ├ ○ /me/preferences                                       5.76 kB         194 kB
+@tminuszero/web:build: ├ ○ /new-glenn                                            219 B          87.7 kB
+@tminuszero/web:build: ├ ○ /new-shepard                                          219 B          87.7 kB
+@tminuszero/web:build: ├ ƒ /news                                                 6.15 kB         114 kB
+@tminuszero/web:build: ├ ƒ /opengraph-image                                      0 B                0 B
+@tminuszero/web:build: ├ ƒ /opengraph-image/jpeg                                 0 B                0 B
+@tminuszero/web:build: ├ ƒ /providers/[slug]                                     234 B          96.5 kB
+@tminuszero/web:build: ├ ○ /robots.txt                                           0 B                0 B
+@tminuszero/web:build: ├ ƒ /rockets/[id]                                         2.85 kB        99.1 kB
+@tminuszero/web:build: ├ ƒ /rss/[token]                                          0 B                0 B
+@tminuszero/web:build: ├ ƒ /satellites                                           233 B          96.5 kB
+@tminuszero/web:build: ├ ƒ /satellites/[norad]                                   234 B          96.5 kB
+@tminuszero/web:build: ├ ƒ /satellites/owners                                    232 B          96.5 kB
+@tminuszero/web:build: ├ ƒ /satellites/owners/[owner]                            233 B          96.5 kB
+@tminuszero/web:build: ├ ○ /search                                               3.12 kB         128 kB
+@tminuszero/web:build: ├ ƒ /share/launch-debug/[id]                              307 B          96.6 kB
+@tminuszero/web:build: ├ ƒ /share/launch-fast/[id]                               0 B                0 B
+@tminuszero/web:build: ├ ƒ /share/launch/[id]                                    0 B                0 B
+@tminuszero/web:build: ├ ƒ /share/site                                           307 B          96.6 kB
+@tminuszero/web:build: ├ ƒ /sitemap-catalog.xml                                  0 B                0 B
+@tminuszero/web:build: ├ ƒ /sitemap-entities.xml                                 0 B                0 B
+@tminuszero/web:build: ├ ƒ /sitemap-launches.xml                                 0 B                0 B
+@tminuszero/web:build: ├ ƒ /sitemap-satellite-owners.xml                         0 B                0 B
+@tminuszero/web:build: ├ ƒ /sitemap-satellites.xml                               0 B                0 B
+@tminuszero/web:build: ├ ƒ /sitemap.xml                                          0 B                0 B
+@tminuszero/web:build: ├ ○ /spacex                                               4.91 kB         101 kB
+@tminuszero/web:build: ├ ƒ /spacex/contracts                                     242 B           102 kB
+@tminuszero/web:build: ├ ƒ /spacex/contracts/[contractKey]                       242 B           102 kB
+@tminuszero/web:build: ├ ○ /spacex/drone-ships                                   242 B           102 kB
+@tminuszero/web:build: ├ ƒ /spacex/drone-ships/[slug]                            242 B           102 kB
+@tminuszero/web:build: ├ ○ /spacex/engines                                       242 B           102 kB
+@tminuszero/web:build: ├ ƒ /spacex/engines/[slug]                                242 B           102 kB
+@tminuszero/web:build: ├ ○ /spacex/flights                                       242 B           102 kB
+@tminuszero/web:build: ├ ƒ /spacex/flights/[slug]                                1.42 kB         114 kB
+@tminuszero/web:build: ├ ○ /spacex/jellyfish-effect                              219 B          87.7 kB
+@tminuszero/web:build: ├ ○ /spacex/missions                                      242 B           102 kB
+@tminuszero/web:build: ├ ƒ /spacex/missions/[mission]                            1.42 kB         114 kB
+@tminuszero/web:build: ├ ○ /spacex/vehicles                                      242 B           102 kB
+@tminuszero/web:build: ├ ƒ /spacex/vehicles/[slug]                               242 B           102 kB
+@tminuszero/web:build: ├ ƒ /starship                                             12 kB           120 kB
+@tminuszero/web:build: ├ ƒ /starship/[slug]                                      1.4 kB          109 kB
+@tminuszero/web:build: ├ ƒ /unsubscribe                                          234 B          96.5 kB
+@tminuszero/web:build: └ ○ /upgrade                                              3.4 kB          137 kB
+@tminuszero/web:build: + First Load JS shared by all                             87.5 kB
+@tminuszero/web:build:   ├ chunks/1528-311a6ebfd51d0896.js                       31.9 kB
+@tminuszero/web:build:   ├ chunks/1dd3208c-e203a2901718568c.js                   53.6 kB
+@tminuszero/web:build:   └ other shared chunks (total)                           2.03 kB
+@tminuszero/web:build: 
+@tminuszero/web:build: 
+@tminuszero/web:build: ƒ Middleware                                              76.1 kB
+@tminuszero/web:build: 
+@tminuszero/web:build: ○  (Static)   prerendered as static content
+@tminuszero/web:build: ƒ  (Dynamic)  server-rendered on demand
+@tminuszero/web:build: 
+
+ Tasks:    1 successful, 1 total
+Cached:    0 cached, 1 total
+  Time:    1m5.261s 
+
+• turbo 2.8.14

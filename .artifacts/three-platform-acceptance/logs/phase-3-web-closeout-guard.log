@@ -1,0 +1,8 @@
+
+> tminuszero@0.1.0 test:phase3-web-guard
+> TS_NODE_TRANSPILE_ONLY=1 node --loader ts-node/esm scripts/phase3-web-closeout-guard.mts
+
+phase3-web-closeout-guard: ok (28 files scanned, 37 remaining raw /api fetch call sites in apps/web)
+(node:102) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+--import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("ts-node/esm", pathToFileURL("./"));'
+(Use `node --trace-warnings ...` to show where the warning was created)

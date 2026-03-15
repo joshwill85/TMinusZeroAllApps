@@ -2,6 +2,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
+import { buildAuthHref, buildPrivacyChoicesHref, buildProfileHref } from '@tminuszero/navigation';
 import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
 import { BRAND_NAME } from '@/lib/brand';
@@ -14,7 +15,7 @@ export type RailProfile = {
 
 export function DesktopRail({ profile }: { profile: RailProfile }) {
   const pathname = usePathname();
-  const accountHref = profile ? '/account' : '/auth/sign-in';
+  const accountHref = profile ? buildProfileHref() : buildAuthHref('sign-in');
   const initials = profileInitials(profile);
 
   return (
@@ -52,7 +53,7 @@ export function DesktopRail({ profile }: { profile: RailProfile }) {
             <LockIcon className="h-4 w-4" />
             <span className="text-[10px] leading-none">Privacy</span>
           </a>
-          <a href="/legal/privacy-choices" className={railFooterItemClass} aria-label="Privacy choices">
+          <a href={buildPrivacyChoicesHref()} className={railFooterItemClass} aria-label="Privacy choices">
             <SlidersIcon className="h-4 w-4" />
             <span className="text-[10px] leading-none">Choices</span>
           </a>

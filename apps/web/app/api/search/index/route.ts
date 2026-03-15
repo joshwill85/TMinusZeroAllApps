@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { enforceDurableRateLimit } from '@/lib/server/apiRateLimit';
 import { isSupabaseConfigured } from '@/lib/server/env';
 import { createSupabaseServerClient } from '@/lib/server/supabaseServer';
 import { US_PAD_COUNTRY_CODES } from '@/lib/server/us';
@@ -23,9 +24,18 @@ type SearchIndexRow = {
   status_abbrev: string | null;
 };
 
-export async function GET() {
+export async function GET(request: Request) {
   if (!isSupabaseConfigured()) {
     return NextResponse.json({ error: 'supabase_not_configured' }, { status: 503 });
+  }
+
+  const rateLimited = await enforceDurableRateLimit(request, {
+    scope: 'api_search_index',
+    limit: 60,
+    windowSeconds: 60
+  });
+  if (rateLimited) {
+    return rateLimited;
   }
 
   const supabase = createSupabaseServerClient();

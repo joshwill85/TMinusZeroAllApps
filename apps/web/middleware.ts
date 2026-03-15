@@ -2,27 +2,57 @@ import { createServerClient } from '@supabase/ssr';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { CANONICAL_HOST, COOKIE_DOMAIN, DOMAIN_APEX } from '@/lib/brand';
-import { isSupabaseConfigured } from '@/lib/server/env';
+import { isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
 import { buildLegacyCatalogRedirectHref } from '@/lib/utils/catalog';
 import { toProviderSlug } from '@/lib/utils/launchLinks';
 
-type RateLimitWindow = { count: number; resetAt: number };
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const LEGACY_HOSTS = new Set(['tminusnow.space', 'www.tminusnow.space']);
 
-const RATE_LIMIT_STORE_KEY = '__tmn_rate_limit__';
-const rateLimitStore: Map<string, RateLimitWindow> = (() => {
+type MiddlewareRateLimitRule = {
+  scope: string;
+  limit: number;
+  windowSeconds: number;
+};
+
+type InMemoryRateLimitWindow = {
+  count: number;
+  resetAt: number;
+};
+
+const LEGACY_RATE_LIMIT_RULES: Array<{ matches: (pathname: string) => boolean; rule: MiddlewareRateLimitRule }> = [
+  {
+    matches: (pathname) => pathname === '/api/public' || pathname.startsWith('/api/public/'),
+    rule: {
+      scope: 'legacy_public_api',
+      limit: 120,
+      windowSeconds: 60
+    }
+  },
+  {
+    matches: (pathname) => pathname === '/embed' || pathname.startsWith('/embed/'),
+    rule: {
+      scope: 'legacy_embed_surface',
+      limit: 120,
+      windowSeconds: 60
+    }
+  }
+];
+
+const RATE_LIMIT_STORE_KEY = '__tmz_legacy_middleware_rate_limit__';
+const inMemoryRateLimitStore: Map<string, InMemoryRateLimitWindow> = (() => {
   const globalScope = globalThis as unknown as Record<string, unknown>;
   const existing = globalScope[RATE_LIMIT_STORE_KEY];
   if (existing instanceof Map) {
-    return existing as Map<string, RateLimitWindow>;
+    return existing as Map<string, InMemoryRateLimitWindow>;
   }
-  const store = new Map<string, RateLimitWindow>();
+
+  const store = new Map<string, InMemoryRateLimitWindow>();
   globalScope[RATE_LIMIT_STORE_KEY] = store;
   return store;
 })();
-
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const LEGACY_HOSTS = new Set(['tminusnow.space', 'www.tminusnow.space']);
 
 export async function middleware(request: NextRequest) {
   if (process.env.NODE_ENV !== 'production') {
@@ -75,13 +105,18 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url, 308);
   }
 
-  const rateLimited = applyRateLimit(request);
-  if (rateLimited) return rateLimited;
-
   if (pathname === '/' && (request.nextUrl.searchParams.has('code') || request.nextUrl.searchParams.has('token_hash'))) {
     const url = request.nextUrl.clone();
     url.pathname = '/auth/callback';
     return NextResponse.redirect(url, 302);
+  }
+
+  const legacyRateLimitRule = matchLegacyRateLimitRule(pathname);
+  if (legacyRateLimitRule) {
+    const rateLimited = await enforceLegacyRateLimit(request, legacyRateLimitRule);
+    if (rateLimited) {
+      return rateLimited;
+    }
   }
 
   let response = NextResponse.next();
@@ -102,116 +137,6 @@ export async function middleware(request: NextRequest) {
     }
   }
   return response;
-}
-
-function applyRateLimit(request: NextRequest): NextResponse | null {
-  const method = request.method.toUpperCase();
-  if (!(method === 'GET' || method === 'HEAD')) return null;
-
-  const pathname = request.nextUrl.pathname;
-  const rule = matchRateLimitRule(pathname);
-  if (!rule) return null;
-
-  const clientId = getClientIdentifier(request);
-  if (!clientId) return null;
-  const tokenKey = getRateLimitTokenKey(rule.id, request);
-  const key = tokenKey ? `${rule.id}:${clientId}:${tokenKey}` : `${rule.id}:${clientId}`;
-  const now = Date.now();
-  pruneRateLimitStore(now);
-
-  const decision = consumeRateLimit({ key, limit: rule.limit, windowMs: rule.windowMs, now });
-  const resetSeconds = Math.ceil(decision.resetAt / 1000);
-
-  if (!decision.allowed) {
-    const response = NextResponse.json({ error: 'rate_limited' }, { status: 429 });
-    response.headers.set('Cache-Control', 'no-store');
-    response.headers.set('Retry-After', String(decision.retryAfterSeconds));
-    response.headers.set('X-RateLimit-Limit', String(rule.limit));
-    response.headers.set('X-RateLimit-Remaining', String(decision.remaining));
-    response.headers.set('X-RateLimit-Reset', String(resetSeconds));
-    return response;
-  }
-
-  return null;
-}
-
-function matchRateLimitRule(pathname: string): { id: string; limit: number; windowMs: number } | null {
-  if (pathname.startsWith('/api/public/')) {
-    return { id: 'api_public', limit: 120, windowMs: 60_000 };
-  }
-
-  if (pathname.startsWith('/api/search/')) {
-    return { id: 'api_search', limit: 60, windowMs: 60_000 };
-  }
-
-  if (pathname.startsWith('/api/launches/') && pathname.endsWith('/ics')) {
-    return { id: 'api_ics', limit: 30, windowMs: 60_000 };
-  }
-
-  if (pathname.startsWith('/api/calendar/')) {
-    return { id: 'api_calendar', limit: 30, windowMs: 60_000 };
-  }
-
-  if (pathname.startsWith('/rss/')) {
-    return { id: 'rss', limit: 30, windowMs: 60_000 };
-  }
-
-  if (pathname.startsWith('/api/embed/')) {
-    return { id: 'embed', limit: 120, windowMs: 60_000 };
-  }
-
-  if (pathname.startsWith('/embed/')) {
-    return { id: 'embed', limit: 120, windowMs: 60_000 };
-  }
-
-  return null;
-}
-
-function getRateLimitTokenKey(ruleId: string, request: NextRequest): string | null {
-  const uuid = (value: string | null | undefined) => {
-    const trimmed = typeof value === 'string' ? value.trim() : '';
-    if (!trimmed) return null;
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(trimmed)) return null;
-    return trimmed.toLowerCase();
-  };
-
-  if (ruleId === 'api_ics') {
-    const token = uuid(request.nextUrl.searchParams.get('token'));
-    return token ? `token:${hashString(token)}` : null;
-  }
-
-  if (ruleId === 'api_calendar') {
-    const parts = request.nextUrl.pathname.split('/').filter(Boolean);
-    const tokenPart = parts[2] || '';
-    const token = uuid(tokenPart.replace(/\.ics$/i, ''));
-    return token ? `token:${hashString(token)}` : null;
-  }
-
-  if (ruleId === 'rss') {
-    const parts = request.nextUrl.pathname.split('/').filter(Boolean);
-    const tokenPart = parts[1] || '';
-    const token = uuid(tokenPart.replace(/\.(xml|atom)$/i, ''));
-    return token ? `token:${hashString(token)}` : null;
-  }
-
-  if (ruleId === 'embed') {
-    const token = uuid(request.nextUrl.searchParams.get('token'));
-    return token ? `token:${hashString(token)}` : null;
-  }
-
-  return null;
-}
-
-function getClientIp(request: NextRequest): string | null {
-  const forwardedFor = parseForwardedFor(request.headers.get('x-forwarded-for'));
-  const forwarded = parseForwardedHeader(request.headers.get('forwarded'));
-  const cfConnectingIp = parseSingleIp(request.headers.get('cf-connecting-ip'));
-  const trueClientIp = parseSingleIp(request.headers.get('true-client-ip'));
-  const realIp = parseSingleIp(request.headers.get('x-real-ip'));
-  const xClientIp = parseSingleIp(request.headers.get('x-client-ip'));
-  const clusterIp = parseSingleIp(request.headers.get('x-cluster-client-ip'));
-  const ip = forwardedFor || forwarded || cfConnectingIp || trueClientIp || realIp || xClientIp || clusterIp || request.ip;
-  return normalizeIp(ip);
 }
 
 function extractLegacyLaunchProviderSlug(pathname: string) {
@@ -248,95 +173,49 @@ function safeDecodeURIComponent(value: string) {
   }
 }
 
-function consumeRateLimit({
-  key,
-  limit,
-  windowMs,
-  now
-}: {
-  key: string;
-  limit: number;
-  windowMs: number;
-  now: number;
-}): { allowed: boolean; remaining: number; resetAt: number; retryAfterSeconds: number } {
-  let entry = rateLimitStore.get(key);
-  if (!entry || entry.resetAt <= now) {
-    entry = { count: 0, resetAt: now + windowMs };
+function matchLegacyRateLimitRule(pathname: string) {
+  for (const { matches, rule } of LEGACY_RATE_LIMIT_RULES) {
+    if (matches(pathname)) {
+      return rule;
+    }
   }
-
-  entry.count += 1;
-  rateLimitStore.set(key, entry);
-
-  const allowed = entry.count <= limit;
-  const remaining = Math.max(0, limit - entry.count);
-  const retryAfterSeconds = Math.max(0, Math.ceil((entry.resetAt - now) / 1000));
-  return { allowed, remaining, resetAt: entry.resetAt, retryAfterSeconds };
-}
-
-function pruneRateLimitStore(now: number) {
-  if (rateLimitStore.size < 5_000) return;
-  for (const [key, value] of rateLimitStore.entries()) {
-    if (value.resetAt <= now) rateLimitStore.delete(key);
-  }
-  if (rateLimitStore.size < 10_000) return;
-  let removed = 0;
-  for (const key of rateLimitStore.keys()) {
-    rateLimitStore.delete(key);
-    removed += 1;
-    if (removed >= 2_000) break;
-  }
-}
-
-function shouldSyncSupabase(request: NextRequest) {
-  if (!isSupabaseConfigured() || !SUPABASE_URL || !SUPABASE_ANON_KEY) return false;
-  const pathname = request.nextUrl.pathname;
-  if (pathname.startsWith('/api/')) return false;
-  if (pathname.startsWith('/share/')) return false;
-  if (pathname.startsWith('/_next/')) return false;
-  if (pathname.startsWith('/favicon') || pathname.startsWith('/apple-touch-icon') || pathname.startsWith('/icon-')) return false;
-  return !/\.[^/]+$/.test(pathname);
-}
-
-function getClientIdentifier(request: NextRequest): string | null {
-  const ip = getClientIp(request);
-  if (ip) return `ip:${ip}`;
-
-  const userAgent = request.headers.get('user-agent')?.trim();
-  if (userAgent) return `ua:${hashString(userAgent)}`;
-
-  const accept = request.headers.get('accept')?.trim();
-  if (accept) return `accept:${hashString(accept)}`;
-
   return null;
 }
 
-function parseForwardedFor(value: string | null): string | null {
+async function hashValue(value: string) {
+  const encoded = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest('SHA-256', encoded);
+  return Array.from(new Uint8Array(digest))
+    .slice(0, 20)
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function parseForwardedFor(value: string | null) {
   if (!value) return null;
   const first = value.split(',')[0]?.trim();
   return first || null;
 }
 
-function parseForwardedHeader(value: string | null): string | null {
+function parseForwardedHeader(value: string | null) {
   if (!value) return null;
   for (const part of value.split(',')) {
-    const match = part.match(/for=("?)([^;,\"]+)\1/i);
+    const match = part.match(/for=("?)([^;,"]+)\1/i);
     if (!match) continue;
     return match[2]?.trim() || null;
   }
   return null;
 }
 
-function parseSingleIp(value: string | null): string | null {
+function parseSingleIp(value: string | null) {
   if (!value) return null;
   const trimmed = value.trim();
-  return trimmed ? trimmed : null;
+  return trimmed || null;
 }
 
-function normalizeIp(value?: string | null): string | null {
+function normalizeIp(value?: string | null) {
   if (!value) return null;
-  let trimmed = value.trim();
-  if (!trimmed) return null;
-  trimmed = trimmed.replace(/^\"|\"$/g, '');
+  const trimmed = value.trim().replace(/^"|"$|^'|'$/g, '');
   if (!trimmed || trimmed === 'unknown' || trimmed.startsWith('_')) return null;
 
   if (trimmed.startsWith('[')) {
@@ -348,19 +227,172 @@ function normalizeIp(value?: string | null): string | null {
   const lastColon = trimmed.lastIndexOf(':');
   if (hasDot && lastColon > -1) {
     const port = trimmed.slice(lastColon + 1);
-    if (/^\d+$/.test(port)) return trimmed.slice(0, lastColon);
+    if (/^\d+$/.test(port)) {
+      return trimmed.slice(0, lastColon);
+    }
   }
 
   return trimmed;
 }
 
-function hashString(value: string): string {
-  let hash = 2166136261;
-  for (let i = 0; i < value.length; i += 1) {
-    hash ^= value.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
+function readClientIp(headers: Headers) {
+  return normalizeIp(
+    parseForwardedFor(headers.get('x-forwarded-for')) ||
+      parseForwardedHeader(headers.get('forwarded')) ||
+      parseSingleIp(headers.get('cf-connecting-ip')) ||
+      parseSingleIp(headers.get('true-client-ip')) ||
+      parseSingleIp(headers.get('x-real-ip')) ||
+      parseSingleIp(headers.get('x-client-ip')) ||
+      parseSingleIp(headers.get('x-cluster-client-ip'))
+  );
+}
+
+function floorWindow(nowMs: number, windowSeconds: number) {
+  const windowMs = windowSeconds * 1000;
+  return Math.floor(nowMs / windowMs) * windowMs;
+}
+
+function buildRateLimitedResponse({
+  limit,
+  retryAfterSeconds,
+  resetAtMs
+}: {
+  limit: number;
+  retryAfterSeconds: number;
+  resetAtMs: number;
+}) {
+  const response = NextResponse.json({ error: 'rate_limited' }, { status: 429 });
+  response.headers.set('Cache-Control', 'no-store');
+  response.headers.set('Retry-After', String(retryAfterSeconds));
+  response.headers.set('X-RateLimit-Limit', String(limit));
+  response.headers.set('X-RateLimit-Remaining', '0');
+  response.headers.set('X-RateLimit-Reset', String(Math.ceil(resetAtMs / 1000)));
+  return response;
+}
+
+function pruneInMemoryRateLimitStore(nowMs: number) {
+  if (inMemoryRateLimitStore.size < 5_000) {
+    return;
   }
-  return (hash >>> 0).toString(36);
+
+  for (const [key, value] of inMemoryRateLimitStore.entries()) {
+    if (value.resetAt <= nowMs) {
+      inMemoryRateLimitStore.delete(key);
+    }
+  }
+
+  if (inMemoryRateLimitStore.size < 10_000) {
+    return;
+  }
+
+  let removed = 0;
+  for (const key of inMemoryRateLimitStore.keys()) {
+    inMemoryRateLimitStore.delete(key);
+    removed += 1;
+    if (removed >= 2_000) {
+      break;
+    }
+  }
+}
+
+function enforceInMemoryLegacyRateLimit(request: NextRequest, rule: MiddlewareRateLimitRule) {
+  const nowMs = Date.now();
+  const windowMs = rule.windowSeconds * 1000;
+  const clientId = readClientIp(request.headers) || normalizeIp(request.ip || null) || 'anonymous';
+  const key = `${rule.scope}:${clientId}`;
+  pruneInMemoryRateLimitStore(nowMs);
+
+  let entry = inMemoryRateLimitStore.get(key);
+  if (!entry || entry.resetAt <= nowMs) {
+    entry = {
+      count: 0,
+      resetAt: nowMs + windowMs
+    };
+  }
+
+  entry.count += 1;
+  inMemoryRateLimitStore.set(key, entry);
+  if (entry.count <= rule.limit) {
+    return null;
+  }
+
+  return buildRateLimitedResponse({
+    limit: rule.limit,
+    retryAfterSeconds: Math.max(0, Math.ceil((entry.resetAt - nowMs) / 1000)),
+    resetAtMs: entry.resetAt
+  });
+}
+
+async function buildRateLimitProviderName(scope: string, request: NextRequest) {
+  const clientId = readClientIp(request.headers);
+  const secret = SUPABASE_SERVICE_ROLE_KEY?.trim() || 'tmz_api_rate_limit';
+  const payload = `${secret}:${scope.trim()}:${clientId ? `ip:${clientId}` : 'anonymous'}`;
+  return `middleware:${scope}:${await hashValue(payload)}`;
+}
+
+async function enforceLegacyRateLimit(request: NextRequest, rule: MiddlewareRateLimitRule) {
+  const method = request.method.toUpperCase();
+  if (!(method === 'GET' || method === 'HEAD')) {
+    return null;
+  }
+
+  if (!isSupabaseAdminConfigured() || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    return enforceInMemoryLegacyRateLimit(request, rule);
+  }
+
+  const url = `${SUPABASE_URL.replace(/\/+$/, '')}/rest/v1/rpc/try_increment_api_rate`;
+  const nowMs = Date.now();
+  const windowStartMs = floorWindow(nowMs, rule.windowSeconds);
+  const resetAtMs = windowStartMs + rule.windowSeconds * 1000;
+  const retryAfterSeconds = Math.max(0, Math.ceil((resetAtMs - nowMs) / 1000));
+  const providerName = await buildRateLimitProviderName(rule.scope, request);
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        provider_name: providerName,
+        window_start_in: new Date(windowStartMs).toISOString(),
+        window_seconds_in: rule.windowSeconds,
+        limit_in: rule.limit
+      }),
+      cache: 'no-store'
+    });
+
+    if (!response.ok) {
+      console.error(`middleware legacy rate limit RPC failed for ${rule.scope}`, response.status);
+      return enforceInMemoryLegacyRateLimit(request, rule);
+    }
+
+    const payload = await response.json().catch(() => null);
+    if (payload !== false) {
+      return null;
+    }
+
+    return buildRateLimitedResponse({
+      limit: rule.limit,
+      retryAfterSeconds,
+      resetAtMs
+    });
+  } catch (error) {
+    console.error(`middleware legacy rate limit request failed for ${rule.scope}`, error);
+    return enforceInMemoryLegacyRateLimit(request, rule);
+  }
+}
+
+function shouldSyncSupabase(request: NextRequest) {
+  if (!isSupabaseConfigured() || !SUPABASE_URL || !SUPABASE_ANON_KEY) return false;
+  const pathname = request.nextUrl.pathname;
+  if (pathname.startsWith('/api/')) return false;
+  if (pathname.startsWith('/share/')) return false;
+  if (pathname.startsWith('/_next/')) return false;
+  if (pathname.startsWith('/favicon') || pathname.startsWith('/apple-touch-icon') || pathname.startsWith('/icon-')) return false;
+  return !/\.[^/]+$/.test(pathname);
 }
 
 async function syncSupabaseSession(request: NextRequest, response: NextResponse) {

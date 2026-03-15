@@ -1,18 +1,15 @@
-import { createApiClient } from '@tminuszero/api-client';
 import { getApiBaseUrl } from '@/src/config/api';
-import { useMobileBootstrap } from '@/src/providers/AppProviders';
+import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
+import { useMobileApiClient } from '@/src/api/useMobileApiClient';
 
 export function useApiClient() {
   const { accessToken } = useMobileBootstrap();
   const baseUrl = getApiBaseUrl();
-  const auth = accessToken ? { mode: 'bearer' as const, accessToken } : { mode: 'guest' as const };
+  const client = useMobileApiClient();
 
   return {
     accessToken,
     baseUrl,
-    client: createApiClient({
-      baseUrl,
-      auth
-    })
+    client
   };
 }

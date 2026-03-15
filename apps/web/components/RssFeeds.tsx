@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { LaunchFilter } from '@/lib/types/launch';
+import { useCreateRssFeedMutation, useRotateRssFeedMutation } from '@/lib/api/queries';
 import { PremiumGateButton } from '@/components/PremiumGateButton';
 
 export function RssFeeds({
@@ -13,6 +14,8 @@ export function RssFeeds({
   isAuthed: boolean;
   isPremium: boolean;
 }) {
+  const createRssFeedMutation = useCreateRssFeedMutation();
+  const rotateRssFeedMutation = useRotateRssFeedMutation();
   const [open, setOpen] = useState(false);
   const [copyStateRss, setCopyStateRss] = useState<'idle' | 'copied' | 'error'>('idle');
   const [copyStateAtom, setCopyStateAtom] = useState<'idle' | 'copied' | 'error'>('idle');
@@ -53,18 +56,11 @@ export function RssFeeds({
 
     setFeedState({ status: 'creating', feed: null });
     try {
-      const res = await fetch('/api/me/rss-feeds', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, filters }),
-        cache: 'no-store'
+      const payload = await createRssFeedMutation.mutateAsync({
+        name,
+        filters
       });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setFeedState({ status: 'error', feed: null });
-        return;
-      }
-      const feed = json?.feed;
+      const feed = payload.feed;
       if (!feed?.id || !feed?.token) {
         setFeedState({ status: 'error', feed: null });
         return;
@@ -79,16 +75,8 @@ export function RssFeeds({
     if (!feedState.feed?.id) return;
     setFeedState((prev) => ({ ...prev, status: 'creating' }));
     try {
-      const res = await fetch(`/api/me/rss-feeds/${encodeURIComponent(feedState.feed.id)}/rotate`, {
-        method: 'POST',
-        cache: 'no-store'
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setFeedState((prev) => ({ ...prev, status: 'error' }));
-        return;
-      }
-      const token = json?.feed?.token ? String(json.feed.token) : null;
+      const payload = await rotateRssFeedMutation.mutateAsync(feedState.feed.id);
+      const token = payload.feed?.token ? String(payload.feed.token) : null;
       if (!token) {
         setFeedState((prev) => ({ ...prev, status: 'error' }));
         return;
@@ -144,7 +132,7 @@ export function RssFeeds({
                   type="button"
                   className="block w-full rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-left text-sm text-text1 hover:border-primary"
                   onClick={createFeed}
-                  disabled={feedState.status === 'creating'}
+                  disabled={feedState.status === 'creating' || createRssFeedMutation.isPending}
                 >
                   {feedState.status === 'creating'
                     ? 'Creating RSS feed…'
@@ -200,7 +188,7 @@ export function RssFeeds({
                     type="button"
                     className="block w-full rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-left text-sm text-text1 hover:border-primary"
                     onClick={rotateFeed}
-                    disabled={feedState.status === 'creating'}
+                    disabled={feedState.status === 'creating' || rotateRssFeedMutation.isPending}
                   >
                     {feedState.status === 'creating' ? 'Rotating RSS feed…' : 'Rotate RSS link'}
                   </button>

@@ -1,4 +1,5 @@
 import { Link } from 'expo-router';
+import type { Href } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { LaunchCardV1 } from '@tminuszero/contracts';
 import { mobileColorTokens } from '@tminuszero/design-tokens';
@@ -38,7 +39,7 @@ export function LaunchList({
   return (
     <View style={styles.list}>
       {launches.map((launch) => (
-        <Link key={launch.id} href={buildLaunchHref(launch.id)} asChild>
+        <Link key={launch.id} href={buildLaunchHref(launch.id) as Href} asChild>
           <Pressable>
             <Card>
               <View style={styles.row}>

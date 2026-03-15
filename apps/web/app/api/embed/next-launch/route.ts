@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { enforceDurableRateLimit } from '@/lib/server/apiRateLimit';
 import { createSupabaseAdminClient, createSupabaseServerClient } from '@/lib/server/supabaseServer';
 import { mapLiveLaunchRow, mapPublicCacheRow } from '@/lib/server/transformers';
 import { attachNextLaunchEvents } from '@/lib/server/ll2Events';
@@ -23,6 +24,16 @@ export async function GET(request: Request) {
   const parsedToken = parseToken(token);
   if (!parsedToken) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
+  }
+
+  const rateLimited = await enforceDurableRateLimit(request, {
+    scope: 'embed_next_launch',
+    limit: 120,
+    windowSeconds: 60,
+    tokenKey: parsedToken
+  });
+  if (rateLimited) {
+    return rateLimited;
   }
 
   const nowMs = Date.now();

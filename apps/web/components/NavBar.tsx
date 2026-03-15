@@ -4,15 +4,14 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
+import { buildCalendarHref } from '@tminuszero/navigation';
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
-import { LaunchCalendar } from './LaunchCalendar';
 import { IosCalendarIcon } from './IosCalendarIcon';
 import { browserApiClient } from '@/lib/api/client';
 import { getBrowserClient } from '@/lib/api/supabase';
 import { BRAND_NAME } from '@/lib/brand';
 
 export function NavBar() {
-  const [calendarOpen, setCalendarOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [profile, setProfile] = useState<{ role?: string | null; first_name?: string | null; last_name?: string | null } | null>(
     null
@@ -86,14 +85,13 @@ export function NavBar() {
           </div>
         </Link>
         <div className="flex items-center gap-2 text-sm">
-          <button
-            type="button"
+          <Link
+            href={buildCalendarHref()}
             aria-label="Open launch calendar"
             className="btn-secondary flex h-11 w-11 items-center justify-center rounded-lg border border-stroke"
-            onClick={() => setCalendarOpen(true)}
           >
             <IosCalendarIcon />
-          </button>
+          </Link>
           <button
             type="button"
             className="btn-secondary flex h-11 items-center justify-center rounded-lg border border-stroke px-3 text-[11px] uppercase tracking-[0.18em] text-text3 md:hidden"
@@ -186,7 +184,6 @@ export function NavBar() {
           </div>
         </div>
       )}
-      <LaunchCalendar open={calendarOpen} onClose={() => setCalendarOpen(false)} />
     </>
   );
 }

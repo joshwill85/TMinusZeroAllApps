@@ -3,8 +3,10 @@ import { createSupabaseAdminClient, createSupabasePublicClient } from '@/lib/ser
 import type { JepObserver } from '@/lib/server/jepObserver';
 import { deriveJepCalibrationBand } from '@/lib/jep/calibration';
 import { applyJepObserverGuidancePolicy } from '@/lib/jep/fallbackPolicy';
+import { deriveJepForecastHorizon } from '@/lib/jep/forecastHorizon';
 import { deriveJepGuidance } from '@/lib/jep/guidance';
 import { deriveJepReadiness } from '@/lib/jep/readiness';
+import { deriveJepCloudObstructionImpact, deriveJepWeatherContrastImpact } from '@/lib/jep/weather';
 import {
   buildTrajectoryContract,
   TRAJECTORY_CONTRACT_COLUMNS,
@@ -17,12 +19,15 @@ const GATE_CACHE_TTL_MS = 60_000;
 
 const SCORE_COLUMNS_EXTENDED =
   'probability, calibration_band, sunlit_margin_km, los_visible_fraction, weather_freshness_min, explainability, snapshot_at';
+const WEATHER_LAYER_COLUMNS = 'cloud_cover_mid_pct, cloud_cover_high_pct';
 const OBSERVER_SCORE_COLUMNS_BASE =
   'launch_id, observer_location_hash, observer_lat_bucket, observer_lon_bucket, score, illumination_factor, darkness_factor, los_factor, weather_factor, solar_depression_deg, cloud_cover_pct, cloud_cover_low_pct, time_confidence, trajectory_confidence, weather_confidence, weather_source, azimuth_source, geometry_only_fallback, model_version, computed_at, expires_at';
 const LEGACY_SCORE_COLUMNS_BASE =
   'launch_id, score, illumination_factor, darkness_factor, los_factor, weather_factor, solar_depression_deg, cloud_cover_pct, cloud_cover_low_pct, time_confidence, trajectory_confidence, weather_confidence, weather_source, azimuth_source, geometry_only_fallback, model_version, computed_at, expires_at';
 const OBSERVER_SCORE_COLUMNS_EXTENDED = `${OBSERVER_SCORE_COLUMNS_BASE}, ${SCORE_COLUMNS_EXTENDED}`;
 const LEGACY_SCORE_COLUMNS_EXTENDED = `${LEGACY_SCORE_COLUMNS_BASE}, ${SCORE_COLUMNS_EXTENDED}`;
+const OBSERVER_SCORE_COLUMNS_WEATHER_LAYERS = `${OBSERVER_SCORE_COLUMNS_EXTENDED}, ${WEATHER_LAYER_COLUMNS}`;
+const LEGACY_SCORE_COLUMNS_WEATHER_LAYERS = `${LEGACY_SCORE_COLUMNS_EXTENDED}, ${WEATHER_LAYER_COLUMNS}`;
 
 type LaunchJepScoreRow = {
   launch_id: string;
@@ -37,6 +42,8 @@ type LaunchJepScoreRow = {
   solar_depression_deg: number | string | null;
   cloud_cover_pct: number | null;
   cloud_cover_low_pct: number | null;
+  cloud_cover_mid_pct?: number | null;
+  cloud_cover_high_pct?: number | null;
   time_confidence: string | null;
   trajectory_confidence: string | null;
   weather_confidence: string | null;
@@ -71,6 +78,7 @@ type JepLaunchContext = {
   net: string | null;
   padLat: number | null;
   padLon: number | null;
+  padCountryCode: string | null;
 };
 
 type Explainability = LaunchJepScore['explainability'];
@@ -78,6 +86,7 @@ type Explainability = LaunchJepScore['explainability'];
 let gateCache: { value: JepGateState; expiresAtMs: number } | null = null;
 let observerSchemaSupported: boolean | null = null;
 let extendedSchemaSupported: boolean | null = null;
+let weatherLayerSchemaSupported: boolean | null = null;
 
 export async function fetchLaunchJepScore(
   launchId: string,
@@ -131,7 +140,9 @@ export async function fetchLaunchJepScore(
     weather: clamp(normalizeNumber(row.weather_factor, 0), 0, 1),
     solarDepressionDeg: toNumber(row.solar_depression_deg),
     cloudCoverPct: toNumberInt(row.cloud_cover_pct),
-    cloudCoverLowPct: toNumberInt(row.cloud_cover_low_pct)
+    cloudCoverLowPct: toNumberInt(row.cloud_cover_low_pct),
+    cloudCoverMidPct: toNumberInt(row.cloud_cover_mid_pct),
+    cloudCoverHighPct: toNumberInt(row.cloud_cover_high_pct)
   };
   const score = clampInt(row.score ?? 0, 0, 100);
   const probability = resolveProbability(row, score);
@@ -146,6 +157,17 @@ export async function fetchLaunchJepScore(
     });
   const trajectoryContract = await trajectoryPromise;
   const launchContext = await launchContextPromise;
+  const weatherDetails =
+    normalizeWeatherDetails((row.explainability as Record<string, unknown> | null)?.weatherDetails) ??
+    buildDefaultWeatherDetails({
+      factors,
+      weatherSource: normalizeText(row.weather_source),
+      geometryOnlyFallback: Boolean(row.geometry_only_fallback)
+    });
+  const horizon = deriveJepForecastHorizon({
+    launchNetIso: launchContext?.net ?? null,
+    isUsLaunch: isUsCountryCode(launchContext?.padCountryCode ?? null)
+  });
   const allowObserverGuidance = rowObserverHash !== PAD_OBSERVER_HASH && !usingPadFallback;
   const guidanceObserver = allowObserverGuidance
     ? requestedObserver ??
@@ -179,7 +201,7 @@ export async function fetchLaunchJepScore(
     score,
     probability,
     calibrationBand,
-    modelVersion: normalizeText(row.model_version) || 'jep_v3',
+    modelVersion: normalizeText(row.model_version) || 'jep_v5',
     computedAt: normalizeText(row.computed_at),
     expiresAt: normalizeText(row.expires_at),
     isStale,
@@ -199,7 +221,17 @@ export async function fetchLaunchJepScore(
       azimuth: normalizeText(row.azimuth_source),
       geometryOnlyFallback: Boolean(row.geometry_only_fallback)
     },
+    planning: {
+      hoursToNet: Number.isFinite(horizon.hoursToNet) ? round(horizon.hoursToNet, 1) : null,
+      phase: horizon.phase,
+      confidence: horizon.confidence,
+      label: horizon.label,
+      note: horizon.note,
+      sourcePlan: [...horizon.sourcePlan],
+      sourceUsed: weatherDetails?.sourceUsed ?? null
+    },
     explainability,
+    weatherDetails,
     observer: {
       locationHash: rowObserverHash,
       latBucket: toNumber(row.observer_lat_bucket),
@@ -217,61 +249,90 @@ export async function fetchLaunchJepScore(
 
 async function fetchObserverRow(supabase: ReturnType<typeof createSupabasePublicClient>, launchId: string, observerHash: string) {
   if (observerSchemaSupported === false) return null;
-  const primaryColumns = extendedSchemaSupported === false ? OBSERVER_SCORE_COLUMNS_BASE : OBSERVER_SCORE_COLUMNS_EXTENDED;
-  const { data, error } = await queryObserverRow(supabase, launchId, observerHash, primaryColumns);
-  if (!error) {
-    observerSchemaSupported = true;
-    if (primaryColumns === OBSERVER_SCORE_COLUMNS_EXTENDED) {
-      extendedSchemaSupported = true;
-    }
-    return data;
-  }
+  const attempts = uniqueColumns([
+    extendedSchemaSupported !== false && weatherLayerSchemaSupported !== false ? OBSERVER_SCORE_COLUMNS_WEATHER_LAYERS : null,
+    extendedSchemaSupported !== false ? OBSERVER_SCORE_COLUMNS_EXTENDED : null,
+    OBSERVER_SCORE_COLUMNS_BASE
+  ]);
 
-  if (isMissingObserverSchemaError(error.message)) {
-    observerSchemaSupported = false;
+  for (const columns of attempts) {
+    const { data, error } = await queryObserverRow(supabase, launchId, observerHash, columns);
+    if (!error) {
+      observerSchemaSupported = true;
+      if (columns === OBSERVER_SCORE_COLUMNS_WEATHER_LAYERS) {
+        extendedSchemaSupported = true;
+        weatherLayerSchemaSupported = true;
+      } else if (columns === OBSERVER_SCORE_COLUMNS_EXTENDED) {
+        extendedSchemaSupported = true;
+        weatherLayerSchemaSupported = false;
+      } else {
+        extendedSchemaSupported = false;
+        weatherLayerSchemaSupported = false;
+      }
+      return data;
+    }
+
+    if (isMissingObserverSchemaError(error.message)) {
+      observerSchemaSupported = false;
+      return null;
+    }
+
+    if (columns === OBSERVER_SCORE_COLUMNS_WEATHER_LAYERS && isMissingWeatherLayerSchemaError(error.message)) {
+      weatherLayerSchemaSupported = false;
+      continue;
+    }
+
+    if (columns !== OBSERVER_SCORE_COLUMNS_BASE && isMissingExtendedSchemaError(error.message)) {
+      extendedSchemaSupported = false;
+      if (columns === OBSERVER_SCORE_COLUMNS_WEATHER_LAYERS) weatherLayerSchemaSupported = false;
+      continue;
+    }
+
+    console.error('launch jep score observer query error', error);
     return null;
   }
 
-  if (primaryColumns === OBSERVER_SCORE_COLUMNS_EXTENDED && isMissingExtendedSchemaError(error.message)) {
-    extendedSchemaSupported = false;
-    const fallback = await queryObserverRow(supabase, launchId, observerHash, OBSERVER_SCORE_COLUMNS_BASE);
-    if (fallback.error) {
-      if (isMissingObserverSchemaError(fallback.error.message)) {
-        observerSchemaSupported = false;
-      } else {
-        console.error('launch jep score observer fallback query error', fallback.error);
-      }
-      return null;
-    }
-    observerSchemaSupported = true;
-    return fallback.data;
-  }
-
-  console.error('launch jep score observer query error', error);
   return null;
 }
 
 async function fetchLegacyRow(supabase: ReturnType<typeof createSupabasePublicClient>, launchId: string) {
-  const primaryColumns = extendedSchemaSupported === false ? LEGACY_SCORE_COLUMNS_BASE : LEGACY_SCORE_COLUMNS_EXTENDED;
-  const { data, error } = await queryLegacyRow(supabase, launchId, primaryColumns);
-  if (!error) {
-    if (primaryColumns === LEGACY_SCORE_COLUMNS_EXTENDED) {
-      extendedSchemaSupported = true;
+  const attempts = uniqueColumns([
+    extendedSchemaSupported !== false && weatherLayerSchemaSupported !== false ? LEGACY_SCORE_COLUMNS_WEATHER_LAYERS : null,
+    extendedSchemaSupported !== false ? LEGACY_SCORE_COLUMNS_EXTENDED : null,
+    LEGACY_SCORE_COLUMNS_BASE
+  ]);
+
+  for (const columns of attempts) {
+    const { data, error } = await queryLegacyRow(supabase, launchId, columns);
+    if (!error) {
+      if (columns === LEGACY_SCORE_COLUMNS_WEATHER_LAYERS) {
+        extendedSchemaSupported = true;
+        weatherLayerSchemaSupported = true;
+      } else if (columns === LEGACY_SCORE_COLUMNS_EXTENDED) {
+        extendedSchemaSupported = true;
+        weatherLayerSchemaSupported = false;
+      } else {
+        extendedSchemaSupported = false;
+        weatherLayerSchemaSupported = false;
+      }
+      return data;
     }
-    return data;
+
+    if (columns === LEGACY_SCORE_COLUMNS_WEATHER_LAYERS && isMissingWeatherLayerSchemaError(error.message)) {
+      weatherLayerSchemaSupported = false;
+      continue;
+    }
+
+    if (columns !== LEGACY_SCORE_COLUMNS_BASE && isMissingExtendedSchemaError(error.message)) {
+      extendedSchemaSupported = false;
+      if (columns === LEGACY_SCORE_COLUMNS_WEATHER_LAYERS) weatherLayerSchemaSupported = false;
+      continue;
+    }
+
+    console.error('launch jep score legacy query error', error);
+    return null;
   }
 
-  if (primaryColumns === LEGACY_SCORE_COLUMNS_EXTENDED && isMissingExtendedSchemaError(error.message)) {
-    extendedSchemaSupported = false;
-    const fallback = await queryLegacyRow(supabase, launchId, LEGACY_SCORE_COLUMNS_BASE);
-    if (fallback.error) {
-      console.error('launch jep score legacy fallback query error', fallback.error);
-      return null;
-    }
-    return fallback.data;
-  }
-
-  console.error('launch jep score legacy query error', error);
   return null;
 }
 
@@ -361,7 +422,7 @@ async function fetchJepLaunchContext(launchId: string): Promise<JepLaunchContext
     const admin = createSupabaseAdminClient();
     const { data, error } = await admin
       .from('launches')
-      .select('net,pad_latitude,pad_longitude')
+      .select('net,pad_latitude,pad_longitude,pad_country_code')
       .eq('id', launchId)
       .maybeSingle();
 
@@ -373,7 +434,8 @@ async function fetchJepLaunchContext(launchId: string): Promise<JepLaunchContext
     return {
       net: normalizeText(data?.net) || null,
       padLat: toNumber(data?.pad_latitude),
-      padLon: toNumber(data?.pad_longitude)
+      padLon: toNumber(data?.pad_longitude),
+      padCountryCode: normalizeText(data?.pad_country_code) || null
     };
   } catch (error) {
     console.warn('jep launch context fetch exception', error);
@@ -581,6 +643,207 @@ function buildDefaultExplainability({
   };
 }
 
+function normalizeWeatherDetails(value: unknown): LaunchJepScore['weatherDetails'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const observer = normalizeWeatherPointSummary(raw.observer);
+  const pad = normalizeWeatherPointSummary(raw.pad);
+  const alongPath = normalizeWeatherPathSummary(raw.alongPath);
+  const sourceUsed = normalizeText(raw.sourceUsed);
+  const mainBlocker = normalizeWeatherMainBlocker(raw.mainBlocker);
+  const samplingMode = normalizeWeatherSamplingMode(raw.samplingMode) ?? 'observer_only';
+  return {
+    sourceUsed,
+    mainBlocker,
+    obstructionFactor: clampOptional(toNumber(raw.obstructionFactor), 0, 1),
+    contrastFactor: clampOptional(toNumber(raw.contrastFactor), 0, 1),
+    samplingMode,
+    samplingNote: normalizeText(raw.samplingNote),
+    observer,
+    alongPath,
+    pad
+  };
+}
+
+function buildDefaultWeatherDetails({
+  factors,
+  weatherSource,
+  geometryOnlyFallback
+}: {
+  factors: LaunchJepScore['factors'];
+  weatherSource: string | null;
+  geometryOnlyFallback: boolean;
+}): LaunchJepScore['weatherDetails'] {
+  const contrast = deriveJepWeatherContrastImpact({
+    cloudCoverTotal: factors.cloudCoverPct,
+    cloudCoverLow: factors.cloudCoverLowPct,
+    cloudCoverMid: factors.cloudCoverMidPct,
+    cloudCoverHigh: factors.cloudCoverHighPct
+  });
+  const obstruction = deriveJepCloudObstructionImpact({
+    skyCoverPct: factors.cloudCoverPct,
+    ceilingFt: null
+  });
+  const source = normalizeWeatherPointSource(weatherSource);
+  return {
+    sourceUsed: geometryOnlyFallback
+      ? 'geometry_only'
+      : source === 'nws'
+        ? 'nws_path_sampling'
+        : source === 'mixed'
+          ? 'mixed_nws_open_meteo'
+          : source === 'open_meteo'
+            ? 'open_meteo_path_fallback'
+            : null,
+    mainBlocker:
+      contrast.dominantBlocker === 'low'
+        ? 'observer_low_clouds'
+        : contrast.dominantBlocker === 'mid'
+          ? 'observer_mid_clouds'
+          : contrast.dominantBlocker === 'high'
+            ? 'observer_high_clouds'
+            : contrast.dominantBlocker === 'mixed'
+              ? 'mixed'
+              : 'unknown',
+    obstructionFactor: obstruction.factor,
+    contrastFactor: contrast.factor,
+    samplingMode: 'observer_only',
+    samplingNote: 'This score row predates plume-path weather sampling, so only the observer weather point is available.',
+    observer: {
+      role: 'observer',
+      source,
+      totalCloudPct: factors.cloudCoverPct,
+      lowCloudPct: factors.cloudCoverLowPct,
+      midCloudPct: factors.cloudCoverMidPct,
+      highCloudPct: factors.cloudCoverHighPct,
+      skyCoverPct: factors.cloudCoverPct,
+      ceilingFt: null,
+      obstructionLevel: obstruction.level,
+      note: null
+    },
+    alongPath: null,
+    pad: null
+  };
+}
+
+function normalizeWeatherPointSummary(value: unknown): NonNullable<LaunchJepScore['weatherDetails']>['observer'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const role = normalizeWeatherPointRole(raw.role);
+  if (role == null) return null;
+  return {
+    role,
+    source: normalizeWeatherPointSource(raw.source),
+    totalCloudPct: clampOptional(toNumberInt(raw.totalCloudPct), 0, 100),
+    lowCloudPct: clampOptional(toNumberInt(raw.lowCloudPct), 0, 100),
+    midCloudPct: clampOptional(toNumberInt(raw.midCloudPct), 0, 100),
+    highCloudPct: clampOptional(toNumberInt(raw.highCloudPct), 0, 100),
+    skyCoverPct: clampOptional(toNumberInt(raw.skyCoverPct), 0, 100),
+    ceilingFt: clampOptional(toNumber(raw.ceilingFt), 0, 60000),
+    obstructionLevel: normalizeWeatherObstructionLevel(raw.obstructionLevel),
+    note: normalizeText(raw.note)
+  };
+}
+
+function normalizeWeatherPathSummary(value: unknown): NonNullable<LaunchJepScore['weatherDetails']>['alongPath'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  return {
+    source: normalizeWeatherPointSource(raw.source),
+    samplesConsidered: clampInt(toNumber(raw.samplesConsidered) ?? 0, 0, 12),
+    worstRole: normalizeWeatherPathRole(raw.worstRole),
+    skyCoverPct: clampOptional(toNumberInt(raw.skyCoverPct), 0, 100),
+    ceilingFt: clampOptional(toNumber(raw.ceilingFt), 0, 60000),
+    obstructionLevel: normalizeWeatherObstructionLevel(raw.obstructionLevel),
+    note: normalizeText(raw.note)
+  };
+}
+
+function normalizeWeatherMainBlocker(value: unknown): NonNullable<LaunchJepScore['weatherDetails']>['mainBlocker'] {
+  const normalized = normalizeText(value);
+  switch (normalized) {
+    case 'observer_low_ceiling':
+    case 'observer_sky_cover':
+    case 'path_low_ceiling':
+    case 'path_sky_cover':
+    case 'observer_low_clouds':
+    case 'observer_mid_clouds':
+    case 'observer_high_clouds':
+    case 'mixed':
+    case 'unknown':
+      return normalized;
+    default:
+      return 'unknown';
+  }
+}
+
+function normalizeWeatherSamplingMode(value: unknown): NonNullable<LaunchJepScore['weatherDetails']>['samplingMode'] | null {
+  const normalized = normalizeText(value);
+  if (
+    normalized === 'visible_path' ||
+    normalized === 'sunlit_path' ||
+    normalized === 'modeled_path' ||
+    normalized === 'observer_only'
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
+function normalizeWeatherObstructionLevel(value: unknown): NonNullable<
+  NonNullable<LaunchJepScore['weatherDetails']>['observer']
+>['obstructionLevel'] {
+  const normalized = normalizeText(value);
+  if (
+    normalized === 'clear' ||
+    normalized === 'partly_obstructed' ||
+    normalized === 'likely_blocked' ||
+    normalized === 'unknown'
+  ) {
+    return normalized;
+  }
+  return 'unknown';
+}
+
+function normalizeWeatherPointSource(value: unknown): NonNullable<
+  NonNullable<LaunchJepScore['weatherDetails']>['observer']
+>['source'] {
+  const normalized = normalizeText(value);
+  if (normalized === 'nws' || normalized === 'open_meteo' || normalized === 'mixed' || normalized === 'none') {
+    return normalized;
+  }
+  return 'none';
+}
+
+function normalizeWeatherPointRole(value: unknown): NonNullable<
+  NonNullable<LaunchJepScore['weatherDetails']>['observer']
+>['role'] | null {
+  const normalized = normalizeText(value);
+  if (
+    normalized === 'observer' ||
+    normalized === 'path_start' ||
+    normalized === 'path_mid' ||
+    normalized === 'path_end' ||
+    normalized === 'pad'
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
+function normalizeWeatherPathRole(value: unknown): NonNullable<
+  NonNullable<LaunchJepScore['weatherDetails']>['alongPath']
+>['worstRole'] {
+  const normalized = normalizeText(value);
+  if (normalized === 'path_start' || normalized === 'path_mid' || normalized === 'path_end') return normalized;
+  return null;
+}
+
+function isUsCountryCode(value: unknown) {
+  const normalized = normalizeText(value)?.toUpperCase();
+  return normalized === 'US' || normalized === 'USA';
+}
+
 function normalizeText(value: unknown) {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
@@ -668,6 +931,15 @@ function isMissingExtendedSchemaError(message: string) {
     text.includes('explainability') ||
     text.includes('snapshot_at')
   );
+}
+
+function isMissingWeatherLayerSchemaError(message: string) {
+  const text = (message || '').toLowerCase();
+  return text.includes('cloud_cover_mid_pct') || text.includes('cloud_cover_high_pct');
+}
+
+function uniqueColumns(values: Array<string | null>) {
+  return [...new Set(values.filter((value): value is string => Boolean(value)))];
 }
 
 function isMissingObserverTableError(message: string) {

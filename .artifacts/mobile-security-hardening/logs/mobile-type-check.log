@@ -1,0 +1,8 @@
+
+> tminuszero@0.1.0 type-check:mobile
+> npm run type-check --workspace @tminuszero/mobile
+
+
+> @tminuszero/mobile@0.0.0 type-check
+> tsc --noEmit -p tsconfig.json
+

@@ -1,0 +1,26 @@
+{
+  "generatedAt": "2026-03-09T03:04:33.617Z",
+  "requests": 5,
+  "warmupRequests": 2,
+  "thresholdMs": null,
+  "routes": [
+    {
+      "route": "/api/v1/launches?limit=20&region=all",
+      "accept": "application/json",
+      "min": 1.740833000000066,
+      "max": 2.416249999999991,
+      "mean": 2.097950000000014,
+      "p50": 2.1413749999999254,
+      "p95": 2.416249999999991
+    },
+    {
+      "route": "/api/v1/search?q=starlink&limit=8",
+      "accept": "application/json",
+      "min": 1.3953749999999445,
+      "max": 1.9472089999999298,
+      "mean": 1.7181415999999672,
+      "p50": 1.7985410000000002,
+      "p95": 1.9472089999999298
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "generatedAt": "2026-03-10T00:59:47.103Z",
+  "users": {
+    "free": {
+      "userId": "78afab0f-0fe8-4647-a8a0-910ddec70a6f",
+      "email": "acceptance-free@tminuszero.local"
+    },
+    "premium": {
+      "userId": "f99d4dad-854b-4374-b402-6467583b6ab5",
+      "email": "acceptance-premium@tminuszero.local"
+    }
+  },
+  "launches": [
+    {
+      "id": "11111111-1111-4111-8111-111111111111",
+      "name": "Starlink Group 9-9"
+    },
+    {
+      "id": "22222222-2222-4222-8222-222222222222",
+      "name": "Transporter Local 1"
+    }
+  ],
+  "watchlist": {
+    "id": "33333333-3333-4333-8333-333333333333"
+  },
+  "filterPreset": {
+    "id": "55555555-5555-4555-8555-555555555555"
+  }
+}

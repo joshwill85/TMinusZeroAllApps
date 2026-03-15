@@ -1,5 +1,22 @@
 export type JepConfidence = 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
 export type JepCalibrationBand = 'VERY_LOW' | 'LOW' | 'MEDIUM' | 'HIGH' | 'VERY_HIGH' | 'UNKNOWN';
+export type JepForecastPhase = 'week_ahead' | 'day_ahead' | 'same_day' | 'near_launch' | 'post_launch';
+export type JepForecastConfidence = 'LOW' | 'MEDIUM' | 'HIGH';
+export type JepWeatherSourceKey = 'nbm_ndfd' | 'hrrr' | 'goes_nowcast' | 'open_meteo_fallback';
+export type JepWeatherSamplingMode = 'visible_path' | 'sunlit_path' | 'modeled_path' | 'observer_only';
+export type JepWeatherObstructionLevel = 'clear' | 'partly_obstructed' | 'likely_blocked' | 'unknown';
+export type JepWeatherPointRole = 'observer' | 'path_start' | 'path_mid' | 'path_end' | 'pad';
+export type JepWeatherPointSource = 'nws' | 'open_meteo' | 'mixed' | 'none';
+export type JepWeatherMainBlocker =
+  | 'observer_low_ceiling'
+  | 'observer_sky_cover'
+  | 'path_low_ceiling'
+  | 'path_sky_cover'
+  | 'observer_low_clouds'
+  | 'observer_mid_clouds'
+  | 'observer_high_clouds'
+  | 'mixed'
+  | 'unknown';
 export const JEP_REPORT_MODE_VALUES = ['watchability', 'probability'] as const;
 export type JepReportMode = (typeof JEP_REPORT_MODE_VALUES)[number];
 export const JEP_OBSERVER_OUTCOME_VALUES = ['seen', 'not_seen', 'not_observable'] as const;
@@ -63,6 +80,51 @@ export type JepReadiness = {
   reasons: JepReadinessReason[];
 };
 
+export type JepWeatherPointSummary = {
+  role: JepWeatherPointRole;
+  source: JepWeatherPointSource;
+  totalCloudPct: number | null;
+  lowCloudPct: number | null;
+  midCloudPct: number | null;
+  highCloudPct: number | null;
+  skyCoverPct: number | null;
+  ceilingFt: number | null;
+  obstructionLevel: JepWeatherObstructionLevel;
+  note: string | null;
+};
+
+export type JepWeatherPathSummary = {
+  source: JepWeatherPointSource;
+  samplesConsidered: number;
+  worstRole: Exclude<JepWeatherPointRole, 'observer' | 'pad'> | null;
+  skyCoverPct: number | null;
+  ceilingFt: number | null;
+  obstructionLevel: JepWeatherObstructionLevel;
+  note: string | null;
+};
+
+export type JepWeatherDetails = {
+  sourceUsed: string | null;
+  mainBlocker: JepWeatherMainBlocker;
+  obstructionFactor: number | null;
+  contrastFactor: number | null;
+  samplingMode: JepWeatherSamplingMode;
+  samplingNote: string | null;
+  observer: JepWeatherPointSummary | null;
+  alongPath: JepWeatherPathSummary | null;
+  pad: JepWeatherPointSummary | null;
+};
+
+export type JepPlanning = {
+  hoursToNet: number | null;
+  phase: JepForecastPhase;
+  confidence: JepForecastConfidence;
+  label: string;
+  note: string;
+  sourcePlan: JepWeatherSourceKey[];
+  sourceUsed: string | null;
+};
+
 export type LaunchJepScore = {
   launchId: string;
   mode: 'watchability' | 'probability';
@@ -87,6 +149,8 @@ export type LaunchJepScore = {
     solarDepressionDeg: number | null;
     cloudCoverPct: number | null;
     cloudCoverLowPct: number | null;
+    cloudCoverMidPct: number | null;
+    cloudCoverHighPct: number | null;
   };
   confidence: {
     time: JepConfidence;
@@ -98,6 +162,7 @@ export type LaunchJepScore = {
     azimuth: string | null;
     geometryOnlyFallback: boolean;
   };
+  planning: JepPlanning;
   explainability: {
     reasonCodes: string[];
     weightedContributions: {
@@ -108,6 +173,7 @@ export type LaunchJepScore = {
     };
     safeMode: boolean;
   };
+  weatherDetails: JepWeatherDetails | null;
   observer: {
     locationHash: string;
     latBucket: number | null;

@@ -2,22 +2,17 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import clsx from 'clsx';
-import { LaunchFilter } from '@/lib/types/launch';
+import type { EmbedWidgetV1 } from '@tminuszero/api-client';
+import {
+  useCreateEmbedWidgetMutation,
+  useDeleteEmbedWidgetMutation,
+  useEmbedWidgetsQuery,
+  useRotateEmbedWidgetMutation
+} from '@/lib/api/queries';
 import { PremiumGateButton } from '@/components/PremiumGateButton';
+import { LaunchFilter } from '@/lib/types/launch';
 
 type Scope = 'filters' | 'preset' | 'watchlist';
-
-type EmbedWidget = {
-  id: string;
-  name: string;
-  token: string;
-  widget_type?: string;
-  filters?: LaunchFilter;
-  preset_id?: string | null;
-  watchlist_id?: string | null;
-  created_at?: string;
-  updated_at?: string;
-};
 
 export function EmbedNextLaunchCard({
   isAuthed,
@@ -37,19 +32,27 @@ export function EmbedNextLaunchCard({
   myWatchlistId: string | null;
 }) {
   const [open, setOpen] = useState(false);
+  const embedWidgetsQuery = useEmbedWidgetsQuery({ enabled: open });
+  const createEmbedWidgetMutation = useCreateEmbedWidgetMutation();
+  const rotateEmbedWidgetMutation = useRotateEmbedWidgetMutation();
+  const deleteEmbedWidgetMutation = useDeleteEmbedWidgetMutation();
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
   const [scope, setScope] = useState<Scope>('filters');
   const [busy, setBusy] = useState(false);
-  const [widgetsState, setWidgetsState] = useState<
-    { status: 'idle' | 'loading' | 'ready' | 'error'; widgets: EmbedWidget[] }
-  >({ status: 'idle', widgets: [] });
   const [selectedWidgetId, setSelectedWidgetId] = useState<string | null>(null);
+  const widgets = useMemo(() => embedWidgetsQuery.data?.widgets ?? [], [embedWidgetsQuery.data?.widgets]);
+  const widgetsStatus = open
+    ? embedWidgetsQuery.isPending
+      ? 'loading'
+      : embedWidgetsQuery.isError
+        ? 'error'
+        : 'ready'
+    : 'idle';
 
   useEffect(() => {
     if (open) return;
     setCopyState('idle');
     setBusy(false);
-    setWidgetsState({ status: 'idle', widgets: [] });
     setSelectedWidgetId(null);
   }, [open]);
 
@@ -59,34 +62,16 @@ export function EmbedNextLaunchCard({
     setScope(defaultScope);
   }, [activePresetId, myLaunchesEnabled, myWatchlistId, open]);
 
-  useEffect(() => {
-    if (!open || widgetsState.status !== 'idle') return;
-    setWidgetsState({ status: 'loading', widgets: [] });
-    fetch('/api/me/embed-widgets', { cache: 'no-store' })
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`widgets_http_${res.status}`);
-        return (await res.json()) as { widgets?: EmbedWidget[] };
-      })
-      .then((data) => {
-        const widgets = Array.isArray(data.widgets) ? data.widgets : [];
-        setWidgetsState({ status: 'ready', widgets });
-        setSelectedWidgetId((prev) => prev || widgets[0]?.id || null);
-      })
-      .catch(() => {
-        setWidgetsState({ status: 'error', widgets: [] });
-      });
-  }, [open, widgetsState.status]);
-
   const selectedWidget = useMemo(
-    () => widgetsState.widgets.find((widget) => widget.id === selectedWidgetId) ?? null,
-    [selectedWidgetId, widgetsState.widgets]
+    () => widgets.find((widget) => widget.id === selectedWidgetId) ?? null,
+    [selectedWidgetId, widgets]
   );
 
   useEffect(() => {
     if (!open) return;
-    if (selectedWidgetId && widgetsState.widgets.some((w) => w.id === selectedWidgetId)) return;
-    setSelectedWidgetId(widgetsState.widgets[0]?.id || null);
-  }, [open, selectedWidgetId, widgetsState.widgets]);
+    if (selectedWidgetId && widgets.some((widget) => widget.id === selectedWidgetId)) return;
+    setSelectedWidgetId(widgets[0]?.id || null);
+  }, [open, selectedWidgetId, widgets]);
 
   const embed = useMemo(() => buildEmbed(selectedWidget?.token ?? null), [selectedWidget?.token]);
 
@@ -121,24 +106,17 @@ export function EmbedNextLaunchCard({
 
     setBusy(true);
     try {
-      const res = await fetch('/api/me/embed-widgets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        cache: 'no-store'
+      const created = await createEmbedWidgetMutation.mutateAsync({
+        name,
+        filters: payload.filters as LaunchFilter | undefined,
+        presetId: typeof payload.preset_id === 'string' ? payload.preset_id : undefined,
+        watchlistId: typeof payload.watchlist_id === 'string' ? payload.watchlist_id : undefined
       });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || `create_http_${res.status}`);
-      const widget = json?.widget as EmbedWidget | undefined;
+      const widget = created.widget as EmbedWidgetV1 | undefined;
       if (!widget?.id || !widget?.token) throw new Error('widget_missing');
-      setWidgetsState((prev) => ({
-        status: 'ready',
-        widgets: [widget, ...prev.widgets.filter((w) => w.id !== widget.id)]
-      }));
       setSelectedWidgetId(widget.id);
     } catch (err) {
       console.error('embed widget create error', err);
-      setWidgetsState((prev) => ({ ...prev, status: prev.widgets.length ? 'ready' : 'error' }));
     } finally {
       setBusy(false);
     }
@@ -151,21 +129,11 @@ export function EmbedNextLaunchCard({
 
     setBusy(true);
     try {
-      const res = await fetch(`/api/me/embed-widgets/${encodeURIComponent(selectedWidget.id)}/rotate`, {
-        method: 'POST',
-        cache: 'no-store'
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || `rotate_http_${res.status}`);
-      const token = json?.widget?.token ? String(json.widget.token) : null;
+      const payload = await rotateEmbedWidgetMutation.mutateAsync(selectedWidget.id);
+      const token = payload.widget?.token ? String(payload.widget.token) : null;
       if (!token) throw new Error('token_missing');
-      setWidgetsState((prev) => ({
-        status: 'ready',
-        widgets: prev.widgets.map((w) => (w.id === selectedWidget.id ? { ...w, token } : w))
-      }));
     } catch (err) {
       console.error('embed widget rotate error', err);
-      setWidgetsState((prev) => ({ ...prev, status: prev.widgets.length ? 'ready' : 'error' }));
     } finally {
       setBusy(false);
     }
@@ -178,19 +146,11 @@ export function EmbedNextLaunchCard({
 
     setBusy(true);
     try {
-      const res = await fetch(`/api/me/embed-widgets/${encodeURIComponent(selectedWidget.id)}`, {
-        method: 'DELETE',
-        cache: 'no-store'
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || `delete_http_${res.status}`);
-      setWidgetsState((prev) => {
-        const nextWidgets = prev.widgets.filter((w) => w.id !== selectedWidget.id);
-        return { status: 'ready', widgets: nextWidgets };
-      });
+      await deleteEmbedWidgetMutation.mutateAsync(selectedWidget.id);
+      const remainingWidgets = widgets.filter((widget) => widget.id !== selectedWidget.id);
+      setSelectedWidgetId(remainingWidgets[0]?.id || null);
     } catch (err) {
       console.error('embed widget revoke error', err);
-      setWidgetsState((prev) => ({ ...prev, status: prev.widgets.length ? 'ready' : 'error' }));
     } finally {
       setBusy(false);
     }
@@ -245,18 +205,18 @@ export function EmbedNextLaunchCard({
                     className="mt-1 w-full rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
                     value={selectedWidgetId ?? ''}
                     onChange={(e) => setSelectedWidgetId(e.target.value || null)}
-                    disabled={widgetsState.status === 'loading' || busy}
+                    disabled={widgetsStatus === 'loading' || busy}
                   >
                     <option value="">
-                      {widgetsState.status === 'loading'
+                      {widgetsStatus === 'loading'
                         ? 'Loading…'
-                        : widgetsState.status === 'error'
+                        : widgetsStatus === 'error'
                           ? 'Unable to load widgets'
-                          : widgetsState.widgets.length
+                          : widgets.length
                             ? 'Select a widget…'
                             : 'No widgets yet'}
                     </option>
-                    {widgetsState.widgets.map((widget) => (
+                    {widgets.map((widget) => (
                       <option key={widget.id} value={widget.id}>
                         {widget.name}
                       </option>
@@ -283,7 +243,7 @@ export function EmbedNextLaunchCard({
                 type="button"
                 className="block w-full rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-left text-sm text-text1 hover:border-primary disabled:opacity-60"
                 onClick={createWidget}
-                disabled={busy || widgetsState.status === 'loading'}
+                disabled={busy || widgetsStatus === 'loading' || createEmbedWidgetMutation.isPending}
               >
                 {busy ? 'Working…' : 'Create new widget'}
               </button>
@@ -293,10 +253,10 @@ export function EmbedNextLaunchCard({
                 className="h-28 w-full resize-none rounded-xl border border-stroke bg-surface-0 p-3 font-mono text-[11px] text-text2"
                 readOnly
                 value={
-                  widgetsState.status === 'loading'
+                  widgetsStatus === 'loading'
                     ? 'Loading…'
                     : embed.iframeCode ||
-                      (widgetsState.status === 'error'
+                      (widgetsStatus === 'error'
                         ? 'Embed widgets unavailable'
                         : 'Select or create a widget to generate embed code.')
                 }

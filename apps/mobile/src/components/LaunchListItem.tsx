@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Pressable, Text, View, type PressableProps } from 'react-native';
-import { useMobileBootstrap } from '@/src/providers/AppProviders';
+import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 
 type LaunchListItemProps = PressableProps & {
   title: string;

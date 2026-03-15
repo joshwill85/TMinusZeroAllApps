@@ -1,5 +1,5 @@
 import { Text, View } from 'react-native';
-import { useMobileBootstrap } from '@/src/providers/AppProviders';
+import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 
 type ScreenHeaderProps = {
   eyebrow: string;
