@@ -6,6 +6,8 @@ import type {
   AlertRulesV1,
   ArTelemetrySessionEventV1,
   ApiClient,
+  BlueOriginMissionFilterRequest,
+  BlueOriginMissionKeyV1,
   FilterPresetEnvelopeV1,
   FilterPresetCreateV1,
   FilterPresetsV1,
@@ -30,6 +32,13 @@ import {
   alertRulesQueryOptions,
   billingCatalogQueryOptions,
   billingSummaryQueryOptions,
+  blueOriginContractsQueryOptions,
+  blueOriginEnginesQueryOptions,
+  blueOriginFlightsQueryOptions,
+  blueOriginMissionOverviewQueryOptions,
+  blueOriginOverviewQueryOptions,
+  blueOriginTravelersQueryOptions,
+  blueOriginVehiclesQueryOptions,
   filterPresetsQueryOptions,
   launchFeedQueryOptions,
   launchFilterOptionsQueryOptions,
@@ -214,6 +223,72 @@ export function useBillingCatalogQuery(platform: 'ios' | 'android', options?: { 
   return useQuery({
     ...billingCatalogQueryOptions(() => client.getBillingCatalog(platform), { platform }),
     enabled: (options?.enabled ?? true) && isAuthHydrated && Boolean(accessToken),
+  });
+}
+
+export function useBlueOriginOverviewQuery(options?: { enabled?: boolean }) {
+  const client = useMobileApiClient();
+
+  return useQuery({
+    ...blueOriginOverviewQueryOptions(() => client.getBlueOriginOverview()),
+    enabled: options?.enabled ?? true
+  });
+}
+
+export function useBlueOriginMissionOverviewQuery(
+  mission: Exclude<BlueOriginMissionKeyV1, 'blue-origin-program'> | null,
+  options?: { enabled?: boolean }
+) {
+  const client = useMobileApiClient();
+
+  return useQuery({
+    ...blueOriginMissionOverviewQueryOptions(mission || 'missing', () => client.getBlueOriginMissionOverview(String(mission) as Exclude<BlueOriginMissionKeyV1, 'blue-origin-program'>)),
+    enabled: (options?.enabled ?? true) && Boolean(mission)
+  });
+}
+
+export function useBlueOriginFlightsQuery(request: BlueOriginMissionFilterRequest = {}, options?: { enabled?: boolean }) {
+  const client = useMobileApiClient();
+
+  return useQuery({
+    ...blueOriginFlightsQueryOptions(() => client.getBlueOriginFlights(request), request),
+    enabled: options?.enabled ?? true
+  });
+}
+
+export function useBlueOriginTravelersQuery(options?: { enabled?: boolean }) {
+  const client = useMobileApiClient();
+
+  return useQuery({
+    ...blueOriginTravelersQueryOptions(() => client.getBlueOriginTravelers()),
+    enabled: options?.enabled ?? true
+  });
+}
+
+export function useBlueOriginVehiclesQuery(request: BlueOriginMissionFilterRequest = {}, options?: { enabled?: boolean }) {
+  const client = useMobileApiClient();
+
+  return useQuery({
+    ...blueOriginVehiclesQueryOptions(() => client.getBlueOriginVehicles(request), request),
+    enabled: options?.enabled ?? true
+  });
+}
+
+export function useBlueOriginEnginesQuery(request: BlueOriginMissionFilterRequest = {}, options?: { enabled?: boolean }) {
+  const client = useMobileApiClient();
+
+  return useQuery({
+    ...blueOriginEnginesQueryOptions(() => client.getBlueOriginEngines(request), request),
+    enabled: options?.enabled ?? true
+  });
+}
+
+export function useBlueOriginContractsQuery(request: BlueOriginMissionFilterRequest = {}, options?: { enabled?: boolean }) {
+  const client = useMobileApiClient();
+
+  return useQuery({
+    ...blueOriginContractsQueryOptions(() => client.getBlueOriginContracts(request), request),
+    enabled: options?.enabled ?? true
   });
 }
 

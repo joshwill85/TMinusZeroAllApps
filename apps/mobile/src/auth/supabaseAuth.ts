@@ -1,10 +1,20 @@
 import { Platform } from 'react-native';
+import * as Application from 'expo-application';
+import Constants from 'expo-constants';
 import * as ExpoLinking from 'expo-linking';
 import * as SecureStore from 'expo-secure-store';
 import * as WebBrowser from 'expo-web-browser';
 import { createClient, type Session } from '@supabase/supabase-js';
 import type { AuthProviderV1 } from '@tminuszero/contracts';
-import { getSupabaseAnonKey, getSupabaseUrl } from '@/src/config/api';
+import {
+  createApiClient,
+  type MobileAuthPasswordSignUpResponseV1,
+  type MobileAuthRiskDecisionV1
+} from '@tminuszero/api-client';
+import { getApiBaseUrl, getSupabaseAnonKey, getSupabaseUrl } from '@/src/config/api';
+import { collectMobileAuthAttestation } from '@/src/auth/attestation';
+import { getMobileAuthPlatform } from '@/src/auth/authContext';
+import { readOrCreateAuthInstallationId } from '@/src/auth/riskStorage';
 
 type MobileAuthSession = {
   accessToken: string;
@@ -29,6 +39,23 @@ type MobileOAuthProvider = Extract<AuthProviderV1, 'apple' | 'google'>;
 type CompleteMobileAuthResult = {
   provider: AuthProviderV1;
   session: MobileAuthSession;
+};
+
+type MobilePasswordAuthResult = {
+  session: MobileAuthSession;
+  riskSessionId: string;
+};
+
+type MobilePasswordSignUpResult = {
+  session: MobileAuthSession | null;
+  user: MobileAuthUser;
+  requiresVerification: boolean;
+  riskSessionId: string;
+};
+
+type MobilePasswordChallengeResult = {
+  riskSessionId: string;
+  challengeCode: string;
 };
 
 const AUTH_SECURE_STORE_OPTIONS: SecureStore.SecureStoreOptions = {
@@ -80,6 +107,115 @@ function getMobileSupabaseClient() {
   });
 
   return mobileSupabaseClient;
+}
+
+function createGuestMobileAuthClient() {
+  return createApiClient({
+    baseUrl: getApiBaseUrl(),
+    auth: { mode: 'guest' }
+  });
+}
+
+function readBuildProfile() {
+  const extra = Constants.expoConfig?.extra;
+  if (extra && typeof extra === 'object' && typeof (extra as { buildProfile?: unknown }).buildProfile === 'string') {
+    const value = (extra as { buildProfile: string }).buildProfile.trim();
+    return value || null;
+  }
+  return null;
+}
+
+function toMobileAuthSession(session: MobileAuthSession): MobileAuthSession {
+  return {
+    accessToken: session.accessToken,
+    refreshToken: session.refreshToken,
+    expiresIn: session.expiresIn,
+    expiresAt: session.expiresAt,
+    userId: session.userId,
+    email: session.email
+  };
+}
+
+function toMobileAuthUser(user: MobileAuthUser): MobileAuthUser {
+  return {
+    userId: user.userId,
+    email: user.email
+  };
+}
+
+function getChallengeRedirectUrl() {
+  return ExpoLinking.createURL('/auth/challenge', {
+    scheme: 'tminuszero'
+  });
+}
+
+function formatRiskDecisionMessage(decision: MobileAuthRiskDecisionV1) {
+  if (decision.reasonCode === 'rate_limited' && decision.retryAfterSeconds) {
+    return `Too many attempts. Try again in ${decision.retryAfterSeconds} seconds.`;
+  }
+
+  if (decision.reasonCode === 'challenge_failed') {
+    return 'The verification challenge could not be completed.';
+  }
+
+  return 'This request needs additional verification before it can continue.';
+}
+
+async function completeMobilePasswordChallenge(email: string, flow: 'sign_in' | 'sign_up' | 'resend' | 'recover') {
+  const client = createGuestMobileAuthClient();
+  const installationId = await readOrCreateAuthInstallationId();
+  const decision = await client.startMobileAuthRisk({
+    flow,
+    email,
+    installationId,
+    platform: getMobileAuthPlatform(),
+    appVersion: Application.nativeApplicationVersion ?? Constants.expoConfig?.version ?? null,
+    buildProfile: readBuildProfile(),
+    attestation: await collectMobileAuthAttestation()
+  });
+
+  if (decision.disposition === 'deny') {
+    throw new Error(formatRiskDecisionMessage(decision));
+  }
+  if (!decision.challengeUrl) {
+    throw new Error('The mobile auth challenge is not configured for this request.');
+  }
+
+  const redirectTo = getChallengeRedirectUrl();
+
+  try {
+    const result = await WebBrowser.openAuthSessionAsync(decision.challengeUrl, redirectTo);
+    if (result.type === 'cancel' || result.type === 'dismiss') {
+      throw new Error('Authentication was cancelled before it completed.');
+    }
+    if (result.type !== 'success' || !('url' in result) || typeof result.url !== 'string') {
+      throw new Error('Authentication did not complete successfully.');
+    }
+
+    const params = buildParamMap(result.url);
+    const errorDescription = params.get('error_description') ?? params.get('error') ?? '';
+    if (errorDescription) {
+      throw new Error(errorDescription);
+    }
+
+    const riskSessionId = params.get('risk_session')?.trim() ?? '';
+    const challengeCode = params.get('challenge_code')?.trim() ?? '';
+    if (!riskSessionId || !challengeCode) {
+      throw new Error('The mobile auth challenge did not return a valid completion payload.');
+    }
+    if (riskSessionId !== decision.riskSessionId) {
+      throw new Error('The mobile auth challenge completed for an unexpected session.');
+    }
+
+    return {
+      riskSessionId,
+      challengeCode
+    } satisfies MobilePasswordChallengeResult;
+  } finally {
+    if (Platform.OS === 'android') {
+      void WebBrowser.coolDownAsync().catch(() => {});
+    }
+  }
 }
 
 async function authRequest(pathname: string, init: RequestInit = {}) {
@@ -142,16 +278,6 @@ function parseAuthSession(payload: unknown): MobileAuthSession {
     refreshToken: typeof data?.refresh_token === 'string' ? data.refresh_token : null,
     expiresIn: Number.isFinite(expiresInRaw) ? Number(expiresInRaw) : null,
     expiresAt: parseAccessTokenExpiry(accessToken, Number.isFinite(expiresInRaw) ? Number(expiresInRaw) : null),
-    userId: typeof user?.id === 'string' ? user.id : null,
-    email: typeof user?.email === 'string' ? user.email : null
-  };
-}
-
-function parseAuthUser(payload: unknown): MobileAuthUser {
-  const data = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null;
-  const user = data?.user && typeof data.user === 'object' ? (data.user as Record<string, unknown>) : null;
-
-  return {
     userId: typeof user?.id === 'string' ? user.id : null,
     email: typeof user?.email === 'string' ? user.email : null
   };
@@ -374,37 +500,37 @@ export async function continueWithOAuthProvider(provider: MobileOAuthProvider): 
   }
 }
 
-export async function signInWithPassword(email: string, password: string) {
-  const payload = await authRequest('/auth/v1/token?grant_type=password', {
-    method: 'POST',
-    body: JSON.stringify({
-      email,
-      password
-    })
+export async function signInWithPassword(email: string, password: string): Promise<MobilePasswordAuthResult> {
+  const challenge = await completeMobilePasswordChallenge(email, 'sign_in');
+  const client = createGuestMobileAuthClient();
+  const payload = await client.mobilePasswordSignIn({
+    email,
+    password,
+    riskSessionId: challenge.riskSessionId,
+    challengeCode: challenge.challengeCode
   });
-
-  return parseAuthSession(payload);
-}
-
-export async function signUpWithPassword(email: string, password: string, emailRedirectTo: string) {
-  const payload = await authRequest('/auth/v1/signup', {
-    method: 'POST',
-    body: JSON.stringify({
-      email,
-      password,
-      options: {
-        emailRedirectTo
-      }
-    })
-  });
-
-  const data = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null;
-  const accessToken = typeof data?.access_token === 'string' ? data.access_token.trim() : '';
 
   return {
-    session: accessToken ? parseAuthSession(payload) : null,
-    user: parseAuthUser(payload),
-    requiresVerification: !accessToken
+    session: toMobileAuthSession(payload.session),
+    riskSessionId: challenge.riskSessionId
+  };
+}
+
+export async function signUpWithPassword(email: string, password: string, emailRedirectTo: string): Promise<MobilePasswordSignUpResult> {
+  const challenge = await completeMobilePasswordChallenge(email, 'sign_up');
+  const client = createGuestMobileAuthClient();
+  const payload: MobileAuthPasswordSignUpResponseV1 = await client.mobilePasswordSignUp({
+    email,
+    password,
+    emailRedirectTo,
+    riskSessionId: challenge.riskSessionId,
+    challengeCode: challenge.challengeCode
+  });
+  return {
+    session: payload.session ? toMobileAuthSession(payload.session) : null,
+    user: toMobileAuthUser(payload.user),
+    requiresVerification: payload.requiresVerification,
+    riskSessionId: challenge.riskSessionId
   };
 }
 
@@ -420,25 +546,24 @@ export async function refreshSession(refreshToken: string) {
 }
 
 export async function resendSignupVerification(email: string, emailRedirectTo: string) {
-  await authRequest('/auth/v1/resend', {
-    method: 'POST',
-    body: JSON.stringify({
-      type: 'signup',
-      email,
-      options: {
-        emailRedirectTo
-      }
-    })
+  const challenge = await completeMobilePasswordChallenge(email, 'resend');
+  const client = createGuestMobileAuthClient();
+  await client.mobilePasswordResend({
+    email,
+    emailRedirectTo,
+    riskSessionId: challenge.riskSessionId,
+    challengeCode: challenge.challengeCode
   });
 }
 
 export async function requestPasswordReset(email: string, redirectTo: string) {
-  await authRequest('/auth/v1/recover', {
-    method: 'POST',
-    body: JSON.stringify({
-      email,
-      redirectTo
-    })
+  const challenge = await completeMobilePasswordChallenge(email, 'recover');
+  const client = createGuestMobileAuthClient();
+  await client.mobilePasswordRecover({
+    email,
+    redirectTo,
+    riskSessionId: challenge.riskSessionId,
+    challengeCode: challenge.challengeCode
   });
 }
 

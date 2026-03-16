@@ -76,7 +76,12 @@ async function main() {
       role: 'guest',
       accessToken: null,
       expiresAt: null,
-      authMode: 'guest'
+      authMode: 'guest',
+      mobileHubRollout: {
+        blueOrigin: { nativeEnabled: false, externalDeepLinksEnabled: false },
+        spacex: { nativeEnabled: false, externalDeepLinksEnabled: false },
+        artemis: { nativeEnabled: false, externalDeepLinksEnabled: false }
+      }
     },
     viewerSessionBearer: {
       viewerId: launchId,
@@ -84,7 +89,12 @@ async function main() {
       role: 'member',
       accessToken: 'tmz-bearer',
       expiresAt: '2026-03-08T12:00:00.000Z',
-      authMode: 'bearer'
+      authMode: 'bearer',
+      mobileHubRollout: {
+        blueOrigin: { nativeEnabled: false, externalDeepLinksEnabled: false },
+        spacex: { nativeEnabled: false, externalDeepLinksEnabled: false },
+        artemis: { nativeEnabled: false, externalDeepLinksEnabled: false }
+      }
     },
     entitlements: baseEntitlements,
     launchFeed: {

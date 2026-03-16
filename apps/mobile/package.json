@@ -26,6 +26,7 @@
     "@tminuszero/contracts": "0.0.0",
     "@tminuszero/design-tokens": "0.0.0",
     "@tminuszero/domain": "0.0.0",
+    "@tminuszero/launch-animations": "*",
     "@tminuszero/navigation": "0.0.0",
     "@tminuszero/query": "0.0.0",
     "expo": "~55.0.5",

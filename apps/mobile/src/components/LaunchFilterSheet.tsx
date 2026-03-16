@@ -264,6 +264,7 @@ export function LaunchFilterSheet({
               <ViewerTierCard
                 tier={isAuthed ? 'free' : 'anon'}
                 featureKey="launch_filters"
+                showBadge={isAuthed}
                 onPress={() => {
                   onClose();
                   if (isAuthed) onOpenUpgrade();
@@ -377,6 +378,7 @@ export function LaunchFilterSheet({
                   <ViewerTierCard
                     tier={isAuthed ? 'free' : 'anon'}
                     featureKey="saved_items"
+                    showBadge={isAuthed}
                     onPress={() => {
                       onClose();
                       if (isAuthed) onOpenUpgrade();

@@ -11,6 +11,7 @@ type CaptchaWidgetProps = {
   onToken: (token: string | null) => void;
   resetKey?: number;
   className?: string;
+  mode?: 'visible' | 'interaction-only';
 };
 
 declare global {
@@ -28,7 +29,14 @@ declare global {
   }
 }
 
-export function CaptchaWidget({ provider, siteKey, onToken, resetKey = 0, className }: CaptchaWidgetProps) {
+export function CaptchaWidget({
+  provider,
+  siteKey,
+  onToken,
+  resetKey = 0,
+  className,
+  mode = 'visible'
+}: CaptchaWidgetProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const widgetIdRef = useRef<string | number | null>(null);
   const [ready, setReady] = useState(false);
@@ -70,13 +78,16 @@ export function CaptchaWidget({ provider, siteKey, onToken, resetKey = 0, classN
     };
 
     if (provider === 'turnstile' && window.turnstile) {
-      widgetIdRef.current = window.turnstile.render(containerRef.current, commonOptions);
+      widgetIdRef.current = window.turnstile.render(containerRef.current, {
+        ...commonOptions,
+        appearance: mode === 'interaction-only' ? 'interaction-only' : 'always'
+      });
     }
 
     if (provider === 'hcaptcha' && window.hcaptcha) {
       widgetIdRef.current = window.hcaptcha.render(containerRef.current, commonOptions);
     }
-  }, [onToken, provider, ready, siteKey, resetKey]);
+  }, [mode, onToken, provider, ready, siteKey, resetKey]);
 
   useEffect(() => {
     return () => {

@@ -53,7 +53,12 @@ const payloadByPath = new Map<string, MockResponseResolver>([
       role: 'member',
       accessToken: null,
       expiresAt: null,
-      authMode: 'cookie'
+      authMode: 'cookie',
+      mobileHubRollout: {
+        blueOrigin: { nativeEnabled: false, externalDeepLinksEnabled: false },
+        spacex: { nativeEnabled: false, externalDeepLinksEnabled: false },
+        artemis: { nativeEnabled: false, externalDeepLinksEnabled: false }
+      }
     })
   ],
   [

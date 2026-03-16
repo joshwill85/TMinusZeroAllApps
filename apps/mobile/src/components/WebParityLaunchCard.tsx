@@ -229,26 +229,8 @@ export function WebParityLaunchCard({
             {isNext ? <BadgePill label="Next launch" textColor={theme.accent} backgroundColor="rgba(34, 211, 238, 0.08)" borderColor="rgba(34, 211, 238, 0.18)" /> : null}
           </View>
 
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={{ marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' }}>
             <StatusPill label={buildStatusLabel(launch)} tone={statusTone} />
-            {launch.weatherIconUrl ? (
-              <View
-                style={{
-                  height: 40,
-                  width: 40,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: 'rgba(255, 255, 255, 0.08)',
-                  backgroundColor: 'rgba(255, 255, 255, 0.04)'
-                }}
-              >
-                <Image source={{ uri: launch.weatherIconUrl }} resizeMode="contain" style={{ width: 24, height: 24 }} />
-              </View>
-            ) : weatherSummary ? (
-              <BadgePill label="Weather" textColor={theme.muted} backgroundColor="rgba(255, 255, 255, 0.04)" borderColor="rgba(255, 255, 255, 0.08)" />
-            ) : null}
           </View>
         </View>
 
@@ -329,6 +311,9 @@ export function WebParityLaunchCard({
           }}
         >
           <Text
+            adjustsFontSizeToFit
+            minimumFontScale={0.72}
+            numberOfLines={1}
             style={{
               color: theme.foreground,
               fontSize: 24,

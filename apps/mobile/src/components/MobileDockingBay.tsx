@@ -4,6 +4,7 @@ import { type Href, usePathname, useRouter, useSegments } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useProfileQuery, useViewerEntitlementsQuery, useViewerSessionQuery } from '@/src/api/queries';
 import { getPublicSiteUrl } from '@/src/config/api';
+import { getProgramHubEntryHref } from '@/src/features/programHubs/rollout';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import {
   MOBILE_DOCK_BOTTOM_OFFSET,
@@ -74,6 +75,9 @@ export function MobileDockingBay() {
   }, [pathname]);
 
   const manifestSections = useMemo<ManifestSection[]>(() => {
+    const artemisHref = getProgramHubEntryHref(viewerSessionQuery.data, 'artemis');
+    const spacexHref = getProgramHubEntryHref(viewerSessionQuery.data, 'spacex');
+    const blueOriginHref = getProgramHubEntryHref(viewerSessionQuery.data, 'blueOrigin');
     const nativeItems: ManifestItem[] = [
       {
         key: 'calendar',
@@ -145,30 +149,57 @@ export function MobileDockingBay() {
             href: `${siteUrl}/launch-providers`,
             testID: 'manifest-link-providers'
           },
-          {
-            key: 'artemis',
-            title: 'Artemis',
-            description: 'NASA Artemis program hub.',
-            kind: 'external',
-            href: `${siteUrl}/artemis`,
-            testID: 'manifest-link-artemis'
-          },
-          {
-            key: 'spacex',
-            title: 'SpaceX',
-            description: 'SpaceX program and mission hub.',
-            kind: 'external',
-            href: `${siteUrl}/spacex`,
-            testID: 'manifest-link-spacex'
-          },
-          {
-            key: 'blue-origin',
-            title: 'Blue Origin',
-            description: 'Blue Origin launch and mission hub.',
-            kind: 'external',
-            href: `${siteUrl}/blue-origin`,
-            testID: 'manifest-link-blue-origin'
-          },
+          artemisHref
+            ? {
+                key: 'artemis',
+                title: 'Artemis',
+                description: 'NASA Artemis program hub.',
+                kind: 'native',
+                href: artemisHref as Href,
+                testID: 'manifest-link-artemis'
+              }
+            : {
+                key: 'artemis',
+                title: 'Artemis',
+                description: 'NASA Artemis program hub.',
+                kind: 'external',
+                href: `${siteUrl}/artemis`,
+                testID: 'manifest-link-artemis'
+              },
+          spacexHref
+            ? {
+                key: 'spacex',
+                title: 'SpaceX',
+                description: 'SpaceX program and mission hub.',
+                kind: 'native',
+                href: spacexHref as Href,
+                testID: 'manifest-link-spacex'
+              }
+            : {
+                key: 'spacex',
+                title: 'SpaceX',
+                description: 'SpaceX program and mission hub.',
+                kind: 'external',
+                href: `${siteUrl}/spacex`,
+                testID: 'manifest-link-spacex'
+              },
+          blueOriginHref
+            ? {
+                key: 'blue-origin',
+                title: 'Blue Origin',
+                description: 'Blue Origin launch and mission hub.',
+                kind: 'native',
+                href: blueOriginHref as Href,
+                testID: 'manifest-link-blue-origin'
+              }
+            : {
+                key: 'blue-origin',
+                title: 'Blue Origin',
+                description: 'Blue Origin launch and mission hub.',
+                kind: 'external',
+                href: `${siteUrl}/blue-origin`,
+                testID: 'manifest-link-blue-origin'
+              },
           {
             key: 'about',
             title: 'About',
@@ -230,7 +261,7 @@ export function MobileDockingBay() {
         ]
       }
     ];
-  }, [isPremium, profileHref, siteUrl, viewerSessionQuery.data?.viewerId]);
+  }, [isPremium, profileHref, siteUrl, viewerSessionQuery.data]);
 
   if (!showDock) {
     return null;

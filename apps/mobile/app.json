@@ -32,7 +32,8 @@
           }
         }
       ],
-      "expo-iap"
+      "expo-iap",
+      "react-native-reanimated/plugin"
     ],
     "extra": {
       "eas": {

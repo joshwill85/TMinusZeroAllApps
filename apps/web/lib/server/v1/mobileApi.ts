@@ -53,12 +53,15 @@ import {
   watchlistsSchemaV1
 } from '@tminuszero/contracts';
 import { loadArTrajectorySummary } from '@/lib/server/arTrajectory';
+import { fetchBlueOriginPassengersDatabaseOnly, fetchBlueOriginPayloads } from '@/lib/server/blueOriginPeoplePayloads';
 import { isStripeConfigured, isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
 import { getViewerEntitlement } from '@/lib/server/entitlements';
 import { fetchLaunchFaaAirspace } from '@/lib/server/faaAirspace';
 import { fetchLaunchJepScore } from '@/lib/server/jep';
+import { fetchLaunchBoosterStats } from '@/lib/server/launchBoosterStats';
 import { buildStatusFilterOrClause, parseLaunchStatusFilter } from '@/lib/server/launchStatus';
 import { fetchLaunchDetailEnrichment } from '@/lib/server/launchDetailEnrichment';
+import { loadMobileHubRollout } from '@/lib/server/mobileHubRollout';
 import { parseSiteSearchInput, parseSiteSearchTypesParam, type SearchResultType } from '@tminuszero/domain';
 import { loadSmsSystemEnabled } from '@/lib/server/smsSystem';
 import { parseUsPhone } from '@/lib/notifications/phone';
@@ -80,7 +83,18 @@ import {
 import { mapPublicCacheRow } from '@/lib/server/transformers';
 import { parseLaunchRegion, US_PAD_COUNTRY_CODES } from '@/lib/server/us';
 import type { ResolvedViewerSession } from '@/lib/server/viewerSession';
+import { isArtemisLaunch } from '@/lib/utils/launchArtemis';
+import { parseIsoDurationToMs } from '@/lib/utils/launchMilestones';
 import { parseLaunchParam } from '@/lib/utils/launchParams';
+import { isStarshipLaunch } from '@/lib/utils/launchStarship';
+import {
+  buildBlueOriginTravelerSlug,
+  extractBlueOriginFlightCode,
+  getBlueOriginMissionKeyFromLaunch,
+  isBlueOriginNonHumanCrewEntry,
+  isBlueOriginProgramLaunch,
+  normalizeBlueOriginTravelerRole
+} from '@/lib/utils/blueOrigin';
 import { stripe } from '@/lib/api/stripe';
 import { recordBillingEvent } from '@/lib/server/billingEvents';
 import { isSubscriptionActive } from '@/lib/server/subscription';
@@ -105,12 +119,15 @@ type SearchRpcRow = {
 
 type RelatedNewsRow = {
   snapi_uid?: string | null;
+  item_type?: 'article' | 'blog' | 'report' | null;
   title?: string | null;
   summary?: string | null;
   url?: string | null;
   news_site?: string | null;
   image_url?: string | null;
   published_at?: string | null;
+  authors?: Array<{ name?: string | null }> | null;
+  featured?: boolean | null;
 };
 
 type RelatedEventRow = {
@@ -119,9 +136,187 @@ type RelatedEventRow = {
   description?: string | null;
   type_name?: string | null;
   date?: string | null;
+  date_precision?: string | null;
   location_name?: string | null;
   url?: string | null;
   image_url?: string | null;
+  webcast_live?: boolean | null;
+};
+
+type Ws45ForecastScenario = {
+  label?: string;
+  povPercent?: number;
+  primaryConcerns?: string[];
+  weatherVisibility?: string;
+  tempF?: number;
+  humidityPercent?: number;
+  liftoffWinds?: { directionDeg?: number; speedMphMin?: number; speedMphMax?: number; raw?: string };
+  additionalRiskCriteria?: {
+    upperLevelWindShear?: string;
+    boosterRecoveryWeather?: string;
+    solarActivity?: string;
+  };
+  clouds?: Array<{ type: string; coverage?: string; baseFt?: number; topsFt?: number; raw?: string }>;
+};
+
+type Ws45Forecast = {
+  id: string;
+  source_label?: string | null;
+  forecast_kind?: string | null;
+  pdf_url: string;
+  issued_at?: string | null;
+  valid_start?: string | null;
+  valid_end?: string | null;
+  mission_name?: string | null;
+  match_status?: string | null;
+  match_confidence?: number | null;
+  forecast_discussion?: string | null;
+  launch_day_pov_percent?: number | null;
+  delay_24h_pov_percent?: number | null;
+  launch_day_primary_concerns?: string[] | null;
+  delay_24h_primary_concerns?: string[] | null;
+  launch_day?: Ws45ForecastScenario | null;
+  delay_24h?: Ws45ForecastScenario | null;
+};
+
+type NwsLaunchWeather = {
+  id: string;
+  issued_at?: string | null;
+  valid_start?: string | null;
+  valid_end?: string | null;
+  summary?: string | null;
+  probability?: number | null;
+  data?: any;
+};
+
+type RocketOutcomeStats = {
+  successAllTime: number;
+  failureAllTime: number;
+  successYear: number;
+  failureYear: number;
+};
+
+type PayloadManifestEntry = {
+  kind?: 'payload_flight' | 'spacecraft_flight';
+  id: number;
+  destination?: string | null;
+  deployment_status?: 'confirmed' | 'unconfirmed' | 'unknown' | string | null;
+  deployment_notes?: string | null;
+  payload?: {
+    id: number;
+    name: string;
+    description?: string | null;
+    wiki_link?: string | null;
+    info_link?: string | null;
+    type?: { id: number; name: string } | null;
+    manufacturer?: { id: number; name: string; abbrev?: string | null } | null;
+    operator?: { id: number; name: string; abbrev?: string | null } | null;
+    image?: {
+      image_url?: string | null;
+      thumbnail_url?: string | null;
+    } | null;
+  } | null;
+  landing?: {
+    attempt?: boolean | null;
+    success?: boolean | null;
+    description?: string | null;
+    downrange_distance_km?: number | null;
+    landing_location?: { name?: string | null; abbrev?: string | null } | null;
+    landing_type?: { name?: string | null; abbrev?: string | null } | null;
+  } | null;
+  docking_events?: Array<{
+    docking?: string | null;
+    departure?: string | null;
+    space_station_target?: { name?: string | null } | null;
+  }> | null;
+};
+
+type LaunchInventoryOrbit = {
+  source?: string | null;
+  epoch?: string | null;
+  inclination_deg?: number | null;
+  raan_deg?: number | null;
+  eccentricity?: number | null;
+  arg_perigee_deg?: number | null;
+  mean_anomaly_deg?: number | null;
+  mean_motion_rev_per_day?: number | null;
+  bstar?: number | null;
+  fetched_at?: string | null;
+};
+
+type LaunchInventoryObject = {
+  object_id?: string | null;
+  norad_cat_id?: number | null;
+  intl_des?: string | null;
+  name?: string | null;
+  object_type?: string | null;
+  ops_status_code?: string | null;
+  owner?: string | null;
+  launch_date?: string | null;
+  launch_site?: string | null;
+  decay_date?: string | null;
+  period_min?: number | null;
+  inclination_deg?: number | null;
+  apogee_km?: number | null;
+  perigee_km?: number | null;
+  orbit_center?: string | null;
+  orbit_type?: string | null;
+  orbit?: LaunchInventoryOrbit | null;
+};
+
+type LaunchObjectInventory = {
+  reconciliation?: {
+    ll2_manifest_payload_count?: number | null;
+    satcat_payload_count?: number | null;
+    satcat_total_count?: number | null;
+    satcat_type_counts?: {
+      PAY?: number | null;
+      RB?: number | null;
+      DEB?: number | null;
+      UNK?: number | null;
+    } | null;
+    delta_manifest_vs_satcat_payload?: number | null;
+  } | null;
+  satcat_payload_objects?: LaunchInventoryObject[] | null;
+  satcat_non_payload_objects?: LaunchInventoryObject[] | null;
+};
+
+type BlueOriginConstraintRow = {
+  constraint_type?: string | null;
+  data?: any;
+  fetched_at?: string | null;
+};
+
+type Ll2SpacecraftFlightRow = {
+  ll2_spacecraft_flight_id: number;
+  ll2_launch_uuid: string;
+  launch_crew: unknown;
+  onboard_crew: unknown;
+  landing_crew: unknown;
+  active: boolean | null;
+};
+
+const BLUE_ORIGIN_MULTISOURCE_CONSTRAINT_SOURCE = 'blueorigin_multisource';
+const BLUE_ORIGIN_MISSION_SUMMARY_FACT_KEY = 'mission_summary';
+const BLUE_ORIGIN_FAILURE_REASON_FACT_KEY = 'failure_reason';
+const BLUE_ORIGIN_NOISE_PASSENGER_TOKEN =
+  /\b(?:mission|launch|payload|news|timeline|profile|booster|capsule|spacecraft|vehicle|status|public|media|pod|video|image|gallery|infographic|patch|update|updates|share|facebook|linkedin|reddit|twitter|instagram|youtube|tiktok|club|future|nasa|kennedy|research|institute|laboratory|lab|center|experiment|installation|device|deorbit|program|watch|subscribe|follow|new shepard|new glenn|experience|parachute|parachutes)\b/i;
+const BLUE_ORIGIN_NOISE_PAYLOAD_TOKEN =
+  /\b(?:mission|launch|flight|blue origin|new shepard|new glenn|booster|capsule|crew|people|passengers|spaceflight|suborbital|orbital|news|timeline|statistics|profile|infographic|update|updates)\b/i;
+const BLUE_ORIGIN_UNVERIFIED_SOURCE_PATTERN = /\b(?:launches_public_cache\.(?:crew|payloads))\b/i;
+const BLUE_ORIGIN_MISSION_ARTIFACTS: Record<
+  string,
+  {
+    missionUrl: string;
+    patchProductUrl?: string;
+    patchImageUrl?: string;
+  }
+> = {
+  'ns-36': {
+    missionUrl: 'https://www.blueorigin.com/news/new-shepard-ns-36-mission',
+    patchProductUrl: 'https://shop.blueorigin.com/products/pre-sale-ns-36-mission-patch',
+    patchImageUrl: 'https://shop.blueorigin.com/cdn/shop/files/FinalpatchNS-36forshop.png?v=1759793737'
+  }
 };
 
 type AlertRuleRow = {
@@ -523,6 +718,1886 @@ function buildWeatherSummary(launch: ReturnType<typeof mapPublicCacheRow>) {
   return launch.weatherConcerns.map((entry) => String(entry || '').trim()).filter(Boolean).join(' • ') || null;
 }
 
+function normalizeUrlString(value: unknown) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return /^https?:\/\//i.test(trimmed) ? trimmed : null;
+}
+
+function normalizeRelatedNewsItemType(value: unknown): 'article' | 'blog' | 'report' | null {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return normalized === 'article' || normalized === 'blog' || normalized === 'report' ? normalized : null;
+}
+
+function formatUrlHost(value: string | null | undefined) {
+  if (!value) return null;
+  try {
+    const host = new URL(value).hostname.replace(/^www\./i, '').trim();
+    return host || null;
+  } catch {
+    return null;
+  }
+}
+
+function buildGoogleMapsUrl(launch: ReturnType<typeof mapPublicCacheRow>) {
+  const latitude = launch.pad?.latitude;
+  const longitude = launch.pad?.longitude;
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${latitude},${longitude}`)}`;
+}
+
+function normalizeInfoLinks(
+  primary: Array<{ url?: string; title?: string; source?: string; type?: { name?: string } }> = [],
+  secondary: Array<{ url?: string; title?: string; source?: string; type?: { name?: string } }> = []
+) {
+  const items = [...primary, ...secondary];
+  const seen = new Set<string>();
+  const normalized: Array<{ url: string; label: string; meta: string }> = [];
+
+  for (const item of items) {
+    const url = normalizeUrlString(item?.url);
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    normalized.push({
+      url,
+      label: item?.title?.trim() || item?.source?.trim() || item?.type?.name?.trim() || 'Mission info',
+      meta: item?.source?.trim() || item?.type?.name?.trim() || 'Info'
+    });
+  }
+
+  return normalized;
+}
+
+function normalizeVidLinks(
+  primary: Array<{ url?: string; title?: string; publisher?: string; source?: string; type?: { name?: string }; feature_image?: string }> = [],
+  secondary: Array<{ url?: string; title?: string; publisher?: string; source?: string; type?: { name?: string }; feature_image?: string }> = []
+) {
+  const items = [...primary, ...secondary];
+  const seen = new Set<string>();
+  const normalized: Array<{ url: string; label: string; meta: string; imageUrl: string | null }> = [];
+
+  for (const item of items) {
+    const url = normalizeUrlString(item?.url);
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    normalized.push({
+      url,
+      label: item?.title?.trim() || item?.publisher?.trim() || item?.source?.trim() || 'Video',
+      meta: item?.type?.name?.trim() || 'Video',
+      imageUrl: normalizeUrlString(item?.feature_image) || null
+    });
+  }
+
+  return normalized;
+}
+
+function buildWatchLinks(launch: ReturnType<typeof mapPublicCacheRow>) {
+  const items: Array<{ url: string; label: string; meta: string; imageUrl: string | null; host: string | null; kind: string }> = [];
+  const seen = new Set<string>();
+  const fallbackImage = normalizeUrlString(launch.image.full) || normalizeUrlString(launch.image.thumbnail) || null;
+  const missionVidLinks = normalizeVidLinks(launch.launchVidUrls || [], launch.mission?.vidUrls || []);
+
+  const add = (url: string | null | undefined, label: string | null | undefined, meta: string | null | undefined, imageUrl?: string | null) => {
+    const normalizedUrl = normalizeUrlString(url);
+    if (!normalizedUrl || seen.has(normalizedUrl)) return;
+    seen.add(normalizedUrl);
+    items.push({
+      url: normalizedUrl,
+      label: String(label || 'Watch coverage').trim() || 'Watch coverage',
+      meta: String(meta || formatUrlHost(normalizedUrl) || 'Live/Replay').trim() || 'Live/Replay',
+      imageUrl: normalizeUrlString(imageUrl) || fallbackImage,
+      host: formatUrlHost(normalizedUrl),
+      kind: 'watch'
+    });
+  };
+
+  add(launch.videoUrl, 'Watch coverage', 'Live/Replay', fallbackImage);
+  for (const item of missionVidLinks) {
+    add(item.url, item.label, item.meta, item.imageUrl || fallbackImage);
+  }
+
+  return items;
+}
+
+function buildExternalLinks(launch: ReturnType<typeof mapPublicCacheRow>) {
+  const seen = new Set<string>();
+  const links: Array<{ url: string; label: string; meta: string; imageUrl: null; host: string | null; kind: string }> = [];
+  const infoLinks = normalizeInfoLinks(launch.launchInfoUrls || [], launch.mission?.infoUrls || []);
+  const googleMapsUrl = buildGoogleMapsUrl(launch);
+  const padMapUrl = googleMapsUrl || normalizeUrlString(launch.pad?.mapUrl) || null;
+
+  const add = (url: string | null | undefined, label: string | null | undefined, meta: string | null | undefined, kind = 'resource') => {
+    const normalizedUrl = normalizeUrlString(url);
+    if (!normalizedUrl || seen.has(normalizedUrl)) return;
+    seen.add(normalizedUrl);
+    links.push({
+      url: normalizedUrl,
+      label: String(label || formatUrlHost(normalizedUrl) || 'Source').trim() || 'Source',
+      meta: String(meta || 'External link').trim() || 'External link',
+      imageUrl: null,
+      host: formatUrlHost(normalizedUrl),
+      kind
+    });
+  };
+
+  for (const item of infoLinks) {
+    add(item.url, item.label, item.meta, 'resource');
+  }
+  if (padMapUrl) {
+    add(padMapUrl, googleMapsUrl ? 'Pad satellite map' : 'Pad map', googleMapsUrl ? 'Satellite' : 'Location', 'map');
+  }
+  add(launch.rocket?.infoUrl, 'Vehicle info', 'Vehicle', 'rocket');
+  add(launch.rocket?.wikiUrl, 'Vehicle wiki', 'Reference', 'rocket');
+  add(launch.flightclubUrl, 'Trajectory (Flight Club)', 'Trajectory', 'trajectory');
+
+  return links;
+}
+
+function flattenMissionResources(enrichment: Awaited<ReturnType<typeof fetchLaunchDetailEnrichment>>) {
+  const rows: Array<{ id: string; title: string; subtitle: string | null; url: string }> = [];
+  const seen = new Set<string>();
+  for (const item of enrichment.externalContent || []) {
+    for (const resource of item.resources || []) {
+      const url = normalizeUrlString(resource?.url);
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      rows.push({
+        id: resource.id,
+        title: resource.label || item.title || 'Mission resource',
+        subtitle: resource.kind || item.contentType || null,
+        url
+      });
+    }
+  }
+  return rows;
+}
+
+function flattenMissionTimeline(enrichment: Awaited<ReturnType<typeof fetchLaunchDetailEnrichment>>) {
+  const rows: Array<{ id: string; label: string; time: string | null; description: string | null; phase: 'prelaunch' | 'postlaunch' | 'timeline' | null }> = [];
+  for (const item of enrichment.externalContent || []) {
+    for (const event of item.timelineEvents || []) {
+      rows.push({
+        id: event.id,
+        label: event.label,
+        time: event.time || null,
+        description: event.description || null,
+        phase: event.phase || null
+      });
+    }
+  }
+  return rows;
+}
+
+async function loadRelatedNewsItems(launchId: string) {
+  if (!isSupabaseConfigured()) return [] as Array<{
+    id: string;
+    title: string;
+    url: string;
+    newsSite: string | null;
+    summary: string | null;
+    imageUrl: string | null;
+    publishedAt: string | null;
+    itemType: 'article' | 'blog' | 'report' | null;
+    authors: string[];
+    featured: boolean | null;
+  }>;
+
+  const supabase = createSupabasePublicClient();
+  const newsJoinRes = await supabase.from('snapi_item_launches').select('snapi_uid').eq('launch_id', launchId);
+  if (newsJoinRes.error) throw newsJoinRes.error;
+
+  const newsIds = Array.from(new Set((newsJoinRes.data || []).map((row: any) => normalizeText(row.snapi_uid)).filter(Boolean)));
+  if (!newsIds.length) return [];
+
+  const newsRes = await supabase
+    .from('snapi_items')
+    .select('snapi_uid, item_type, title, summary, url, news_site, image_url, published_at, authors, featured')
+    .in('snapi_uid', newsIds)
+    .order('published_at', { ascending: false })
+    .limit(8);
+
+  if (newsRes.error) throw newsRes.error;
+
+  return ((newsRes.data || []) as RelatedNewsRow[]).map((row) => ({
+    id: String(row.snapi_uid || ''),
+    title: String(row.title || 'Untitled article'),
+    url: String(row.url || ''),
+    newsSite: normalizeText(row.news_site),
+    summary: normalizeText(row.summary),
+    imageUrl: normalizeText(row.image_url),
+    publishedAt: normalizeText(row.published_at),
+    itemType: normalizeRelatedNewsItemType(row.item_type),
+    authors: Array.isArray(row.authors)
+      ? row.authors.map((author) => String(author?.name || '').trim()).filter(Boolean)
+      : [],
+    featured: typeof row.featured === 'boolean' ? row.featured : null
+  }));
+}
+
+async function loadRelatedEventItems(launchId: string) {
+  if (!isSupabaseConfigured()) return [] as Array<{
+    id: number;
+    name: string;
+    description: string | null;
+    typeName: string | null;
+    date: string | null;
+    datePrecision: string | null;
+    locationName: string | null;
+    url: string | null;
+    imageUrl: string | null;
+    webcastLive: boolean | null;
+  }>;
+
+  const supabase = createSupabasePublicClient();
+  const eventJoinRes = await supabase.from('ll2_event_launches').select('ll2_event_id').eq('launch_id', launchId);
+  if (eventJoinRes.error) throw eventJoinRes.error;
+
+  const eventIds = Array.from(new Set((eventJoinRes.data || []).map((row: any) => row.ll2_event_id).filter((value) => Number.isFinite(value))));
+  if (!eventIds.length) return [];
+
+  const eventRes = await supabase
+    .from('ll2_events')
+    .select('ll2_event_id, name, description, type_name, date, date_precision, location_name, url, image_url, webcast_live')
+    .in('ll2_event_id', eventIds)
+    .limit(8);
+
+  if (eventRes.error) throw eventRes.error;
+
+  return ((eventRes.data || []) as RelatedEventRow[]).map((row) => ({
+    id: Number(row.ll2_event_id || 0),
+    name: String(row.name || 'Related event'),
+    description: normalizeText(row.description),
+    typeName: normalizeText(row.type_name),
+    date: normalizeText(row.date),
+    datePrecision: normalizeText(row.date_precision),
+    locationName: normalizeText(row.location_name),
+    url: normalizeUrlString(row.url),
+    imageUrl: normalizeText(row.image_url),
+    webcastLive: typeof row.webcast_live === 'boolean' ? row.webcast_live : null
+  }));
+}
+
+async function fetchWs45Forecast(launchId: string, isEasternRange: boolean) {
+  if (!isSupabaseConfigured() || !isEasternRange) return null as Ws45Forecast | null;
+  const client = isSupabaseAdminConfigured() ? createSupabaseAdminClient() : createSupabaseServerClient();
+  const { data, error } = await client
+    .from('ws45_launch_forecasts')
+    .select(
+      'id, source_label, forecast_kind, pdf_url, issued_at, valid_start, valid_end, mission_name, match_status, match_confidence, forecast_discussion, launch_day_pov_percent, delay_24h_pov_percent, launch_day_primary_concerns, delay_24h_primary_concerns, launch_day, delay_24h'
+    )
+    .eq('matched_launch_id', launchId)
+    .or('forecast_kind.is.null,forecast_kind.neq.faq')
+    .order('issued_at', { ascending: false })
+    .order('fetched_at', { ascending: false })
+    .limit(1);
+
+  if (error) return null;
+  return (data?.[0] as Ws45Forecast | undefined) ?? null;
+}
+
+async function fetchNwsForecast(launchId: string, isUsPad: boolean, within14Days: boolean) {
+  if (!isSupabaseConfigured() || !isUsPad || !within14Days) return null as NwsLaunchWeather | null;
+  const client = isSupabaseAdminConfigured() ? createSupabaseAdminClient() : createSupabaseServerClient();
+  const { data, error } = await client
+    .from('launch_weather')
+    .select('id, issued_at, valid_start, valid_end, summary, probability, data')
+    .eq('launch_id', launchId)
+    .eq('source', 'nws')
+    .maybeSingle();
+
+  if (error) return null;
+  return (data as NwsLaunchWeather | null) ?? null;
+}
+
+function buildWeatherModule(
+  launch: ReturnType<typeof mapPublicCacheRow>,
+  ws45Forecast: Ws45Forecast | null,
+  nwsForecast: NwsLaunchWeather | null
+) {
+  const concerns = Array.isArray(launch.weatherConcerns)
+    ? launch.weatherConcerns.map((entry) => String(entry || '').trim()).filter(Boolean)
+    : [];
+  const cards: Array<{
+    id: string;
+    source: 'ws45' | 'nws';
+    title: string;
+    subtitle: string | null;
+    issuedAt: string | null;
+    validStart: string | null;
+    validEnd: string | null;
+    headline: string | null;
+    detail: string | null;
+    badges: string[];
+    metrics: Array<{ label: string; value: string }>;
+    actionLabel: string | null;
+    actionUrl: string | null;
+  }> = [];
+
+  if (ws45Forecast) {
+    const launchDayPov =
+      typeof ws45Forecast.launch_day?.povPercent === 'number'
+        ? ws45Forecast.launch_day.povPercent
+        : typeof ws45Forecast.launch_day_pov_percent === 'number'
+          ? ws45Forecast.launch_day_pov_percent
+          : null;
+    const delayPov =
+      typeof ws45Forecast.delay_24h?.povPercent === 'number'
+        ? ws45Forecast.delay_24h.povPercent
+        : typeof ws45Forecast.delay_24h_pov_percent === 'number'
+          ? ws45Forecast.delay_24h_pov_percent
+          : null;
+    const launchDayConcerns =
+      ws45Forecast.launch_day?.primaryConcerns ||
+      ws45Forecast.launch_day_primary_concerns ||
+      [];
+    const badges = [
+      ws45Forecast.forecast_kind || null,
+      ws45Forecast.match_status
+        ? ws45Forecast.match_confidence != null
+          ? `Match ${ws45Forecast.match_status} (${Math.round(ws45Forecast.match_confidence)}%)`
+          : `Match ${ws45Forecast.match_status}`
+        : null,
+      ...launchDayConcerns.map((entry) => String(entry || '').trim()).filter(Boolean).slice(0, 3)
+    ].filter(Boolean) as string[];
+    const metrics = [
+      launchDayPov != null ? { label: 'Launch Day PoV', value: `${Math.round(launchDayPov)}%` } : null,
+      delayPov != null ? { label: '24h Delay PoV', value: `${Math.round(delayPov)}%` } : null,
+      ws45Forecast.launch_day?.weatherVisibility
+        ? { label: 'Weather', value: ws45Forecast.launch_day.weatherVisibility }
+        : null,
+      ws45Forecast.launch_day?.tempF != null
+        ? { label: 'Temp', value: `${Math.round(ws45Forecast.launch_day.tempF)}°F` }
+        : null
+    ].filter(Boolean) as Array<{ label: string; value: string }>;
+    cards.push({
+      id: `ws45:${ws45Forecast.id}`,
+      source: 'ws45',
+      title: '45 WS enhanced forecast',
+      subtitle: ws45Forecast.source_label || ws45Forecast.mission_name || null,
+      issuedAt: ws45Forecast.issued_at || null,
+      validStart: ws45Forecast.valid_start || null,
+      validEnd: ws45Forecast.valid_end || null,
+      headline: launchDayPov != null ? `Launch Day PoV ${Math.round(launchDayPov)}%` : 'Launch weather brief',
+      detail: ws45Forecast.forecast_discussion || null,
+      badges,
+      metrics,
+      actionLabel: normalizeUrlString(ws45Forecast.pdf_url) ? 'View PDF' : null,
+      actionUrl: normalizeUrlString(ws45Forecast.pdf_url)
+    });
+  }
+
+  if (nwsForecast) {
+    const period = nwsForecast.data?.period ?? null;
+    const shortForecast =
+      normalizeText(nwsForecast.summary) ||
+      (typeof period?.shortForecast === 'string' ? period.shortForecast.trim() : null);
+    const detailedForecast =
+      typeof period?.detailedForecast === 'string' && period.detailedForecast.trim()
+        ? period.detailedForecast.trim()
+        : null;
+    const wind = [
+      typeof period?.windDirection === 'string' ? period.windDirection.trim() : null,
+      typeof period?.windSpeed === 'string' ? period.windSpeed.trim() : null
+    ]
+      .filter(Boolean)
+      .join(' ');
+    const metrics = [
+      typeof period?.temperature === 'number'
+        ? { label: 'Temp', value: `${Math.round(period.temperature)}°${String(period.temperatureUnit || 'F').trim() || 'F'}` }
+        : null,
+      nwsForecast.probability != null ? { label: 'Precip', value: `${Math.round(Number(nwsForecast.probability) || 0)}%` } : null,
+      wind ? { label: 'Wind', value: wind } : null,
+      period?.relativeHumidity?.value != null
+        ? { label: 'Humidity', value: `${Math.round(Number(period.relativeHumidity.value) || 0)}%` }
+        : null
+    ].filter(Boolean) as Array<{ label: string; value: string }>;
+    const badges = [
+      typeof period?.name === 'string' ? period.name.trim() : null,
+      typeof period?.isDaytime === 'boolean' ? (period.isDaytime ? 'Daytime' : 'Night') : null,
+      typeof nwsForecast.data?.forecastKind === 'string' ? `${nwsForecast.data.forecastKind} match` : null
+    ].filter(Boolean) as string[];
+    cards.push({
+      id: `nws:${nwsForecast.id}`,
+      source: 'nws',
+      title: 'National Weather Service',
+      subtitle: 'Forecast at the pad',
+      issuedAt: nwsForecast.issued_at || null,
+      validStart: nwsForecast.valid_start || null,
+      validEnd: nwsForecast.valid_end || null,
+      headline: shortForecast,
+      detail: detailedForecast,
+      badges,
+      metrics,
+      actionLabel: null,
+      actionUrl: null
+    });
+  }
+
+  if (!cards.length && concerns.length === 0) {
+    return null;
+  }
+
+  return {
+    summary: buildWeatherSummary(launch),
+    concerns,
+    cards
+  };
+}
+
+async function fetchPayloadManifest(ll2LaunchUuid: string) {
+  if (!ll2LaunchUuid || !isSupabaseConfigured()) return [] as PayloadManifestEntry[];
+  const supabase = createSupabaseServerClient();
+
+  let { data, error } = await supabase.rpc('get_launch_payload_manifest_v2', {
+    ll2_launch_uuid_in: ll2LaunchUuid,
+    include_raw: false
+  });
+
+  if (isMissingRpcFunction(error)) {
+    const fallback = await supabase.rpc('get_launch_payload_manifest', { ll2_launch_uuid_in: ll2LaunchUuid });
+    data = fallback.data;
+    error = fallback.error;
+  }
+
+  if (error || data == null) return [] as PayloadManifestEntry[];
+  return parseRpcArray<PayloadManifestEntry>(data);
+}
+
+async function fetchLaunchObjectInventory(ll2LaunchUuid: string) {
+  if (!ll2LaunchUuid || !isSupabaseConfigured()) return null as LaunchObjectInventory | null;
+  const supabase = createSupabaseServerClient();
+
+  const { data, error } = await supabase.rpc('get_launch_object_inventory_v1', {
+    ll2_launch_uuid_in: ll2LaunchUuid,
+    include_orbit: true,
+    history_limit: 5
+  });
+
+  if (isMissingRpcFunction(error)) {
+    const fallback = await supabase.rpc('get_launch_satellite_payloads_v2', {
+      ll2_launch_uuid_in: ll2LaunchUuid,
+      include_raw: false
+    });
+    if (fallback.error || fallback.data == null) return null as LaunchObjectInventory | null;
+    const payloads = parseRpcArray<LaunchInventoryObject>(fallback.data);
+    return {
+      reconciliation: {
+        ll2_manifest_payload_count: null,
+        satcat_payload_count: payloads.length,
+        satcat_total_count: payloads.length,
+        satcat_type_counts: { PAY: payloads.length, RB: 0, DEB: 0, UNK: 0 },
+        delta_manifest_vs_satcat_payload: null
+      },
+      satcat_payload_objects: payloads,
+      satcat_non_payload_objects: []
+    } satisfies LaunchObjectInventory;
+  }
+
+  if (error || data == null) return null as LaunchObjectInventory | null;
+  return parseRpcObject<LaunchObjectInventory>(data);
+}
+
+function parseRpcArray<T>(data: unknown): T[] {
+  if (Array.isArray(data)) return data as T[];
+  if (typeof data === 'string') {
+    try {
+      const parsed = JSON.parse(data);
+      return Array.isArray(parsed) ? (parsed as T[]) : ([] as T[]);
+    } catch {
+      return [] as T[];
+    }
+  }
+  return [] as T[];
+}
+
+function parseRpcObject<T>(data: unknown): T | null {
+  if (data && typeof data === 'object' && !Array.isArray(data)) return data as T;
+  if (typeof data === 'string') {
+    try {
+      const parsed = JSON.parse(data);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as T) : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function isMissingRpcFunction(error: { code?: string; message?: string } | null) {
+  if (!error) return false;
+  if (error.code === '42883') return true;
+  const msg = String(error.message || '').toLowerCase();
+  return msg.includes('function') && msg.includes('does not exist');
+}
+
+function buildManifestLandingSummary(landing: PayloadManifestEntry['landing']) {
+  if (!landing) return null;
+  const outcome =
+    landing.attempt === true
+      ? landing.success === true
+        ? 'Successful landing'
+        : landing.success === false
+          ? 'Failed landing'
+          : 'Landing attempted'
+      : landing.attempt === false
+        ? 'No landing attempt'
+        : null;
+  const location =
+    landing.landing_location && typeof landing.landing_location === 'object'
+      ? ((landing.landing_location as Record<string, unknown>).name ||
+          (landing.landing_location as Record<string, unknown>).abbrev ||
+          null)
+      : null;
+  return [outcome, location ? `@ ${location}` : null].filter(Boolean).join(' • ') || null;
+}
+
+function buildDockingSummary(events: PayloadManifestEntry['docking_events']) {
+  const rows = Array.isArray(events) ? events : [];
+  if (!rows.length) return null;
+  if (rows.length === 1) {
+    const row = rows[0] || null;
+    const station =
+      row?.space_station_target && typeof row.space_station_target === 'object'
+        ? row.space_station_target.name || null
+        : null;
+    return station ? `Docking @ ${station}` : 'Docking event';
+  }
+  return `${rows.length} docking events`;
+}
+
+function buildPayloadManifestModule(manifest: PayloadManifestEntry[]) {
+  return (Array.isArray(manifest) ? manifest : []).map((entry) => {
+    const payload = entry.payload || null;
+    const title = payload?.name || `${entry.kind === 'spacecraft_flight' ? 'Spacecraft' : 'Payload'} ${entry.id}`;
+    const subtitle = [payload?.type?.name || null, payload?.operator?.name || payload?.manufacturer?.name || null]
+      .filter(Boolean)
+      .join(' • ');
+    return {
+      id: `${entry.kind || 'payload'}:${entry.id}`,
+      kind: entry.kind === 'spacecraft_flight' ? 'spacecraft' : 'payload',
+      title,
+      subtitle: subtitle || null,
+      description: payload?.description || normalizeText(entry.deployment_notes),
+      imageUrl: normalizeUrlString(payload?.image?.thumbnail_url || payload?.image?.image_url || null),
+      destination: normalizeText(entry.destination),
+      deploymentStatus: normalizeText(entry.deployment_status),
+      operator: normalizeText(payload?.operator?.name),
+      manufacturer: normalizeText(payload?.manufacturer?.name),
+      infoUrl: normalizeUrlString(payload?.info_link),
+      wikiUrl: normalizeUrlString(payload?.wiki_link),
+      landingSummary: buildManifestLandingSummary(entry.landing || null),
+      dockingSummary: buildDockingSummary(entry.docking_events || [])
+    };
+  });
+}
+
+function formatCount(value?: number | null) {
+  if (value == null || !Number.isFinite(value)) return '0';
+  return new Intl.NumberFormat('en-US').format(value);
+}
+
+function buildObjectInventoryCard(obj: LaunchInventoryObject) {
+  const id = String(obj.object_id || obj.intl_des || obj.norad_cat_id || obj.name || 'object');
+  const title = String(obj.name || obj.intl_des || obj.object_id || `Object ${obj.norad_cat_id || ''}`).trim() || 'Object';
+  const subtitle = [normalizeText(obj.object_type), normalizeText(obj.owner)].filter(Boolean).join(' • ') || null;
+  const lines = [
+    obj.norad_cat_id != null ? `NORAD ${obj.norad_cat_id}` : null,
+    obj.orbit_type ? `Orbit ${obj.orbit_type}` : null,
+    obj.launch_date ? `Launch ${obj.launch_date}` : null,
+    obj.apogee_km != null ? `Apogee ${Math.round(obj.apogee_km)} km` : null,
+    obj.perigee_km != null ? `Perigee ${Math.round(obj.perigee_km)} km` : null,
+    obj.period_min != null ? `Period ${Math.round(obj.period_min)} min` : null,
+    obj.orbit?.epoch ? `Epoch ${obj.orbit.epoch}` : null
+  ].filter(Boolean) as string[];
+  return { id, title, subtitle, lines };
+}
+
+function buildObjectInventoryModule(inventory: LaunchObjectInventory | null) {
+  if (!inventory) return null;
+  const reconciliation = inventory.reconciliation || null;
+  const typeCounts = reconciliation?.satcat_type_counts || null;
+  const summaryBadges = [
+    reconciliation?.ll2_manifest_payload_count != null ? `Manifest ${formatCount(reconciliation.ll2_manifest_payload_count)}` : null,
+    reconciliation?.satcat_payload_count != null ? `SATCAT payloads ${formatCount(reconciliation.satcat_payload_count)}` : null,
+    reconciliation?.satcat_total_count != null ? `Total objects ${formatCount(reconciliation.satcat_total_count)}` : null,
+    typeCounts?.RB != null ? `RB ${formatCount(typeCounts.RB)}` : null,
+    typeCounts?.DEB != null ? `Debris ${formatCount(typeCounts.DEB)}` : null,
+    typeCounts?.UNK != null ? `Unknown ${formatCount(typeCounts.UNK)}` : null,
+    reconciliation?.delta_manifest_vs_satcat_payload != null
+      ? `Delta ${formatCount(reconciliation.delta_manifest_vs_satcat_payload)}`
+      : null
+  ].filter(Boolean) as string[];
+  const payloadObjects = Array.isArray(inventory.satcat_payload_objects)
+    ? inventory.satcat_payload_objects.map(buildObjectInventoryCard)
+    : [];
+  const nonPayloadObjects = Array.isArray(inventory.satcat_non_payload_objects)
+    ? inventory.satcat_non_payload_objects.map(buildObjectInventoryCard)
+    : [];
+  if (!summaryBadges.length && !payloadObjects.length && !nonPayloadObjects.length) return null;
+  return {
+    summaryBadges,
+    payloadObjects,
+    nonPayloadObjects
+  };
+}
+
+function escapeOrValue(value: string) {
+  return value.replace(/[(),]/g, '').replace(/"/g, '\\"');
+}
+
+function buildVehicleOrFilter(values: string[]) {
+  const normalized = Array.from(new Set(values.map((value) => String(value || '').trim()).filter(Boolean)));
+  if (!normalized.length) return null;
+  return normalized
+    .map((value) => `vehicle.eq."${escapeOrValue(value)}",rocket_full_name.eq."${escapeOrValue(value)}"`)
+    .join(',');
+}
+
+function classifyLaunchOutcome(statusName?: string | null, statusAbbrev?: string | null) {
+  const combined = `${statusName ?? ''} ${statusAbbrev ?? ''}`.toLowerCase();
+  const isSuccess = combined.includes('success') || combined.includes('successful');
+  const isFailure = combined.includes('fail') || combined.includes('anomaly') || combined.includes('partial');
+  return { isSuccess: isSuccess && !isFailure, isFailure };
+}
+
+async function fetchRocketOutcomeStats(rocketFullName?: string, vehicle?: string) {
+  if (!isSupabaseConfigured()) return null as RocketOutcomeStats | null;
+  const filters = [rocketFullName, vehicle]
+    .map((value) => value?.trim())
+    .filter((value) => value && value.toLowerCase() !== 'unknown') as string[];
+  if (filters.length === 0) return null;
+  const supabase = createSupabaseServerClient();
+  const orFilter = buildVehicleOrFilter(filters);
+  if (!orFilter) return null;
+  const { data, error } = await supabase.from('launches_public_cache').select('status_name, status_abbrev, net').or(orFilter);
+  if (error || !data) return null;
+
+  const year = new Date().getUTCFullYear();
+  const yearStart = Date.UTC(year, 0, 1);
+  const yearEnd = Date.UTC(year + 1, 0, 1);
+  let successAllTime = 0;
+  let failureAllTime = 0;
+  let successYear = 0;
+  let failureYear = 0;
+
+  for (const row of data as Array<Record<string, any>>) {
+    const statusMeta = classifyLaunchOutcome(row.status_name, row.status_abbrev);
+    if (!statusMeta.isSuccess && !statusMeta.isFailure) continue;
+    const netMs = row.net ? Date.parse(row.net) : NaN;
+    const isYear = Number.isFinite(netMs) && netMs >= yearStart && netMs < yearEnd;
+
+    if (statusMeta.isSuccess) {
+      successAllTime += 1;
+      if (isYear) successYear += 1;
+    }
+    if (statusMeta.isFailure) {
+      failureAllTime += 1;
+      if (isYear) failureYear += 1;
+    }
+  }
+
+  return { successAllTime, failureAllTime, successYear, failureYear };
+}
+
+function formatRate(success: number, total: number) {
+  if (total <= 0) return '0%';
+  return `${Math.round((success / total) * 100)}%`;
+}
+
+function formatDurationMs(ms: number) {
+  const totalSeconds = Math.round(Math.abs(ms) / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const parts = [];
+  if (days) parts.push(`${days}d`);
+  if (hours) parts.push(`${hours}h`);
+  if (minutes && days === 0) parts.push(`${minutes}m`);
+  if (!parts.length) parts.push(`${totalSeconds}s`);
+  return parts.join(' ');
+}
+
+function formatWindowLength(windowStart?: string | null, windowEnd?: string | null) {
+  if (!windowStart || !windowEnd) return null;
+  const startMs = Date.parse(windowStart);
+  const endMs = Date.parse(windowEnd);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return null;
+  return formatDurationMs(endMs - startMs);
+}
+
+function formatPadTurnaround(value: string | null | undefined) {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const ms = parseIsoDurationToMs(trimmed);
+  if (ms == null) return trimmed;
+  return formatDurationMs(ms);
+}
+
+function buildStoryLine(subject: string, allTime: number | null, year: number | null, unit: string, yearLabel: string) {
+  if (allTime != null && year != null) {
+    return `${subject} has ${formatCount(allTime)} ${unit} on record, with ${formatCount(year)} in ${yearLabel}.`;
+  }
+  if (allTime != null) {
+    return `${subject} has ${formatCount(allTime)} ${unit} on record.`;
+  }
+  if (year != null) {
+    return `${subject} has ${formatCount(year)} ${unit} in ${yearLabel}.`;
+  }
+  return `Catalog counts for ${subject} are still loading.`;
+}
+
+function buildMissionStatsModule(
+  launch: ReturnType<typeof mapPublicCacheRow>,
+  rocketStats: RocketOutcomeStats | null,
+  boosterStats: Awaited<ReturnType<typeof fetchLaunchBoosterStats>>
+) {
+  const currentYear = new Date().getUTCFullYear();
+  const yearLabel = String(currentYear);
+  const providerAllTime = typeof launch.agencyLaunchAttemptCount === 'number' ? launch.agencyLaunchAttemptCount : null;
+  const providerYear = typeof launch.agencyLaunchAttemptCountYear === 'number' ? launch.agencyLaunchAttemptCountYear : null;
+  const padAllTime = typeof launch.padLaunchAttemptCount === 'number' ? launch.padLaunchAttemptCount : null;
+  const padYear = typeof launch.padLaunchAttemptCountYear === 'number' ? launch.padLaunchAttemptCountYear : null;
+  const rocketLabel = launch.rocket?.fullName || launch.vehicle;
+  const cards = [
+    {
+      id: 'provider',
+      eyebrow: 'Provider legacy',
+      title: launch.provider,
+      allTime: providerAllTime,
+      year: providerYear,
+      yearLabel,
+      allTimeLabel: 'Lifetime launches',
+      story: buildStoryLine(launch.provider, providerAllTime, providerYear, 'launches', yearLabel)
+    },
+    {
+      id: 'rocket',
+      eyebrow: 'Rocket track record',
+      title: rocketLabel,
+      allTime: rocketStats ? rocketStats.successAllTime : null,
+      year: rocketStats ? rocketStats.successYear : null,
+      yearLabel,
+      allTimeLabel: 'Successful missions',
+      story: buildStoryLine(rocketLabel, rocketStats ? rocketStats.successAllTime : null, rocketStats ? rocketStats.successYear : null, 'successful missions', yearLabel)
+    },
+    {
+      id: 'pad',
+      eyebrow: 'Pad history',
+      title: launch.pad.name,
+      allTime: padAllTime,
+      year: padYear,
+      yearLabel,
+      allTimeLabel: 'Pad launches',
+      story: buildStoryLine(launch.pad.name, padAllTime, padYear, 'launches from this pad', yearLabel)
+    }
+  ];
+
+  const bonusInsights: Array<{ label: string; value: string; detail: string | null }> = [];
+  if (rocketStats) {
+    const totalAllTime = rocketStats.successAllTime + rocketStats.failureAllTime;
+    if (totalAllTime > 0) {
+      const yearTotal = rocketStats.successYear + rocketStats.failureYear;
+      bonusInsights.push({
+        label: 'Rocket reliability',
+        value: `${formatRate(rocketStats.successAllTime, totalAllTime)} all time`,
+        detail: yearTotal
+          ? `${yearLabel}: ${formatRate(rocketStats.successYear, yearTotal)} (${formatCount(rocketStats.successYear)}/${formatCount(yearTotal)})`
+          : `${yearLabel}: no completed missions yet`
+      });
+    }
+  }
+  const padTurnaround = formatPadTurnaround(launch.padTurnaround);
+  if (padTurnaround) {
+    bonusInsights.push({
+      label: 'Pad turnaround',
+      value: padTurnaround,
+      detail: 'Reported pad reuse cadence.'
+    });
+  }
+  const windowLength = formatWindowLength(launch.windowStart, launch.windowEnd);
+  bonusInsights.push({
+    label: 'Launch window',
+    value: windowLength || 'TBD',
+    detail: windowLength ? 'Planned window length for liftoff.' : 'Window length not published yet.'
+  });
+
+  const boosterCards = (Array.isArray(boosterStats) ? boosterStats : []).map((booster) => ({
+    id: String(booster.ll2LauncherId),
+    title: booster.serialNumber || `Core ${booster.ll2LauncherId}`,
+    subtitle: booster.status || null,
+    allTime: booster.totalMissions,
+    year: booster.missionsThisYear,
+    yearLabel,
+    allTimeLabel: 'Total missions',
+    detailLines: [
+      booster.flightProven === true ? 'Flight proven' : booster.flightProven === false ? 'Not flight proven' : 'Provenance unknown',
+      booster.firstLaunchDate ? `First flight: ${booster.firstLaunchDate}` : null,
+      booster.lastMissionNet ? `Last mission: ${booster.lastMissionNet}` : booster.lastLaunchDate ? `Last mission: ${booster.lastLaunchDate}` : null,
+      `Tracked missions: ${formatCount(booster.trackedMissions)}`
+    ].filter(Boolean) as string[],
+    imageUrl: normalizeUrlString(booster.imageUrl)
+  }));
+
+  return { cards, boosterCards, bonusInsights: bonusInsights.slice(0, 3) };
+}
+
+function buildSocialModule(launch: ReturnType<typeof mapPublicCacheRow>) {
+  const matchedPostUrl = normalizeUrlString(launch.socialPrimaryPostUrl || launch.spacexXPostUrl);
+  const matchedPostHandle = normalizeText(launch.socialPrimaryPostHandle) ||
+    (matchedPostUrl ? `@${formatUrlHost(matchedPostUrl)?.split('.')[0] || ''}` : null);
+  const matchedPost =
+    matchedPostUrl && ((launch.socialPrimaryPostPlatform || '').toLowerCase() === 'x' || launch.spacexXPostUrl)
+      ? {
+          platform: 'x' as const,
+          title: 'Matched post on X',
+          subtitle: matchedPostHandle,
+          description: `Official post matched to this launch.`,
+          url: matchedPostUrl,
+          handle: matchedPostHandle,
+          matchedAt: normalizeText(launch.socialPrimaryPostMatchedAt || launch.spacexXPostCapturedAt)
+        }
+      : null;
+
+  const providerFeeds: Array<{
+    id: string;
+    platform: 'x';
+    title: string;
+    subtitle: string;
+    description: string;
+    url: string;
+    handle: string;
+  }> = [];
+  if (isArtemisLaunch(launch)) {
+    providerFeeds.push({
+      id: 'x:nasartemis',
+      platform: 'x' as const,
+      title: 'Artemis updates',
+      subtitle: '@NASAArtemis',
+      description: 'Latest posts from the Artemis program account.',
+      url: 'https://x.com/NASAArtemis',
+      handle: '@NASAArtemis'
+    });
+  }
+  if (isStarshipLaunch(launch)) {
+    providerFeeds.push({
+      id: 'x:spacex',
+      platform: 'x' as const,
+      title: 'Starship updates',
+      subtitle: '@SpaceX',
+      description: 'Latest posts from SpaceX.',
+      url: 'https://x.com/SpaceX',
+      handle: '@SpaceX'
+    });
+  }
+
+  if (!matchedPost && providerFeeds.length === 0) return null;
+  return { matchedPost, providerFeeds };
+}
+
+function buildLaunchUpdatesModule(launch: ReturnType<typeof mapPublicCacheRow>) {
+  if (!Array.isArray(launch.updates) || launch.updates.length === 0) return [];
+  return launch.updates.slice(0, 5).map((update, index) => ({
+    id: String(update.id || `launch-update-${index}`),
+    title: String(update.comment || 'Launch update'),
+    detectedAt: normalizeText(update.created_on),
+    details: [normalizeText(update.created_by), normalizeUrlString(update.info_url)].filter(Boolean) as string[],
+    tags: []
+  }));
+}
+
+function normalizeCompactText(value: unknown) {
+  const normalized = String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return normalized || null;
+}
+
+function normalizeLower(value: unknown) {
+  const normalized = normalizeCompactText(value);
+  return normalized ? normalized.toLowerCase() : null;
+}
+
+function pickLongerText(current: string | null, next: string | null) {
+  if (!next) return current;
+  if (!current) return next;
+  return next.length > current.length ? next : current;
+}
+
+function pickRicherText(current: string | null, next: string | null, genericValues: string[] = ['unknown', 'tbd', 'n/a']) {
+  if (!next) return current;
+  if (!current) return next;
+
+  const currentValue = current.trim();
+  const nextValue = next.trim();
+  if (!currentValue) return nextValue || null;
+  if (!nextValue) return currentValue || null;
+
+  const generic = new Set(genericValues.map((value) => value.toLowerCase()));
+  const currentIsGeneric = generic.has(currentValue.toLowerCase());
+  const nextIsGeneric = generic.has(nextValue.toLowerCase());
+
+  if (currentIsGeneric && !nextIsGeneric) return nextValue;
+  if (!currentIsGeneric && nextIsGeneric) return currentValue;
+  return nextValue.length > currentValue.length ? nextValue : currentValue;
+}
+
+function isLikelyBlueOriginEnhancementCrewName(value: string | null | undefined) {
+  const normalized = normalizeCompactText(value);
+  if (!normalized) return false;
+  if (/\b(ns-\d+|mission|launch|flight|payload)\b/i.test(normalized)) return false;
+  if (normalized.length < 2 || normalized.length > 90) return false;
+  if (BLUE_ORIGIN_NOISE_PASSENGER_TOKEN.test(normalized)) return false;
+  if (!/[A-Za-z]/.test(normalized)) return false;
+
+  const words = normalized.split(/\s+/).filter(Boolean);
+  if (words.length < 2 || words.length > 6) return false;
+
+  return words.some((word) => /^[A-Z][A-Za-z.'’-]*$/.test(word));
+}
+
+function isLikelyBlueOriginEnhancementPayloadName(value: string | null | undefined) {
+  const normalized = normalizeCompactText(value);
+  if (!normalized) return false;
+  if (normalized.length < 3 || normalized.length > 90) return false;
+  if (BLUE_ORIGIN_NOISE_PAYLOAD_TOKEN.test(normalized)) return false;
+  if (!/[A-Za-z]/.test(normalized)) return false;
+  if (normalized.split(/\s+/).filter(Boolean).length > 8) return false;
+  return true;
+}
+
+function isExcludedBlueOriginManifestSource(value: string | null | undefined) {
+  const normalized = normalizeCompactText(value);
+  if (!normalized) return false;
+  return BLUE_ORIGIN_UNVERIFIED_SOURCE_PATTERN.test(normalized.toLowerCase());
+}
+
+function isVerifiedBlueOriginPassengerRow(row: {
+  name?: string | null;
+  source?: string | null;
+  confidence?: string | null;
+}) {
+  const name = normalizeCompactText(row.name);
+  if (!name) return false;
+  if (!isLikelyBlueOriginEnhancementCrewName(name)) return false;
+  if (isLikelyBlueOriginEnhancementPayloadName(name)) return false;
+  if (isExcludedBlueOriginManifestSource(row.source || null)) return false;
+  return row.confidence === 'high' || row.confidence === 'medium';
+}
+
+function isVerifiedBlueOriginPayloadRow(row: {
+  name?: string | null;
+  source?: string | null;
+  confidence?: string | null;
+}) {
+  const name = normalizeCompactText(row.name);
+  if (!name) return false;
+  if (!isLikelyBlueOriginEnhancementPayloadName(name)) return false;
+  if (isExcludedBlueOriginManifestSource(row.source || null)) return false;
+  return row.confidence === 'high' || row.confidence === 'medium';
+}
+
+function shouldTreatBlueOriginPassengerAsPayload(row: { name?: string | null; role?: string | null }) {
+  const role = normalizeCompactText(row.role || null) || '';
+  const name = normalizeCompactText(row.name || null) || '';
+
+  if (!role && !name) return false;
+  if (/\b(?:anthropomorphic|test\s+device|atd|dummy)\b/i.test(role)) return true;
+  if (/\bmannequin\b/i.test(name)) return true;
+  return false;
+}
+
+function matchesBlueOriginLaunchRecord(
+  launch: ReturnType<typeof mapPublicCacheRow>,
+  rowLaunchId: string | null | undefined,
+  rowFlightCode: string | null | undefined
+) {
+  const launchId = normalizeLower(launch.id);
+  const flightCode = normalizeLower(extractBlueOriginFlightCode(launch));
+  const normalizedLaunchId = normalizeLower(rowLaunchId);
+  if (launchId && normalizedLaunchId && launchId === normalizedLaunchId) return true;
+
+  const normalizedFlightCode = normalizeLower(rowFlightCode);
+  if (flightCode && normalizedFlightCode && flightCode === normalizedFlightCode) return true;
+  return false;
+}
+
+function dedupeBlueOriginCrewRows(rows: NonNullable<ReturnType<typeof mapPublicCacheRow>['crew']>) {
+  const byAstronaut = new Map<string, NonNullable<ReturnType<typeof mapPublicCacheRow>['crew']>[number]>();
+
+  for (const row of rows) {
+    const astronaut = normalizeCompactText(row?.astronaut);
+    if (!astronaut) continue;
+    const key = astronaut.toLowerCase();
+    const role = normalizeBlueOriginTravelerRole(normalizeCompactText(row?.role)) || undefined;
+    const nationality = normalizeCompactText(row?.nationality) || undefined;
+    const existing = byAstronaut.get(key);
+
+    if (!existing) {
+      byAstronaut.set(key, {
+        ...row,
+        astronaut,
+        role,
+        nationality
+      });
+      continue;
+    }
+
+    byAstronaut.set(key, {
+      ...existing,
+      astronaut,
+      role: pickRicherText(existing.role || null, role || null, ['passenger', 'crew']) || undefined,
+      nationality: pickRicherText(existing.nationality || null, nationality || null, ['unknown', 'n/a']) || undefined
+    });
+  }
+
+  return [...byAstronaut.values()];
+}
+
+function dedupeBlueOriginPayloadRows(rows: NonNullable<ReturnType<typeof mapPublicCacheRow>['payloads']>) {
+  const byName = new Map<string, NonNullable<ReturnType<typeof mapPublicCacheRow>['payloads']>[number]>();
+
+  for (const row of rows) {
+    const name = normalizeCompactText(row?.name);
+    if (!name) continue;
+    const key = name.toLowerCase();
+    const type = normalizeCompactText(row?.type) || undefined;
+    const orbit = normalizeCompactText(row?.orbit) || undefined;
+    const agency = normalizeCompactText(row?.agency) || undefined;
+    const existing = byName.get(key);
+
+    if (!existing) {
+      byName.set(key, {
+        ...row,
+        name,
+        type,
+        orbit,
+        agency
+      });
+      continue;
+    }
+
+    byName.set(key, {
+      ...existing,
+      name,
+      type: pickRicherText(existing.type || null, type || null, ['payload', 'unknown', 'tbd', 'n/a']) || undefined,
+      orbit: pickRicherText(existing.orbit || null, orbit || null, ['unknown', 'tbd', 'n/a']) || undefined,
+      agency: pickRicherText(existing.agency || null, agency || null, ['unknown', 'tbd', 'n/a']) || undefined
+    });
+  }
+
+  return [...byName.values()];
+}
+
+function filterBlueOriginCrewRows(rows: NonNullable<ReturnType<typeof mapPublicCacheRow>['crew']>) {
+  return dedupeBlueOriginCrewRows(
+    rows
+      .filter((row) => {
+        const astronaut = normalizeCompactText(row?.astronaut);
+        if (!astronaut) return false;
+        if (!isLikelyBlueOriginEnhancementCrewName(astronaut)) return false;
+        if (isLikelyBlueOriginEnhancementPayloadName(astronaut)) return false;
+        return true;
+      })
+      .map((row) => ({
+        ...row,
+        role: normalizeBlueOriginTravelerRole(normalizeCompactText(row?.role)) || 'Crew'
+      }))
+  );
+}
+
+function filterBlueOriginPayloadRows(rows: NonNullable<ReturnType<typeof mapPublicCacheRow>['payloads']>) {
+  return dedupeBlueOriginPayloadRows(
+    rows.filter((row) => {
+      const name = normalizeCompactText(row?.name);
+      if (!name) return false;
+      return isLikelyBlueOriginEnhancementPayloadName(name);
+    })
+  );
+}
+
+function resolveBlueOriginCrewRows(
+  launch: ReturnType<typeof mapPublicCacheRow>,
+  rows: Awaited<ReturnType<typeof fetchBlueOriginPassengersDatabaseOnly>>['items']
+) {
+  return dedupeBlueOriginCrewRows(
+    rows
+      .filter((row) => matchesBlueOriginLaunchRecord(launch, row.launchId, row.flightCode))
+      .filter((row) => isVerifiedBlueOriginPassengerRow(row))
+      .filter((row) => !shouldTreatBlueOriginPassengerAsPayload(row))
+      .map((row) => ({
+        astronaut: row.name,
+        role: row.role || 'Crew',
+        nationality: row.nationality || undefined
+      }))
+  );
+}
+
+function resolveBlueOriginPayloadRows(
+  launch: ReturnType<typeof mapPublicCacheRow>,
+  rows: Awaited<ReturnType<typeof fetchBlueOriginPayloads>>['items']
+) {
+  return dedupeBlueOriginPayloadRows(
+    rows
+      .filter((row) => matchesBlueOriginLaunchRecord(launch, row.launchId, row.flightCode))
+      .filter((row) => isVerifiedBlueOriginPayloadRow(row))
+      .map((row) => ({
+        name: row.name,
+        type: row.payloadType || undefined,
+        orbit: row.orbit || undefined,
+        agency: row.agency || undefined
+      }))
+  );
+}
+
+function resolveBlueOriginPassengerPayloadRows(
+  launch: ReturnType<typeof mapPublicCacheRow>,
+  rows: Awaited<ReturnType<typeof fetchBlueOriginPassengersDatabaseOnly>>['items']
+) {
+  return dedupeBlueOriginPayloadRows(
+    rows
+      .filter((row) => matchesBlueOriginLaunchRecord(launch, row.launchId, row.flightCode))
+      .filter((row) => isVerifiedBlueOriginPassengerRow(row))
+      .filter((row) => shouldTreatBlueOriginPassengerAsPayload(row))
+      .map((row) => ({
+        name: row.name,
+        type: row.role || 'Payload',
+        orbit: undefined,
+        agency: undefined
+      }))
+  );
+}
+
+function deriveBlueOriginSyntheticLaunchPayloadRows(missionSummary: string | null) {
+  const summary = normalizeCompactText(missionSummary);
+  if (!summary) return [];
+
+  const lower = summary.toLowerCase();
+  const experimentMatch = summary.match(/\b(\d{1,4})\s+experiments?\b/i);
+  if (experimentMatch?.[1]) {
+    const count = Number(experimentMatch[1] || '');
+    if (Number.isFinite(count) && count > 0) {
+      return dedupeBlueOriginPayloadRows([{ name: `Experiments (${count})`, type: 'Experiment' }]);
+    }
+  }
+
+  const payloadCountMatch = summary.match(
+    /\b(?:more\s+than\s+|over\s+|around\s+|approximately\s+|roughly\s+)?(\d{1,4})\s+[^.\n]{0,60}?\bpayloads?\b/i
+  );
+  if (payloadCountMatch?.[1]) {
+    const count = Number(payloadCountMatch[1] || '');
+    if (Number.isFinite(count) && count > 0) {
+      const label = lower.includes('microgravity')
+        ? 'Microgravity research payloads'
+        : lower.includes('commercial')
+          ? 'Commercial payloads'
+          : lower.includes('research') || lower.includes('science') || lower.includes('scientific')
+            ? 'Research payloads'
+            : 'Payloads';
+      return dedupeBlueOriginPayloadRows([{ name: `${label} (${count})`, type: label }]);
+    }
+  }
+
+  if (lower.includes('blue ring') && lower.includes('payload')) {
+    return dedupeBlueOriginPayloadRows([{ name: 'Blue Ring prototype payload', type: 'Payload' }]);
+  }
+
+  if (/\bpayloads?\b/i.test(summary)) {
+    const label = lower.includes('lunar gravity')
+      ? 'Lunar gravity payloads'
+      : lower.includes('microgravity') || lower.includes('weightlessness')
+        ? 'Microgravity research payloads'
+        : lower.includes('commercial') || lower.includes('customer')
+          ? 'Commercial payloads'
+          : lower.includes('postcard')
+            ? 'Postcards payload'
+            : lower.includes('payload mission')
+              ? 'Mission payload set'
+              : 'Mission payloads';
+    return dedupeBlueOriginPayloadRows([{ name: label, type: label }]);
+  }
+
+  return [];
+}
+
+function getBlueOriginMissionArtifacts(launch: ReturnType<typeof mapPublicCacheRow>) {
+  const flightCode = extractBlueOriginFlightCode(launch);
+  if (!flightCode) return null;
+
+  const normalizedCode = flightCode.trim().toLowerCase();
+  const curated = BLUE_ORIGIN_MISSION_ARTIFACTS[normalizedCode];
+  if (curated) return curated;
+
+  if (normalizedCode.startsWith('ns-')) {
+    return {
+      missionUrl: `https://www.blueorigin.com/news/new-shepard-${normalizedCode}-mission`
+    };
+  }
+
+  if (normalizedCode.startsWith('ng-')) {
+    return {
+      missionUrl: `https://www.blueorigin.com/news/new-glenn-${normalizedCode}-mission`
+    };
+  }
+
+  return null;
+}
+
+async function loadBlueOriginConstraintRows(launchId: string) {
+  if (!isSupabaseAdminConfigured()) return [] as BlueOriginConstraintRow[];
+  const client = createSupabaseAdminClient();
+  const { data, error } = await client
+    .from('launch_trajectory_constraints')
+    .select('constraint_type, data, fetched_at')
+    .eq('launch_id', launchId)
+    .eq('source', BLUE_ORIGIN_MULTISOURCE_CONSTRAINT_SOURCE)
+    .in('constraint_type', ['bo_official_sources', 'bo_mission_facts', 'bo_manifest_payloads'])
+    .order('fetched_at', { ascending: false });
+
+  if (error || !Array.isArray(data)) return [] as BlueOriginConstraintRow[];
+  return data as BlueOriginConstraintRow[];
+}
+
+async function loadLl2SpacecraftFlights(ll2LaunchUuid: string | null | undefined) {
+  const normalized = normalizeCompactText(ll2LaunchUuid);
+  if (!normalized || !isSupabaseConfigured()) return [] as Ll2SpacecraftFlightRow[];
+
+  const client = createSupabaseServerClient();
+  const { data, error } = await client
+    .from('ll2_spacecraft_flights')
+    .select('ll2_spacecraft_flight_id,ll2_launch_uuid,launch_crew,onboard_crew,landing_crew,active')
+    .eq('ll2_launch_uuid', normalized)
+    .limit(12);
+
+  if (error || !Array.isArray(data)) return [] as Ll2SpacecraftFlightRow[];
+  return data as Ll2SpacecraftFlightRow[];
+}
+
+function formatLl2Nationality(value: unknown): string | null {
+  if (!value) return null;
+  if (typeof value === 'string') {
+    return normalizeCompactText(value);
+  }
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((entry) => {
+        if (!entry || typeof entry !== 'object') return '';
+        const record = entry as Record<string, unknown>;
+        return (
+          normalizeCompactText(record.nationality_name_composed) ||
+          normalizeCompactText(record.nationality_name) ||
+          normalizeCompactText(record.name) ||
+          ''
+        );
+      })
+      .filter(Boolean);
+    return parts.length ? [...new Set(parts)].join(', ') : null;
+  }
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return (
+      normalizeCompactText(record.nationality_name_composed) ||
+      normalizeCompactText(record.nationality_name) ||
+      normalizeCompactText(record.name) ||
+      null
+    );
+  }
+  return null;
+}
+
+function shouldTreatLl2CrewMemberAsPayload(name: string, role: string | null | undefined) {
+  return isBlueOriginNonHumanCrewEntry(name, role);
+}
+
+function resolveCrewAndDevicePayloadsFromLl2SpacecraftFlights(flights: Ll2SpacecraftFlightRow[]) {
+  const crew: NonNullable<ReturnType<typeof mapPublicCacheRow>['crew']> = [];
+  const devicePayloads: NonNullable<ReturnType<typeof mapPublicCacheRow>['payloads']> = [];
+
+  const ingestCrewBucket = (bucket: unknown) => {
+    if (!Array.isArray(bucket)) return;
+    for (const entry of bucket) {
+      if (!entry || typeof entry !== 'object') continue;
+      const row = entry as Record<string, any>;
+      const astronautObject =
+        row.astronaut && typeof row.astronaut === 'object' ? (row.astronaut as Record<string, any>) : null;
+      const astronautName = normalizeCompactText(astronautObject?.name ?? row.astronaut ?? null);
+      if (!astronautName) continue;
+
+      const role = normalizeBlueOriginTravelerRole(normalizeCompactText(row?.role?.role ?? row?.role ?? null));
+      if (shouldTreatLl2CrewMemberAsPayload(astronautName, role)) {
+        devicePayloads.push({
+          name: astronautName,
+          type: role || 'Payload',
+          orbit: undefined,
+          agency: undefined
+        });
+        continue;
+      }
+
+      const astronautIdRaw = astronautObject?.id;
+      const astronautId =
+        typeof astronautIdRaw === 'number' && Number.isFinite(astronautIdRaw) ? astronautIdRaw : null;
+
+      crew.push({
+        astronaut: astronautName,
+        astronaut_id: astronautId,
+        role: role || 'Crew',
+        nationality: formatLl2Nationality(astronautObject?.nationality) || undefined
+      });
+    }
+  };
+
+  for (const flight of flights) {
+    ingestCrewBucket(flight.launch_crew);
+    ingestCrewBucket(flight.onboard_crew);
+    ingestCrewBucket(flight.landing_crew);
+  }
+
+  return {
+    crew: dedupeBlueOriginCrewRows(crew),
+    devicePayloads: dedupeBlueOriginPayloadRows(devicePayloads)
+  };
+}
+
+function buildBlueOriginTravelerProfilesFromLl2SpacecraftFlights(flights: Ll2SpacecraftFlightRow[]) {
+  const byName = new Map<
+    string,
+    {
+      name: string;
+      travelerSlug: string;
+      role: string | null;
+      nationality: string | null;
+      bio: string | null;
+      imageUrl: string | null;
+      profileUrl: string | null;
+    }
+  >();
+
+  const ingestCrewBucket = (bucket: unknown) => {
+    if (!Array.isArray(bucket)) return;
+    for (const entry of bucket) {
+      if (!entry || typeof entry !== 'object') continue;
+      const row = entry as Record<string, any>;
+      const astronautObject =
+        row.astronaut && typeof row.astronaut === 'object' ? (row.astronaut as Record<string, any>) : null;
+      const name = normalizeCompactText(astronautObject?.name ?? row.astronaut ?? null);
+      if (!name) continue;
+
+      const role = normalizeBlueOriginTravelerRole(normalizeCompactText(row?.role?.role ?? row?.role ?? null));
+      if (shouldTreatLl2CrewMemberAsPayload(name, role)) continue;
+
+      const key = name.toLowerCase();
+      const existing = byName.get(key);
+      const profileUrl = normalizeUrlString(astronautObject?.wiki) || normalizeUrlString(astronautObject?.url);
+      const imageUrl =
+        normalizeUrlString(astronautObject?.image?.thumbnail_url) ||
+        normalizeUrlString(astronautObject?.image?.thumbnailUrl) ||
+        normalizeUrlString(astronautObject?.profile_image_thumbnail) ||
+        normalizeUrlString(astronautObject?.profileImageThumbnail) ||
+        normalizeUrlString(astronautObject?.image?.image_url) ||
+        normalizeUrlString(astronautObject?.image?.imageUrl) ||
+        normalizeUrlString(astronautObject?.profile_image) ||
+        normalizeUrlString(astronautObject?.profileImage);
+      const nationality = formatLl2Nationality(astronautObject?.nationality);
+      const bio = normalizeCompactText(astronautObject?.bio);
+
+      if (!existing) {
+        byName.set(key, {
+          name,
+          travelerSlug: buildBlueOriginTravelerSlug(name),
+          role: role || 'Crew',
+          nationality,
+          bio,
+          imageUrl,
+          profileUrl
+        });
+        continue;
+      }
+
+      existing.role = pickRicherText(existing.role, role, ['passenger', 'crew']);
+      existing.nationality = pickRicherText(existing.nationality, nationality, ['unknown', 'n/a']);
+      existing.bio = pickLongerText(existing.bio, bio);
+      if (!existing.imageUrl && imageUrl) existing.imageUrl = imageUrl;
+      if (!existing.profileUrl && profileUrl) existing.profileUrl = profileUrl;
+    }
+  };
+
+  for (const flight of flights) {
+    ingestCrewBucket(flight.launch_crew);
+    ingestCrewBucket(flight.onboard_crew);
+    ingestCrewBucket(flight.landing_crew);
+  }
+
+  return [...byName.values()].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function mergeBlueOriginTravelerProfiles(
+  base: Array<{
+    name: string;
+    travelerSlug: string;
+    role: string | null;
+    nationality: string | null;
+    bio: string | null;
+    imageUrl: string | null;
+    profileUrl: string | null;
+  }>,
+  supplement: Array<{
+    name: string;
+    travelerSlug: string;
+    role: string | null;
+    nationality: string | null;
+    bio: string | null;
+    imageUrl: string | null;
+    profileUrl: string | null;
+  }>
+) {
+  const byName = new Map<string, (typeof base)[number]>();
+
+  for (const row of [...base, ...supplement]) {
+    const key = row.name.toLowerCase();
+    const existing = byName.get(key);
+    if (!existing) {
+      byName.set(key, { ...row });
+      continue;
+    }
+
+    existing.role = pickRicherText(existing.role, row.role, ['passenger', 'crew']);
+    existing.nationality = pickRicherText(existing.nationality, row.nationality, ['unknown', 'n/a']);
+    existing.bio = pickLongerText(existing.bio, row.bio);
+    if (!existing.imageUrl && row.imageUrl) existing.imageUrl = row.imageUrl;
+    if (!existing.profileUrl && row.profileUrl) existing.profileUrl = row.profileUrl;
+  }
+
+  return [...byName.values()].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+async function loadBlueOriginMissionGraphics(launchId: string) {
+  if (!isSupabaseAdminConfigured()) {
+    return {
+      missionUrl: null,
+      graphics: [] as Array<{
+        url: string;
+        label: string;
+        meta: string | null;
+        imageUrl: string | null;
+        host: string | null;
+        kind: string;
+      }>
+    };
+  }
+
+  const client = createSupabaseAdminClient();
+  const { data, error } = await client
+    .from('launch_trajectory_constraints')
+    .select('data')
+    .eq('launch_id', launchId)
+    .eq('source', 'blueorigin_mission_page')
+    .eq('constraint_type', 'mission_infographic')
+    .order('fetched_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) {
+    return {
+      missionUrl: null,
+      graphics: [] as Array<{
+        url: string;
+        label: string;
+        meta: string | null;
+        imageUrl: string | null;
+        host: string | null;
+        kind: string;
+      }>
+    };
+  }
+
+  const payload = data.data as any;
+  const rawGraphics = Array.isArray(payload?.graphics) ? payload.graphics : [];
+  const byUrl = new Map<string, { url: string; label: string; meta: string | null; imageUrl: string | null; host: string | null; kind: string }>();
+
+  for (const rawGraphic of rawGraphics) {
+    const rawUrl =
+      typeof rawGraphic === 'string'
+        ? rawGraphic
+        : rawGraphic && typeof rawGraphic === 'object' && typeof rawGraphic.url === 'string'
+          ? rawGraphic.url
+          : null;
+    const normalizedUrl = normalizeUrlString(rawUrl);
+    if (!normalizedUrl) continue;
+    const dedupeKey = normalizedUrl.toLowerCase();
+    if (byUrl.has(dedupeKey)) continue;
+    byUrl.set(dedupeKey, {
+      url: normalizedUrl,
+      label: normalizeCompactText(typeof rawGraphic === 'object' ? (rawGraphic as { label?: string }).label : null) || formatBlueOriginSourcePageLabel(normalizedUrl),
+      meta: 'Mission graphic',
+      imageUrl: normalizedUrl,
+      host: formatUrlHost(normalizedUrl),
+      kind: 'image'
+    });
+  }
+
+  return {
+    missionUrl: normalizeUrlString(payload?.missionUrl || payload?.launchPageUrl),
+    graphics: [...byUrl.values()]
+  };
+}
+
+function formatMissionFactLabel(key: string | null) {
+  const normalized = normalizeCompactText(key);
+  if (!normalized) return 'Mission fact';
+  return normalized
+    .replace(/[_-]+/g, ' ')
+    .split(' ')
+    .map((token) => (token ? token.charAt(0).toUpperCase() + token.slice(1).toLowerCase() : token))
+    .join(' ');
+}
+
+function formatBlueOriginSourcePageLabel(url: string) {
+  try {
+    const parsed = new URL(url);
+    const parts = parsed.pathname.split('/').filter(Boolean);
+    const tail = parts[parts.length - 1];
+    if (!tail) return formatUrlHost(url) || 'Official source';
+    return tail
+      .replace(/[-_]+/g, ' ')
+      .replace(/\b\w/g, (char) => char.toUpperCase());
+  } catch {
+    return 'Official source';
+  }
+}
+
+function resolveBlueOriginFactValue(
+  facts: Array<{ key?: string | null; label: string; value: string; sourceUrl?: string | null }>,
+  factKey: string
+) {
+  const normalizedFactKey = normalizeLower(factKey);
+  if (!normalizedFactKey) return null;
+
+  const normalizedFactLabel = normalizedFactKey.replace(/_/g, ' ');
+  let resolved: string | null = null;
+  for (const fact of facts) {
+    const key = normalizeLower(fact.key);
+    const label = normalizeLower(fact.label);
+    if (key !== normalizedFactKey && label !== normalizedFactLabel) continue;
+    resolved = pickRicherText(resolved, normalizeCompactText(fact.value));
+  }
+  return resolved;
+}
+
+function buildBlueOriginTravelerProfiles(
+  launch: ReturnType<typeof mapPublicCacheRow>,
+  rows: Awaited<ReturnType<typeof fetchBlueOriginPassengersDatabaseOnly>>['items']
+) {
+  const byName = new Map<
+    string,
+    {
+      name: string;
+      travelerSlug: string;
+      role: string | null;
+      nationality: string | null;
+      bio: string | null;
+      imageUrl: string | null;
+      profileUrl: string | null;
+    }
+  >();
+
+  for (const row of rows) {
+    if (!matchesBlueOriginLaunchRecord(launch, row.launchId, row.flightCode)) continue;
+    if (!isVerifiedBlueOriginPassengerRow(row)) continue;
+    if (shouldTreatBlueOriginPassengerAsPayload(row)) continue;
+    const name = normalizeCompactText(row.name);
+    if (!name) continue;
+    const key = name.toLowerCase();
+    const profileUrl = normalizeUrlString(row.profileUrl);
+    const imageUrl = normalizeUrlString(row.imageUrl);
+    const existing = byName.get(key);
+
+    if (!existing) {
+      byName.set(key, {
+        name,
+        travelerSlug: row.travelerSlug || buildBlueOriginTravelerSlug(name),
+        role: normalizeBlueOriginTravelerRole(normalizeCompactText(row.role)) || null,
+        nationality: normalizeCompactText(row.nationality),
+        bio: normalizeCompactText(row.bio),
+        imageUrl,
+        profileUrl
+      });
+      continue;
+    }
+
+    existing.role = pickRicherText(existing.role, normalizeBlueOriginTravelerRole(normalizeCompactText(row.role)), ['passenger', 'crew']);
+    existing.nationality = pickRicherText(existing.nationality, normalizeCompactText(row.nationality), ['unknown', 'n/a']);
+    existing.bio = pickLongerText(existing.bio, normalizeCompactText(row.bio));
+    if (!existing.imageUrl && imageUrl) existing.imageUrl = imageUrl;
+    if (!existing.profileUrl && profileUrl) existing.profileUrl = profileUrl;
+  }
+
+  return [...byName.values()].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function buildBlueOriginMissionGraphics(
+  launch: ReturnType<typeof mapPublicCacheRow>,
+  artifacts: ReturnType<typeof getBlueOriginMissionArtifacts>,
+  persistedGraphics: Awaited<ReturnType<typeof loadBlueOriginMissionGraphics>>
+) {
+  const byUrl = new Map<
+    string,
+    {
+      url: string;
+      label: string;
+      meta: string | null;
+      imageUrl: string | null;
+      host: string | null;
+      kind: string;
+    }
+  >();
+  const pushGraphic = (url: string | null | undefined, label: string, meta: string | null) => {
+    const normalizedUrl = normalizeUrlString(url);
+    if (!normalizedUrl) return;
+    const dedupeKey = normalizedUrl.toLowerCase();
+    if (byUrl.has(dedupeKey)) return;
+    byUrl.set(dedupeKey, {
+      url: normalizedUrl,
+      label,
+      meta,
+      imageUrl: normalizedUrl,
+      host: formatUrlHost(normalizedUrl),
+      kind: 'image'
+    });
+  };
+
+  for (const graphic of persistedGraphics.graphics) {
+    pushGraphic(graphic.url, graphic.label, graphic.meta);
+  }
+
+  for (const patch of Array.isArray(launch.missionPatches) ? launch.missionPatches : []) {
+    pushGraphic(
+      patch.image_url,
+      normalizeCompactText(patch.name) || 'Mission patch',
+      normalizeCompactText(typeof patch.agency === 'object' && patch.agency ? (patch.agency as { name?: string }).name : null) || 'Patch artwork'
+    );
+  }
+
+  pushGraphic(artifacts?.patchImageUrl, 'Mission patch image', 'Official store artwork');
+  return [...byUrl.values()];
+}
+
+function buildBlueOriginEnhancementData(
+  launch: ReturnType<typeof mapPublicCacheRow>,
+  rows: BlueOriginConstraintRow[],
+  artifacts: ReturnType<typeof getBlueOriginMissionArtifacts>
+) {
+  const resourceLinksByUrl = new Map<
+    string,
+    {
+      url: string;
+      label: string;
+      meta: string | null;
+      imageUrl: string | null;
+      host: string | null;
+      kind: string;
+    }
+  >();
+  const factsByKey = new Map<string, { key: string | null; label: string; value: string; sourceUrl: string | null }>();
+  const payloadNotesByName = new Map<string, { name: string; description: string; sourceUrl: string | null }>();
+
+  const pushLink = (url: string | null | undefined, label: string, meta: string | null, kind = 'page', imageUrl: string | null = null) => {
+    const normalizedUrl = normalizeUrlString(url);
+    if (!normalizedUrl) return;
+    const dedupeKey = normalizedUrl.toLowerCase();
+    if (resourceLinksByUrl.has(dedupeKey)) return;
+    resourceLinksByUrl.set(dedupeKey, {
+      url: normalizedUrl,
+      label,
+      meta,
+      imageUrl,
+      host: formatUrlHost(normalizedUrl),
+      kind
+    });
+  };
+
+  pushLink(artifacts?.missionUrl, 'Blue Origin mission page', 'Official mission page');
+  pushLink(artifacts?.patchProductUrl, 'Mission patch page', 'Official store');
+
+  for (const row of rows) {
+    const constraintType = normalizeCompactText(row.constraint_type || '');
+    const payload = row.data as any;
+    if (constraintType === 'bo_official_sources') {
+      const sourcePages = Array.isArray(payload?.sourcePages) ? payload.sourcePages : [];
+      for (const rawSource of sourcePages) {
+        const sourceObject = rawSource && typeof rawSource === 'object' ? (rawSource as Record<string, unknown>) : null;
+        const provenance = normalizeLower(sourceObject?.provenance);
+        const canonicalUrl = normalizeUrlString(sourceObject?.canonicalUrl);
+        const archiveSnapshotUrl = normalizeUrlString(sourceObject?.archiveSnapshotUrl);
+        const sourceUrl = normalizeUrlString(sourceObject?.url) || canonicalUrl || archiveSnapshotUrl || normalizeUrlString(rawSource);
+        const openUrl = provenance === 'wayback' ? archiveSnapshotUrl || sourceUrl || canonicalUrl : sourceUrl || canonicalUrl || archiveSnapshotUrl;
+        if (!openUrl) continue;
+        pushLink(
+          openUrl,
+          normalizeCompactText(sourceObject?.title) || formatBlueOriginSourcePageLabel(canonicalUrl || openUrl),
+          provenance === 'wayback' ? 'Wayback snapshot' : formatUrlHost(openUrl) || 'Official source'
+        );
+      }
+    }
+
+    if (constraintType === 'bo_mission_facts') {
+      const rawFacts = Array.isArray(payload?.facts) ? payload.facts : [];
+      for (const rawFact of rawFacts) {
+        if (!rawFact || typeof rawFact !== 'object') continue;
+        const factRow = rawFact as Record<string, unknown>;
+        const key = normalizeCompactText(factRow.key);
+        const label = normalizeCompactText(factRow.label) || formatMissionFactLabel(key);
+        const rawValue = normalizeCompactText(String(factRow.value ?? ''));
+        if (!rawValue) continue;
+        const unit = normalizeCompactText(factRow.unit);
+        const value = [rawValue, unit].filter(Boolean).join(' ');
+        const sourceUrl = normalizeUrlString(factRow.sourceUrl);
+        const dedupeKey = `${(key || label).toLowerCase()}|${value.toLowerCase()}`;
+        const existing = factsByKey.get(dedupeKey);
+
+        if (!existing) {
+          factsByKey.set(dedupeKey, {
+            key,
+            label,
+            value,
+            sourceUrl
+          });
+          continue;
+        }
+
+        existing.value = pickRicherText(existing.value, value) || existing.value;
+        if (!existing.sourceUrl && sourceUrl) existing.sourceUrl = sourceUrl;
+      }
+    }
+
+    if (constraintType === 'bo_manifest_payloads') {
+      const rawPayloads = Array.isArray(payload?.payloads) ? payload.payloads : [];
+      for (const rawPayload of rawPayloads) {
+        if (!rawPayload || typeof rawPayload !== 'object') continue;
+        const payloadRow = rawPayload as Record<string, unknown>;
+        const name = normalizeCompactText(payloadRow.name);
+        const description = normalizeCompactText(payloadRow.description);
+        if (!name || !description) continue;
+
+        const sourceUrl = normalizeUrlString(payloadRow.sourceUrl);
+        const existing = payloadNotesByName.get(name.toLowerCase());
+        if (!existing) {
+          payloadNotesByName.set(name.toLowerCase(), {
+            name,
+            description,
+            sourceUrl
+          });
+          continue;
+        }
+
+        existing.description = pickLongerText(existing.description, description) || existing.description;
+        if (!existing.sourceUrl && sourceUrl) existing.sourceUrl = sourceUrl;
+      }
+    }
+  }
+
+  const facts = [...factsByKey.values()].sort((left, right) => {
+    const labelDelta = left.label.localeCompare(right.label);
+    if (labelDelta !== 0) return labelDelta;
+    return left.value.localeCompare(right.value);
+  });
+  const payloadNotes = [...payloadNotesByName.values()].sort((left, right) => left.name.localeCompare(right.name));
+
+  return {
+    resourceLinks: [...resourceLinksByUrl.values()],
+    facts,
+    payloadNotes,
+    missionSummary: resolveBlueOriginFactValue(facts, BLUE_ORIGIN_MISSION_SUMMARY_FACT_KEY),
+    failureReason: resolveBlueOriginFactValue(facts, BLUE_ORIGIN_FAILURE_REASON_FACT_KEY)
+  };
+}
+
+function buildBlueOriginModule(
+  launch: ReturnType<typeof mapPublicCacheRow>,
+  passengersResponse: Awaited<ReturnType<typeof fetchBlueOriginPassengersDatabaseOnly>> | null,
+  payloadsResponse: Awaited<ReturnType<typeof fetchBlueOriginPayloads>> | null,
+  constraintRows: BlueOriginConstraintRow[],
+  ll2SpacecraftFlights: Ll2SpacecraftFlightRow[],
+  persistedMissionGraphics: Awaited<ReturnType<typeof loadBlueOriginMissionGraphics>>
+) {
+  if (!isBlueOriginProgramLaunch(launch)) {
+    return {
+      blueOrigin: null,
+      crew: launch.crew || [],
+      payloads: launch.payloads || [],
+      missionSummary: launch.mission?.description ?? launch.mission?.name ?? null,
+      failureReason: launch.failReason ?? null
+    };
+  }
+
+  const artifacts = getBlueOriginMissionArtifacts(launch);
+  const enhancementData = buildBlueOriginEnhancementData(launch, constraintRows, artifacts);
+  const ll2CrewBundle = resolveCrewAndDevicePayloadsFromLl2SpacecraftFlights(ll2SpacecraftFlights);
+  const travelerProfiles = mergeBlueOriginTravelerProfiles(
+    passengersResponse ? buildBlueOriginTravelerProfiles(launch, passengersResponse.items) : [],
+    buildBlueOriginTravelerProfilesFromLl2SpacecraftFlights(ll2SpacecraftFlights)
+  );
+  const missionGraphics = buildBlueOriginMissionGraphics(launch, artifacts, persistedMissionGraphics);
+  const resourceLinks = (() => {
+    const byUrl = new Map<string, (typeof enhancementData.resourceLinks)[number]>();
+    const pushLink = (link: (typeof enhancementData.resourceLinks)[number]) => {
+      const key = link.url.toLowerCase();
+      if (byUrl.has(key)) return;
+      byUrl.set(key, link);
+    };
+    for (const link of enhancementData.resourceLinks) pushLink(link);
+    if (persistedMissionGraphics.missionUrl) {
+      pushLink({
+        url: persistedMissionGraphics.missionUrl,
+        label: 'Blue Origin mission page',
+        meta: 'Mission infographic source',
+        imageUrl: null,
+        host: formatUrlHost(persistedMissionGraphics.missionUrl),
+        kind: 'page'
+      });
+    }
+    return [...byUrl.values()];
+  })();
+  const crew = dedupeBlueOriginCrewRows([
+    ...filterBlueOriginCrewRows(launch.crew || []),
+    ...(passengersResponse ? resolveBlueOriginCrewRows(launch, passengersResponse.items) : []),
+    ...ll2CrewBundle.crew
+  ]);
+  let payloads = dedupeBlueOriginPayloadRows([
+    ...filterBlueOriginPayloadRows(launch.payloads || []),
+    ...(payloadsResponse ? resolveBlueOriginPayloadRows(launch, payloadsResponse.items) : []),
+    ...(passengersResponse ? resolveBlueOriginPassengerPayloadRows(launch, passengersResponse.items) : []),
+    ...ll2CrewBundle.devicePayloads
+  ]);
+  const missionSummary = enhancementData.missionSummary || launch.mission?.description || launch.mission?.name || null;
+  if (payloads.length === 0) {
+    payloads = dedupeBlueOriginPayloadRows(deriveBlueOriginSyntheticLaunchPayloadRows(missionSummary));
+  }
+
+  const blueOrigin =
+    resourceLinks.length || travelerProfiles.length || missionGraphics.length || enhancementData.facts.length || enhancementData.payloadNotes.length
+      ? {
+          resourceLinks,
+          travelerProfiles,
+          missionGraphics,
+          facts: enhancementData.facts.map((fact) => ({
+            label: fact.label,
+            value: fact.value,
+            sourceUrl: fact.sourceUrl
+          })),
+          payloadNotes: enhancementData.payloadNotes
+        }
+      : null;
+
+  return {
+    blueOrigin,
+    crew,
+    payloads,
+    missionSummary,
+    failureReason: enhancementData.failureReason || launch.failReason || null
+  };
+}
+
 function mapLaunchCardPayload(launch: ReturnType<typeof mapPublicCacheRow>) {
   return {
     id: launch.id,
@@ -531,7 +2606,7 @@ function mapLaunchCardPayload(launch: ReturnType<typeof mapPublicCacheRow>) {
     net: launch.net ?? null,
     status: launch.statusText ?? null,
     provider: launch.provider ?? null,
-    imageUrl: launch.image.full || launch.image.thumbnail || null
+    imageUrl: normalizeUrlString(launch.image.full) || normalizeUrlString(launch.image.thumbnail) || null
   };
 }
 
@@ -660,6 +2735,7 @@ export async function recordAuthContextPayload(session: ResolvedViewerSession, r
 
   const parsedBody = authContextUpsertSchemaV1.parse(await request.json().catch(() => undefined));
   const now = new Date().toISOString();
+  const riskSessionId = normalizeText(parsedBody.riskSessionId);
   const { data: existingSummary, error: summaryLoadError } = await client
     .from('user_surface_summary')
     .select('first_mobile_platform, ever_used_web, ever_used_ios, ever_used_android, last_mobile_sign_in_at')
@@ -705,12 +2781,27 @@ export async function recordAuthContextPayload(session: ResolvedViewerSession, r
     email_is_private_relay: parsedBody.emailIsPrivateRelay === true,
     app_version: normalizeText(parsedBody.appVersion),
     build_profile: normalizeText(parsedBody.buildProfile),
+    risk_session_id: riskSessionId,
     result: 'success',
     created_at: now
   });
 
   if (eventInsertError) {
     throw eventInsertError;
+  }
+
+  if (riskSessionId) {
+    const { error: riskSessionUpdateError } = await client
+      .from('mobile_auth_risk_sessions')
+      .update({
+        user_id: session.userId,
+        updated_at: now
+      })
+      .eq('id', riskSessionId);
+
+    if (riskSessionUpdateError) {
+      throw riskSessionUpdateError;
+    }
   }
 
   return successResponseSchemaV1.parse({ ok: true });
@@ -780,13 +2871,16 @@ async function loadRelatedLaunchResults(launchId: string) {
 }
 
 export async function buildViewerSessionPayload(session: ResolvedViewerSession) {
+  const mobileHubRollout = await loadMobileHubRollout();
+
   return viewerSessionSchemaV1.parse({
     viewerId: session.userId,
     email: session.email,
     role: session.role,
     accessToken: session.authMode === 'bearer' ? session.accessToken : null,
     expiresAt: session.expiresAt,
-    authMode: session.authMode
+    authMode: session.authMode,
+    mobileHubRollout
   });
 }
 
@@ -840,18 +2934,98 @@ export async function loadLaunchDetailPayload(id: string, session: ResolvedViewe
   }
 
   const launch = mapPublicCacheRow(data);
-  const [entitlements, related, enrichment, jepScore, faaAirspace, arTrajectory] = await Promise.all([
+  const netMs = Date.parse(launch.net);
+  const nowMs = Date.now();
+  const isEasternRange = launch.pad?.state === 'FL';
+  const padCountry = String(launch.pad?.countryCode || '').toUpperCase();
+  const isUsPad = padCountry === 'USA' || padCountry === 'US';
+  const within14Days =
+    Number.isFinite(netMs) &&
+    netMs > nowMs &&
+    netMs <= nowMs + 14 * 24 * 60 * 60 * 1000;
+  const blueOriginMissionKey = isBlueOriginProgramLaunch(launch) ? getBlueOriginMissionKeyFromLaunch(launch) || 'all' : null;
+
+  const [
+    entitlements,
+    related,
+    enrichment,
+    jepScore,
+    faaAirspace,
+    arTrajectory,
+    relatedNews,
+    relatedEvents,
+    ws45Forecast,
+    nwsForecast,
+    payloadManifest,
+    objectInventory,
+    rocketStats,
+    boosterStats,
+    ll2SpacecraftFlights,
+    blueOriginPassengers,
+    blueOriginPayloads,
+    blueOriginConstraintRows,
+    blueOriginMissionGraphics
+  ] = await Promise.all([
     buildViewerEntitlementPayload(session),
     loadRelatedLaunchResults(launch.id),
     fetchLaunchDetailEnrichment(launch.id, launch.ll2Id),
     fetchLaunchJepScore(launch.id, { viewerIsAdmin: session.role === 'admin' }),
     fetchLaunchFaaAirspace({ launchId: launch.id, limit: 4 }),
-    loadArTrajectorySummary(launch.id)
+    loadArTrajectorySummary(launch.id),
+    loadRelatedNewsItems(launch.id),
+    loadRelatedEventItems(launch.id),
+    fetchWs45Forecast(launch.id, isEasternRange),
+    fetchNwsForecast(launch.id, isUsPad, within14Days),
+    fetchPayloadManifest(launch.ll2Id),
+    fetchLaunchObjectInventory(launch.ll2Id),
+    fetchRocketOutcomeStats(launch.rocket?.fullName, launch.vehicle),
+    fetchLaunchBoosterStats(launch.id, launch.ll2Id),
+    blueOriginMissionKey ? loadLl2SpacecraftFlights(launch.ll2Id) : Promise.resolve([]),
+    blueOriginMissionKey ? fetchBlueOriginPassengersDatabaseOnly(blueOriginMissionKey) : Promise.resolve(null),
+    blueOriginMissionKey ? fetchBlueOriginPayloads(blueOriginMissionKey) : Promise.resolve(null),
+    blueOriginMissionKey ? loadBlueOriginConstraintRows(launch.id) : Promise.resolve([]),
+    blueOriginMissionKey
+      ? loadBlueOriginMissionGraphics(launch.id)
+      : Promise.resolve({
+          missionUrl: null,
+          graphics: []
+        })
   ]);
+  const weather = buildWeatherModule(launch, ws45Forecast, nwsForecast);
+  const resources = {
+    watchLinks: buildWatchLinks(launch),
+    externalLinks: buildExternalLinks(launch),
+    missionResources: flattenMissionResources(enrichment),
+    missionTimeline: flattenMissionTimeline(enrichment)
+  };
+  const social = buildSocialModule(launch);
+  const missionStats = buildMissionStatsModule(launch, rocketStats, boosterStats);
+  const blueOriginDetail = buildBlueOriginModule(
+    launch,
+    blueOriginPassengers,
+    blueOriginPayloads,
+    blueOriginConstraintRows,
+    ll2SpacecraftFlights,
+    blueOriginMissionGraphics
+  );
   const launchData = {
     ...launch,
-    imageUrl: launch.image.full || launch.image.thumbnail || null,
-    missionSummary: launch.mission?.description ?? launch.mission?.name ?? null,
+    crew: blueOriginDetail.crew,
+    payloads: blueOriginDetail.payloads,
+    failReason: blueOriginDetail.failureReason ?? launch.failReason ?? undefined,
+    mission: launch.mission
+      ? {
+          ...launch.mission,
+          description: blueOriginDetail.missionSummary || launch.mission.description || undefined
+        }
+      : blueOriginDetail.missionSummary
+        ? {
+            name: launch.name,
+            description: blueOriginDetail.missionSummary
+          }
+        : launch.mission,
+    imageUrl: normalizeUrlString(launch.image.full) || normalizeUrlString(launch.image.thumbnail) || null,
+    missionSummary: blueOriginDetail.missionSummary || launch.mission?.description || launch.mission?.name || null,
     padName: launch.pad?.name ?? null,
     padLocation: launch.pad?.locationName ?? null,
     windowStart: launch.windowStart ?? null,
@@ -887,7 +3061,17 @@ export async function loadLaunchDetailPayload(id: string, session: ResolvedViewe
       recovery: enrichment.recovery,
       externalContent: enrichment.externalContent,
       faaAdvisories: faaAirspace?.advisories ?? []
-    }
+    },
+    resources,
+    ...(weather ? { weather } : {}),
+    ...(social ? { social } : {}),
+    relatedEvents,
+    relatedNews,
+    payloadManifest: buildPayloadManifestModule(payloadManifest),
+    objectInventory: buildObjectInventoryModule(objectInventory),
+    launchUpdates: buildLaunchUpdatesModule(launch),
+    missionStats,
+    blueOrigin: blueOriginDetail.blueOrigin
   });
 }
 

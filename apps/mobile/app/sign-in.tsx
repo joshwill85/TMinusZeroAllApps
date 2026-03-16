@@ -12,7 +12,7 @@ import {
   signInWithPassword,
   signOut
 } from '@/src/auth/supabaseAuth';
-import { Card, MetaRow, ScreenShell } from '@/src/components/ScreenShell';
+import { Card, ScreenShell } from '@/src/components/ScreenShell';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import { useMobilePush } from '@/src/providers/MobilePushProvider';
 
@@ -30,7 +30,7 @@ export default function SignInScreen() {
     next?: string | string[];
     intent?: string | string[];
   }>();
-  const { accessToken, isAuthHydrated, persistSession, clearSession } = useMobileBootstrap();
+  const { accessToken, persistSession, clearSession } = useMobileBootstrap();
   const { unregisterCurrentDevice } = useMobilePush();
   const oauthProviders = getAvailableOAuthProviders();
   const [email, setEmail] = useState('');
@@ -66,14 +66,15 @@ export default function SignInScreen() {
 
     setIsSubmitting(true);
     try {
-      const session = await signInWithPassword(normalizedEmail, password);
+      const result = await signInWithPassword(normalizedEmail, password);
       await persistSession({
-        accessToken: session.accessToken,
-        refreshToken: session.refreshToken
+        accessToken: result.session.accessToken,
+        refreshToken: result.session.refreshToken
       });
-      await recordMobileAuthContext(session.accessToken, {
+      await recordMobileAuthContext(result.session.accessToken, {
         provider: 'email_password',
-        eventType: 'sign_in'
+        eventType: 'sign_in',
+        riskSessionId: result.riskSessionId
       }).catch(() => {});
       setPassword('');
       router.replace(redirectHref as Href);
@@ -140,13 +141,8 @@ export default function SignInScreen() {
     <ScreenShell
       eyebrow="Account"
       title="Sign in"
-      subtitle="Use your T-Minus Zero account for signed-in filters, calendar access, one-off calendar adds, and shared mobile push alerts on this device."
+      subtitle="Use your T-Minus Zero account for signed-in filters, calendar access, and shared mobile push alerts on this device."
     >
-      <Card title="Account status">
-        <MetaRow label="Ready" value={isAuthHydrated ? 'yes' : 'no'} />
-        <MetaRow label="Signed in" value={accessToken ? 'yes' : 'no'} />
-      </Card>
-
       {isSupabaseMobileAuthConfigured() ? (
         <Card title={accessToken ? 'Session actions' : 'Sign-in methods'}>
           {accessToken ? (

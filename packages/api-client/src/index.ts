@@ -8,6 +8,13 @@ import {
   billingCatalogSchemaV1,
   billingSummarySchemaV1,
   billingSyncResponseSchemaV1,
+  blueOriginContractsResponseSchemaV1,
+  blueOriginEnginesResponseSchemaV1,
+  blueOriginFlightsResponseSchemaV1,
+  blueOriginMissionOverviewSchemaV1,
+  blueOriginOverviewSchemaV1,
+  blueOriginTravelersResponseSchemaV1,
+  blueOriginVehiclesResponseSchemaV1,
   calendarTokenSchemaV1,
   calendarFeedCreateSchemaV1,
   calendarFeedEnvelopeSchemaV1,
@@ -48,6 +55,16 @@ import {
   trajectoryPublicV2ResponseSchemaV1,
   viewerSessionSchemaV1,
   googleBillingSyncRequestSchemaV1,
+  mobileAuthChallengeCompleteSchemaV1,
+  mobileAuthChallengeResultSchemaV1,
+  mobileAuthPasswordRecoverSchemaV1,
+  mobileAuthPasswordResendSchemaV1,
+  mobileAuthPasswordSignInResponseSchemaV1,
+  mobileAuthPasswordSignInSchemaV1,
+  mobileAuthPasswordSignUpResponseSchemaV1,
+  mobileAuthPasswordSignUpSchemaV1,
+  mobileAuthRiskDecisionSchemaV1,
+  mobileAuthRiskStartSchemaV1,
   rssFeedCreateSchemaV1,
   rssFeedEnvelopeSchemaV1,
   rssFeedsSchemaV1,
@@ -65,6 +82,14 @@ import {
   type BillingPlatformV1,
   type BillingSummaryV1,
   type BillingSyncResponseV1,
+  type BlueOriginContractsResponseV1,
+  type BlueOriginEnginesResponseV1,
+  type BlueOriginFlightsResponseV1,
+  type BlueOriginMissionKeyV1,
+  type BlueOriginMissionOverviewV1,
+  type BlueOriginOverviewV1,
+  type BlueOriginTravelersResponseV1,
+  type BlueOriginVehiclesResponseV1,
   type CalendarTokenV1,
   type CalendarFeedCreateV1,
   type CalendarFeedV1,
@@ -90,6 +115,16 @@ import {
   type LaunchNotificationPreferenceEnvelopeV1,
   type LaunchNotificationPreferenceUpdateV1,
   type GoogleBillingSyncRequestV1,
+  type MobileAuthChallengeCompleteV1,
+  type MobileAuthChallengeResultV1,
+  type MobileAuthPasswordRecoverV1,
+  type MobileAuthPasswordResendV1,
+  type MobileAuthPasswordSignInResponseV1,
+  type MobileAuthPasswordSignInV1,
+  type MobileAuthPasswordSignUpResponseV1,
+  type MobileAuthPasswordSignUpV1,
+  type MobileAuthRiskDecisionV1,
+  type MobileAuthRiskStartV1,
   type MarketingEmailUpdateV1,
   type MarketingEmailV1,
   type NotificationPreferencesV1,
@@ -186,17 +221,23 @@ type ChangedLaunchesRequest = {
   region?: 'us' | 'non-us' | 'all';
 };
 
+type BlueOriginMissionFilterRequest = {
+  mission?: BlueOriginMissionKeyV1 | 'all' | null;
+};
+
 export class ApiClientError extends Error {
   readonly status: number;
   readonly code: string | null;
   readonly path: string;
+  readonly detail: string | null;
 
-  constructor(path: string, status: number, code: string | null) {
-    super(code ? `API request failed for ${path} (${status}: ${code})` : `API request failed for ${path} (${status})`);
+  constructor(path: string, status: number, code: string | null, detail: string | null = null) {
+    super(detail || (code ? `API request failed for ${path} (${status}: ${code})` : `API request failed for ${path} (${status})`));
     this.name = 'ApiClientError';
     this.status = status;
     this.code = code;
     this.path = path;
+    this.detail = detail;
   }
 }
 
@@ -310,6 +351,54 @@ export class ApiClient {
     return this.request(`/api/v1/launches/${encodeURIComponent(id)}/trajectory`, trajectoryPublicV2ResponseSchemaV1);
   }
 
+  async getBlueOriginOverview() {
+    return this.request('/api/v1/blue-origin', blueOriginOverviewSchemaV1);
+  }
+
+  async getBlueOriginMissionOverview(mission: Exclude<BlueOriginMissionKeyV1, 'blue-origin-program'>) {
+    return this.request(`/api/v1/blue-origin/missions/${encodeURIComponent(mission)}`, blueOriginMissionOverviewSchemaV1);
+  }
+
+  async getBlueOriginFlights(options: BlueOriginMissionFilterRequest = {}) {
+    return this.request(
+      appendQuery('/api/v1/blue-origin/flights', {
+        mission: options.mission ?? 'all'
+      }),
+      blueOriginFlightsResponseSchemaV1
+    );
+  }
+
+  async getBlueOriginTravelers() {
+    return this.request('/api/v1/blue-origin/travelers', blueOriginTravelersResponseSchemaV1);
+  }
+
+  async getBlueOriginVehicles(options: BlueOriginMissionFilterRequest = {}) {
+    return this.request(
+      appendQuery('/api/v1/blue-origin/vehicles', {
+        mission: options.mission ?? 'all'
+      }),
+      blueOriginVehiclesResponseSchemaV1
+    );
+  }
+
+  async getBlueOriginEngines(options: BlueOriginMissionFilterRequest = {}) {
+    return this.request(
+      appendQuery('/api/v1/blue-origin/engines', {
+        mission: options.mission ?? 'all'
+      }),
+      blueOriginEnginesResponseSchemaV1
+    );
+  }
+
+  async getBlueOriginContracts(options: BlueOriginMissionFilterRequest = {}) {
+    return this.request(
+      appendQuery('/api/v1/blue-origin/contracts', {
+        mission: options.mission ?? 'all'
+      }),
+      blueOriginContractsResponseSchemaV1
+    );
+  }
+
   async postArTelemetrySession(payload: ArTelemetrySessionEventV1) {
     return this.request('/api/v1/ar/telemetry/session', successResponseSchemaV1, {
       method: 'POST',
@@ -383,6 +472,48 @@ export class ApiClient {
     return this.request('/api/v1/me/auth/context', successResponseSchemaV1, {
       method: 'POST',
       body: authContextUpsertSchemaV1.parse(payload)
+    });
+  }
+
+  async startMobileAuthRisk(payload: MobileAuthRiskStartV1) {
+    return this.request('/api/v1/mobile-auth/risk/start', mobileAuthRiskDecisionSchemaV1, {
+      method: 'POST',
+      body: mobileAuthRiskStartSchemaV1.parse(payload)
+    });
+  }
+
+  async completeMobileAuthChallenge(payload: MobileAuthChallengeCompleteV1) {
+    return this.request('/api/v1/mobile-auth/challenge/complete', mobileAuthChallengeResultSchemaV1, {
+      method: 'POST',
+      body: mobileAuthChallengeCompleteSchemaV1.parse(payload)
+    });
+  }
+
+  async mobilePasswordSignIn(payload: MobileAuthPasswordSignInV1) {
+    return this.request('/api/v1/mobile-auth/sign-in', mobileAuthPasswordSignInResponseSchemaV1, {
+      method: 'POST',
+      body: mobileAuthPasswordSignInSchemaV1.parse(payload)
+    });
+  }
+
+  async mobilePasswordSignUp(payload: MobileAuthPasswordSignUpV1) {
+    return this.request('/api/v1/mobile-auth/sign-up', mobileAuthPasswordSignUpResponseSchemaV1, {
+      method: 'POST',
+      body: mobileAuthPasswordSignUpSchemaV1.parse(payload)
+    });
+  }
+
+  async mobilePasswordResend(payload: MobileAuthPasswordResendV1) {
+    return this.request('/api/v1/mobile-auth/resend', successResponseSchemaV1, {
+      method: 'POST',
+      body: mobileAuthPasswordResendSchemaV1.parse(payload)
+    });
+  }
+
+  async mobilePasswordRecover(payload: MobileAuthPasswordRecoverV1) {
+    return this.request('/api/v1/mobile-auth/recover', successResponseSchemaV1, {
+      method: 'POST',
+      body: mobileAuthPasswordRecoverSchemaV1.parse(payload)
     });
   }
 
@@ -644,7 +775,10 @@ export class ApiClient {
       const code = json && typeof json === 'object' && typeof (json as { error?: unknown }).error === 'string'
         ? (json as { error: string }).error
         : null;
-      throw new ApiClientError(path, response.status, code);
+      const detail = json && typeof json === 'object' && typeof (json as { message?: unknown }).message === 'string'
+        ? (json as { message: string }).message
+        : null;
+      throw new ApiClientError(path, response.status, code, detail);
     }
 
     return schema.parse(json);
@@ -667,6 +801,14 @@ export type {
   BillingPlatformV1,
   BillingSummaryV1,
   BillingSyncResponseV1,
+  BlueOriginContractsResponseV1,
+  BlueOriginEnginesResponseV1,
+  BlueOriginFlightsResponseV1,
+  BlueOriginMissionKeyV1,
+  BlueOriginMissionOverviewV1,
+  BlueOriginOverviewV1,
+  BlueOriginTravelersResponseV1,
+  BlueOriginVehiclesResponseV1,
   CalendarFeedCreateV1,
   CalendarFeedV1,
   CalendarFeedEnvelopeV1,
@@ -684,6 +826,16 @@ export type {
   FilterPresetsV1,
   FilterPresetUpdateV1,
   GoogleBillingSyncRequestV1,
+  MobileAuthChallengeCompleteV1,
+  MobileAuthChallengeResultV1,
+  MobileAuthPasswordRecoverV1,
+  MobileAuthPasswordResendV1,
+  MobileAuthPasswordSignInResponseV1,
+  MobileAuthPasswordSignInV1,
+  MobileAuthPasswordSignUpResponseV1,
+  MobileAuthPasswordSignUpV1,
+  MobileAuthRiskDecisionV1,
+  MobileAuthRiskStartV1,
   LaunchDetailV1,
   LaunchFilterOptionsV1,
   LaunchFeedV1,
@@ -726,4 +878,4 @@ export type {
   WatchlistsV1
 };
 
-export type { ChangedLaunchesRequest, LaunchFeedRequest, LaunchFilterOptionsRequest };
+export type { BlueOriginMissionFilterRequest, ChangedLaunchesRequest, LaunchFeedRequest, LaunchFilterOptionsRequest };

@@ -40,6 +40,7 @@ function main() {
   const appConfigContent = read('apps/mobile/app.config.ts');
   const apiConfigContent = read('apps/mobile/src/config/api.ts');
   const authStorageContent = read('apps/mobile/src/auth/storage.ts');
+  const mobileSupabaseAuthContent = read('apps/mobile/src/auth/supabaseAuth.ts');
   const authVerifyContent = read('apps/web/app/auth/verify/route.ts');
 
   assertExcludes(callbackContent, 'access_token', 'mobile auth callback rejects raw access_token params', checks);
@@ -72,6 +73,36 @@ function main() {
     'mobile auth tokens use a device-only SecureStore accessibility class',
     checks
   );
+  assertIncludes(
+    mobileSupabaseAuthContent,
+    'client.startMobileAuthRisk({',
+    'mobile password auth starts through the shared mobile-auth risk route',
+    checks
+  );
+  assertIncludes(
+    mobileSupabaseAuthContent,
+    "openAuthSessionAsync(decision.challengeUrl, redirectTo)",
+    'mobile password auth completes the hosted verification challenge before password submission',
+    checks
+  );
+  assertExcludes(
+    mobileSupabaseAuthContent,
+    '/auth/v1/token?grant_type=password',
+    'mobile password auth no longer posts password grants directly to Supabase',
+    checks
+  );
+  assertExcludes(
+    mobileSupabaseAuthContent,
+    '/auth/v1/signup',
+    'mobile sign-up no longer posts directly to Supabase signup from native clients',
+    checks
+  );
+  assertExcludes(
+    mobileSupabaseAuthContent,
+    '/auth/v1/recover',
+    'mobile password recovery no longer posts directly to Supabase from native clients',
+    checks
+  );
 
   assertExists(
     'apps/web/app/.well-known/apple-app-site-association/route.ts',
@@ -80,6 +111,10 @@ function main() {
   );
   assertExists('apps/web/app/apple-app-site-association/route.ts', 'apple root app-site-association route exists', checks);
   assertExists('apps/web/app/.well-known/assetlinks.json/route.ts', 'android assetlinks route exists for verified auth links', checks);
+  assertExists('apps/web/app/mobile-auth/challenge/page.tsx', 'hosted mobile auth challenge page exists', checks);
+  assertExists('apps/web/lib/server/mobileAuth.ts', 'shared mobile auth server helper exists', checks);
+  assertExists('apps/mobile/src/auth/attestation.ts', 'mobile auth attestation collector exists', checks);
+  assertExists('apps/mobile/src/auth/riskStorage.ts', 'mobile auth risk storage exists', checks);
 
   const report: GuardReport = {
     generatedAt: new Date().toISOString(),

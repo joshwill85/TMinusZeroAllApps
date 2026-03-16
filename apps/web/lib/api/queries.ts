@@ -168,7 +168,12 @@ export const guestViewerSession: ViewerSessionV1 = {
   role: 'guest',
   accessToken: null,
   expiresAt: null,
-  authMode: 'guest'
+  authMode: 'guest',
+  mobileHubRollout: {
+    blueOrigin: { nativeEnabled: false, externalDeepLinksEnabled: false },
+    spacex: { nativeEnabled: false, externalDeepLinksEnabled: false },
+    artemis: { nativeEnabled: false, externalDeepLinksEnabled: false }
+  }
 };
 
 export const guestViewerEntitlements: EntitlementsV1 = {

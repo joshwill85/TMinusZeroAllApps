@@ -9,5 +9,8 @@
     "lint": "next lint --cache-location .eslintcache",
     "type-check": "node -e \"require('fs').mkdirSync('.next/cache/tsc',{recursive:true})\" && tsc --noEmit -p tsconfig.json",
     "type-check:ci": "node -e \"require('fs').mkdirSync('.next/cache/tsc',{recursive:true})\" && tsc --noEmit -p tsconfig.json --pretty false"
+  },
+  "dependencies": {
+    "@tminuszero/launch-animations": "*"
   }
 }

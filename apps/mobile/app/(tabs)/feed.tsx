@@ -27,6 +27,7 @@ import {
   useLaunchFilterOptionsQuery,
   useUpdateFilterPresetMutation,
   useViewerEntitlementsQuery,
+  useViewerSessionQuery,
   useWatchlistsQuery
 } from '@/src/api/queries';
 import { AppScreen } from '@/src/components/AppScreen';
@@ -35,6 +36,7 @@ import { useApiClient } from '@/src/api/client';
 import { LaunchFilterSheet } from '@/src/components/LaunchFilterSheet';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import { WebParityLaunchCard } from '@/src/components/WebParityLaunchCard';
+import { getProgramHubEntryHref } from '@/src/features/programHubs/rollout';
 import { buildPadRuleValue, formatPadRuleLabel, resolvePrimaryWatchlist } from '@/src/watchlists/usePrimaryWatchlist';
 import artemisProgramLogo from '../../assets/program-logos/artemis-nasa-official.png';
 import spacexProgramLogo from '../../assets/program-logos/spacex-official.png';
@@ -46,6 +48,7 @@ export default function FeedScreen() {
   const insets = useSafeAreaInsets();
   const { accessToken, theme } = useMobileBootstrap();
   const { baseUrl, client } = useApiClient();
+  const viewerSessionQuery = useViewerSessionQuery();
   const entitlementsQuery = useViewerEntitlementsQuery();
   const watchlistsQuery = useWatchlistsQuery();
   const filterPresetsQuery = useFilterPresetsQuery();
@@ -576,7 +579,8 @@ export default function FeedScreen() {
             key={item.label}
             testID={item.testID}
             onPress={() => {
-              router.push(buildSearchHref(item.query) as Href);
+              const nativeHref = getProgramHubEntryHref(viewerSessionQuery.data, item.hub);
+              router.push((nativeHref || buildSearchHref(item.query)) as Href);
             }}
             style={({ pressed }) => ({
               flex: 1,
@@ -908,6 +912,7 @@ function buildWatchlistRuleErrorMessage(error: unknown, label: string, ruleLimit
 
 const PROGRAM_ITEMS = [
   {
+    hub: 'artemis',
     label: 'Artemis',
     accessibilityLabel: 'Artemis Program',
     query: 'artemis',
@@ -916,6 +921,7 @@ const PROGRAM_ITEMS = [
     logoStyle: { width: 74, height: 38 }
   },
   {
+    hub: 'spacex',
     label: 'SpaceX',
     accessibilityLabel: 'SpaceX Program',
     query: 'spacex',
@@ -924,6 +930,7 @@ const PROGRAM_ITEMS = [
     logoStyle: { width: 106, height: 24 }
   },
   {
+    hub: 'blueOrigin',
     label: 'Blue Origin',
     accessibilityLabel: 'Blue Origin Program',
     query: 'blue origin',

@@ -17,6 +17,7 @@ type ViewerTierCardProps = {
   href?: Href;
   onPress?: () => void;
   showAction?: boolean;
+  showBadge?: boolean;
   testID?: string;
 };
 
@@ -33,6 +34,7 @@ export function ViewerTierCard({
   href,
   onPress,
   showAction = true,
+  showBadge = true,
   testID
 }: ViewerTierCardProps) {
   const router = useRouter();
@@ -47,7 +49,7 @@ export function ViewerTierCard({
 
   return (
     <CustomerShellPanel testID={testID} title={title} description={description}>
-      <CustomerShellBadge label={tierCard.badgeLabel} tone={badgeTone} />
+      {showBadge ? <CustomerShellBadge label={tierCard.badgeLabel} tone={badgeTone} /> : null}
       {showAction ? (
         <CustomerShellActionButton
           label={actionLabel}

@@ -63,7 +63,8 @@ export default function SignUpScreen() {
         });
         await recordMobileAuthContext(result.session.accessToken, {
           provider: 'email_password',
-          eventType: 'sign_up'
+          eventType: 'sign_up',
+          riskSessionId: result.riskSessionId
         }).catch(() => {});
         setStatus({
           tone: 'success',

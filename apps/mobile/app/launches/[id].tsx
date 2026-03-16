@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
-import { Image, Linking, Platform, Pressable, Share as NativeShare, Text, View } from 'react-native';
+import { Image, Linking, Platform, Pressable, ScrollView, Share as NativeShare, Text, View } from 'react-native';
+import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { ArTrajectorySummaryV1, LaunchDetailV1 } from '@tminuszero/contracts';
 import { buildCountdownSnapshot, getViewerFeatureState } from '@tminuszero/domain';
@@ -10,16 +11,22 @@ import { AppScreen } from '@/src/components/AppScreen';
 import { LaunchAlertsPanel } from '@/src/components/LaunchAlertsPanel';
 import { LaunchCalendarSheet } from '@/src/components/LaunchCalendarSheet';
 import { EmptyStateCard, ErrorStateCard, LoadingStateCard, SectionCard } from '@/src/components/SectionCard';
+import { getPublicSiteUrl } from '@/src/config/api';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import { formatTimestamp, formatSearchResultLabel } from '@/src/utils/format';
 import type { LaunchCalendarLaunch } from '@/src/calendar/launchCalendar';
 import { buildWatchlistRuleErrorMessage, buildPadRuleValue, formatPadRuleLabel, usePrimaryWatchlist } from '@/src/watchlists/usePrimaryWatchlist';
+import { ParallaxHero } from '@/src/components/launch/ParallaxHero';
+import { InteractiveStatTiles, type StatTile } from '@/src/components/launch/InteractiveStatTiles';
+import { LiveBadge } from '@/src/components/launch/LiveDataPulse';
+import { AnimationErrorBoundary } from '@/src/components/launch/AnimationErrorBoundary';
+import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 
 type LegacyLaunchSummary = LaunchDetailV1['launch'];
 type RichLaunchSummary = NonNullable<LaunchDetailV1['launchData']>;
 type LaunchSummary = LegacyLaunchSummary | RichLaunchSummary;
-type WatchLinkView = { url: string; label: string; meta: string; imageUrl: string | null };
-type ExternalLinkView = { url: string; label: string; meta: string };
+type WatchLinkView = { url: string; label: string; meta: string; imageUrl: string | null; host?: string | null; kind?: string | null };
+type ExternalLinkView = { url: string; label: string; meta: string; host?: string | null; kind?: string | null };
 
 function getLaunchId(value: string | string[] | undefined) {
   if (Array.isArray(value)) {
@@ -34,6 +41,7 @@ export default function LaunchDetailScreen() {
   const { theme } = useMobileBootstrap();
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const launchId = getLaunchId(params.id);
+  const siteUrl = useMemo(() => getPublicSiteUrl(), []);
   const launchDetailQuery = useLaunchDetailQuery(launchId);
   const entitlementsQuery = useViewerEntitlementsQuery();
   const tier = entitlementsQuery.data?.tier ?? 'anon';
@@ -54,6 +62,16 @@ export default function LaunchDetailScreen() {
   });
   const calendarFeatureState = getViewerFeatureState('one_off_calendar', tier);
   const title = launch?.name ?? legacyLaunch?.name ?? 'Launch detail';
+  const shouldReduceMotion = useReducedMotion();
+
+  // Mission Control scroll tracking
+  const scrollY = useSharedValue(0);
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      scrollY.value = event.contentOffset.y;
+    },
+  });
+
   let content: JSX.Element;
 
   useEffect(() => {
@@ -82,16 +100,45 @@ export default function LaunchDetailScreen() {
     );
   } else {
     const launchRecord = launch;
-    const watchUrl = getPrimaryWatchUrl(launch);
-    const resourceUrl = getPrimaryResourceUrl(launch);
-    const watchLinks = buildWatchLinks(launch);
+    const weatherModule = detail.weather ?? null;
+    const resourcesModule = detail.resources ?? null;
+    const socialModule = detail.social ?? null;
+    const blueOriginModule = detail.blueOrigin ?? null;
+    const relatedEvents = detail.relatedEvents ?? [];
+    const relatedNews = detail.relatedNews ?? [];
+    const payloadManifest = detail.payloadManifest ?? [];
+    const objectInventory = detail.objectInventory ?? null;
+    const launchUpdates = detail.launchUpdates ?? [];
+    const missionStats = detail.missionStats ?? null;
+    const weatherConcerns =
+      weatherModule?.concerns && weatherModule.concerns.length > 0
+        ? weatherModule.concerns
+        : launch.weatherConcerns || [];
+    const watchLinks: WatchLinkView[] =
+      resourcesModule?.watchLinks?.map((item) => ({
+        url: item.url,
+        label: item.label,
+        meta: item.meta || item.host || 'Live/Replay',
+        imageUrl: item.imageUrl || null,
+        host: item.host ?? null,
+        kind: item.kind ?? null
+      })) ?? buildWatchLinks(launch);
+    const externalLinks: ExternalLinkView[] =
+      resourcesModule?.externalLinks?.map((item) => ({
+        url: item.url,
+        label: item.label,
+        meta: item.meta || 'External link',
+        host: item.host ?? null,
+        kind: item.kind ?? null
+      })) ?? buildExternalLinks(launch);
+    const watchUrl = watchLinks[0]?.url ?? getPrimaryWatchUrl(launch);
+    const resourceUrl = resourcesModule?.missionResources?.[0]?.url ?? externalLinks[0]?.url ?? getPrimaryResourceUrl(launch);
     const primaryWatchLink = watchLinks[0] ?? null;
     const heroTitle = launch.mission?.name || title;
     const heroMeta = [launch.provider, launch.rocket?.fullName || launch.vehicle, launch.pad.shortCode || launch.pad.name]
       .filter(Boolean)
       .join(' • ');
     const rocketPhotoUrl = launch.rocket?.imageUrl || launch.providerImageUrl || launch.image.full || launch.image.thumbnail || null;
-    const externalLinks = buildExternalLinks(launch);
     const hasPrograms = Array.isArray(launch.programs) && launch.programs.length > 0;
     const hasCrew = Array.isArray(launch.crew) && launch.crew.length > 0;
     const padRuleValue = buildPadRuleValue({
@@ -101,6 +148,21 @@ export default function LaunchDetailScreen() {
     const launchBusyKey = `launch:${launchRecord.id.toLowerCase()}`;
     const providerBusyKey = `provider:${String(launchRecord.provider || '').trim().toLowerCase()}`;
     const padBusyKey = `pad:${String(padRuleValue || '').trim().toLowerCase()}`;
+    const resolveTargetUrl = (target: string) => {
+      if (/^https?:\/\//i.test(target)) {
+        return target;
+      }
+
+      return `${siteUrl}${target.startsWith('/') ? target : `/${target}`}`;
+    };
+    const openTarget = (target: string) => {
+      if (!target) return;
+      if (target.startsWith('/launches/')) {
+        router.push(target as Href);
+        return;
+      }
+      void Linking.openURL(resolveTargetUrl(target));
+    };
 
     const handleToggleSavedLaunch = async () => {
       try {
@@ -237,7 +299,7 @@ export default function LaunchDetailScreen() {
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
             <DetailChip label={(launch.statusText || 'Status pending').toUpperCase()} tone="accent" />
             <DetailChip label={launch.tier.toUpperCase()} />
-            {launch.webcastLive ? <DetailChip label="LIVE COVERAGE" tone="success" /> : null}
+            {launch.webcastLive ? <LiveBadge label="LIVE" /> : null}
             {launch.hashtag ? <DetailChip label={launch.hashtag.startsWith('#') ? launch.hashtag : `#${launch.hashtag}`} /> : null}
           </View>
 
@@ -252,7 +314,7 @@ export default function LaunchDetailScreen() {
                   </Text>
                 )}
               </View>
-                  <DetailChip label={launch.providerCountryCode || 'US'} />
+                  {launch.providerCountryCode ? <DetailChip label={launch.providerCountryCode} /> : null}
               </View>
               <Text style={{ color: theme.foreground, fontSize: 33, fontWeight: '800', lineHeight: 38 }}>{heroTitle}</Text>
               <Text style={{ color: theme.muted, fontSize: 15, lineHeight: 22 }}>{heroMeta}</Text>
@@ -312,7 +374,7 @@ export default function LaunchDetailScreen() {
             </View>
           </View>
 
-          {launch.weatherSummary || launch.weatherConcerns?.length ? (
+          {weatherModule?.summary || weatherConcerns.length ? (
             <View
               style={{
                 borderRadius: 18,
@@ -324,10 +386,10 @@ export default function LaunchDetailScreen() {
               }}
             >
               <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>Weather</Text>
-              {launch.weatherSummary ? <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>{launch.weatherSummary}</Text> : null}
-              {launch.weatherConcerns?.length ? (
+              {weatherModule?.summary ? <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>{weatherModule.summary}</Text> : null}
+              {weatherConcerns.length ? (
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  {launch.weatherConcerns.map((concern) => (
+                  {weatherConcerns.map((concern) => (
                     <DetailChip key={concern} label={concern} />
                   ))}
                 </View>
@@ -460,6 +522,41 @@ export default function LaunchDetailScreen() {
           }}
         />
 
+        <InteractiveStatTiles
+          tiles={[
+            {
+              id: 'countdown',
+              label: buildCountdownLabel(launch.net),
+              value: buildCountdownDisplay(launch.net),
+              description: `NET: ${formatTimestamp(launch.net)}`,
+              tone: 'primary',
+            },
+            ...(weatherModule?.summary
+              ? [{
+                  id: 'weather',
+                  label: 'Weather Conditions',
+                  value: weatherModule.summary.split('.')[0] || 'Favorable',
+                  description: weatherConcerns.length > 0 ? `Concerns: ${weatherConcerns.join(', ')}` : 'No weather concerns',
+                  tone: weatherConcerns.length > 0 ? 'warning' as const : 'success' as const,
+                }]
+              : []),
+            {
+              id: 'provider',
+              label: 'Launch Provider',
+              value: launch.provider,
+              description: launch.providerCountryCode ? `Based in ${launch.providerCountryCode}` : 'Space launch provider',
+              tone: 'default' as const,
+            },
+            {
+              id: 'vehicle',
+              label: 'Launch Vehicle',
+              value: launch.vehicle || launch.rocket?.fullName || 'TBD',
+              description: launch.pad?.name ? `From ${launch.pad.name}` : 'Launch vehicle',
+              tone: 'default' as const,
+            },
+          ]}
+        />
+
         {arTrajectory && shouldShowArTrajectoryCard(arTrajectory, canUseArTrajectory) ? (
           <ArTrajectoryCard
             launchId={launch.id}
@@ -539,6 +636,32 @@ export default function LaunchDetailScreen() {
                   ))}
                 </View>
               ) : null}
+            </View>
+          </SectionCard>
+        ) : null}
+
+        {socialModule?.matchedPost || socialModule?.providerFeeds?.length ? (
+          <SectionCard title="Social & updates" description="Provider post matches and program feeds tied to this launch.">
+            <View style={{ gap: 10 }}>
+              {socialModule.matchedPost ? (
+                <LinkRow
+                  title={socialModule.matchedPost.title}
+                  subtitle={[socialModule.matchedPost.subtitle, socialModule.matchedPost.description].filter(Boolean).join(' • ')}
+                  onPress={() => {
+                    openTarget(socialModule.matchedPost?.url || '');
+                  }}
+                />
+              ) : null}
+              {socialModule.providerFeeds.map((feed) => (
+                <LinkRow
+                  key={feed.id}
+                  title={feed.title}
+                  subtitle={[feed.subtitle, feed.description].filter(Boolean).join(' • ')}
+                  onPress={() => {
+                    openTarget(feed.url);
+                  }}
+                />
+              ))}
             </View>
           </SectionCard>
         ) : null}
@@ -679,6 +802,59 @@ export default function LaunchDetailScreen() {
           ) : null}
         </SectionCard>
 
+        {weatherModule?.cards?.length ? (
+          <SectionCard title="Forecast outlook" description="Structured weather sources matched to this launch.">
+            <View style={{ gap: 12 }}>
+              {weatherModule.cards.map((card) => (
+                <View
+                  key={card.id}
+                  style={{
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: theme.stroke,
+                    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                    padding: 14,
+                    gap: 8
+                  }}
+                >
+                  <View style={{ gap: 4 }}>
+                    <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{card.title}</Text>
+                    {card.subtitle ? <Text style={{ color: theme.muted, fontSize: 13 }}>{card.subtitle}</Text> : null}
+                  </View>
+                  {card.headline ? <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>{card.headline}</Text> : null}
+                  {(card.issuedAt || card.validStart || card.validEnd) ? (
+                    <Text style={{ color: theme.muted, fontSize: 12 }}>
+                      {[card.issuedAt ? `Issued ${formatTimestamp(card.issuedAt)}` : null, card.validStart ? `Valid ${formatTimestamp(card.validStart)}` : null, card.validEnd ? `to ${formatTimestamp(card.validEnd)}` : null]
+                        .filter(Boolean)
+                        .join(' • ')}
+                    </Text>
+                  ) : null}
+                  {card.badges.length ? (
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                      {card.badges.map((badge) => (
+                        <DetailChip key={`${card.id}:${badge}`} label={badge} />
+                      ))}
+                    </View>
+                  ) : null}
+                  {card.metrics.length ? (
+                    <FactGrid items={card.metrics.map((metric) => [metric.label, metric.value] as [string, string])} />
+                  ) : null}
+                  {card.detail ? <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>{card.detail}</Text> : null}
+                  {card.actionUrl && card.actionLabel ? (
+                    <ActionButton
+                      label={card.actionLabel}
+                      onPress={() => {
+                        void Linking.openURL(card.actionUrl || '');
+                      }}
+                      variant="secondary"
+                    />
+                  ) : null}
+                </View>
+              ))}
+            </View>
+          </SectionCard>
+        ) : null}
+
         {detail.enrichment.faaAdvisories.length > 0 ? (
           <SectionCard
             title="Launch advisories"
@@ -808,9 +984,19 @@ export default function LaunchDetailScreen() {
           </SectionCard>
         ) : null}
 
-        {(launch.launchVidUrls?.length || launch.launchInfoUrls?.length || detail.enrichment.externalContent.length) ? (
+        {(resourcesModule?.missionResources?.length || resourcesModule?.missionTimeline?.length || launch.launchVidUrls?.length || launch.launchInfoUrls?.length || detail.enrichment.externalContent.length) ? (
           <SectionCard title="Official media & timelines" description="Matched mission resources and outbound media links for this launch.">
             <View style={{ gap: 10 }}>
+              {resourcesModule?.missionResources?.map((resource) => (
+                <LinkRow
+                  key={`resource:${resource.id}`}
+                  title={resource.title}
+                  subtitle={resource.subtitle || 'Mission resource'}
+                  onPress={() => {
+                    openTarget(resource.url);
+                  }}
+                />
+              ))}
               {launch.launchVidUrls?.map((item) => (
                 <LinkRow key={`video:${item.url}`} title={item.title || item.url} subtitle={item.publisher || 'Watch link'} onPress={() => void Linking.openURL(item.url)} />
               ))}
@@ -832,7 +1018,15 @@ export default function LaunchDetailScreen() {
                   ))}
                 </View>
               ))}
-              {launch.timeline?.length ? (
+              {resourcesModule?.missionTimeline?.length ? (
+                <SectionCard title="Mission timeline" compact>
+                  {resourcesModule.missionTimeline.map((event) => (
+                    <Text key={event.id} style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
+                      {[event.time, event.label, event.description].filter(Boolean).join(' • ')}
+                    </Text>
+                  ))}
+                </SectionCard>
+              ) : launch.timeline?.length ? (
                 <SectionCard title="Mission timeline" compact>
                   {launch.timeline.map((event, index) => (
                     <Text key={`${event.relative_time || 'timeline'}:${index}`} style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
@@ -847,7 +1041,7 @@ export default function LaunchDetailScreen() {
           </SectionCard>
         ) : null}
 
-        {(launch.payloads?.length || launch.mission?.agencies?.length || launch.updates?.length) ? (
+        {(launch.payloads?.length || launch.mission?.agencies?.length || launchUpdates.length) ? (
           <SectionCard title="Payloads, agencies, and updates" description="Mission-side context carried through the shared launch payload.">
             {launch.payloads?.length ? (
               <SectionCard title="Payloads" compact>
@@ -867,11 +1061,11 @@ export default function LaunchDetailScreen() {
                 ))}
               </SectionCard>
             ) : null}
-            {launch.updates?.length ? (
+            {launchUpdates.length ? (
               <SectionCard title="Recent updates" compact>
-                {launch.updates.slice(0, 5).map((update, index) => (
+                {launchUpdates.map((update, index) => (
                   <Text key={`${update.id || 'update'}:${index}`} style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
-                    {[update.created_on ? formatTimestamp(update.created_on) : null, update.comment].filter(Boolean).join(' • ')}
+                    {[update.detectedAt ? formatTimestamp(update.detectedAt) : null, update.title].filter(Boolean).join(' • ')}
                   </Text>
                 ))}
               </SectionCard>
@@ -879,12 +1073,422 @@ export default function LaunchDetailScreen() {
           </SectionCard>
         ) : null}
 
-        {detail.related.length > 0 ? (
+        {(payloadManifest.length > 0 || objectInventory?.payloadObjects?.length || objectInventory?.nonPayloadObjects?.length || objectInventory?.summaryBadges?.length) ? (
+          <SectionCard title="Payload manifest & inventory" description="Manifested payloads and tracked launch objects linked to this mission.">
+            {payloadManifest.length ? (
+              <SectionCard title="Manifest" compact>
+                <View style={{ gap: 10 }}>
+                  {payloadManifest.map((item) => (
+                    <View
+                      key={item.id}
+                      style={{
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        borderColor: theme.stroke,
+                        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                        padding: 14,
+                        gap: 6
+                      }}
+                    >
+                      <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{item.title}</Text>
+                      {item.subtitle ? <Text style={{ color: theme.muted, fontSize: 13 }}>{item.subtitle}</Text> : null}
+                      {item.description ? <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>{item.description}</Text> : null}
+                      <Text style={{ color: theme.muted, fontSize: 13 }}>
+                        {[item.destination, item.deploymentStatus, item.operator || item.manufacturer].filter(Boolean).join(' • ')}
+                      </Text>
+                      {item.landingSummary ? <Text style={{ color: theme.muted, fontSize: 13 }}>{item.landingSummary}</Text> : null}
+                      {item.dockingSummary ? <Text style={{ color: theme.muted, fontSize: 13 }}>{item.dockingSummary}</Text> : null}
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                        {item.infoUrl ? (
+                          <Pressable
+                      onPress={() => {
+                        openTarget(item.infoUrl || '');
+                      }}
+                          >
+                            <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Mission info</Text>
+                          </Pressable>
+                        ) : null}
+                        {item.wikiUrl ? (
+                          <Pressable
+                      onPress={() => {
+                        openTarget(item.wikiUrl || '');
+                      }}
+                          >
+                            <Text style={{ color: theme.muted, fontSize: 12, fontWeight: '700' }}>Reference</Text>
+                          </Pressable>
+                        ) : null}
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              </SectionCard>
+            ) : null}
+            {objectInventory?.summaryBadges?.length ? (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {objectInventory.summaryBadges.map((badge) => (
+                  <DetailChip key={badge} label={badge} />
+                ))}
+              </View>
+            ) : null}
+            {objectInventory?.payloadObjects?.length ? (
+              <SectionCard title="Tracked payload objects" compact>
+                <View style={{ gap: 8 }}>
+                  {objectInventory.payloadObjects.map((item) => (
+                    <View
+                      key={item.id}
+                      style={{
+                        borderRadius: 14,
+                        borderWidth: 1,
+                        borderColor: theme.stroke,
+                        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                        padding: 12,
+                        gap: 4
+                      }}
+                    >
+                      <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>{item.title}</Text>
+                      {item.subtitle ? <Text style={{ color: theme.muted, fontSize: 12 }}>{item.subtitle}</Text> : null}
+                      {item.lines.map((line) => (
+                        <Text key={`${item.id}:${line}`} style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
+                          {line}
+                        </Text>
+                      ))}
+                    </View>
+                  ))}
+                </View>
+              </SectionCard>
+            ) : null}
+            {objectInventory?.nonPayloadObjects?.length ? (
+              <SectionCard title="Other tracked objects" compact>
+                <View style={{ gap: 8 }}>
+                  {objectInventory.nonPayloadObjects.map((item) => (
+                    <View
+                      key={item.id}
+                      style={{
+                        borderRadius: 14,
+                        borderWidth: 1,
+                        borderColor: theme.stroke,
+                        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                        padding: 12,
+                        gap: 4
+                      }}
+                    >
+                      <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>{item.title}</Text>
+                      {item.subtitle ? <Text style={{ color: theme.muted, fontSize: 12 }}>{item.subtitle}</Text> : null}
+                      {item.lines.map((line) => (
+                        <Text key={`${item.id}:${line}`} style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
+                          {line}
+                        </Text>
+                      ))}
+                    </View>
+                  ))}
+                </View>
+              </SectionCard>
+            ) : null}
+          </SectionCard>
+        ) : null}
+
+        {relatedEvents.length > 0 ? (
+          <SectionCard title="Related events" description="Mission-adjacent events linked to this launch.">
+            <View style={{ gap: 10 }}>
+              {relatedEvents.map((item) => (
+                <Pressable
+                  key={`event:${item.id}`}
+                  onPress={() => {
+                    if (item.url) openTarget(item.url);
+                  }}
+                  disabled={!item.url}
+                  style={({ pressed }) => ({
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: theme.stroke,
+                    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                    padding: 14,
+                    gap: 6,
+                    opacity: item.url && pressed ? 0.88 : 1
+                  })}
+                >
+                  <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{item.name}</Text>
+                  <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
+                    {[item.typeName, item.locationName, item.date ? formatTimestamp(item.date) : null].filter(Boolean).join(' • ')}
+                  </Text>
+                  {item.description ? <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>{item.description}</Text> : null}
+                </Pressable>
+              ))}
+            </View>
+          </SectionCard>
+        ) : null}
+
+        {relatedNews.length > 0 ? (
+          <SectionCard title="Launch news" description="Related news coverage surfaced from linked launch joins.">
+            <View style={{ gap: 10 }}>
+              {relatedNews.map((item) => (
+                <Pressable
+                  key={`news:${item.id}`}
+                  onPress={() => {
+                    openTarget(item.url);
+                  }}
+                  style={({ pressed }) => ({
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: theme.stroke,
+                    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                    padding: 14,
+                    gap: 6,
+                    opacity: pressed ? 0.88 : 1
+                  })}
+                >
+                  <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{item.title}</Text>
+                  <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
+                    {[item.newsSite, item.publishedAt ? formatTimestamp(item.publishedAt) : null, item.itemType].filter(Boolean).join(' • ')}
+                  </Text>
+                  {item.summary ? <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>{item.summary}</Text> : null}
+                </Pressable>
+              ))}
+            </View>
+          </SectionCard>
+        ) : null}
+
+        {blueOriginModule && (
+          blueOriginModule.resourceLinks.length ||
+          blueOriginModule.travelerProfiles.length ||
+          blueOriginModule.missionGraphics.length ||
+          blueOriginModule.facts.length ||
+          blueOriginModule.payloadNotes.length
+        ) ? (
+          <SectionCard title="Blue Origin mission details" description="Provider-specific traveler, media, and mission context for Blue Origin launches.">
+            {blueOriginModule.resourceLinks.length ? (
+              <SectionCard title="Resources" compact>
+                <View style={{ gap: 10 }}>
+                  {blueOriginModule.resourceLinks.map((item) => (
+                    <LinkRow
+                      key={`blue-origin-link:${item.url}`}
+                      title={item.label}
+                      subtitle={item.meta || item.host || 'Blue Origin resource'}
+                      onPress={() => {
+                        openTarget(item.url);
+                      }}
+                    />
+                  ))}
+                </View>
+              </SectionCard>
+            ) : null}
+            {blueOriginModule.travelerProfiles.length ? (
+              <SectionCard title="Traveler profiles" compact>
+                <View style={{ gap: 10 }}>
+                  {blueOriginModule.travelerProfiles.map((traveler) => (
+                    <View
+                      key={`blue-origin-traveler:${traveler.travelerSlug}`}
+                      style={{
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        borderColor: theme.stroke,
+                        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                        padding: 14,
+                        gap: 8
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
+                        {traveler.imageUrl ? (
+                          <Image
+                            source={{ uri: traveler.imageUrl }}
+                            resizeMode="cover"
+                            style={{
+                              width: 72,
+                              height: 72,
+                              borderRadius: 14,
+                              backgroundColor: 'rgba(255,255,255,0.04)'
+                            }}
+                          />
+                        ) : null}
+                        <View style={{ flex: 1, gap: 4 }}>
+                          <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{traveler.name}</Text>
+                          <Text style={{ color: theme.muted, fontSize: 12 }}>
+                            {[traveler.role, traveler.nationality].filter(Boolean).join(' • ') || 'Crew'}
+                          </Text>
+                          {traveler.bio ? <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>{traveler.bio}</Text> : null}
+                        </View>
+                      </View>
+                      {traveler.profileUrl ? (
+                        <Pressable
+                          onPress={() => {
+                            openTarget(traveler.profileUrl || '');
+                          }}
+                        >
+                          <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Open profile</Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  ))}
+                </View>
+              </SectionCard>
+            ) : null}
+            {blueOriginModule.missionGraphics.length ? (
+              <SectionCard title="Mission graphics" compact>
+                <View style={{ gap: 10 }}>
+                  {blueOriginModule.missionGraphics.map((graphic) => (
+                    <Pressable
+                      key={`blue-origin-graphic:${graphic.url}`}
+                      onPress={() => {
+                        openTarget(graphic.url);
+                      }}
+                      style={{
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        borderColor: theme.stroke,
+                        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                        padding: 14,
+                        gap: 8
+                      }}
+                    >
+                      {graphic.imageUrl ? (
+                        <Image
+                          source={{ uri: graphic.imageUrl }}
+                          resizeMode="cover"
+                          style={{
+                            width: '100%',
+                            height: 180,
+                            borderRadius: 14,
+                            backgroundColor: 'rgba(255,255,255,0.04)'
+                          }}
+                        />
+                      ) : null}
+                      <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{graphic.label}</Text>
+                      {graphic.meta ? <Text style={{ color: theme.muted, fontSize: 12 }}>{graphic.meta}</Text> : null}
+                    </Pressable>
+                  ))}
+                </View>
+              </SectionCard>
+            ) : null}
+            {blueOriginModule.facts.length ? (
+              <SectionCard title="Mission facts" compact>
+                <FactGrid items={blueOriginModule.facts.map((fact) => [fact.label, fact.value] as [string, string])} />
+              </SectionCard>
+            ) : null}
+            {blueOriginModule.payloadNotes.length ? (
+              <SectionCard title="Payload notes" compact>
+                <View style={{ gap: 10 }}>
+                  {blueOriginModule.payloadNotes.map((note) => (
+                    <View
+                      key={`blue-origin-payload-note:${note.name}`}
+                      style={{
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        borderColor: theme.stroke,
+                        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                        padding: 14,
+                        gap: 8
+                      }}
+                    >
+                      <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{note.name}</Text>
+                      <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>{note.description}</Text>
+                      {note.sourceUrl ? (
+                        <Pressable
+                          onPress={() => {
+                            openTarget(note.sourceUrl || '');
+                          }}
+                        >
+                          <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>View source</Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  ))}
+                </View>
+              </SectionCard>
+            ) : null}
+          </SectionCard>
+        ) : null}
+
+        {missionStats?.cards?.length || missionStats?.boosterCards?.length || missionStats?.bonusInsights?.length ? (
+          <SectionCard title="Mission stats" description="Provider, rocket, pad, and booster history tied to this launch.">
+            {missionStats?.cards?.length ? (
+              <View style={{ gap: 10 }}>
+                {missionStats.cards.map((card) => (
+                  <View
+                    key={card.id}
+                    style={{
+                      borderRadius: 16,
+                      borderWidth: 1,
+                      borderColor: theme.stroke,
+                      backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                      padding: 14,
+                      gap: 6
+                    }}
+                  >
+                    <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>{card.eyebrow}</Text>
+                    <Text style={{ color: theme.foreground, fontSize: 16, fontWeight: '700' }}>{card.title}</Text>
+                    <Text style={{ color: theme.muted, fontSize: 13 }}>
+                      {`${card.allTimeLabel}: ${card.allTime == null ? 'TBD' : String(card.allTime)} • ${card.yearLabel}: ${card.year == null ? 'TBD' : String(card.year)}`}
+                    </Text>
+                    <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>{card.story}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+            {missionStats?.bonusInsights?.length ? (
+              <SectionCard title="Bonus insights" compact>
+                <View style={{ gap: 8 }}>
+                  {missionStats.bonusInsights.map((insight) => (
+                    <View
+                      key={insight.label}
+                      style={{
+                        borderRadius: 14,
+                        borderWidth: 1,
+                        borderColor: theme.stroke,
+                        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                        padding: 12,
+                        gap: 4
+                      }}
+                    >
+                      <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>{insight.label}</Text>
+                      <Text style={{ color: theme.foreground, fontSize: 18, fontWeight: '700' }}>{insight.value}</Text>
+                      {insight.detail ? <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>{insight.detail}</Text> : null}
+                    </View>
+                  ))}
+                </View>
+              </SectionCard>
+            ) : null}
+            {missionStats?.boosterCards?.length ? (
+              <SectionCard title="Booster story" compact>
+                <View style={{ gap: 10 }}>
+                  {missionStats.boosterCards.map((card) => (
+                    <View
+                      key={card.id}
+                      style={{
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        borderColor: theme.stroke,
+                        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                        padding: 14,
+                        gap: 6
+                      }}
+                    >
+                      <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{card.title}</Text>
+                      {card.subtitle ? <Text style={{ color: theme.muted, fontSize: 13 }}>{card.subtitle}</Text> : null}
+                      <Text style={{ color: theme.muted, fontSize: 13 }}>
+                        {`${card.allTimeLabel}: ${card.allTime == null ? 'TBD' : String(card.allTime)} • ${card.yearLabel}: ${card.year == null ? 'TBD' : String(card.year)}`}
+                      </Text>
+                      {card.detailLines.map((line) => (
+                        <Text key={`${card.id}:${line}`} style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
+                          {line}
+                        </Text>
+                      ))}
+                    </View>
+                  ))}
+                </View>
+              </SectionCard>
+            ) : null}
+          </SectionCard>
+        ) : null}
+
+        {relatedEvents.length === 0 && relatedNews.length === 0 && detail.related.length > 0 ? (
           <SectionCard title="Related coverage" description={`${detail.related.length} linked result${detail.related.length === 1 ? '' : 's'} surfaced for this launch.`}>
             <View style={{ gap: 10 }}>
               {detail.related.map((item) => (
-                <View
+                <Pressable
                   key={`${item.type}:${item.id}`}
+                  onPress={() => {
+                    openTarget(item.href);
+                  }}
                   style={{
                     borderRadius: 16,
                     borderWidth: 1,
@@ -896,7 +1500,7 @@ export default function LaunchDetailScreen() {
                 >
                   <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{item.title}</Text>
                   <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>{item.subtitle ?? formatSearchResultLabel(item.type)}</Text>
-                </View>
+                </Pressable>
               ))}
             </View>
           </SectionCard>
@@ -912,7 +1516,14 @@ export default function LaunchDetailScreen() {
           headerShown: false
         }}
       />
-      <AppScreen testID="launch-detail-screen">{content}</AppScreen>
+      <AppScreen
+        testID="launch-detail-screen"
+        animatedScroll={!shouldReduceMotion}
+        onScroll={scrollHandler}
+        scrollEventThrottle={16}
+      >
+        {content}
+      </AppScreen>
       <LaunchCalendarSheet launch={calendarLaunch} open={calendarLaunch != null} onClose={() => setCalendarLaunch(null)} />
     </>
   );

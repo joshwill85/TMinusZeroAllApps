@@ -6,7 +6,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { useQueryClient } from '@tanstack/react-query';
 import type { SearchResultV1 } from '@tminuszero/contracts';
 import { buildMobileRoute, buildSearchHref } from '@tminuszero/navigation';
-import { prefetchLaunchDetail, useSearchQuery } from '@/src/api/queries';
+import { prefetchLaunchDetail, useSearchQuery, useViewerSessionQuery } from '@/src/api/queries';
 import { useMobileApiClient } from '@/src/api/useMobileApiClient';
 import { AppScreen } from '@/src/components/AppScreen';
 import {
@@ -16,6 +16,7 @@ import {
   CustomerShellPanel
 } from '@/src/components/CustomerShell';
 import { getPublicSiteUrl } from '@/src/config/api';
+import { resolveNativeProgramHubHref } from '@/src/features/programHubs/rollout';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import { formatSearchResultLabel } from '@/src/utils/format';
 
@@ -34,6 +35,7 @@ export default function SearchScreen() {
   const client = useMobileApiClient();
   const params = useLocalSearchParams<{ q?: string | string[] }>();
   const { theme } = useMobileBootstrap();
+  const viewerSessionQuery = useViewerSessionQuery();
   const routeQuery = getQueryParam(params.q).trim();
   const [draft, setDraft] = useState(routeQuery);
   const searchQuery = useSearchQuery(routeQuery);
@@ -68,6 +70,12 @@ export default function SearchScreen() {
         void prefetchLaunchDetail(queryClient, client, launchId);
       }
       router.push(result.href as Href);
+      return;
+    }
+
+    const nativeHubHref = resolveNativeProgramHubHref(viewerSessionQuery.data, result.href);
+    if (nativeHubHref) {
+      router.push(nativeHubHref as Href);
       return;
     }
 

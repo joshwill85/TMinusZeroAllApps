@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { ScrollView, View, type ScrollViewProps } from 'react-native';
+import Animated, { type AnimatedScrollViewProps } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSegments } from 'expo-router';
 import {
@@ -15,13 +16,19 @@ type AppScreenProps = {
   scroll?: boolean;
   keyboardShouldPersistTaps?: ScrollViewProps['keyboardShouldPersistTaps'];
   testID?: string;
+  animatedScroll?: boolean;
+  onScroll?: AnimatedScrollViewProps['onScroll'];
+  scrollEventThrottle?: number;
 };
 
 export function AppScreen({
   children,
   scroll = true,
   keyboardShouldPersistTaps = 'never',
-  testID
+  testID,
+  animatedScroll = false,
+  onScroll,
+  scrollEventThrottle = 16
 }: AppScreenProps) {
   const { theme } = useMobileBootstrap();
   const segments = useSegments();
@@ -49,6 +56,22 @@ export function AppScreen({
       >
         {children}
       </View>
+    );
+  }
+
+  if (animatedScroll) {
+    return (
+      <Animated.ScrollView
+        testID={testID}
+        style={{ flex: 1, backgroundColor: theme.background }}
+        contentContainerStyle={contentStyle}
+        keyboardShouldPersistTaps={keyboardShouldPersistTaps}
+        onScroll={onScroll}
+        scrollEventThrottle={scrollEventThrottle}
+        showsVerticalScrollIndicator={false}
+      >
+        {children}
+      </Animated.ScrollView>
     );
   }
 

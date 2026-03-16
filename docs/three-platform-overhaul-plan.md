@@ -1,6 +1,6 @@
 # Three-Platform Overhaul Plan
 
-Last updated: 2026-03-10
+Last updated: 2026-03-15
 
 This is the living master checklist for moving T-Minus Zero from a web-only product to a maintainable, high-performance web + iOS + Android product line.
 
@@ -66,6 +66,13 @@ This is the living master checklist for moving T-Minus Zero from a web-only prod
 - [ ] Phase 5 complete: Billing and entitlements unification
 - [ ] Phase 6 complete: Advanced native capability
 - [ ] Phase 7 complete: Hardening and cutover
+
+## Current Slice Tracker
+
+- 2026-03-15: Native mobile password auth hardening is in progress for `iOS` and `Android` only.
+  - Added shared `/api/v1/mobile-auth/*` guest routes, risk-session storage, and a hosted challenge page on web as a dependency surface.
+  - Mobile password-entry flows are being migrated off direct Supabase password REST calls onto the shared route layer.
+  - Native attestation is scaffolded behind additive contracts/settings; real App Attest / Play Integrity verification is still a follow-up before full production enforcement.
 
 ## Phase 0 - Safety Rails and Baseline
 

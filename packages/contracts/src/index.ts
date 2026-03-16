@@ -6,7 +6,290 @@ export const viewerSessionSchemaV1 = z.object({
   role: z.enum(['guest', 'member', 'admin']),
   accessToken: z.string().nullable(),
   expiresAt: z.string().nullable(),
-  authMode: z.enum(['guest', 'cookie', 'bearer'])
+  authMode: z.enum(['guest', 'cookie', 'bearer']),
+  mobileHubRollout: z.object({
+    blueOrigin: z.object({
+      nativeEnabled: z.boolean(),
+      externalDeepLinksEnabled: z.boolean()
+    }),
+    spacex: z.object({
+      nativeEnabled: z.boolean(),
+      externalDeepLinksEnabled: z.boolean()
+    }),
+    artemis: z.object({
+      nativeEnabled: z.boolean(),
+      externalDeepLinksEnabled: z.boolean()
+    })
+  })
+});
+
+export const blueOriginMissionKeySchemaV1 = z.enum([
+  'blue-origin-program',
+  'new-shepard',
+  'new-glenn',
+  'blue-moon',
+  'blue-ring',
+  'be-4'
+]);
+
+const blueOriginConfidenceSchemaV1 = z.enum(['high', 'medium', 'low']);
+
+const blueOriginFaqItemSchemaV1 = z.object({
+  question: z.string(),
+  answer: z.string()
+});
+
+const blueOriginChangeItemSchemaV1 = z.object({
+  title: z.string(),
+  summary: z.string(),
+  date: z.string(),
+  href: z.string().optional()
+});
+
+const blueOriginLaunchSummarySchemaV1 = z.object({
+  id: z.string(),
+  name: z.string(),
+  provider: z.string(),
+  vehicle: z.string(),
+  net: z.string(),
+  netPrecision: z.enum(['minute', 'hour', 'day', 'month', 'tbd']),
+  status: z.enum(['go', 'hold', 'scrubbed', 'tbd', 'unknown']),
+  statusText: z.string(),
+  imageUrl: z.string().nullable(),
+  padName: z.string().nullable(),
+  padShortCode: z.string().nullable(),
+  padLocation: z.string().nullable(),
+  missionName: z.string().nullable(),
+  missionKey: blueOriginMissionKeySchemaV1.nullable(),
+  flightCode: z.string().nullable(),
+  href: z.string()
+});
+
+const blueOriginProgramSnapshotSchemaV1 = z.object({
+  generatedAt: z.string(),
+  lastUpdated: z.string().nullable(),
+  nextLaunch: blueOriginLaunchSummarySchemaV1.nullable(),
+  upcoming: z.array(blueOriginLaunchSummarySchemaV1),
+  recent: z.array(blueOriginLaunchSummarySchemaV1),
+  faq: z.array(blueOriginFaqItemSchemaV1)
+});
+
+const blueOriginMissionSnapshotSchemaV1 = z.object({
+  generatedAt: z.string(),
+  lastUpdated: z.string().nullable(),
+  missionKey: blueOriginMissionKeySchemaV1,
+  missionName: z.string(),
+  nextLaunch: blueOriginLaunchSummarySchemaV1.nullable(),
+  upcoming: z.array(blueOriginLaunchSummarySchemaV1),
+  recent: z.array(blueOriginLaunchSummarySchemaV1),
+  highlights: z.array(z.string()),
+  changes: z.array(blueOriginChangeItemSchemaV1),
+  faq: z.array(blueOriginFaqItemSchemaV1)
+});
+
+const blueOriginFlightRecordSchemaV1 = z.object({
+  id: z.string(),
+  flightCode: z.string(),
+  flightSlug: z.string(),
+  missionKey: blueOriginMissionKeySchemaV1,
+  missionLabel: z.string(),
+  launchId: z.string().nullable(),
+  ll2LaunchUuid: z.string().nullable(),
+  launchName: z.string().nullable(),
+  launchDate: z.string().nullable(),
+  status: z.string().nullable(),
+  officialMissionUrl: z.string().nullable(),
+  source: z.string().nullable(),
+  confidence: blueOriginConfidenceSchemaV1,
+  metadata: z.record(z.unknown()),
+  updatedAt: z.string().nullable()
+});
+
+const blueOriginTravelerIndexItemSchemaV1 = z.object({
+  travelerSlug: z.string(),
+  name: z.string(),
+  roles: z.array(z.string()),
+  nationalities: z.array(z.string()),
+  confidence: blueOriginConfidenceSchemaV1,
+  imageUrl: z.string().nullable(),
+  launchCount: z.number().int().nonnegative(),
+  flightCount: z.number().int().nonnegative(),
+  latestFlightCode: z.string().nullable(),
+  latestLaunchDate: z.string().nullable(),
+  latestLaunchName: z.string().nullable(),
+  latestLaunchHref: z.string().nullable()
+});
+
+const blueOriginVehicleSchemaV1 = z.object({
+  id: z.string(),
+  vehicleSlug: z.enum(['new-shepard', 'new-glenn', 'blue-moon', 'blue-ring']),
+  missionKey: blueOriginMissionKeySchemaV1,
+  displayName: z.string(),
+  vehicleClass: z.string().nullable(),
+  status: z.string().nullable(),
+  firstFlight: z.string().nullable(),
+  description: z.string().nullable(),
+  officialUrl: z.string().nullable(),
+  metadata: z.record(z.unknown()),
+  updatedAt: z.string().nullable()
+});
+
+const blueOriginEngineSchemaV1 = z.object({
+  id: z.string(),
+  engineSlug: z.enum(['be-3pm', 'be-3u', 'be-4', 'be-7']),
+  missionKey: blueOriginMissionKeySchemaV1,
+  displayName: z.string(),
+  propellants: z.string().nullable(),
+  cycle: z.string().nullable(),
+  thrustVacKN: z.number().nullable(),
+  thrustSlKN: z.number().nullable(),
+  status: z.string().nullable(),
+  description: z.string().nullable(),
+  officialUrl: z.string().nullable(),
+  metadata: z.record(z.unknown()),
+  updatedAt: z.string().nullable()
+});
+
+const blueOriginContractSchemaV1 = z.object({
+  id: z.string(),
+  contractKey: z.string(),
+  missionKey: blueOriginMissionKeySchemaV1,
+  title: z.string(),
+  agency: z.string().nullable(),
+  customer: z.string().nullable(),
+  amount: z.number().nullable(),
+  awardedOn: z.string().nullable(),
+  description: z.string().nullable(),
+  sourceUrl: z.string().nullable(),
+  sourceLabel: z.string().nullable(),
+  status: z.string().nullable(),
+  metadata: z.record(z.unknown()),
+  updatedAt: z.string().nullable()
+});
+
+const blueOriginPassengerSchemaV1 = z.object({
+  id: z.string(),
+  missionKey: blueOriginMissionKeySchemaV1,
+  flightCode: z.string().nullable(),
+  flightSlug: z.string().nullable(),
+  travelerSlug: z.string().nullable().optional(),
+  seatIndex: z.number().int().nullable().optional(),
+  name: z.string(),
+  role: z.string().nullable(),
+  nationality: z.string().nullable(),
+  launchId: z.string().nullable(),
+  launchName: z.string().nullable(),
+  launchDate: z.string().nullable(),
+  profileUrl: z.string().nullable().optional(),
+  imageUrl: z.string().nullable().optional(),
+  bio: z.string().nullable().optional(),
+  source: z.string(),
+  confidence: blueOriginConfidenceSchemaV1
+});
+
+const blueOriginPayloadSchemaV1 = z.object({
+  id: z.string(),
+  missionKey: blueOriginMissionKeySchemaV1,
+  flightCode: z.string().nullable(),
+  flightSlug: z.string().nullable(),
+  name: z.string(),
+  payloadType: z.string().nullable(),
+  orbit: z.string().nullable(),
+  agency: z.string().nullable(),
+  launchId: z.string().nullable(),
+  launchName: z.string().nullable(),
+  launchDate: z.string().nullable(),
+  source: z.string(),
+  confidence: blueOriginConfidenceSchemaV1
+});
+
+const blueOriginContentItemSchemaV1 = z.object({
+  id: z.string(),
+  missionKey: z.union([blueOriginMissionKeySchemaV1, z.literal('all')]),
+  kind: z.enum(['article', 'photo', 'social', 'data']),
+  title: z.string(),
+  summary: z.string().nullable(),
+  url: z.string(),
+  imageUrl: z.string().nullable(),
+  publishedAt: z.string().nullable(),
+  sourceType: z.string(),
+  sourceLabel: z.string(),
+  confidence: blueOriginConfidenceSchemaV1
+});
+
+const blueOriginMissionCardSchemaV1 = z.object({
+  missionKey: blueOriginMissionKeySchemaV1,
+  title: z.string(),
+  description: z.string(),
+  href: z.string(),
+  statusLabel: z.string(),
+  highlight: z.string().nullable()
+});
+
+const blueOriginOverviewStatsSchemaV1 = z.object({
+  upcomingLaunches: z.number().int().nonnegative(),
+  recentLaunches: z.number().int().nonnegative(),
+  flights: z.number().int().nonnegative(),
+  travelers: z.number().int().nonnegative(),
+  vehicles: z.number().int().nonnegative(),
+  engines: z.number().int().nonnegative(),
+  contracts: z.number().int().nonnegative(),
+  contentItems: z.number().int().nonnegative()
+});
+
+export const blueOriginOverviewSchemaV1 = z.object({
+  generatedAt: z.string(),
+  title: z.string(),
+  description: z.string(),
+  snapshot: blueOriginProgramSnapshotSchemaV1,
+  stats: blueOriginOverviewStatsSchemaV1,
+  missions: z.array(blueOriginMissionCardSchemaV1),
+  flights: z.array(blueOriginFlightRecordSchemaV1),
+  travelers: z.array(blueOriginTravelerIndexItemSchemaV1),
+  vehicles: z.array(blueOriginVehicleSchemaV1),
+  engines: z.array(blueOriginEngineSchemaV1),
+  contracts: z.array(blueOriginContractSchemaV1),
+  content: z.array(blueOriginContentItemSchemaV1)
+});
+
+export const blueOriginMissionOverviewSchemaV1 = z.object({
+  generatedAt: z.string(),
+  title: z.string(),
+  description: z.string(),
+  snapshot: blueOriginMissionSnapshotSchemaV1,
+  passengers: z.array(blueOriginPassengerSchemaV1),
+  payloads: z.array(blueOriginPayloadSchemaV1),
+  contracts: z.array(blueOriginContractSchemaV1),
+  content: z.array(blueOriginContentItemSchemaV1)
+});
+
+export const blueOriginFlightsResponseSchemaV1 = z.object({
+  generatedAt: z.string(),
+  mission: z.union([blueOriginMissionKeySchemaV1, z.literal('all')]),
+  items: z.array(blueOriginFlightRecordSchemaV1)
+});
+
+export const blueOriginTravelersResponseSchemaV1 = z.object({
+  generatedAt: z.string(),
+  items: z.array(blueOriginTravelerIndexItemSchemaV1)
+});
+
+export const blueOriginVehiclesResponseSchemaV1 = z.object({
+  generatedAt: z.string(),
+  mission: z.union([blueOriginMissionKeySchemaV1, z.literal('all')]),
+  items: z.array(blueOriginVehicleSchemaV1)
+});
+
+export const blueOriginEnginesResponseSchemaV1 = z.object({
+  generatedAt: z.string(),
+  mission: z.union([blueOriginMissionKeySchemaV1, z.literal('all')]),
+  items: z.array(blueOriginEngineSchemaV1)
+});
+
+export const blueOriginContractsResponseSchemaV1 = z.object({
+  generatedAt: z.string(),
+  mission: z.union([blueOriginMissionKeySchemaV1, z.literal('all')]),
+  items: z.array(blueOriginContractSchemaV1)
 });
 
 export const entitlementCapabilitiesSchemaV1 = z.object({
@@ -184,6 +467,218 @@ const launchTimelineEventSchemaV1 = z
     relative_time: z.string().optional()
   })
   .passthrough();
+
+const launchLinkItemSchemaV1 = z.object({
+  url: z.string(),
+  label: z.string(),
+  meta: z.string().nullable().optional(),
+  imageUrl: z.string().nullable().optional(),
+  host: z.string().nullable().optional(),
+  kind: z.string().nullable().optional()
+});
+
+const launchWeatherMetricSchemaV1 = z.object({
+  label: z.string(),
+  value: z.string()
+});
+
+const launchWeatherCardSchemaV1 = z.object({
+  id: z.string(),
+  source: z.enum(['ws45', 'nws']),
+  title: z.string(),
+  subtitle: z.string().nullable().optional(),
+  issuedAt: z.string().nullable().optional(),
+  validStart: z.string().nullable().optional(),
+  validEnd: z.string().nullable().optional(),
+  headline: z.string().nullable().optional(),
+  detail: z.string().nullable().optional(),
+  badges: z.array(z.string()).default([]),
+  metrics: z.array(launchWeatherMetricSchemaV1).default([]),
+  actionLabel: z.string().nullable().optional(),
+  actionUrl: z.string().nullable().optional()
+});
+
+const launchWeatherModuleSchemaV1 = z.object({
+  summary: z.string().nullable().optional(),
+  concerns: z.array(z.string()).default([]),
+  cards: z.array(launchWeatherCardSchemaV1).default([])
+});
+
+const launchMissionResourceEntrySchemaV1 = z.object({
+  id: z.string(),
+  title: z.string(),
+  subtitle: z.string().nullable().optional(),
+  url: z.string()
+});
+
+const launchMissionTimelineEntrySchemaV1 = z.object({
+  id: z.string(),
+  label: z.string(),
+  time: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  phase: z.enum(['prelaunch', 'postlaunch', 'timeline']).nullable().optional()
+});
+
+const launchResourcesModuleSchemaV1 = z.object({
+  watchLinks: z.array(launchLinkItemSchemaV1).default([]),
+  externalLinks: z.array(launchLinkItemSchemaV1).default([]),
+  missionResources: z.array(launchMissionResourceEntrySchemaV1).default([]),
+  missionTimeline: z.array(launchMissionTimelineEntrySchemaV1).default([])
+});
+
+const launchSocialPostSchemaV1 = z.object({
+  platform: z.enum(['x']),
+  title: z.string(),
+  subtitle: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  url: z.string(),
+  handle: z.string().nullable().optional(),
+  matchedAt: z.string().nullable().optional()
+});
+
+const launchSocialFeedSchemaV1 = z.object({
+  id: z.string(),
+  platform: z.enum(['x']),
+  title: z.string(),
+  subtitle: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  url: z.string(),
+  handle: z.string().nullable().optional()
+});
+
+const launchSocialModuleSchemaV1 = z.object({
+  matchedPost: launchSocialPostSchemaV1.nullable().optional(),
+  providerFeeds: z.array(launchSocialFeedSchemaV1).default([])
+});
+
+const launchRelatedNewsSchemaV1 = z.object({
+  id: z.string(),
+  title: z.string(),
+  url: z.string(),
+  newsSite: z.string().nullable().optional(),
+  summary: z.string().nullable().optional(),
+  imageUrl: z.string().nullable().optional(),
+  publishedAt: z.string().nullable().optional(),
+  itemType: z.enum(['article', 'blog', 'report']).nullable().optional(),
+  authors: z.array(z.string()).default([]),
+  featured: z.boolean().nullable().optional()
+});
+
+const launchRelatedEventDetailSchemaV1 = z.object({
+  id: z.number().int(),
+  name: z.string(),
+  description: z.string().nullable().optional(),
+  typeName: z.string().nullable().optional(),
+  date: z.string().nullable().optional(),
+  datePrecision: z.string().nullable().optional(),
+  locationName: z.string().nullable().optional(),
+  url: z.string().nullable().optional(),
+  imageUrl: z.string().nullable().optional(),
+  webcastLive: z.boolean().nullable().optional()
+});
+
+const launchPayloadManifestItemSchemaV1 = z.object({
+  id: z.string(),
+  kind: z.enum(['payload', 'spacecraft']),
+  title: z.string(),
+  subtitle: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  imageUrl: z.string().nullable().optional(),
+  destination: z.string().nullable().optional(),
+  deploymentStatus: z.string().nullable().optional(),
+  operator: z.string().nullable().optional(),
+  manufacturer: z.string().nullable().optional(),
+  infoUrl: z.string().nullable().optional(),
+  wikiUrl: z.string().nullable().optional(),
+  landingSummary: z.string().nullable().optional(),
+  dockingSummary: z.string().nullable().optional()
+});
+
+const launchObjectInventoryItemSchemaV1 = z.object({
+  id: z.string(),
+  title: z.string(),
+  subtitle: z.string().nullable().optional(),
+  lines: z.array(z.string()).default([])
+});
+
+const launchObjectInventorySchemaV1 = z.object({
+  summaryBadges: z.array(z.string()).default([]),
+  payloadObjects: z.array(launchObjectInventoryItemSchemaV1).default([]),
+  nonPayloadObjects: z.array(launchObjectInventoryItemSchemaV1).default([])
+});
+
+const launchUpdateEntrySchemaV1 = z.object({
+  id: z.string(),
+  title: z.string(),
+  detectedAt: z.string().nullable().optional(),
+  details: z.array(z.string()).default([]),
+  tags: z.array(z.string()).default([])
+});
+
+const launchStatCardSchemaV1 = z.object({
+  id: z.string(),
+  eyebrow: z.string(),
+  title: z.string(),
+  allTime: z.number().int().nullable().optional(),
+  year: z.number().int().nullable().optional(),
+  yearLabel: z.string(),
+  allTimeLabel: z.string(),
+  story: z.string()
+});
+
+const launchBoosterCardSchemaV1 = z.object({
+  id: z.string(),
+  title: z.string(),
+  subtitle: z.string().nullable().optional(),
+  allTime: z.number().int().nullable().optional(),
+  year: z.number().int().nullable().optional(),
+  yearLabel: z.string(),
+  allTimeLabel: z.string(),
+  detailLines: z.array(z.string()).default([]),
+  imageUrl: z.string().nullable().optional()
+});
+
+const launchBonusInsightSchemaV1 = z.object({
+  label: z.string(),
+  value: z.string(),
+  detail: z.string().nullable().optional()
+});
+
+const launchMissionStatsSchemaV1 = z.object({
+  cards: z.array(launchStatCardSchemaV1).default([]),
+  boosterCards: z.array(launchBoosterCardSchemaV1).default([]),
+  bonusInsights: z.array(launchBonusInsightSchemaV1).default([])
+});
+
+const blueOriginTravelerProfileSchemaV1 = z.object({
+  name: z.string(),
+  travelerSlug: z.string(),
+  role: z.string().nullable().optional(),
+  nationality: z.string().nullable().optional(),
+  bio: z.string().nullable().optional(),
+  imageUrl: z.string().nullable().optional(),
+  profileUrl: z.string().nullable().optional()
+});
+
+const blueOriginFactSchemaV1 = z.object({
+  label: z.string(),
+  value: z.string(),
+  sourceUrl: z.string().nullable().optional()
+});
+
+const blueOriginPayloadNoteSchemaV1 = z.object({
+  name: z.string(),
+  description: z.string(),
+  sourceUrl: z.string().nullable().optional()
+});
+
+const blueOriginModuleSchemaV1 = z.object({
+  resourceLinks: z.array(launchLinkItemSchemaV1).default([]),
+  travelerProfiles: z.array(blueOriginTravelerProfileSchemaV1).default([]),
+  missionGraphics: z.array(launchLinkItemSchemaV1).default([]),
+  facts: z.array(blueOriginFactSchemaV1).default([]),
+  payloadNotes: z.array(blueOriginPayloadNoteSchemaV1).default([])
+});
 
 export const launchFeedItemSchemaV1 = z
   .object({
@@ -544,6 +1039,134 @@ export const authProviderSchemaV1 = z.enum(['email_password', 'apple', 'google',
 
 export const authPlatformSchemaV1 = z.enum(['web', 'ios', 'android']);
 
+export const mobileAuthPlatformSchemaV1 = z.enum(['ios', 'android']);
+
+export const mobileAuthFlowSchemaV1 = z.enum(['sign_in', 'sign_up', 'resend', 'recover']);
+
+export const mobileAuthAttestationProviderSchemaV1 = z.enum([
+  'ios_app_attest',
+  'ios_device_check',
+  'android_play_integrity',
+  'dev_bypass',
+  'none'
+]);
+
+export const mobileAuthAttestationSchemaV1 = z
+  .object({
+    provider: mobileAuthAttestationProviderSchemaV1,
+    token: z.string().trim().min(1).max(8192).nullable().optional(),
+    nonce: z.string().trim().min(1).max(255),
+    keyId: z.string().trim().min(1).max(255).nullable().optional()
+  })
+  .strict();
+
+export const mobileAuthRiskDispositionSchemaV1 = z.enum(['silent_turnstile', 'visible_turnstile', 'deny']);
+
+export const mobileAuthSessionSchemaV1 = z
+  .object({
+    accessToken: z.string().trim().min(1),
+    refreshToken: z.string().trim().min(1).nullable(),
+    expiresIn: z.number().int().positive().nullable(),
+    expiresAt: z.string().datetime().nullable(),
+    userId: z.string().uuid().nullable(),
+    email: z.string().email().nullable()
+  })
+  .strict();
+
+export const mobileAuthUserSchemaV1 = z
+  .object({
+    userId: z.string().uuid().nullable(),
+    email: z.string().email().nullable()
+  })
+  .strict();
+
+export const mobileAuthRiskStartSchemaV1 = z
+  .object({
+    flow: mobileAuthFlowSchemaV1,
+    email: z.string().trim().email(),
+    installationId: z.string().trim().min(1).max(160),
+    platform: mobileAuthPlatformSchemaV1,
+    appVersion: z.string().trim().min(1).max(40).nullable().optional(),
+    buildProfile: z.string().trim().min(1).max(40).nullable().optional(),
+    attestation: mobileAuthAttestationSchemaV1
+  })
+  .strict();
+
+export const mobileAuthRiskDecisionSchemaV1 = z
+  .object({
+    riskSessionId: z.string().uuid(),
+    disposition: mobileAuthRiskDispositionSchemaV1,
+    challengeUrl: z.string().url().nullable().optional(),
+    retryAfterSeconds: z.number().int().positive().nullable().optional(),
+    reasonCode: z.string().trim().min(1).max(80).nullable().optional()
+  })
+  .strict();
+
+export const mobileAuthChallengeCompleteSchemaV1 = z
+  .object({
+    riskSessionId: z.string().uuid(),
+    captchaToken: z.string().trim().min(1).max(8192)
+  })
+  .strict();
+
+export const mobileAuthChallengeResultSchemaV1 = z
+  .object({
+    riskSessionId: z.string().uuid(),
+    challengeCode: z.string().trim().min(1).max(8192)
+  })
+  .strict();
+
+export const mobileAuthPasswordSignInSchemaV1 = z
+  .object({
+    email: z.string().trim().email(),
+    password: z.string().min(1).max(4096),
+    riskSessionId: z.string().uuid(),
+    challengeCode: z.string().trim().min(1).max(8192)
+  })
+  .strict();
+
+export const mobileAuthPasswordSignInResponseSchemaV1 = z
+  .object({
+    session: mobileAuthSessionSchemaV1
+  })
+  .strict();
+
+export const mobileAuthPasswordSignUpSchemaV1 = z
+  .object({
+    email: z.string().trim().email(),
+    password: z.string().min(1).max(4096),
+    emailRedirectTo: z.string().url(),
+    riskSessionId: z.string().uuid(),
+    challengeCode: z.string().trim().min(1).max(8192)
+  })
+  .strict();
+
+export const mobileAuthPasswordSignUpResponseSchemaV1 = z
+  .object({
+    session: mobileAuthSessionSchemaV1.nullable(),
+    user: mobileAuthUserSchemaV1,
+    requiresVerification: z.boolean()
+  })
+  .strict();
+
+export const mobileAuthPasswordResendSchemaV1 = z
+  .object({
+    email: z.string().trim().email(),
+    emailRedirectTo: z.string().url(),
+    riskSessionId: z.string().uuid(),
+    challengeCode: z.string().trim().min(1).max(8192)
+  })
+  .strict();
+
+export const mobileAuthPasswordRecoverSchemaV1 = z
+  .object({
+    email: z.string().trim().email(),
+    redirectTo: z.string().url(),
+    riskSessionId: z.string().uuid(),
+    challengeCode: z.string().trim().min(1).max(8192)
+  })
+  .strict();
+
 export const authContextEventTypeSchemaV1 = z.enum([
   'sign_in',
   'sign_up',
@@ -562,7 +1185,8 @@ export const authContextUpsertSchemaV1 = z
     avatarUrl: z.string().url().nullable().optional(),
     emailIsPrivateRelay: z.boolean().optional(),
     appVersion: z.string().trim().min(1).max(40).nullable().optional(),
-    buildProfile: z.string().trim().min(1).max(40).nullable().optional()
+    buildProfile: z.string().trim().min(1).max(40).nullable().optional(),
+    riskSessionId: z.string().uuid().nullable().optional()
   })
   .strict();
 
@@ -1097,7 +1721,17 @@ export const launchDetailSchemaV1 = z.object({
   arTrajectory: arTrajectorySummarySchemaV1,
   entitlements: entitlementSchemaV1,
   related: z.array(searchResultSchemaV1),
-  enrichment: launchDetailEnrichmentSchemaV1
+  enrichment: launchDetailEnrichmentSchemaV1,
+  weather: launchWeatherModuleSchemaV1.optional(),
+  resources: launchResourcesModuleSchemaV1.optional(),
+  social: launchSocialModuleSchemaV1.optional(),
+  relatedEvents: z.array(launchRelatedEventDetailSchemaV1).default([]),
+  relatedNews: z.array(launchRelatedNewsSchemaV1).default([]),
+  payloadManifest: z.array(launchPayloadManifestItemSchemaV1).default([]),
+  objectInventory: launchObjectInventorySchemaV1.nullable().optional(),
+  launchUpdates: z.array(launchUpdateEntrySchemaV1).default([]),
+  missionStats: launchMissionStatsSchemaV1.nullable().optional(),
+  blueOrigin: blueOriginModuleSchemaV1.nullable().optional()
 });
 
 const trajectoryCovarianceSchemaV1 = z.object({
@@ -1316,6 +1950,14 @@ export const arTelemetrySessionEventSchemaV1 = z.object({
 });
 
 export type ViewerSessionV1 = z.infer<typeof viewerSessionSchemaV1>;
+export type BlueOriginMissionKeyV1 = z.infer<typeof blueOriginMissionKeySchemaV1>;
+export type BlueOriginOverviewV1 = z.infer<typeof blueOriginOverviewSchemaV1>;
+export type BlueOriginMissionOverviewV1 = z.infer<typeof blueOriginMissionOverviewSchemaV1>;
+export type BlueOriginFlightsResponseV1 = z.infer<typeof blueOriginFlightsResponseSchemaV1>;
+export type BlueOriginTravelersResponseV1 = z.infer<typeof blueOriginTravelersResponseSchemaV1>;
+export type BlueOriginVehiclesResponseV1 = z.infer<typeof blueOriginVehiclesResponseSchemaV1>;
+export type BlueOriginEnginesResponseV1 = z.infer<typeof blueOriginEnginesResponseSchemaV1>;
+export type BlueOriginContractsResponseV1 = z.infer<typeof blueOriginContractsResponseSchemaV1>;
 export type EntitlementCapabilitiesV1 = z.infer<typeof entitlementCapabilitiesSchemaV1>;
 export type EntitlementLimitsV1 = z.infer<typeof entitlementLimitsSchemaV1>;
 export type EntitlementsV1 = z.infer<typeof entitlementSchemaV1>;
@@ -1356,6 +1998,23 @@ export type PushDeviceRemovalV1 = z.infer<typeof pushDeviceRemovalSchemaV1>;
 export type PushDeliveryTestV1 = z.infer<typeof pushDeliveryTestSchemaV1>;
 export type AuthProviderV1 = z.infer<typeof authProviderSchemaV1>;
 export type AuthPlatformV1 = z.infer<typeof authPlatformSchemaV1>;
+export type MobileAuthPlatformV1 = z.infer<typeof mobileAuthPlatformSchemaV1>;
+export type MobileAuthFlowV1 = z.infer<typeof mobileAuthFlowSchemaV1>;
+export type MobileAuthAttestationProviderV1 = z.infer<typeof mobileAuthAttestationProviderSchemaV1>;
+export type MobileAuthAttestationV1 = z.infer<typeof mobileAuthAttestationSchemaV1>;
+export type MobileAuthRiskDispositionV1 = z.infer<typeof mobileAuthRiskDispositionSchemaV1>;
+export type MobileAuthSessionV1 = z.infer<typeof mobileAuthSessionSchemaV1>;
+export type MobileAuthUserV1 = z.infer<typeof mobileAuthUserSchemaV1>;
+export type MobileAuthRiskStartV1 = z.infer<typeof mobileAuthRiskStartSchemaV1>;
+export type MobileAuthRiskDecisionV1 = z.infer<typeof mobileAuthRiskDecisionSchemaV1>;
+export type MobileAuthChallengeCompleteV1 = z.infer<typeof mobileAuthChallengeCompleteSchemaV1>;
+export type MobileAuthChallengeResultV1 = z.infer<typeof mobileAuthChallengeResultSchemaV1>;
+export type MobileAuthPasswordSignInV1 = z.infer<typeof mobileAuthPasswordSignInSchemaV1>;
+export type MobileAuthPasswordSignInResponseV1 = z.infer<typeof mobileAuthPasswordSignInResponseSchemaV1>;
+export type MobileAuthPasswordSignUpV1 = z.infer<typeof mobileAuthPasswordSignUpSchemaV1>;
+export type MobileAuthPasswordSignUpResponseV1 = z.infer<typeof mobileAuthPasswordSignUpResponseSchemaV1>;
+export type MobileAuthPasswordResendV1 = z.infer<typeof mobileAuthPasswordResendSchemaV1>;
+export type MobileAuthPasswordRecoverV1 = z.infer<typeof mobileAuthPasswordRecoverSchemaV1>;
 export type AuthContextEventTypeV1 = z.infer<typeof authContextEventTypeSchemaV1>;
 export type AuthContextUpsertV1 = z.infer<typeof authContextUpsertSchemaV1>;
 export type ProfileV1 = z.infer<typeof profileSchemaV1>;

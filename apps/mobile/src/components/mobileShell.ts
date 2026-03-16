@@ -16,5 +16,9 @@ export function shouldShowCustomerDock(segments: string[]) {
     return true;
   }
 
+  if (first === 'blue-origin') {
+    return true;
+  }
+
   return CUSTOMER_SHELL_REDIRECT_SEGMENTS.has(first);
 }

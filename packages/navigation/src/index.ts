@@ -5,6 +5,7 @@ export type SearchParamsReader = {
 export type AuthIntent = 'upgrade';
 export type AuthRouteMode = 'sign-in' | 'sign-up';
 export type MobileRouteIntent = 'home' | 'authSignIn' | 'launchFeed' | 'calendar' | 'search' | 'profile' | 'saved' | 'preferences';
+export type ProgramHubKey = 'blueOrigin' | 'spacex' | 'artemis';
 
 export type WebRouteIntent =
   | { route: 'launch'; launchId: string }
@@ -28,6 +29,14 @@ const mobileRoutes: Record<MobileRouteIntent, string> = {
   saved: '/saved',
   preferences: '/preferences'
 };
+
+const PROGRAM_HUB_ROOTS: Record<ProgramHubKey, string> = {
+  blueOrigin: '/blue-origin',
+  spacex: '/spacex',
+  artemis: '/artemis'
+};
+
+const BLUE_ORIGIN_MISSION_SEGMENTS = new Set(['new-shepard', 'new-glenn', 'blue-moon', 'blue-ring', 'be-4']);
 
 export function sanitizeReturnTo(value: string | null | undefined, fallback = '/') {
   const trimmed = String(value || '').trim();
@@ -193,6 +202,59 @@ export function resolveMobileAuthRedirectPath({
 
 export function serializeMobileIntent(intent: MobileRouteIntent) {
   return buildMobileRoute(intent);
+}
+
+export function buildProgramHubHref(hub: ProgramHubKey) {
+  return PROGRAM_HUB_ROOTS[hub];
+}
+
+export function getProgramHubKeyFromHref(value: string | null | undefined): ProgramHubKey | null {
+  const href = String(value || '').trim();
+  if (!href.startsWith('/')) return null;
+
+  try {
+    const parsed = new URL(href, 'https://hub.local');
+    const pathname = parsed.pathname.replace(/\/+$/g, '') || '/';
+    if (pathname === '/blue-origin' || pathname.startsWith('/blue-origin/')) return 'blueOrigin';
+    if (pathname === '/spacex' || pathname.startsWith('/spacex/')) return 'spacex';
+    if (pathname === '/artemis' || pathname.startsWith('/artemis/')) return 'artemis';
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+export function normalizeNativeProgramHubHref(value: string | null | undefined) {
+  const href = String(value || '').trim();
+  if (!href.startsWith('/')) return null;
+
+  try {
+    const parsed = new URL(href, 'https://hub.local');
+    const pathname = parsed.pathname.replace(/\/+$/g, '') || '/';
+    const suffix = `${parsed.search}${parsed.hash}`;
+
+    if (pathname === '/blue-origin') return `${pathname}${suffix}`;
+    if (pathname === '/blue-origin/flights') return `${pathname}${suffix}`;
+    if (pathname === '/blue-origin/travelers') return `${pathname}${suffix}`;
+    if (pathname === '/blue-origin/vehicles') return `${pathname}${suffix}`;
+    if (pathname === '/blue-origin/engines') return `${pathname}${suffix}`;
+    if (pathname === '/blue-origin/contracts') return `${pathname}${suffix}`;
+    if (pathname === '/blue-origin/missions') return `${pathname}${suffix}`;
+
+    const blueOriginMissionMatch = pathname.match(/^\/blue-origin\/missions\/([^/]+)$/);
+    if (blueOriginMissionMatch && BLUE_ORIGIN_MISSION_SEGMENTS.has(String(blueOriginMissionMatch[1] || '').toLowerCase())) {
+      return `${pathname}${suffix}`;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+export function isNativeProgramHubHref(value: string | null | undefined) {
+  return Boolean(normalizeNativeProgramHubHref(value));
 }
 
 export function buildLaunchHref(launchId: string) {

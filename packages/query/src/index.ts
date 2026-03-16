@@ -44,6 +44,10 @@ export type BillingCatalogQueryKeyOptions = {
   platform: 'web' | 'ios' | 'android';
 };
 
+export type BlueOriginMissionQueryKeyOptions = {
+  mission?: string | null;
+};
+
 function normalizeSearchTypes(types: readonly string[] | null | undefined) {
   return [...new Set((types ?? []).map((value) => String(value).trim()).filter(Boolean))].sort();
 }
@@ -91,6 +95,12 @@ function normalizeChangedLaunchesQueryOptions(options: ChangedLaunchesQueryKeyOp
   return {
     hours: options.hours ?? 24,
     region: options.region ?? null
+  };
+}
+
+function normalizeBlueOriginMissionQueryOptions(options: BlueOriginMissionQueryKeyOptions = {}) {
+  return {
+    mission: normalizeToken(options.mission) ?? 'all'
   };
 }
 
@@ -142,6 +152,29 @@ export const sharedQueryKeys = {
   },
   launchDetail: (id: string) => ['launch-detail', id] as const,
   launchTrajectory: (id: string) => ['launch-trajectory', id] as const,
+  blueOriginOverview: ['blue-origin-overview'] as const,
+  blueOriginMissionOverview: (mission: string) => ['blue-origin-mission-overview', normalizeToken(mission)] as const,
+  blueOriginFlights: ['blue-origin-flights'] as const,
+  blueOriginFlightsVariant: (options: BlueOriginMissionQueryKeyOptions = {}) => {
+    const normalized = normalizeBlueOriginMissionQueryOptions(options);
+    return ['blue-origin-flights', normalized.mission] as const;
+  },
+  blueOriginTravelers: ['blue-origin-travelers'] as const,
+  blueOriginVehicles: ['blue-origin-vehicles'] as const,
+  blueOriginVehiclesVariant: (options: BlueOriginMissionQueryKeyOptions = {}) => {
+    const normalized = normalizeBlueOriginMissionQueryOptions(options);
+    return ['blue-origin-vehicles', normalized.mission] as const;
+  },
+  blueOriginEngines: ['blue-origin-engines'] as const,
+  blueOriginEnginesVariant: (options: BlueOriginMissionQueryKeyOptions = {}) => {
+    const normalized = normalizeBlueOriginMissionQueryOptions(options);
+    return ['blue-origin-engines', normalized.mission] as const;
+  },
+  blueOriginContracts: ['blue-origin-contracts'] as const,
+  blueOriginContractsVariant: (options: BlueOriginMissionQueryKeyOptions = {}) => {
+    const normalized = normalizeBlueOriginMissionQueryOptions(options);
+    return ['blue-origin-contracts', normalized.mission] as const;
+  },
   search: (query: string, options: SearchQueryKeyOptions = {}) =>
     ['search', normalizeSearchQuery(query), options.limit ?? null, normalizeSearchTypes(options.types).join(',')] as const,
   profile: ['profile'] as const,
@@ -171,6 +204,13 @@ export const sharedQueryStaleTimes = {
   changedLaunches: 15_000,
   launchDetail: 30_000,
   launchTrajectory: 30_000,
+  blueOriginOverview: 120_000,
+  blueOriginMissionOverview: 120_000,
+  blueOriginFlights: 300_000,
+  blueOriginTravelers: 300_000,
+  blueOriginVehicles: 300_000,
+  blueOriginEngines: 300_000,
+  blueOriginContracts: 300_000,
   search: 15_000,
   profile: 60_000,
   privacyPreferences: 30_000,
@@ -251,6 +291,62 @@ export function launchTrajectoryQueryOptions<T>(launchId: string, queryFn: Query
     queryKey: sharedQueryKeys.launchTrajectory(launchId),
     queryFn,
     staleTime: sharedQueryStaleTimes.launchTrajectory
+  });
+}
+
+export function blueOriginOverviewQueryOptions<T>(queryFn: QueryLoader<T>) {
+  return queryOptions({
+    queryKey: sharedQueryKeys.blueOriginOverview,
+    queryFn,
+    staleTime: sharedQueryStaleTimes.blueOriginOverview
+  });
+}
+
+export function blueOriginMissionOverviewQueryOptions<T>(mission: string, queryFn: QueryLoader<T>) {
+  return queryOptions({
+    queryKey: sharedQueryKeys.blueOriginMissionOverview(mission),
+    queryFn,
+    staleTime: sharedQueryStaleTimes.blueOriginMissionOverview
+  });
+}
+
+export function blueOriginFlightsQueryOptions<T>(queryFn: QueryLoader<T>, options: BlueOriginMissionQueryKeyOptions = {}) {
+  return queryOptions({
+    queryKey: sharedQueryKeys.blueOriginFlightsVariant(options),
+    queryFn,
+    staleTime: sharedQueryStaleTimes.blueOriginFlights
+  });
+}
+
+export function blueOriginTravelersQueryOptions<T>(queryFn: QueryLoader<T>) {
+  return queryOptions({
+    queryKey: sharedQueryKeys.blueOriginTravelers,
+    queryFn,
+    staleTime: sharedQueryStaleTimes.blueOriginTravelers
+  });
+}
+
+export function blueOriginVehiclesQueryOptions<T>(queryFn: QueryLoader<T>, options: BlueOriginMissionQueryKeyOptions = {}) {
+  return queryOptions({
+    queryKey: sharedQueryKeys.blueOriginVehiclesVariant(options),
+    queryFn,
+    staleTime: sharedQueryStaleTimes.blueOriginVehicles
+  });
+}
+
+export function blueOriginEnginesQueryOptions<T>(queryFn: QueryLoader<T>, options: BlueOriginMissionQueryKeyOptions = {}) {
+  return queryOptions({
+    queryKey: sharedQueryKeys.blueOriginEnginesVariant(options),
+    queryFn,
+    staleTime: sharedQueryStaleTimes.blueOriginEngines
+  });
+}
+
+export function blueOriginContractsQueryOptions<T>(queryFn: QueryLoader<T>, options: BlueOriginMissionQueryKeyOptions = {}) {
+  return queryOptions({
+    queryKey: sharedQueryKeys.blueOriginContractsVariant(options),
+    queryFn,
+    staleTime: sharedQueryStaleTimes.blueOriginContracts
   });
 }
 
