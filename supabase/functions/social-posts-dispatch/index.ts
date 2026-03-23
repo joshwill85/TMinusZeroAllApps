@@ -15,13 +15,23 @@ const LAUNCH_DAY_OG_VERSION_PREFIX = 'social';
 const LAUNCH_DAY_POST_WINDOW_MS = 60 * 60 * 1000;
 const LAUNCH_DAY_POST_GRACE_MS = 15 * 60 * 1000;
 const LAUNCH_DAY_POST_TOTAL_WINDOW_MS = 3 * LAUNCH_DAY_POST_WINDOW_MS;
-const LAUNCH_DAY_MAX_ATTEMPTS = 5;
 const LAUNCH_DAY_RETRY_SLOT_MINUTES = [10, 40] as const;
 const MAX_TEMPLATE_RENDER_LEN = 100_000;
 const DEFAULT_X_MAX_CHARS = 25_000;
 const MIN_X_MAX_CHARS = 280;
 const MAX_X_MAX_CHARS = 25_000;
 const FACEBOOK_MAX_CHARS = 280;
+const DEFAULT_DISPATCH_RUNTIME_BUDGET_MS = 50_000;
+const MIN_DISPATCH_RUNTIME_BUDGET_MS = 10_000;
+const MAX_DISPATCH_RUNTIME_BUDGET_MS = 240_000;
+const DEFAULT_DISPATCH_CLAIM_BATCH_SIZE = 200;
+const MIN_DISPATCH_CLAIM_BATCH_SIZE = 1;
+const MAX_DISPATCH_CLAIM_BATCH_SIZE = 500;
+const DEFAULT_SOCIAL_POST_SEND_LOCK_STALE_MINUTES = 15;
+const MIN_SOCIAL_POST_SEND_LOCK_STALE_MINUTES = 1;
+const MAX_SOCIAL_POST_SEND_LOCK_STALE_MINUTES = 240;
+const SOCIAL_POSTS_DISPATCH_LOCK_NAME = 'social_posts_dispatch';
+const RUNTIME_GUARD_MS = 1_000;
 const DEFAULTS = {
   enabled: true,
   dryRun: false,
@@ -597,6 +607,8 @@ type SocialPostRow = {
   attempts: number | null;
   scheduled_for: string | null;
   posted_at: string | null;
+  send_lock_id?: string | null;
+  send_locked_at?: string | null;
   created_at?: string | null;
 };
 
@@ -638,6 +650,8 @@ serve(async (req) => {
 	    errors: [] as Array<{ step: string; error: string; context?: Record<string, unknown> }>
 	  };
 
+  let dispatchLockId: string | null = null;
+
   try {
     const settings = await getSettings(supabase, [
       'social_posts_enabled',
@@ -673,7 +687,10 @@ serve(async (req) => {
       'social_posts_updates_enabled',
       'social_posts_updates_max_per_run',
       'social_posts_updates_min_gap_minutes',
-      'social_posts_updates_cursor'
+      'social_posts_updates_cursor',
+      'social_posts_dispatch_runtime_budget_ms',
+      'social_posts_dispatch_claim_batch_size',
+      'social_posts_send_lock_stale_minutes'
     ]);
 
     const enabled = readBooleanSetting(settings.social_posts_enabled, DEFAULTS.enabled);
@@ -745,6 +762,22 @@ serve(async (req) => {
     const questionsEnabled = readBooleanSetting(settings.social_posts_questions_enabled, true);
     const questionsProbability = clampNumber(readNumberSetting(settings.social_posts_questions_probability, 0.333), 0, 1);
     const noRepeatDepth = clampInt(readNumberSetting(settings.social_posts_no_repeat_depth, 12), 0, 100);
+    const dispatchRuntimeBudgetMs = clampInt(
+      readNumberSetting(settings.social_posts_dispatch_runtime_budget_ms, DEFAULT_DISPATCH_RUNTIME_BUDGET_MS),
+      MIN_DISPATCH_RUNTIME_BUDGET_MS,
+      MAX_DISPATCH_RUNTIME_BUDGET_MS
+    );
+    const dispatchClaimBatchSize = clampInt(
+      readNumberSetting(settings.social_posts_dispatch_claim_batch_size, DEFAULT_DISPATCH_CLAIM_BATCH_SIZE),
+      MIN_DISPATCH_CLAIM_BATCH_SIZE,
+      MAX_DISPATCH_CLAIM_BATCH_SIZE
+    );
+    const sendLockStaleMinutes = clampInt(
+      readNumberSetting(settings.social_posts_send_lock_stale_minutes, DEFAULT_SOCIAL_POST_SEND_LOCK_STALE_MINUTES),
+      MIN_SOCIAL_POST_SEND_LOCK_STALE_MINUTES,
+      MAX_SOCIAL_POST_SEND_LOCK_STALE_MINUTES
+    );
+    const dispatchDeadlineMs = Date.now() + dispatchRuntimeBudgetMs;
 
     const updatesEnabled = readBooleanSetting(settings.social_posts_updates_enabled, true);
     const updatesMaxPerRun = clampInt(readNumberSetting(settings.social_posts_updates_max_per_run, 10), 1, 50);
@@ -796,13 +829,25 @@ serve(async (req) => {
     await resolveOpsAlert(supabase, 'social_posts_x_user_missing');
     await resolveOpsAlert(supabase, 'social_posts_api_key_missing');
 
+    dispatchLockId = crypto.randomUUID();
+    const lockTtlSeconds = clampInt(Math.ceil(dispatchRuntimeBudgetMs / 1000) + 30, 60, 3600);
+    const { data: acquired, error: lockError } = await supabase.rpc('try_acquire_job_lock', {
+      lock_name_in: SOCIAL_POSTS_DISPATCH_LOCK_NAME,
+      ttl_seconds_in: lockTtlSeconds,
+      locked_by_in: dispatchLockId
+    });
+    if (lockError) throw lockError;
+    if (!acquired) {
+      await finishIngestionRun(supabase, runId, true, { skipped: true, reason: 'locked' });
+      return jsonResponse({ ok: true, skipped: true, reason: 'locked' });
+    }
+
     const now = new Date();
-    const cutoffIso = new Date(now.getTime() - retryWindowHours * 60 * 60 * 1000).toISOString();
 
     const asyncPending = await processAsyncPosts({
       supabase,
       apiKey,
-      maxPerRun
+      maxPerRun: Math.max(maxPerRun, dispatchClaimBatchSize)
     });
     stats.asyncPending = asyncPending.pending;
     stats.asyncResolved = asyncPending.resolved;
@@ -816,10 +861,13 @@ serve(async (req) => {
 	      siteUrl,
 	      launchDayImagesEnabled,
 	      launchDayImageTimeoutMs,
-	      maxAttempts,
-	      cutoffIso,
+	      retryWindowHours,
 	      dryRun,
-	      now
+	      now,
+        lockId: dispatchLockId,
+        claimBatchSize: dispatchClaimBatchSize,
+        sendLockStaleMinutes,
+        deadlineMs: dispatchDeadlineMs
 	    });
     stats.retriesAttempted = retryStats.attempted;
     stats.posted = (stats.posted as number) + retryStats.posted;
@@ -835,7 +883,6 @@ serve(async (req) => {
         facebookPageId,
         now,
         horizonHours,
-        maxAttempts,
         retryWindowHours,
         updatesMaxPerRun,
         updatesMinGapMinutes,
@@ -847,10 +894,14 @@ serve(async (req) => {
         utmContent,
         xMaxChars,
         questionsEnabled,
-        questionsProbability,
-        noRepeatDepth,
-        dryRun
-      });
+	        questionsProbability,
+	        noRepeatDepth,
+	        dryRun,
+          lockId: dispatchLockId,
+          claimBatchSize: dispatchClaimBatchSize,
+          sendLockStaleMinutes,
+          deadlineMs: dispatchDeadlineMs
+	      });
       stats.updatesQueued = updateStats.queued;
       stats.updatesSent = updateStats.sent;
       stats.updatesSkipped = updateStats.skipped;
@@ -1070,22 +1121,36 @@ serve(async (req) => {
 	    });
 	    stats.missionRepliesQueued = scheduledReplies.queued;
 
-	    const sentReplies = await processThreadReplyQueue({
-	      supabase,
-	      apiKey,
-	      uploadPostUser,
-	      enabledPlatforms,
-	      facebookPageId,
-	      maxAttempts,
-	      retryWindowHours,
-	      maxPerRun,
-	      dryRun,
-	      now
-	    });
-		    stats.missionRepliesSent = sentReplies.sent;
-		    stats.missionRepliesSkipped = sentReplies.skipped;
-		    stats.missionRepliesDeferred = sentReplies.deferred;
-		    stats.missionRepliesFailed = sentReplies.failed;
+      const coreBacklog = await countDueCorePosts(supabase, {
+        platforms: enabledPlatforms,
+        nowIso: now.toISOString()
+      });
+      stats.coreBacklog = coreBacklog;
+
+      if (coreBacklog === 0 && hasRuntimeBudgetRemaining(dispatchDeadlineMs)) {
+	      const sentReplies = await processThreadReplyQueue({
+	        supabase,
+	        apiKey,
+	        uploadPostUser,
+	        enabledPlatforms,
+	        facebookPageId,
+	        maxAttempts,
+	        retryWindowHours,
+	        maxPerRun: Math.max(maxPerRun, dispatchClaimBatchSize),
+	        dryRun,
+	        now,
+          lockId: dispatchLockId,
+          claimBatchSize: dispatchClaimBatchSize,
+          sendLockStaleMinutes,
+          deadlineMs: dispatchDeadlineMs
+	      });
+		      stats.missionRepliesSent = sentReplies.sent;
+		      stats.missionRepliesSkipped = sentReplies.skipped;
+		      stats.missionRepliesDeferred = sentReplies.deferred;
+		      stats.missionRepliesFailed = sentReplies.failed;
+      } else {
+        stats.missionRepliesDeferred = (stats.missionRepliesDeferred as number) + (coreBacklog > 0 ? coreBacklog : 0);
+      }
 
 		    if (!dryRun) {
 		      try {
@@ -1093,23 +1158,36 @@ serve(async (req) => {
 		          supabase,
 		          launches,
 		          enabledPlatforms,
-		          now
+		          now,
+              xMaxChars
 		        });
 		        stats.launchDayMissesChecked = missStats.checked;
 		        stats.launchDayMissesDetected = missStats.missed;
 		        stats.launchDayMissesResolved = missStats.resolved;
+            stats.launchDayMissesRecoveryQueued = missStats.recoveryQueued;
 		      } catch (err) {
 		        (stats.errors as Array<any>).push({ step: 'detect_missed_launch_day', error: stringifyError(err) });
 		      }
 		    }
 
-		    await finishIngestionRun(supabase, runId, true, stats);
-		    return jsonResponse({ ok: true, elapsedMs: Date.now() - startedAt, stats });
-		  } catch (err) {
+			    await finishIngestionRun(supabase, runId, true, stats);
+			    return jsonResponse({ ok: true, elapsedMs: Date.now() - startedAt, stats });
+			  } catch (err) {
     const message = stringifyError(err);
     (stats.errors as Array<any>).push({ step: 'fatal', error: message });
-    await finishIngestionRun(supabase, runId, false, stats, message);
-    return jsonResponse({ ok: false, elapsedMs: Date.now() - startedAt, error: message, stats }, 500);
+	    await finishIngestionRun(supabase, runId, false, stats, message);
+	    return jsonResponse({ ok: false, elapsedMs: Date.now() - startedAt, error: message, stats }, 500);
+	  } finally {
+    if (dispatchLockId) {
+      try {
+        await supabase.rpc('release_job_lock', {
+          lock_name_in: SOCIAL_POSTS_DISPATCH_LOCK_NAME,
+          locked_by_in: dispatchLockId
+        });
+      } catch {
+        // lock TTL is the fallback
+      }
+    }
   }
 });
 
@@ -2136,6 +2214,94 @@ async function claimSocialPost(
   });
 }
 
+function hasRuntimeBudgetRemaining(deadlineMs: number) {
+  return Date.now() + RUNTIME_GUARD_MS < deadlineMs;
+}
+
+async function countDueCorePosts(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  { platforms, nowIso }: { platforms: SupportedPlatform[]; nowIso: string }
+) {
+  if (!platforms.length) return 0;
+  const coreTypes = ['launch_day', 'no_launch_day', 'status_change', 'net_change', 'window_change'];
+  const nowMs = Date.parse(nowIso);
+  const backlogFloorIso = Number.isFinite(nowMs)
+    ? new Date(nowMs - 24 * 60 * 60 * 1000).toISOString()
+    : new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const [dueRes, inFlightRes] = await Promise.all([
+    supabase
+      .from('social_posts')
+      .select('id', { count: 'exact', head: true })
+      .in('platform', platforms)
+      .in('post_type', coreTypes)
+      .in('status', ['pending', 'failed'])
+      .lte('scheduled_for', nowIso),
+    supabase
+      .from('social_posts')
+      .select('id', { count: 'exact', head: true })
+      .in('platform', platforms)
+      .in('post_type', coreTypes)
+      .in('status', ['sending', 'async'])
+      .gte('scheduled_for', backlogFloorIso)
+  ]);
+  if (dueRes.error) throw dueRes.error;
+  if (inFlightRes.error) throw inFlightRes.error;
+  return Number(dueRes.count || 0) + Number(inFlightRes.count || 0);
+}
+
+async function claimDueSocialPosts({
+  supabase,
+  lockId,
+  platforms,
+  postTypes,
+  scheduledBeforeIso,
+  scheduledAfterIso,
+  limit,
+  maxAttempts,
+  statuses,
+  sendLockStaleMinutes
+}: {
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  lockId: string;
+  platforms: SupportedPlatform[];
+  postTypes: string[];
+  scheduledBeforeIso: string;
+  scheduledAfterIso?: string | null;
+  limit: number;
+  maxAttempts?: number | null;
+  statuses?: string[];
+  sendLockStaleMinutes: number;
+}) {
+  if (!lockId || !platforms.length || !postTypes.length) return [] as SocialPostRow[];
+  const { data, error } = await supabase.rpc('claim_social_posts_for_send', {
+    p_lock_id: lockId,
+    p_platforms: platforms,
+    p_post_types: postTypes,
+    p_statuses: statuses?.length ? statuses : ['pending', 'failed'],
+    p_scheduled_before: scheduledBeforeIso,
+    p_scheduled_after: scheduledAfterIso || null,
+    p_limit: clampInt(limit, MIN_DISPATCH_CLAIM_BATCH_SIZE, MAX_DISPATCH_CLAIM_BATCH_SIZE),
+    p_max_attempts: maxAttempts != null && Number.isFinite(maxAttempts) ? clampInt(maxAttempts, 1, 1_000_000) : null,
+    p_send_lock_stale_minutes: clampInt(
+      sendLockStaleMinutes,
+      MIN_SOCIAL_POST_SEND_LOCK_STALE_MINUTES,
+      MAX_SOCIAL_POST_SEND_LOCK_STALE_MINUTES
+    )
+  });
+  if (error) throw error;
+  const rows = ((data || []) as SocialPostRow[]).slice();
+  rows.sort((a, b) => {
+    const scheduledDelta = (parseTimestampMs(a.scheduled_for) ?? 0) - (parseTimestampMs(b.scheduled_for) ?? 0);
+    if (scheduledDelta !== 0) return scheduledDelta;
+    const segmentDelta = clampInt(Number(a.thread_segment_index || 1), 1, 100_000) - clampInt(Number(b.thread_segment_index || 1), 1, 100_000);
+    if (segmentDelta !== 0) return segmentDelta;
+    const createdDelta = (parseTimestampMs(a.created_at) ?? 0) - (parseTimestampMs(b.created_at) ?? 0);
+    if (createdDelta !== 0) return createdDelta;
+    return String(a.id || '').localeCompare(String(b.id || ''));
+  });
+  return rows;
+}
+
 async function processLaunchUpdates({
   supabase,
   apiKey,
@@ -2144,7 +2310,6 @@ async function processLaunchUpdates({
   facebookPageId,
   now,
   horizonHours,
-  maxAttempts,
   retryWindowHours,
   updatesMaxPerRun,
   updatesMinGapMinutes,
@@ -2158,7 +2323,11 @@ async function processLaunchUpdates({
   questionsEnabled,
   questionsProbability,
   noRepeatDepth,
-  dryRun
+  dryRun,
+  lockId,
+  claimBatchSize,
+  sendLockStaleMinutes,
+  deadlineMs
 }: {
   supabase: ReturnType<typeof createSupabaseAdminClient>;
   apiKey: string;
@@ -2167,7 +2336,6 @@ async function processLaunchUpdates({
   facebookPageId: string;
   now: Date;
   horizonHours: number;
-  maxAttempts: number;
   retryWindowHours: number;
   updatesMaxPerRun: number;
   updatesMinGapMinutes: number;
@@ -2182,14 +2350,21 @@ async function processLaunchUpdates({
   questionsProbability: number;
   noRepeatDepth: number;
   dryRun: boolean;
+  lockId: string;
+  claimBatchSize: number;
+  sendLockStaleMinutes: number;
+  deadlineMs: number;
 }) {
   const stats = { queued: 0, sent: 0, skipped: 0, deferred: 0, failed: 0 };
+  if (!hasRuntimeBudgetRemaining(deadlineMs)) return stats;
   const sinceIso = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
   const useCursor = Number.isFinite(updatesCursor) && updatesCursor > 0;
+  const relevantUpdateFields = ['status_id', 'status_name', 'status_abbrev', 'net', 'window_start', 'window_end'];
   const updates = await loadLaunchUpdatesBatch(supabase, {
     cursor: useCursor ? updatesCursor : null,
     sinceIso: useCursor ? null : sinceIso,
-    limit: updatesMaxPerRun * 3
+    limit: Math.max(updatesMaxPerRun * 3, claimBatchSize * 2),
+    relevantFields: relevantUpdateFields
   });
 
   if (!updates.length) {
@@ -2321,12 +2496,15 @@ async function processLaunchUpdates({
     uploadPostUser,
     enabledPlatforms,
     facebookPageId,
-    maxAttempts,
     retryWindowHours,
     updatesMaxPerRun,
     updatesMinGapMinutes,
     dryRun,
-    now
+    now,
+    lockId,
+    claimBatchSize,
+    sendLockStaleMinutes,
+    deadlineMs
   });
 
   stats.sent += sendStats.sent;
@@ -2347,11 +2525,13 @@ async function loadLaunchUpdatesBatch(
   {
     cursor,
     sinceIso,
-    limit
+    limit,
+    relevantFields
   }: {
     cursor: number | null;
     sinceIso: string | null;
     limit: number;
+    relevantFields?: string[];
   }
 ) {
   let query = supabase
@@ -2359,6 +2539,9 @@ async function loadLaunchUpdatesBatch(
     .select('id,launch_id,changed_fields,old_values,new_values,detected_at')
     .order('id', { ascending: true })
     .limit(limit);
+  if (relevantFields?.length) {
+    query = query.overlaps('changed_fields', relevantFields);
+  }
   if (cursor != null && cursor > 0) {
     query = query.gt('id', cursor);
   } else if (sinceIso) {
@@ -2525,58 +2708,33 @@ async function processUpdateQueue({
   uploadPostUser,
   enabledPlatforms,
   facebookPageId,
-  maxAttempts,
   retryWindowHours,
   updatesMaxPerRun,
   updatesMinGapMinutes,
   dryRun,
-  now
+  now,
+  lockId,
+  claimBatchSize,
+  sendLockStaleMinutes,
+  deadlineMs
 }: {
   supabase: ReturnType<typeof createSupabaseAdminClient>;
   apiKey: string;
   uploadPostUser: string;
   enabledPlatforms: SupportedPlatform[];
   facebookPageId: string;
-  maxAttempts: number;
   retryWindowHours: number;
   updatesMaxPerRun: number;
   updatesMinGapMinutes: number;
   dryRun: boolean;
   now: Date;
+  lockId: string;
+  claimBatchSize: number;
+  sendLockStaleMinutes: number;
+  deadlineMs: number;
 }) {
   const cutoffIso = new Date(now.getTime() - retryWindowHours * 60 * 60 * 1000).toISOString();
-  const { data, error } = await supabase
-    .from('social_posts')
-    .select(
-      'id,launch_id,platform,post_type,status,post_text,thread_segment_index,reply_to_social_post_id,request_id,external_id,attempts,scheduled_for,posted_at,created_at'
-    )
-    .in('status', ['pending', 'failed'])
-    .in('platform', enabledPlatforms)
-    .in('post_type', ['status_change', 'net_change', 'window_change'])
-    .lt('attempts', maxAttempts)
-    .gte('scheduled_for', cutoffIso)
-    .order('scheduled_for', { ascending: true })
-    .order('thread_segment_index', { ascending: true })
-    .order('created_at', { ascending: true })
-    .limit(updatesMaxPerRun);
-  if (error) throw error;
-
-  const rows = (data || []) as SocialPostRow[];
-  if (!rows.length) return { sent: 0, skipped: 0, deferred: 0, failed: 0 };
-
-  const launchIds = [...new Set(rows.map((row) => row.launch_id))];
-  const launches = await loadLaunchesByIds(supabase, launchIds);
-  const launchById = new Map(launches.map((launch) => [launch.id, launch]));
-  const basePostMsByLaunchId = new Map<string, number | null>();
-  const rootPosts = await loadRootPosts(supabase, launchIds, enabledPlatforms);
-  const rootByLaunchPlatform = buildLatestSentRootByLaunchPlatform(rootPosts);
-  const launchDayPosts = await loadLaunchDayPosts(supabase, launchIds, enabledPlatforms);
-  const launchDayBaseMsByLaunchId = buildLaunchDayBaseMsByLaunchId(launchDayPosts);
-  const lastSentByLaunchPlatform = await loadLastUpdateSent(supabase, launchIds, enabledPlatforms);
-  const parentPostIds = [...new Set(rows.map((row) => row.reply_to_social_post_id).filter((id): id is string => Boolean(id)))];
-  const parentPosts = await loadSocialPostsByIds(supabase, parentPostIds);
-  const parentPostById = new Map(parentPosts.map((post) => [post.id, post]));
-
+  const perClaimLimit = Math.max(updatesMaxPerRun, claimBatchSize);
   let sent = 0;
   let skipped = 0;
   let deferred = 0;
@@ -2584,160 +2742,194 @@ async function processUpdateQueue({
   let missingRootSkipped = 0;
   const missingRootSamples: Array<{ id: string; launch_id: string; platform: string; scheduled_for: string | null }> = [];
 
-  for (const row of rows) {
-    const platform = row.platform as SupportedPlatform;
-    if (!row.post_text) {
-      await markPostFailed(supabase, row.id, 'missing_post_text');
-      failed += 1;
-      continue;
-    }
-    if (dryRun) {
-      await markPostSkipped(supabase, row.id, 'dry_run');
-      skipped += 1;
-      continue;
-    }
+  while (hasRuntimeBudgetRemaining(deadlineMs)) {
+    const rows = await claimDueSocialPosts({
+      supabase,
+      lockId,
+      platforms: enabledPlatforms,
+      postTypes: ['status_change', 'net_change', 'window_change'],
+      statuses: ['pending', 'failed'],
+      scheduledBeforeIso: new Date().toISOString(),
+      scheduledAfterIso: cutoffIso,
+      limit: perClaimLimit,
+      maxAttempts: null,
+      sendLockStaleMinutes
+    });
+    if (!rows.length) break;
 
-    const launch = launchById.get(row.launch_id);
-    if (launch) {
-      const tz = resolveTimeZone(launch.pad_timezone);
-      if (!basePostMsByLaunchId.has(launch.id)) {
-        const computedBasePostMs = resolveBaseLaunchPostMs(launch, tz);
-        const launchDayBasePostMs = launchDayBaseMsByLaunchId.get(launch.id) ?? null;
-        basePostMsByLaunchId.set(launch.id, minFiniteNumber(computedBasePostMs, launchDayBasePostMs));
+    const launchIds = [...new Set(rows.map((row) => row.launch_id))];
+    const launches = await loadLaunchesByIds(supabase, launchIds);
+    const launchById = new Map(launches.map((launch) => [launch.id, launch]));
+    const basePostMsByLaunchId = new Map<string, number | null>();
+    const rootPosts = await loadRootPosts(supabase, launchIds, enabledPlatforms);
+    const rootByLaunchPlatform = buildLatestSentRootByLaunchPlatform(rootPosts);
+    const launchDayPosts = await loadLaunchDayPosts(supabase, launchIds, enabledPlatforms);
+    const launchDayBaseMsByLaunchId = buildLaunchDayBaseMsByLaunchId(launchDayPosts);
+    const lastSentByLaunchPlatform = await loadLastUpdateSent(supabase, launchIds, enabledPlatforms);
+    const parentPostIds = [...new Set(rows.map((row) => row.reply_to_social_post_id).filter((id): id is string => Boolean(id)))];
+    const parentPosts = await loadSocialPostsByIds(supabase, parentPostIds);
+    const parentPostById = new Map(parentPosts.map((post) => [post.id, post]));
+
+    for (const row of rows) {
+      const platform = row.platform as SupportedPlatform;
+      if (!hasRuntimeBudgetRemaining(deadlineMs)) {
+        await markPostDeferred(supabase, row.id, 'runtime_budget_exhausted', { lockId });
+        deferred += 1;
+        continue;
       }
-      const basePostMs = basePostMsByLaunchId.get(launch.id) ?? null;
-      const scheduledMs = row.scheduled_for ? Date.parse(row.scheduled_for) : NaN;
-      if (!Number.isFinite(scheduledMs) || basePostMs == null || !Number.isFinite(basePostMs) || scheduledMs < basePostMs) {
-        await markPostSkipped(supabase, row.id, 'before_base_post');
+      if (!row.post_text) {
+        await markPostFailed(supabase, row.id, 'missing_post_text', { lockId });
+        failed += 1;
+        continue;
+      }
+      if (dryRun) {
+        await markPostSkipped(supabase, row.id, 'dry_run', { lockId });
         skipped += 1;
         continue;
       }
-    } else {
-      await markPostSkipped(supabase, row.id, 'missing_launch');
-      skipped += 1;
-      continue;
-    }
 
-	    const basePostMs = basePostMsByLaunchId.get(row.launch_id) ?? null;
-	    const windowEndExclusiveMs = basePostMs != null ? basePostMs + LAUNCH_DAY_POST_TOTAL_WINDOW_MS : null;
-	    const sendDeadlineMs = windowEndExclusiveMs != null ? windowEndExclusiveMs + LAUNCH_DAY_POST_GRACE_MS : null;
-	    const windowOpen =
-	      basePostMs != null &&
-	      Number.isFinite(basePostMs) &&
-	      sendDeadlineMs != null &&
-	      Number.isFinite(sendDeadlineMs) &&
-	      now.getTime() < sendDeadlineMs;
+      const launch = launchById.get(row.launch_id);
+      if (launch) {
+        const tz = resolveTimeZone(launch.pad_timezone);
+        if (!basePostMsByLaunchId.has(launch.id)) {
+          const computedBasePostMs = resolveBaseLaunchPostMs(launch, tz);
+          const launchDayBasePostMs = launchDayBaseMsByLaunchId.get(launch.id) ?? null;
+          basePostMsByLaunchId.set(launch.id, minFiniteNumber(computedBasePostMs, launchDayBasePostMs));
+        }
+        const basePostMs = basePostMsByLaunchId.get(launch.id) ?? null;
+        const scheduledMs = row.scheduled_for ? Date.parse(row.scheduled_for) : NaN;
+        if (!Number.isFinite(scheduledMs) || basePostMs == null || !Number.isFinite(basePostMs) || scheduledMs < basePostMs) {
+          await markPostSkipped(supabase, row.id, 'before_base_post', { lockId });
+          skipped += 1;
+          continue;
+        }
+      } else {
+        await markPostSkipped(supabase, row.id, 'missing_launch', { lockId });
+        skipped += 1;
+        continue;
+      }
 
-    const segmentIndex = clampInt(Number(row.thread_segment_index || 1), 1, 100_000);
-    const isContinuation = segmentIndex > 1;
-    let replyToId: string | null = null;
+      const basePostMs = basePostMsByLaunchId.get(row.launch_id) ?? null;
+      const windowEndExclusiveMs = basePostMs != null ? basePostMs + LAUNCH_DAY_POST_TOTAL_WINDOW_MS : null;
+      const sendDeadlineMs = windowEndExclusiveMs != null ? windowEndExclusiveMs + LAUNCH_DAY_POST_GRACE_MS : null;
+      const windowOpen =
+        basePostMs != null &&
+        Number.isFinite(basePostMs) &&
+        sendDeadlineMs != null &&
+        Number.isFinite(sendDeadlineMs) &&
+        now.getTime() < sendDeadlineMs;
 
-    if (platform === 'x' && row.reply_to_social_post_id) {
-      const parent = parentPostById.get(row.reply_to_social_post_id);
-      if (!parent) {
-        await markPostDeferred(supabase, row.id, 'missing_parent_segment');
+      const segmentIndex = clampInt(Number(row.thread_segment_index || 1), 1, 100_000);
+      const isContinuation = segmentIndex > 1;
+      let replyToId: string | null = null;
+
+      if (platform === 'x' && row.reply_to_social_post_id) {
+        const parent = parentPostById.get(row.reply_to_social_post_id);
+        if (!parent) {
+          await markPostDeferred(supabase, row.id, 'missing_parent_segment', { lockId });
+          deferred += 1;
+          continue;
+        }
+        const resolvedParentId = resolveReplyToId(parent, platform);
+        if (!resolvedParentId) {
+          await markPostDeferred(supabase, row.id, 'parent_external_id_missing', { lockId });
+          deferred += 1;
+          continue;
+        }
+        replyToId = resolvedParentId;
+      } else {
+        const root = rootByLaunchPlatform.get(`${row.launch_id}:${platform}`);
+        if (!root) {
+          if (windowOpen) {
+            await markPostDeferred(supabase, row.id, 'missing_root_post', { lockId });
+            deferred += 1;
+          } else {
+            await markPostSkipped(supabase, row.id, 'missing_root_post', { lockId });
+            skipped += 1;
+            missingRootSkipped += 1;
+            if (missingRootSamples.length < 5) {
+              missingRootSamples.push({ id: row.id, launch_id: row.launch_id, platform, scheduled_for: row.scheduled_for ?? null });
+            }
+          }
+          continue;
+        }
+        const resolvedRootId = platform === 'x' ? resolveReplyToId(root, platform) : null;
+        if (platform === 'x' && !resolvedRootId) {
+          if (windowOpen) {
+            await markPostDeferred(supabase, row.id, 'missing_root_post', { lockId });
+            deferred += 1;
+          } else {
+            await markPostSkipped(supabase, row.id, 'missing_root_post', { lockId });
+            skipped += 1;
+            missingRootSkipped += 1;
+            if (missingRootSamples.length < 5) {
+              missingRootSamples.push({ id: row.id, launch_id: row.launch_id, platform, scheduled_for: row.scheduled_for ?? null });
+            }
+          }
+          continue;
+        }
+        replyToId = resolvedRootId;
+      }
+
+      const lastSentAt = lastSentByLaunchPlatform.get(`${row.launch_id}:${platform}`);
+      if (!isContinuation && updatesMinGapMinutes > 0 && lastSentAt) {
+        const lastMs = Date.parse(lastSentAt);
+        if (Number.isFinite(lastMs) && now.getTime() - lastMs < updatesMinGapMinutes * 60 * 1000) {
+          await markPostDeferred(supabase, row.id, 'min_gap', { lockId });
+          deferred += 1;
+          continue;
+        }
+      }
+
+      const sendResult = await sendUploadPost({
+        apiKey,
+        user: uploadPostUser,
+        platform,
+        facebookPageId,
+        text: row.post_text,
+        replyToId: replyToId || undefined
+      });
+
+      if (sendResult.status === 'async') {
+        await markPostAsync(supabase, row.id, sendResult.requestId, { lockId });
         deferred += 1;
         continue;
       }
-      const resolvedParentId = resolveReplyToId(parent, platform);
-      if (!resolvedParentId) {
-        await markPostDeferred(supabase, row.id, 'parent_external_id_missing');
-        deferred += 1;
-        continue;
-      }
-      replyToId = resolvedParentId;
-    } else {
-	    const root = rootByLaunchPlatform.get(`${row.launch_id}:${platform}`);
-	    if (!root) {
-	      if (windowOpen) {
-	        await markPostDeferred(supabase, row.id, 'missing_root_post');
-	        deferred += 1;
-	      } else {
-	        await markPostSkipped(supabase, row.id, 'missing_root_post');
-	        skipped += 1;
-	        missingRootSkipped += 1;
-	        if (missingRootSamples.length < 5) {
-	          missingRootSamples.push({ id: row.id, launch_id: row.launch_id, platform, scheduled_for: row.scheduled_for ?? null });
-	        }
-	      }
-	      continue;
-	    }
-      const resolvedRootId = platform === 'x' ? resolveReplyToId(root, platform) : null;
-	    if (platform === 'x' && !resolvedRootId) {
-	      if (windowOpen) {
-	        await markPostDeferred(supabase, row.id, 'missing_root_post');
-	        deferred += 1;
-	      } else {
-	        await markPostSkipped(supabase, row.id, 'missing_root_post');
-	        skipped += 1;
-	        missingRootSkipped += 1;
-	        if (missingRootSamples.length < 5) {
-	          missingRootSamples.push({ id: row.id, launch_id: row.launch_id, platform, scheduled_for: row.scheduled_for ?? null });
-	        }
-	      }
-	      continue;
-	    }
-      replyToId = resolvedRootId;
-    }
-
-    const lastSentAt = lastSentByLaunchPlatform.get(`${row.launch_id}:${platform}`);
-    if (!isContinuation && updatesMinGapMinutes > 0 && lastSentAt) {
-      const lastMs = Date.parse(lastSentAt);
-      if (Number.isFinite(lastMs) && now.getTime() - lastMs < updatesMinGapMinutes * 60 * 1000) {
-        await markPostDeferred(supabase, row.id, 'min_gap');
-        deferred += 1;
-        continue;
-      }
-    }
-
-	    const sendResult = await sendUploadPost({
-	      apiKey,
-	      user: uploadPostUser,
-	      platform,
-	      facebookPageId,
-	      text: row.post_text,
-	      replyToId: replyToId || undefined
-	    });
-
-	    if (sendResult.status === 'async') {
-	      await markPostAsync(supabase, row.id, sendResult.requestId);
-	      deferred += 1;
-	      continue;
-	    }
-	    if (sendResult.status === 'success') {
-	      await markPostSent(supabase, row.id, sendResult.externalId, sendResult.results);
+      if (sendResult.status === 'success') {
+        await markPostSent(supabase, row.id, sendResult.externalId, sendResult.results, { lockId });
         parentPostById.set(row.id, {
           ...row,
           status: 'sent',
           external_id: sendResult.externalId,
           platform_results: sendResult.results || null
         });
-	      await resolveOpsAlert(supabase, 'social_posts_uploadpost_quota_exhausted');
-	      sent += 1;
-	      continue;
-	    }
-	    const errorMessage = sendResult.errorMessage || 'upload_failed';
-	    if (isUploadPostQuotaError(errorMessage)) {
-	      await upsertOpsAlert(supabase, {
-	        key: 'social_posts_uploadpost_quota_exhausted',
-	        severity: 'critical',
-	        message: 'UploadPost quota exhausted; social posts cannot be published.',
-	        details: {
-	          platform,
-	          post_type: row.post_type,
-	          launch_id: row.launch_id,
-	          social_post_id: row.id,
-	          scheduled_for: row.scheduled_for,
-	          attempts: row.attempts ?? 0,
-	          remaining_uploads: extractUploadPostRemainingUploads(errorMessage),
-	          error: errorMessage
-	        }
-	      });
-	    }
+        await resolveOpsAlert(supabase, 'social_posts_uploadpost_quota_exhausted');
+        sent += 1;
+        continue;
+      }
+      const errorMessage = sendResult.errorMessage || 'upload_failed';
+      if (isUploadPostQuotaError(errorMessage)) {
+        await upsertOpsAlert(supabase, {
+          key: 'social_posts_uploadpost_quota_exhausted',
+          severity: 'critical',
+          message: 'UploadPost quota exhausted; social posts cannot be published.',
+          details: {
+            platform,
+            post_type: row.post_type,
+            launch_id: row.launch_id,
+            social_post_id: row.id,
+            scheduled_for: row.scheduled_for,
+            attempts: row.attempts ?? 0,
+            remaining_uploads: extractUploadPostRemainingUploads(errorMessage),
+            error: errorMessage
+          }
+        });
+      }
 
-	    await markPostFailed(supabase, row.id, errorMessage);
-	    failed += 1;
-	  }
+      await markPostFailed(supabase, row.id, errorMessage, { lockId });
+      failed += 1;
+    }
+  }
 
 	  if (missingRootSkipped > 0) {
 	    await upsertOpsAlert(supabase, {
@@ -2805,24 +2997,28 @@ async function detectMissedLaunchDayPosts({
   supabase,
   launches,
   enabledPlatforms,
-  now
+  now,
+  xMaxChars
 }: {
   supabase: ReturnType<typeof createSupabaseAdminClient>;
   launches: LaunchRow[];
   enabledPlatforms: SupportedPlatform[];
   now: Date;
-}): Promise<{ checked: number; missed: number; resolved: number }> {
+  xMaxChars: number;
+}): Promise<{ checked: number; missed: number; resolved: number; recoveryQueued: number }> {
   const nowMs = now.getTime();
   const launchIds = [...new Set((launches || []).map((launch) => launch.id).filter(Boolean))];
-  if (!launchIds.length || !enabledPlatforms.length) return { checked: 0, missed: 0, resolved: 0 };
+  if (!launchIds.length || !enabledPlatforms.length) return { checked: 0, missed: 0, resolved: 0, recoveryQueued: 0 };
 
   const launchDayPosts = await loadLaunchDayPosts(supabase, launchIds, enabledPlatforms);
+  const weatherRows = await loadWeatherRows(supabase, launchIds);
+  const weatherByLaunch = groupWeatherByLaunch(weatherRows);
   const okKeys = new Set<string>();
   for (const row of launchDayPosts) {
     const baseDay = resolveLaunchDayBaseDayFromRow(row);
     if (!baseDay) continue;
     const status = String(row.status || '').trim().toLowerCase();
-    if (status === 'sent' || status === 'async') {
+    if (status === 'sent' || status === 'async' || status === 'sending') {
       okKeys.add(`${row.launch_id}:${row.platform}:${baseDay}`);
     }
   }
@@ -2830,6 +3026,7 @@ async function detectMissedLaunchDayPosts({
   let checked = 0;
   let missed = 0;
   let resolved = 0;
+  let recoveryQueued = 0;
 
   for (const launch of launches) {
     if (!launch?.id) continue;
@@ -2860,10 +3057,32 @@ async function detectMissedLaunchDayPosts({
     const missedKey = buildLaunchDayMissedAlertKey({ launchId: launch.id, baseDay });
     if (missingPlatforms.length) {
       missed += 1;
+      const recoveryQueuedPlatforms: SupportedPlatform[] = [];
+      const unrecoveredPlatforms: SupportedPlatform[] = [];
+      for (const platform of missingPlatforms) {
+        const recovered = await ensureLateLaunchDayRecoveryPost({
+          supabase,
+          launch,
+          platform,
+          baseDay,
+          now,
+          xMaxChars,
+          weatherRows: weatherByLaunch.get(launch.id) || []
+        });
+        if (recovered) {
+          recoveryQueued += 1;
+          recoveryQueuedPlatforms.push(platform);
+        } else {
+          unrecoveredPlatforms.push(platform);
+        }
+      }
+
       await upsertOpsAlert(supabase, {
         key: missedKey,
-        severity: 'critical',
-        message: `Launch-day post missed for ${launch.mission_name || launch.name || launch.id}.`,
+        severity: unrecoveredPlatforms.length ? 'critical' : 'warning',
+        message: unrecoveredPlatforms.length
+          ? `Launch-day post missed for ${launch.mission_name || launch.name || launch.id}.`
+          : `Launch-day post missed window but recovery queued for ${launch.mission_name || launch.name || launch.id}.`,
         details: {
           launch_id: launch.id,
           mission: (launch.mission_name || launch.name || '').trim() || null,
@@ -2878,7 +3097,9 @@ async function detectMissedLaunchDayPosts({
 	          base_post_at: new Date(basePostMs).toISOString(),
 	          window_end_at: new Date(windowEndExclusiveMs).toISOString(),
           alert_after_at: new Date(alertAfterMs).toISOString(),
-          missing_platforms: missingPlatforms
+          missing_platforms: missingPlatforms,
+          recovery_queued_platforms: recoveryQueuedPlatforms,
+          unrecovered_platforms: unrecoveredPlatforms
         }
       });
     } else {
@@ -2887,7 +3108,91 @@ async function detectMissedLaunchDayPosts({
     }
   }
 
-  return { checked, missed, resolved };
+  return { checked, missed, resolved, recoveryQueued };
+}
+
+async function ensureLateLaunchDayRecoveryPost({
+  supabase,
+  launch,
+  platform,
+  baseDay,
+  now,
+  xMaxChars,
+  weatherRows
+}: {
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  launch: LaunchRow;
+  platform: SupportedPlatform;
+  baseDay: string;
+  now: Date;
+  xMaxChars: number;
+  weatherRows: WeatherRow[];
+}) {
+  const nowIso = now.toISOString();
+  const { data: existingRows, error: existingError } = await supabase
+    .from('social_posts')
+    .select('id,status,scheduled_for')
+    .eq('post_type', 'launch_day')
+    .eq('launch_id', launch.id)
+    .eq('platform', platform)
+    .eq('base_day', baseDay)
+    .eq('thread_segment_index', 1)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (existingError) throw existingError;
+
+  const existing = ((existingRows || [])[0] as { id: string; status: string | null; scheduled_for: string | null } | undefined) || null;
+  if (existing?.id) {
+    const existingStatus = String(existing.status || '').trim().toLowerCase();
+    if (existingStatus === 'sent' || existingStatus === 'async' || existingStatus === 'sending' || existingStatus === 'pending') {
+      return true;
+    }
+    const { error: requeueError } = await supabase
+      .from('social_posts')
+      .update({
+        status: 'pending',
+        scheduled_for: nowIso,
+        last_error: truncateError('late_recovery_requeue'),
+        send_lock_id: null,
+        send_locked_at: null
+      })
+      .eq('id', existing.id);
+    if (requeueError) {
+      console.warn('social_posts late recovery requeue warning', requeueError.message);
+      return false;
+    }
+    return true;
+  }
+
+  const tz = resolveTimeZone(launch.pad_timezone);
+  const context = buildPostContext({
+    launch,
+    tz,
+    weatherRows
+  });
+  const templateSet = context.whenKey === 'tomorrow' ? MAIN_TEMPLATES_TOMORROW : MAIN_TEMPLATES_TODAY;
+  const templateIndex = 0;
+  const rendered = renderTemplate(templateSet[templateIndex] || MAIN_TEMPLATES_TODAY[0] || '{mission}', context.tokens, MAX_TEMPLATE_RENDER_LEN);
+  const postText = normalizeLaunchDayMainTextForPlatform(stripLaunchDayLinkLine(rendered), platform);
+
+  const insertResult = await claimSocialPost(
+    supabase,
+    {
+      launch_id: launch.id,
+      platform,
+      post_type: 'launch_day',
+      base_day: baseDay,
+      status: 'pending',
+      template_id: String(templateIndex),
+      reply_template_id: null,
+      post_text: postText,
+      reply_text: null,
+      scheduled_for: nowIso
+    },
+    xMaxChars
+  );
+
+  return insertResult.ids.length > 0;
 }
 
 async function loadRecentSocialPostMeta(
@@ -3256,7 +3561,11 @@ async function processThreadReplyQueue({
   retryWindowHours,
   maxPerRun,
   dryRun,
-  now
+  now,
+  lockId,
+  claimBatchSize,
+  sendLockStaleMinutes,
+  deadlineMs
 }: {
   supabase: ReturnType<typeof createSupabaseAdminClient>;
   apiKey: string;
@@ -3268,150 +3577,155 @@ async function processThreadReplyQueue({
   maxPerRun: number;
   dryRun: boolean;
   now: Date;
+  lockId: string;
+  claimBatchSize: number;
+  sendLockStaleMinutes: number;
+  deadlineMs: number;
 }) {
   const cutoffHours = Math.max(retryWindowHours, 24);
   const cutoffIso = new Date(now.getTime() - cutoffHours * 60 * 60 * 1000).toISOString();
-  const nowIso = now.toISOString();
-  const { data, error } = await supabase
-    .from('social_posts')
-    .select(
-      'id,launch_id,platform,post_type,base_day,status,post_text,thread_segment_index,reply_to_social_post_id,request_id,external_id,attempts,scheduled_for,posted_at,created_at'
-    )
-    .in('status', ['pending', 'failed'])
-    .in('platform', enabledPlatforms)
-    .in('post_type', ['mission_drop', 'mission_brief'])
-    .lt('attempts', maxAttempts)
-    .gte('scheduled_for', cutoffIso)
-    .lte('scheduled_for', nowIso)
-    .order('scheduled_for', { ascending: true })
-    .order('thread_segment_index', { ascending: true })
-    .order('created_at', { ascending: true })
-    .limit(maxPerRun);
-  if (error) throw error;
-
-  const rows = (data || []) as SocialPostRow[];
-  if (!rows.length) return { sent: 0, skipped: 0, deferred: 0, failed: 0 };
-
-  const launchIds = [...new Set(rows.map((row) => row.launch_id))];
-  const rootPosts = await loadRootPosts(supabase, launchIds, enabledPlatforms);
-  const rootByLaunchPlatform = buildLatestSentRootByLaunchPlatform(rootPosts);
-  const parentPostIds = [...new Set(rows.map((row) => row.reply_to_social_post_id).filter((id): id is string => Boolean(id)))];
-  const parentPosts = await loadSocialPostsByIds(supabase, parentPostIds);
-  const parentPostById = new Map(parentPosts.map((post) => [post.id, post]));
-  const rootByLaunchPlatformBaseDay = new Map<string, SocialPostRow>();
-  for (const root of rootPosts) {
-    const baseDay = resolveLaunchDayBaseDayFromRow(root);
-    if (!baseDay) continue;
-    const key = `${root.launch_id}:${root.platform}:${baseDay}`;
-    const existing = rootByLaunchPlatformBaseDay.get(key);
-    if (!existing) {
-      rootByLaunchPlatformBaseDay.set(key, root);
-      continue;
-    }
-    const existingMs = parseTimestampMs(existing.posted_at) ?? parseTimestampMs(existing.scheduled_for) ?? -1;
-    const candidateMs = parseTimestampMs(root.posted_at) ?? parseTimestampMs(root.scheduled_for) ?? -1;
-    if (candidateMs > existingMs) rootByLaunchPlatformBaseDay.set(key, root);
-  }
-
+  const perClaimLimit = Math.max(maxPerRun, claimBatchSize);
   let sent = 0;
   let skipped = 0;
   let deferred = 0;
   let failed = 0;
 
-  for (const row of rows) {
-    const platform = row.platform as SupportedPlatform;
-    if (!row.post_text) {
-      await markPostFailed(supabase, row.id, 'missing_post_text');
-      failed += 1;
-      continue;
-    }
-    if (dryRun) {
-      await markPostSkipped(supabase, row.id, 'dry_run');
-      skipped += 1;
-      continue;
+  while (hasRuntimeBudgetRemaining(deadlineMs)) {
+    const rows = await claimDueSocialPosts({
+      supabase,
+      lockId,
+      platforms: enabledPlatforms,
+      postTypes: ['mission_drop', 'mission_brief'],
+      statuses: ['pending', 'failed'],
+      scheduledBeforeIso: new Date().toISOString(),
+      scheduledAfterIso: cutoffIso,
+      limit: perClaimLimit,
+      maxAttempts,
+      sendLockStaleMinutes
+    });
+    if (!rows.length) break;
+
+    const launchIds = [...new Set(rows.map((row) => row.launch_id))];
+    const rootPosts = await loadRootPosts(supabase, launchIds, enabledPlatforms);
+    const rootByLaunchPlatform = buildLatestSentRootByLaunchPlatform(rootPosts);
+    const parentPostIds = [...new Set(rows.map((row) => row.reply_to_social_post_id).filter((id): id is string => Boolean(id)))];
+    const parentPosts = await loadSocialPostsByIds(supabase, parentPostIds);
+    const parentPostById = new Map(parentPosts.map((post) => [post.id, post]));
+    const rootByLaunchPlatformBaseDay = new Map<string, SocialPostRow>();
+    for (const root of rootPosts) {
+      const baseDay = resolveLaunchDayBaseDayFromRow(root);
+      if (!baseDay) continue;
+      const key = `${root.launch_id}:${root.platform}:${baseDay}`;
+      const existing = rootByLaunchPlatformBaseDay.get(key);
+      if (!existing) {
+        rootByLaunchPlatformBaseDay.set(key, root);
+        continue;
+      }
+      const existingMs = parseTimestampMs(existing.posted_at) ?? parseTimestampMs(existing.scheduled_for) ?? -1;
+      const candidateMs = parseTimestampMs(root.posted_at) ?? parseTimestampMs(root.scheduled_for) ?? -1;
+      if (candidateMs > existingMs) rootByLaunchPlatformBaseDay.set(key, root);
     }
 
-    let replyToId: string | null = null;
-    if (platform === 'x' && row.reply_to_social_post_id) {
-      const parent = parentPostById.get(row.reply_to_social_post_id);
-      if (!parent) {
-        await markPostDeferred(supabase, row.id, 'missing_parent_segment');
+    for (const row of rows) {
+      const platform = row.platform as SupportedPlatform;
+      if (!hasRuntimeBudgetRemaining(deadlineMs)) {
+        await markPostDeferred(supabase, row.id, 'runtime_budget_exhausted', { lockId });
         deferred += 1;
         continue;
       }
-      const resolvedParentId = resolveReplyToId(parent, platform);
-      if (!resolvedParentId) {
-        await markPostDeferred(supabase, row.id, 'parent_external_id_missing');
-        deferred += 1;
+      if (!row.post_text) {
+        await markPostFailed(supabase, row.id, 'missing_post_text', { lockId });
+        failed += 1;
         continue;
       }
-      replyToId = resolvedParentId;
-    } else {
-	    const baseDay = resolveLaunchDayBaseDayFromRow(row);
-	    const root =
-	      (baseDay ? rootByLaunchPlatformBaseDay.get(`${row.launch_id}:${platform}:${baseDay}`) : null) ||
-	      rootByLaunchPlatform.get(`${row.launch_id}:${platform}`);
-	    if (!root) {
-	      await markPostDeferred(supabase, row.id, 'missing_root_post');
-	      deferred += 1;
-	      continue;
-	    }
-      const resolvedRootId = platform === 'x' ? resolveReplyToId(root, platform) : null;
-	    if (platform === 'x' && !resolvedRootId) {
-	      await markPostDeferred(supabase, row.id, 'missing_root_post');
-	      deferred += 1;
-	      continue;
-	    }
-      replyToId = resolvedRootId;
-    }
+      if (dryRun) {
+        await markPostSkipped(supabase, row.id, 'dry_run', { lockId });
+        skipped += 1;
+        continue;
+      }
 
-	    const sendResult = await sendUploadPost({
-	      apiKey,
-	      user: uploadPostUser,
-	      platform,
-	      facebookPageId,
-	      text: row.post_text,
-	      replyToId: replyToId || undefined
-	    });
-
-    if (sendResult.status === 'async') {
-      await markPostAsync(supabase, row.id, sendResult.requestId);
-      deferred += 1;
-      continue;
-    }
-    if (sendResult.status === 'success') {
-      await markPostSent(supabase, row.id, sendResult.externalId, sendResult.results);
-      parentPostById.set(row.id, {
-        ...row,
-        status: 'sent',
-        external_id: sendResult.externalId,
-        platform_results: sendResult.results || null
-      });
-      await resolveOpsAlert(supabase, 'social_posts_uploadpost_quota_exhausted');
-      sent += 1;
-      continue;
-    }
-    const errorMessage = sendResult.errorMessage || 'upload_failed';
-    if (isUploadPostQuotaError(errorMessage)) {
-      await upsertOpsAlert(supabase, {
-        key: 'social_posts_uploadpost_quota_exhausted',
-        severity: 'critical',
-        message: 'UploadPost quota exhausted; social posts cannot be published.',
-        details: {
-          platform,
-          post_type: row.post_type,
-          launch_id: row.launch_id,
-          social_post_id: row.id,
-          scheduled_for: row.scheduled_for,
-          attempts: row.attempts ?? 0,
-          remaining_uploads: extractUploadPostRemainingUploads(errorMessage),
-          error: errorMessage
+      let replyToId: string | null = null;
+      if (platform === 'x' && row.reply_to_social_post_id) {
+        const parent = parentPostById.get(row.reply_to_social_post_id);
+        if (!parent) {
+          await markPostDeferred(supabase, row.id, 'missing_parent_segment', { lockId });
+          deferred += 1;
+          continue;
         }
-      });
-    }
+        const resolvedParentId = resolveReplyToId(parent, platform);
+        if (!resolvedParentId) {
+          await markPostDeferred(supabase, row.id, 'parent_external_id_missing', { lockId });
+          deferred += 1;
+          continue;
+        }
+        replyToId = resolvedParentId;
+      } else {
+        const baseDay = resolveLaunchDayBaseDayFromRow(row);
+        const root =
+          (baseDay ? rootByLaunchPlatformBaseDay.get(`${row.launch_id}:${platform}:${baseDay}`) : null) ||
+          rootByLaunchPlatform.get(`${row.launch_id}:${platform}`);
+        if (!root) {
+          await markPostDeferred(supabase, row.id, 'missing_root_post', { lockId });
+          deferred += 1;
+          continue;
+        }
+        const resolvedRootId = platform === 'x' ? resolveReplyToId(root, platform) : null;
+        if (platform === 'x' && !resolvedRootId) {
+          await markPostDeferred(supabase, row.id, 'missing_root_post', { lockId });
+          deferred += 1;
+          continue;
+        }
+        replyToId = resolvedRootId;
+      }
 
-    await markPostFailed(supabase, row.id, errorMessage);
-    failed += 1;
+      const sendResult = await sendUploadPost({
+        apiKey,
+        user: uploadPostUser,
+        platform,
+        facebookPageId,
+        text: row.post_text,
+        replyToId: replyToId || undefined
+      });
+
+      if (sendResult.status === 'async') {
+        await markPostAsync(supabase, row.id, sendResult.requestId, { lockId });
+        deferred += 1;
+        continue;
+      }
+      if (sendResult.status === 'success') {
+        await markPostSent(supabase, row.id, sendResult.externalId, sendResult.results, { lockId });
+        parentPostById.set(row.id, {
+          ...row,
+          status: 'sent',
+          external_id: sendResult.externalId,
+          platform_results: sendResult.results || null
+        });
+        await resolveOpsAlert(supabase, 'social_posts_uploadpost_quota_exhausted');
+        sent += 1;
+        continue;
+      }
+      const errorMessage = sendResult.errorMessage || 'upload_failed';
+      if (isUploadPostQuotaError(errorMessage)) {
+        await upsertOpsAlert(supabase, {
+          key: 'social_posts_uploadpost_quota_exhausted',
+          severity: 'critical',
+          message: 'UploadPost quota exhausted; social posts cannot be published.',
+          details: {
+            platform,
+            post_type: row.post_type,
+            launch_id: row.launch_id,
+            social_post_id: row.id,
+            scheduled_for: row.scheduled_for,
+            attempts: row.attempts ?? 0,
+            remaining_uploads: extractUploadPostRemainingUploads(errorMessage),
+            error: errorMessage
+          }
+        });
+      }
+
+      await markPostFailed(supabase, row.id, errorMessage, { lockId });
+      failed += 1;
+    }
   }
 
   return { sent, skipped, deferred, failed };
@@ -3611,10 +3925,13 @@ async function processRetryPosts({
   siteUrl,
   launchDayImagesEnabled,
   launchDayImageTimeoutMs,
-  maxAttempts,
-  cutoffIso,
+  retryWindowHours,
   dryRun,
-  now
+  now,
+  lockId,
+  claimBatchSize,
+  sendLockStaleMinutes,
+  deadlineMs
 }: {
   supabase: ReturnType<typeof createSupabaseAdminClient>;
   apiKey: string;
@@ -3624,30 +3941,14 @@ async function processRetryPosts({
   siteUrl: string;
   launchDayImagesEnabled: boolean;
   launchDayImageTimeoutMs: number;
-  maxAttempts: number;
-  cutoffIso: string;
+  retryWindowHours: number;
   dryRun: boolean;
   now: Date;
+  lockId: string;
+  claimBatchSize: number;
+  sendLockStaleMinutes: number;
+  deadlineMs: number;
 }) {
-  const nowIso = now.toISOString();
-  const retryAttemptsLimit = Math.max(maxAttempts, LAUNCH_DAY_MAX_ATTEMPTS);
-  const { data, error } = await supabase
-    .from('social_posts')
-    .select(
-      'id,launch_id,platform,post_type,status,post_text,reply_text,thread_segment_index,reply_to_social_post_id,request_id,external_id,attempts,scheduled_for,posted_at,created_at'
-    )
-    .in('status', ['pending', 'failed'])
-    .in('platform', enabledPlatforms)
-    .in('post_type', ['launch_day', 'no_launch_day'])
-    .lt('attempts', retryAttemptsLimit)
-    .gte('scheduled_for', cutoffIso)
-    .lte('scheduled_for', nowIso)
-    .order('scheduled_for', { ascending: true })
-    .order('thread_segment_index', { ascending: true })
-    .order('created_at', { ascending: true });
-  if (error) throw error;
-
-  const rows = (data || []) as SocialPostRow[];
   let attempted = 0;
   let posted = 0;
   let failed = 0;
@@ -3655,221 +3956,243 @@ async function processRetryPosts({
   let deferred = 0;
   const ogImageCache = new Map<string, Promise<LaunchOgImage | null>>();
   const nowMs = now.getTime();
-  const parentPostIds = [...new Set(rows.map((row) => row.reply_to_social_post_id).filter((id): id is string => Boolean(id)))];
-  const parentPosts = await loadSocialPostsByIds(supabase, parentPostIds);
-  const parentPostById = new Map(parentPosts.map((post) => [post.id, post]));
+  while (hasRuntimeBudgetRemaining(deadlineMs)) {
+    const rows = await claimDueSocialPosts({
+      supabase,
+      lockId,
+      platforms: enabledPlatforms,
+      postTypes: ['launch_day', 'no_launch_day'],
+      statuses: ['pending', 'failed'],
+      scheduledBeforeIso: new Date().toISOString(),
+      scheduledAfterIso: null,
+      limit: claimBatchSize,
+      maxAttempts: null,
+      sendLockStaleMinutes
+    });
+    if (!rows.length) break;
 
-  const launchDayLaunchIds = [
-    ...new Set(rows.filter((row) => row.post_type === 'launch_day').map((row) => row.launch_id).filter(Boolean))
-  ];
-  const launchDayLaunches = launchDayLaunchIds.length ? await loadLaunchesByIds(supabase, launchDayLaunchIds) : [];
-  const launchById = new Map<string, LaunchRow>(launchDayLaunches.map((launch) => [launch.id, launch]));
-  const basePostMsByLaunchId = new Map<string, number | null>();
+    attempted += rows.length;
+    const parentPostIds = [...new Set(rows.map((row) => row.reply_to_social_post_id).filter((id): id is string => Boolean(id)))];
+    const parentPosts = await loadSocialPostsByIds(supabase, parentPostIds);
+    const parentPostById = new Map(parentPosts.map((post) => [post.id, post]));
 
-  const noLaunchDayLaunchIds = [...new Set(rows.filter((row) => row.post_type === 'no_launch_day').map((row) => row.launch_id).filter(Boolean))];
-  const noLaunchDayImageCandidatesByLaunchId = noLaunchDayLaunchIds.length
-    ? await loadLaunchImageCandidatesByIds(supabase, noLaunchDayLaunchIds)
-    : new Map<string, { rocketImageUrl: string | null; launchImageUrl: string | null; thumbnailUrl: string | null }>();
+    const launchDayLaunchIds = [
+      ...new Set(rows.filter((row) => row.post_type === 'launch_day').map((row) => row.launch_id).filter(Boolean))
+    ];
+    const launchDayLaunches = launchDayLaunchIds.length ? await loadLaunchesByIds(supabase, launchDayLaunchIds) : [];
+    const launchById = new Map<string, LaunchRow>(launchDayLaunches.map((launch) => [launch.id, launch]));
+    const basePostMsByLaunchId = new Map<string, number | null>();
 
-  for (const row of rows) {
-    attempted += 1;
-    const platform = row.platform as SupportedPlatform;
-    if (!row.post_text) {
-      await markPostFailed(supabase, row.id, 'missing_post_text');
-      failed += 1;
-      continue;
-    }
-    if (dryRun) {
-      await markPostSkipped(supabase, row.id, 'dry_run');
-      skipped += 1;
-      continue;
-    }
+    const noLaunchDayLaunchIds = [...new Set(rows.filter((row) => row.post_type === 'no_launch_day').map((row) => row.launch_id).filter(Boolean))];
+    const noLaunchDayImageCandidatesByLaunchId = noLaunchDayLaunchIds.length
+      ? await loadLaunchImageCandidatesByIds(supabase, noLaunchDayLaunchIds)
+      : new Map<string, { rocketImageUrl: string | null; launchImageUrl: string | null; thumbnailUrl: string | null }>();
 
-    const isLaunchDay = row.post_type === 'launch_day';
-    const isNoLaunchDay = row.post_type === 'no_launch_day';
-    const segmentIndex = clampInt(Number(row.thread_segment_index || 1), 1, 100_000);
-    const isContinuation = segmentIndex > 1;
-    let postText = row.post_text;
-    let firstComment: string | undefined = undefined;
-    if (isLaunchDay) {
-      const launch = launchById.get(row.launch_id);
-      if (!launch) {
-        await markPostSkipped(supabase, row.id, 'missing_launch');
-        skipped += 1;
-        continue;
-      }
-
-      const tz = resolveTimeZone(launch.pad_timezone);
-      if (!basePostMsByLaunchId.has(launch.id)) {
-        basePostMsByLaunchId.set(launch.id, resolveBaseLaunchPostMs(launch, tz));
-      }
-      const basePostMs = basePostMsByLaunchId.get(launch.id) ?? null;
-      const lastWindowEndExclusiveMs = basePostMs != null ? basePostMs + LAUNCH_DAY_POST_TOTAL_WINDOW_MS : null;
-      const sendDeadlineMs = lastWindowEndExclusiveMs != null ? lastWindowEndExclusiveMs + LAUNCH_DAY_POST_GRACE_MS : null;
-      if (
-        basePostMs == null ||
-        !Number.isFinite(basePostMs) ||
-        lastWindowEndExclusiveMs == null ||
-        !Number.isFinite(lastWindowEndExclusiveMs) ||
-        sendDeadlineMs == null ||
-        !Number.isFinite(sendDeadlineMs)
-      ) {
-        await markPostSkipped(supabase, row.id, 'missing_base_post_ms');
-        skipped += 1;
-        continue;
-      }
-      if (nowMs > sendDeadlineMs) {
-        await markPostSkipped(supabase, row.id, 'launch_day_window_closed');
-        skipped += 1;
-        continue;
-      }
-
-      postText = stripUrlsFromText(postText);
-      postText = stripLaunchDayLinkLine(postText);
-    }
-    let replyToId: string | undefined;
-    if (platform === 'x' && row.reply_to_social_post_id) {
-      const parent = parentPostById.get(row.reply_to_social_post_id);
-      if (!parent) {
-        await markPostDeferred(supabase, row.id, 'missing_parent_segment');
+    for (const row of rows) {
+      const platform = row.platform as SupportedPlatform;
+      if (!hasRuntimeBudgetRemaining(deadlineMs)) {
+        await markPostDeferred(supabase, row.id, 'runtime_budget_exhausted', { lockId });
         deferred += 1;
         continue;
       }
-      const resolvedParentId = resolveReplyToId(parent, platform);
-      if (!resolvedParentId) {
-        await markPostDeferred(supabase, row.id, 'parent_external_id_missing');
-        deferred += 1;
+      if (!row.post_text) {
+        await markPostFailed(supabase, row.id, 'missing_post_text', { lockId });
+        failed += 1;
         continue;
       }
-      replyToId = resolvedParentId;
-    }
+      if (dryRun) {
+        await markPostSkipped(supabase, row.id, 'dry_run', { lockId });
+        skipped += 1;
+        continue;
+      }
 
-    let sendResult:
-      | { status: 'success'; externalId: string | null; results: Record<string, unknown> | null }
-      | { status: 'async'; requestId: string }
-      | { status: 'error'; errorMessage: string }
-      | null = null;
-
-    if ((isLaunchDay || isNoLaunchDay) && launchDayImagesEnabled && !isContinuation) {
-      let cacheKey: string | null = null;
-      let ogImagePromise: Promise<LaunchOgImage | null> | null = null;
-
+      const isLaunchDay = row.post_type === 'launch_day';
+      const isNoLaunchDay = row.post_type === 'no_launch_day';
+      const segmentIndex = clampInt(Number(row.thread_segment_index || 1), 1, 100_000);
+      const isContinuation = segmentIndex > 1;
+      let postText = row.post_text;
+      let firstComment: string | undefined = undefined;
+      let launchNetMs: number | null = null;
       if (isLaunchDay) {
-        cacheKey = buildLaunchOgImageCacheKey({ launchId: row.launch_id, scheduledFor: row.scheduled_for });
-        const cached = ogImageCache.get(cacheKey);
-        ogImagePromise =
-          cached ||
-          (async () => {
-            const ogImage = await fetchLaunchOgImage({
-              siteUrl,
-              launchId: row.launch_id,
-              scheduledFor: row.scheduled_for,
-              timeoutMs: launchDayImageTimeoutMs
-            });
-            return ogImage;
-          })();
-        if (!cached) ogImageCache.set(cacheKey, ogImagePromise);
-      } else if (isNoLaunchDay) {
-        const candidates = noLaunchDayImageCandidatesByLaunchId.get(row.launch_id) || null;
-        const rocketUrl = normalizeRemoteImageUrl(candidates?.rocketImageUrl || null);
-        const launchUrl = normalizeRemoteImageUrl(candidates?.launchImageUrl || null);
-        const thumbUrl = normalizeRemoteImageUrl(candidates?.thumbnailUrl || null);
-        const chosenUrl = rocketUrl || launchUrl || thumbUrl;
-        if (chosenUrl) {
-          cacheKey = `remote__${chosenUrl}`;
+        const launch = launchById.get(row.launch_id);
+        if (!launch) {
+          await markPostSkipped(supabase, row.id, 'missing_launch', { lockId });
+          skipped += 1;
+          continue;
+        }
+
+        launchNetMs = launch.net ? Date.parse(launch.net) : null;
+        const tz = resolveTimeZone(launch.pad_timezone);
+        if (!basePostMsByLaunchId.has(launch.id)) {
+          basePostMsByLaunchId.set(launch.id, resolveBaseLaunchPostMs(launch, tz));
+        }
+        const basePostMs = basePostMsByLaunchId.get(launch.id) ?? null;
+        const retryDeadlineMs = Number.isFinite(launchNetMs)
+          ? (launchNetMs as number) + clampInt(retryWindowHours, 1, 24) * 60 * 60 * 1000
+          : null;
+        const windowEndExclusiveMs = basePostMs != null ? basePostMs + LAUNCH_DAY_POST_TOTAL_WINDOW_MS : null;
+        const sendDeadlineMs = windowEndExclusiveMs != null ? windowEndExclusiveMs + LAUNCH_DAY_POST_GRACE_MS : null;
+        const absoluteDeadlineMs = Math.max(
+          sendDeadlineMs != null && Number.isFinite(sendDeadlineMs) ? sendDeadlineMs : -Infinity,
+          retryDeadlineMs != null && Number.isFinite(retryDeadlineMs) ? retryDeadlineMs : -Infinity
+        );
+        if (basePostMs == null || !Number.isFinite(basePostMs) || !Number.isFinite(absoluteDeadlineMs)) {
+          await markPostSkipped(supabase, row.id, 'missing_base_post_ms', { lockId });
+          skipped += 1;
+          continue;
+        }
+        if (nowMs > absoluteDeadlineMs) {
+          await markPostSkipped(supabase, row.id, 'launch_day_deadline_passed', { lockId });
+          skipped += 1;
+          continue;
+        }
+
+        postText = stripUrlsFromText(postText);
+        postText = stripLaunchDayLinkLine(postText);
+      }
+      let replyToId: string | undefined;
+      if (platform === 'x' && row.reply_to_social_post_id) {
+        const parent = parentPostById.get(row.reply_to_social_post_id);
+        if (!parent) {
+          await markPostDeferred(supabase, row.id, 'missing_parent_segment', { lockId });
+          deferred += 1;
+          continue;
+        }
+        const resolvedParentId = resolveReplyToId(parent, platform);
+        if (!resolvedParentId) {
+          await markPostDeferred(supabase, row.id, 'parent_external_id_missing', { lockId });
+          deferred += 1;
+          continue;
+        }
+        replyToId = resolvedParentId;
+      }
+
+      let sendResult:
+        | { status: 'success'; externalId: string | null; results: Record<string, unknown> | null }
+        | { status: 'async'; requestId: string }
+        | { status: 'error'; errorMessage: string }
+        | null = null;
+
+      if ((isLaunchDay || isNoLaunchDay) && launchDayImagesEnabled && !isContinuation) {
+        let cacheKey: string | null = null;
+        let ogImagePromise: Promise<LaunchOgImage | null> | null = null;
+
+        if (isLaunchDay) {
+          cacheKey = buildLaunchOgImageCacheKey({ launchId: row.launch_id, scheduledFor: row.scheduled_for });
           const cached = ogImageCache.get(cacheKey);
-          const kind = rocketUrl ? 'rocket' : 'launch';
           ogImagePromise =
             cached ||
             (async () => {
-              const img = await fetchRemoteImage({
-                url: chosenUrl,
-                timeoutMs: launchDayImageTimeoutMs,
+              const ogImage = await fetchLaunchOgImage({
+                siteUrl,
                 launchId: row.launch_id,
-                kind
+                scheduledFor: row.scheduled_for,
+                timeoutMs: launchDayImageTimeoutMs
               });
-              return img;
+              return ogImage;
             })();
           if (!cached) ogImageCache.set(cacheKey, ogImagePromise);
+        } else if (isNoLaunchDay) {
+          const candidates = noLaunchDayImageCandidatesByLaunchId.get(row.launch_id) || null;
+          const rocketUrl = normalizeRemoteImageUrl(candidates?.rocketImageUrl || null);
+          const launchUrl = normalizeRemoteImageUrl(candidates?.launchImageUrl || null);
+          const thumbUrl = normalizeRemoteImageUrl(candidates?.thumbnailUrl || null);
+          const chosenUrl = rocketUrl || launchUrl || thumbUrl;
+          if (chosenUrl) {
+            cacheKey = `remote__${chosenUrl}`;
+            const cached = ogImageCache.get(cacheKey);
+            const kind = rocketUrl ? 'rocket' : 'launch';
+            ogImagePromise =
+              cached ||
+              (async () => {
+                const img = await fetchRemoteImage({
+                  url: chosenUrl,
+                  timeoutMs: launchDayImageTimeoutMs,
+                  launchId: row.launch_id,
+                  kind
+                });
+                return img;
+              })();
+            if (!cached) ogImageCache.set(cacheKey, ogImagePromise);
+          }
+        }
+
+        const ogImage = ogImagePromise ? await ogImagePromise : null;
+        if (ogImage) {
+          sendResult = await sendUploadPostWithImage({
+            apiKey,
+            user: uploadPostUser,
+            platform,
+            facebookPageId,
+            text: postText,
+            image: ogImage,
+            firstComment,
+            replyToId
+          });
         }
       }
 
-      const ogImage = ogImagePromise ? await ogImagePromise : null;
-      if (ogImage) {
-        sendResult = await sendUploadPostWithImage({
+      if (!sendResult || sendResult.status === 'error') {
+        sendResult = await sendUploadPost({
           apiKey,
           user: uploadPostUser,
           platform,
           facebookPageId,
           text: postText,
-          image: ogImage,
           firstComment,
           replyToId
         });
       }
-    }
 
-    if (!sendResult || sendResult.status === 'error') {
-      sendResult = await sendUploadPost({
-        apiKey,
-        user: uploadPostUser,
-        platform,
-        facebookPageId,
-        text: postText,
-        firstComment,
-        replyToId
-      });
-    }
+      if (sendResult.status === 'async') {
+        await markPostAsync(supabase, row.id, sendResult.requestId, { lockId });
+        continue;
+      }
+      if (sendResult.status === 'success') {
+        await markPostSent(supabase, row.id, sendResult.externalId, sendResult.results, { lockId });
+        parentPostById.set(row.id, {
+          ...row,
+          status: 'sent',
+          external_id: sendResult.externalId,
+          platform_results: sendResult.results || null
+        });
+        await resolveOpsAlert(supabase, 'social_posts_uploadpost_quota_exhausted');
+        posted += 1;
+        continue;
+      }
+      const errorMessage = sendResult.errorMessage || 'upload_failed';
+      if (isUploadPostQuotaError(errorMessage)) {
+        await upsertOpsAlert(supabase, {
+          key: 'social_posts_uploadpost_quota_exhausted',
+          severity: 'critical',
+          message: 'UploadPost quota exhausted; social posts cannot be published.',
+          details: {
+            platform,
+            post_type: row.post_type,
+            launch_id: row.launch_id,
+            social_post_id: row.id,
+            scheduled_for: row.scheduled_for,
+            attempts: row.attempts ?? 0,
+            remaining_uploads: extractUploadPostRemainingUploads(errorMessage),
+            error: errorMessage
+          }
+        });
+      }
 
-    if (sendResult.status === 'async') {
-      await markPostAsync(supabase, row.id, sendResult.requestId);
-      continue;
-    }
-    if (sendResult.status === 'success') {
-      await markPostSent(supabase, row.id, sendResult.externalId, sendResult.results);
-      parentPostById.set(row.id, {
-        ...row,
-        status: 'sent',
-        external_id: sendResult.externalId,
-        platform_results: sendResult.results || null
-      });
-      await resolveOpsAlert(supabase, 'social_posts_uploadpost_quota_exhausted');
-      posted += 1;
-      continue;
-    }
-    const errorMessage = sendResult.errorMessage || 'upload_failed';
-    if (isUploadPostQuotaError(errorMessage)) {
-      await upsertOpsAlert(supabase, {
-        key: 'social_posts_uploadpost_quota_exhausted',
-        severity: 'critical',
-        message: 'UploadPost quota exhausted; social posts cannot be published.',
-        details: {
-          platform,
-          post_type: row.post_type,
-          launch_id: row.launch_id,
-          social_post_id: row.id,
-          scheduled_for: row.scheduled_for,
-          attempts: row.attempts ?? 0,
-          remaining_uploads: extractUploadPostRemainingUploads(errorMessage),
-          error: errorMessage
-        }
-      });
-    }
-
-    await markPostFailed(supabase, row.id, errorMessage);
-    const nextAttempts = Number(row.attempts || 0) + 1;
-    if (isLaunchDay) {
-      const basePostMs = basePostMsByLaunchId.get(row.launch_id) ?? null;
-      if (nextAttempts < LAUNCH_DAY_MAX_ATTEMPTS && basePostMs != null && Number.isFinite(basePostMs)) {
-        const nextScheduledMs = computeNextLaunchDayRetryScheduledAtMs({ basePostMs, nowMs, nextAttempts });
-        if (nextScheduledMs != null && Number.isFinite(nextScheduledMs)) {
-          const { error: rescheduleError } = await supabase
-            .from('social_posts')
-            .update({ status: 'pending', scheduled_for: new Date(nextScheduledMs).toISOString() })
-            .eq('id', row.id);
-          if (rescheduleError) console.warn('social_posts reschedule warning', rescheduleError.message);
-        }
-      } else if (nextAttempts >= LAUNCH_DAY_MAX_ATTEMPTS) {
+      await markPostFailed(supabase, row.id, errorMessage, { lockId });
+      const nextAttempts = Number(row.attempts || 0) + 1;
+      if (isLaunchDay) {
+        const basePostMs = basePostMsByLaunchId.get(row.launch_id) ?? null;
+        const nextScheduledMs =
+          basePostMs != null && Number.isFinite(basePostMs)
+            ? computeNextLaunchDayRetryScheduledAtMs({
+                basePostMs,
+                nowMs,
+                nextAttempts,
+                launchNetMs,
+                retryWindowHours
+              })
+            : null;
         const baseDay = resolveLaunchDayBaseDayFromRow(row);
         await upsertOpsAlert(supabase, {
           key: buildLaunchDayFailedAlertKey({ launchId: row.launch_id, platform, baseDay }),
@@ -3882,12 +4205,26 @@ async function processRetryPosts({
             social_post_id: row.id,
             scheduled_for: row.scheduled_for,
             attempts: nextAttempts,
-            error: errorMessage
+            error: errorMessage,
+            retry_scheduled_for: nextScheduledMs != null ? new Date(nextScheduledMs).toISOString() : null
           }
         });
+
+        if (nextScheduledMs != null && Number.isFinite(nextScheduledMs)) {
+          const { error: rescheduleError } = await supabase
+            .from('social_posts')
+            .update({
+              status: 'pending',
+              scheduled_for: new Date(nextScheduledMs).toISOString(),
+              send_lock_id: null,
+              send_locked_at: null
+            })
+            .eq('id', row.id);
+          if (rescheduleError) console.warn('social_posts reschedule warning', rescheduleError.message);
+        }
       }
+      failed += 1;
     }
-    failed += 1;
   }
 
   return { attempted, posted, failed, skipped, deferred };
@@ -4350,9 +4687,10 @@ async function markPostSent(
   supabase: ReturnType<typeof createSupabaseAdminClient>,
   id: string,
   externalId: string | null,
-  results: Record<string, unknown> | null
+  results: Record<string, unknown> | null,
+  { lockId }: { lockId?: string } = {}
 ) {
-  const { error } = await supabase
+  let query = supabase
     .from('social_posts')
     .update({
       status: 'sent',
@@ -4360,47 +4698,104 @@ async function markPostSent(
       external_id: externalId,
       platform_results: results,
       request_id: null,
-      last_error: null
+      last_error: null,
+      send_lock_id: null,
+      send_locked_at: null
     })
     .eq('id', id);
+  if (lockId) query = query.eq('send_lock_id', lockId);
+  const { error } = await query;
   if (error) console.warn('social_posts sent update warning', error.message);
 }
 
-async function markPostAsync(supabase: ReturnType<typeof createSupabaseAdminClient>, id: string, requestId: string) {
-  const { error } = await supabase
+async function markPostAsync(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  id: string,
+  requestId: string,
+  { lockId }: { lockId?: string } = {}
+) {
+  let query = supabase
     .from('social_posts')
-    .update({ status: 'async', request_id: requestId })
+    .update({
+      status: 'async',
+      request_id: requestId,
+      send_lock_id: null,
+      send_locked_at: null
+    })
     .eq('id', id);
+  if (lockId) query = query.eq('send_lock_id', lockId);
+  const { error } = await query;
   if (error) console.warn('social_posts async update warning', error.message);
 }
 
-async function markPostFailed(supabase: ReturnType<typeof createSupabaseAdminClient>, id: string, message: string) {
-  const { data, error } = await supabase.from('social_posts').select('attempts').eq('id', id).maybeSingle();
+async function markPostFailed(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  id: string,
+  message: string,
+  { lockId }: { lockId?: string } = {}
+) {
+  let attemptsQuery = supabase.from('social_posts').select('attempts').eq('id', id);
+  if (lockId) attemptsQuery = attemptsQuery.eq('send_lock_id', lockId);
+  const { data, error } = await attemptsQuery.maybeSingle();
   if (error) {
     console.warn('social_posts attempts fetch warning', error.message);
     return;
   }
+  if (!data) return;
+
   const attempts = Number((data as any)?.attempts || 0) + 1;
-  const { error: updateError } = await supabase
+  let updateQuery = supabase
     .from('social_posts')
-    .update({ status: 'failed', last_error: truncateError(message), attempts })
+    .update({
+      status: 'failed',
+      last_error: truncateError(message),
+      attempts,
+      send_lock_id: null,
+      send_locked_at: null
+    })
     .eq('id', id);
+  if (lockId) updateQuery = updateQuery.eq('send_lock_id', lockId);
+  const { error: updateError } = await updateQuery;
   if (updateError) console.warn('social_posts failed update warning', updateError.message);
 }
 
-async function markPostSkipped(supabase: ReturnType<typeof createSupabaseAdminClient>, id: string, message: string) {
-  const { error } = await supabase
+async function markPostSkipped(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  id: string,
+  message: string,
+  { lockId }: { lockId?: string } = {}
+) {
+  let query = supabase
     .from('social_posts')
-    .update({ status: 'skipped', last_error: truncateError(message) })
+    .update({
+      status: 'skipped',
+      last_error: truncateError(message),
+      send_lock_id: null,
+      send_locked_at: null
+    })
     .eq('id', id);
+  if (lockId) query = query.eq('send_lock_id', lockId);
+  const { error } = await query;
   if (error) console.warn('social_posts skipped update warning', error.message);
 }
 
-async function markPostDeferred(supabase: ReturnType<typeof createSupabaseAdminClient>, id: string, message: string) {
-  const { error } = await supabase
+async function markPostDeferred(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  id: string,
+  message: string,
+  { lockId }: { lockId?: string } = {}
+) {
+  let query = supabase
     .from('social_posts')
-    .update({ status: 'pending', last_error: truncateError(message) })
+    .update({
+      status: 'pending',
+      last_error: truncateError(message),
+      send_lock_id: null,
+      send_locked_at: null
+    })
     .eq('id', id);
+  if (lockId) query = query.eq('send_lock_id', lockId);
+  const { error } = await query;
   if (error) console.warn('social_posts deferred update warning', error.message);
 }
 
@@ -4499,18 +4894,30 @@ function extractUploadPostRemainingUploads(message: string): number | null {
 function computeNextLaunchDayRetryScheduledAtMs({
   basePostMs,
   nowMs,
-  nextAttempts
+  nextAttempts,
+  launchNetMs,
+  retryWindowHours
 }: {
   basePostMs: number;
   nowMs: number;
   nextAttempts: number;
+  launchNetMs: number | null;
+  retryWindowHours: number;
 }): number | null {
   if (!Number.isFinite(basePostMs)) return null;
   if (!Number.isFinite(nowMs)) return null;
 
   const lastWindowEndExclusiveMs = basePostMs + LAUNCH_DAY_POST_TOTAL_WINDOW_MS;
   const sendDeadlineMs = lastWindowEndExclusiveMs + LAUNCH_DAY_POST_GRACE_MS;
-  if (!Number.isFinite(sendDeadlineMs) || nowMs > sendDeadlineMs) return null;
+  const launchRetryDeadlineMs =
+    launchNetMs != null && Number.isFinite(launchNetMs)
+      ? launchNetMs + clampInt(retryWindowHours, 1, 24) * 60 * 60 * 1000
+      : null;
+  const absoluteDeadlineMs = minFiniteNumber(
+    Number.isFinite(sendDeadlineMs) ? sendDeadlineMs : null,
+    launchRetryDeadlineMs
+  );
+  if (absoluteDeadlineMs == null || !Number.isFinite(absoluteDeadlineMs) || nowMs > absoluteDeadlineMs) return null;
 
   const hour9StartMs = basePostMs + LAUNCH_DAY_POST_WINDOW_MS;
   const hour10StartMs = basePostMs + 2 * LAUNCH_DAY_POST_WINDOW_MS;
@@ -4527,14 +4934,12 @@ function computeNextLaunchDayRetryScheduledAtMs({
     candidates.push(hour10StartMs + slot10Ms, hour10StartMs + slot40Ms);
   } else if (nextAttempts === 4) {
     candidates.push(hour10StartMs + slot40Ms);
-  } else {
-    return null;
   }
 
   const minMs = nowMs + 60 * 1000;
-  const chosen = candidates.find((ms) => Number.isFinite(ms) && ms >= minMs);
+  const chosen = candidates.find((ms) => Number.isFinite(ms) && ms >= minMs && ms <= absoluteDeadlineMs);
   if (chosen != null) return chosen;
-  return minMs <= sendDeadlineMs ? minMs : null;
+  return minMs <= absoluteDeadlineMs ? minMs : null;
 }
 
 function stringifyError(err: unknown) {

@@ -94,6 +94,45 @@ type AlertRuleRow = {
   filters?: Record<string, unknown> | null;
 };
 
+type MobilePushInstallationRowV2 = {
+  owner_kind: 'guest' | 'user';
+  user_id?: string | null;
+  installation_id: string;
+  platform?: string | null;
+  is_active?: boolean | null;
+};
+
+type MobilePushRuleRowV2 = {
+  id: string;
+  owner_kind: 'guest' | 'user';
+  user_id?: string | null;
+  installation_id?: string | null;
+  scope_kind: 'all_us' | 'state' | 'launch' | 'all_launches' | 'preset' | 'follow';
+  state?: string | null;
+  launch_id?: string | null;
+  filter_preset_id?: string | null;
+  follow_rule_type?: 'launch' | 'pad' | 'provider' | 'tier' | null;
+  follow_rule_value?: string | null;
+  timezone?: string | null;
+  prelaunch_offsets_minutes?: number[] | null;
+  daily_digest_local_time?: string | null;
+  status_change_types?: string[] | null;
+  notify_net_change?: boolean | null;
+  launch_filter_presets?: { filters?: Record<string, unknown> | null } | { filters?: Record<string, unknown> | null }[] | null;
+};
+
+type MobilePushOutboxRowV2 = {
+  id: number;
+  owner_kind: 'guest' | 'user';
+  user_id?: string | null;
+  installation_id?: string | null;
+  launch_id?: string | null;
+  event_type?: string | null;
+  scheduled_for: string;
+  status?: string | null;
+  payload?: Record<string, unknown> | null;
+};
+
 type DispatchResult = {
   queued: number;
   updated: number;
@@ -235,13 +274,21 @@ async function dispatchNotifications(supabase: ReturnType<typeof createSupabaseA
     ? await dispatchLaunchDayEmailDigests(supabase, { now, monthStart, prefs: emailEligiblePrefs })
     : { queued: 0, updated: 0, usageUpdates: 0, reason: 'no_email_opted_users' };
 
+  const mobilePushV2Result: DispatchResult = settings.push_enabled
+    ? await dispatchMobilePushV2(supabase, {
+        settings,
+        now
+      })
+    : { queued: 0, updated: 0, usageUpdates: 0, reason: 'push_disabled' };
+
   return {
-    queued: smsResult.queued + emailResult.queued + pushResult.queued,
-    updated: smsResult.updated + emailResult.updated + pushResult.updated,
-    usageUpdates: smsResult.usageUpdates + emailResult.usageUpdates + pushResult.usageUpdates,
+    queued: smsResult.queued + emailResult.queued + pushResult.queued + mobilePushV2Result.queued,
+    updated: smsResult.updated + emailResult.updated + pushResult.updated + mobilePushV2Result.updated,
+    usageUpdates: smsResult.usageUpdates + emailResult.usageUpdates + pushResult.usageUpdates + mobilePushV2Result.usageUpdates,
     sms: smsResult,
     push: pushResult,
-    email: emailResult
+    email: emailResult,
+    mobilePushV2: mobilePushV2Result
   };
 }
 
@@ -814,6 +861,400 @@ async function dispatchPushNotifications(
   }
 
   return { queued: toInsert.length, updated: toUpdate.length, usageUpdates };
+}
+
+async function dispatchMobilePushV2(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  {
+    settings,
+    now
+  }: {
+    settings: Settings;
+    now: Date;
+  }
+): Promise<DispatchResult> {
+  const premiumUserIds = new Set(await loadPremiumUserIds(supabase));
+  const { data: installationsRes, error: installationsError } = await supabase
+    .from('mobile_push_installations_v2')
+    .select('owner_kind, user_id, installation_id, platform, is_active')
+    .eq('is_active', true);
+  if (installationsError) throw installationsError;
+
+  const installations = (installationsRes || []) as MobilePushInstallationRowV2[];
+  const guestInstallationIds = Array.from(
+    new Set(installations.filter((row) => row.owner_kind === 'guest').map((row) => String(row.installation_id || '').trim()).filter(Boolean))
+  );
+  const userIds = Array.from(
+    new Set(
+      installations
+        .filter((row) => row.owner_kind === 'user' && row.user_id && premiumUserIds.has(String(row.user_id)))
+        .map((row) => String(row.user_id || '').trim())
+        .filter(Boolean)
+    )
+  );
+
+  if (!guestInstallationIds.length && !userIds.length) {
+    return { queued: 0, updated: 0, usageUpdates: 0, reason: 'no_mobile_push_installations' };
+  }
+
+  const [guestRulesRes, userRulesRes, launchesRes] = await Promise.all([
+    guestInstallationIds.length
+      ? supabase
+          .from('mobile_push_rules_v2')
+          .select(
+            'id, owner_kind, user_id, installation_id, scope_kind, state, launch_id, filter_preset_id, follow_rule_type, follow_rule_value, timezone, prelaunch_offsets_minutes, daily_digest_local_time, status_change_types, notify_net_change, launch_filter_presets(filters)'
+          )
+          .eq('owner_kind', 'guest')
+          .in('installation_id', guestInstallationIds)
+      : Promise.resolve({ data: [], error: null }),
+    userIds.length
+      ? supabase
+          .from('mobile_push_rules_v2')
+          .select(
+            'id, owner_kind, user_id, installation_id, scope_kind, state, launch_id, filter_preset_id, follow_rule_type, follow_rule_value, timezone, prelaunch_offsets_minutes, daily_digest_local_time, status_change_types, notify_net_change, launch_filter_presets(filters)'
+          )
+          .eq('owner_kind', 'user')
+          .in('user_id', userIds)
+      : Promise.resolve({ data: [], error: null }),
+    supabase
+      .from('launches')
+      .select(
+        'id, name, net, net_precision, status_name, tier_auto, tier_override, ll2_pad_id, provider, pad_name, pad_location_name, pad_short_code, pad_state, pad_country_code'
+      )
+      .eq('hidden', false)
+      .gte('net', new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString())
+      .order('net', { ascending: true })
+      .limit(3000)
+  ]);
+  if (guestRulesRes.error) throw guestRulesRes.error;
+  if (userRulesRes.error) throw userRulesRes.error;
+  if (launchesRes.error) throw launchesRes.error;
+
+  const rules = [...((guestRulesRes.data || []) as MobilePushRuleRowV2[]), ...((userRulesRes.data || []) as MobilePushRuleRowV2[])];
+  if (!rules.length) {
+    return { queued: 0, updated: 0, usageUpdates: 0, reason: 'no_mobile_push_rules' };
+  }
+
+  const launches: LaunchRow[] = (launchesRes.data || []) as any;
+  const launchById = new Map<string, LaunchRow>();
+  launches.forEach((launch) => launchById.set(launch.id, launch));
+  const explicitLaunchIds = Array.from(
+    new Set(rules.filter((rule) => rule.scope_kind === 'launch').map((rule) => String(rule.launch_id || '').trim()).filter(Boolean))
+  );
+  const allLaunchIds = Array.from(new Set([...launches.map((launch) => launch.id), ...explicitLaunchIds]));
+  const updatesSince = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+
+  const [updatesRes, existingOutboxRes] = await Promise.all([
+    allLaunchIds.length
+      ? supabase
+          .from('launch_updates')
+          .select('id, launch_id, changed_fields, old_values, new_values, detected_at')
+          .gte('detected_at', updatesSince)
+          .in('launch_id', allLaunchIds)
+          .order('detected_at', { ascending: false })
+          .limit(2000)
+      : Promise.resolve({ data: [], error: null }),
+    supabase
+      .from('mobile_push_outbox_v2')
+      .select('id, owner_kind, user_id, installation_id, launch_id, event_type, scheduled_for, status, payload')
+      .gte('scheduled_for', updatesSince)
+  ]);
+  if (updatesRes.error) throw updatesRes.error;
+  if (existingOutboxRes.error) throw existingOutboxRes.error;
+
+  const existingOutbox = (existingOutboxRes.data || []) as MobilePushOutboxRowV2[];
+  const existingUpdateKeys = new Set<string>();
+  const existingByKey = new Map<string, MobilePushOutboxRowV2>();
+  existingOutbox.forEach((row) => {
+    const key = mobilePushOutboxKey(row.owner_kind, row.user_id, row.installation_id, row.launch_id ?? null, String(row.event_type || ''));
+    if (key) {
+      const existing = existingByKey.get(key);
+      if (!existing || existing.status !== 'queued' || row.status === 'queued') {
+        existingByKey.set(key, row);
+      }
+    }
+
+    const updateId = readUpdateId(row.payload || null);
+    if (!updateId) return;
+    const eventType = String(row.event_type || '');
+    if (!isChangeEventType(eventType)) return;
+    const changeKey = mobilePushOutboxUpdateKey(row.owner_kind, row.user_id, row.installation_id, row.launch_id ?? null, eventType, updateId);
+    if (changeKey) existingUpdateKeys.add(changeKey);
+  });
+
+  const matchedRulesByLaunch = new Map<string, MobilePushRuleRowV2[]>();
+  const digestLaunchesByRule = new Map<string, LaunchRow[]>();
+
+  for (const rule of rules) {
+    for (const launch of launches) {
+      if (!launchMatchesMobilePushRule(launch, rule)) continue;
+      const existing = matchedRulesByLaunch.get(launch.id) || [];
+      existing.push(rule);
+      matchedRulesByLaunch.set(launch.id, existing);
+
+      if (normalizeLocalTime(rule.daily_digest_local_time)) {
+        const digestKey = mobileRuleIdentity(rule);
+        const list = digestLaunchesByRule.get(digestKey) || [];
+        list.push(launch);
+        digestLaunchesByRule.set(digestKey, list);
+      }
+    }
+  }
+
+  const toInsert: any[] = [];
+  const toUpdate: Array<{ id: number; scheduled_for: string; payload: Record<string, unknown> }> = [];
+
+  for (const launch of launches) {
+    const matchedRules = matchedRulesByLaunch.get(launch.id);
+    if (!matchedRules?.length) continue;
+
+    for (const rule of matchedRules) {
+      const timeZone = normalizeTimeZone(rule.timezone || 'UTC');
+      for (const offset of normalizeOffsetsForRule(rule.prelaunch_offsets_minutes)) {
+        const eventAt = new Date(new Date(launch.net).getTime() - offset * 60 * 1000);
+        const scheduledFor = resolveScheduledFor(eventAt, now, settings.push_batch_window_minutes);
+        if (!scheduledFor) continue;
+
+        const eventType = `t_minus_${offset}`;
+        const key = mobilePushOutboxKey(rule.owner_kind, rule.user_id, rule.installation_id, launch.id, eventType);
+        const existing = key ? existingByKey.get(key) : null;
+        if (existing && existing.status === 'queued') {
+          const existingAt = new Date(existing.scheduled_for);
+          const diffMs = Number.isFinite(existingAt.getTime())
+            ? Math.abs(existingAt.getTime() - scheduledFor.getTime())
+            : Number.POSITIVE_INFINITY;
+          if (diffMs > 30_000) {
+            const payload = makeOutboxPayload(launch, { type: eventType, at: eventAt }, timeZone, settings.push_max_chars);
+            toUpdate.push({ id: Number(existing.id), scheduled_for: scheduledFor.toISOString(), payload });
+          }
+          continue;
+        }
+
+        toInsert.push({
+          owner_kind: rule.owner_kind,
+          user_id: rule.owner_kind === 'user' ? rule.user_id : null,
+          installation_id: rule.owner_kind === 'guest' ? rule.installation_id : null,
+          launch_id: launch.id,
+          channel: 'push',
+          event_type: eventType,
+          payload: makeOutboxPayload(launch, { type: eventType, at: eventAt }, timeZone, settings.push_max_chars),
+          status: 'queued',
+          scheduled_for: scheduledFor.toISOString(),
+          created_at: now.toISOString()
+        });
+        if (key) queuedKeys.add(key);
+      }
+    }
+  }
+
+  for (const rule of rules) {
+    const digestTime = normalizeLocalTime(rule.daily_digest_local_time);
+    if (!digestTime) continue;
+    const digestLaunches = (digestLaunchesByRule.get(mobileRuleIdentity(rule)) || []).sort((left, right) => Date.parse(left.net) - Date.parse(right.net));
+    if (!digestLaunches.length) continue;
+
+    const timeZone = normalizeTimeZone(rule.timezone || 'UTC');
+    const digestWindow = resolveNextDailyDigestWindow(now, timeZone, digestTime);
+    const matchingLaunches = digestLaunches.filter((launch) => {
+      const launchMs = Date.parse(launch.net);
+      return Number.isFinite(launchMs) && launchMs >= digestWindow.dayStart.getTime() && launchMs < digestWindow.dayEnd.getTime();
+    });
+    if (!matchingLaunches.length) continue;
+
+    const eventType = `daily_digest_${digestWindow.dateKey}_${rule.id}`;
+    const key = mobilePushOutboxKey(rule.owner_kind, rule.user_id, rule.installation_id, null, eventType);
+    if (key && existingByKey.has(key)) continue;
+
+    toInsert.push({
+      owner_kind: rule.owner_kind,
+      user_id: rule.owner_kind === 'user' ? rule.user_id : null,
+      installation_id: rule.owner_kind === 'guest' ? rule.installation_id : null,
+      launch_id: null,
+      channel: 'push',
+      event_type: eventType,
+      payload: buildMobileDailyDigestPayload(matchingLaunches, timeZone, digestWindow.dateKey, settings.push_max_chars),
+      status: 'queued',
+      scheduled_for: digestWindow.scheduledFor.toISOString(),
+      created_at: now.toISOString()
+    });
+  }
+
+  const updates: LaunchUpdateRow[] = (updatesRes.data || []) as any;
+  for (const update of updates) {
+    const launch = launchById.get(update.launch_id);
+    if (!launch) continue;
+
+    const changed = Array.isArray(update.changed_fields) ? update.changed_fields.map((field) => String(field)) : [];
+    const statusChanged = changed.some((field) => STATUS_CHANGE_FIELDS.has(field));
+    const timingChanged = changed.some((field) => TIMING_CHANGE_FIELDS.has(field));
+    if (!statusChanged && !timingChanged) continue;
+
+    const matchedRules = matchedRulesByLaunch.get(update.launch_id);
+    if (!matchedRules?.length) continue;
+
+    const nextStatus = normalizeLaunchStatusKey(readFirstValueString(update.new_values, ['status_name', 'status_abbrev']) || launch.status_name);
+
+    for (const rule of matchedRules) {
+      const wantsStatus = statusChanged && ruleWantsStatusChange(rule, nextStatus);
+      const wantsTiming = timingChanged && rule.notify_net_change === true;
+      if (!wantsStatus && !wantsTiming) continue;
+
+      const eventType = wantsStatus && wantsTiming ? 'status_net_change' : wantsStatus ? 'status_change' : 'net_change';
+      const changeKey = mobilePushOutboxUpdateKey(rule.owner_kind, rule.user_id, rule.installation_id, launch.id, eventType, update.id);
+      if (changeKey && existingUpdateKeys.has(changeKey)) continue;
+
+      const payload = makeChangeOutboxPayload(launch, eventType, normalizeTimeZone(rule.timezone || 'UTC'), update, settings.push_max_chars);
+      toInsert.push({
+        owner_kind: rule.owner_kind,
+        user_id: rule.owner_kind === 'user' ? rule.user_id : null,
+        installation_id: rule.owner_kind === 'guest' ? rule.installation_id : null,
+        launch_id: launch.id,
+        channel: 'push',
+        event_type: eventType,
+        payload,
+        status: 'queued',
+        scheduled_for: now.toISOString(),
+        created_at: now.toISOString()
+      });
+      if (changeKey) existingUpdateKeys.add(changeKey);
+    }
+  }
+
+  if (toInsert.length) {
+    const { error } = await supabase.from('mobile_push_outbox_v2').insert(toInsert);
+    if (error) throw error;
+  }
+
+  if (toUpdate.length) {
+    for (const row of toUpdate) {
+      if (!Number.isFinite(row.id)) continue;
+      const { error } = await supabase.from('mobile_push_outbox_v2').update({ scheduled_for: row.scheduled_for, payload: row.payload }).eq('id', row.id);
+      if (error) console.warn('mobile_push_outbox_v2 reschedule warning', error.message);
+    }
+  }
+
+  return {
+    queued: toInsert.length,
+    updated: toUpdate.length,
+    usageUpdates: 0,
+    reason: toInsert.length || toUpdate.length ? undefined : 'no_mobile_push_notifications'
+  };
+}
+
+function normalizeOffsetsForRule(values: number[] | null | undefined) {
+  if (!Array.isArray(values)) return [];
+  return Array.from(new Set(values.map((value) => Math.trunc(Number(value))).filter((value) => Number.isInteger(value) && value >= 0))).sort(
+    (left, right) => left - right
+  );
+}
+
+function firstPresetFilters(value: MobilePushRuleRowV2['launch_filter_presets']) {
+  if (Array.isArray(value)) {
+    return value[0]?.filters ?? null;
+  }
+  return value?.filters ?? null;
+}
+
+function launchMatchesMobilePushRule(launch: LaunchRow, rule: MobilePushRuleRowV2) {
+  if (rule.scope_kind === 'all_us') {
+    return US_PAD_COUNTRY_CODES.has(String(launch.pad_country_code || '').trim().toUpperCase());
+  }
+  if (rule.scope_kind === 'state') {
+    return normalizeComparableText(launch.pad_state) === normalizeComparableText(rule.state);
+  }
+  if (rule.scope_kind === 'launch') {
+    return launch.id === String(rule.launch_id || '').trim();
+  }
+  if (rule.scope_kind === 'all_launches') {
+    return true;
+  }
+  if (rule.scope_kind === 'preset') {
+    return launchMatchesFilterPreset(launch, firstPresetFilters(rule.launch_filter_presets));
+  }
+  return launchMatchesFollowRule(launch, rule.follow_rule_type, rule.follow_rule_value);
+}
+
+function ruleWantsStatusChange(rule: MobilePushRuleRowV2, nextStatus: string) {
+  const types = Array.isArray(rule.status_change_types)
+    ? Array.from(new Set(rule.status_change_types.map((value) => String(value || '').trim().toLowerCase()).filter(Boolean)))
+    : [];
+  if (!types.length) return false;
+  if (types.includes('any')) return true;
+  return types.includes(nextStatus);
+}
+
+function mobileOwnerKey(ownerKind: 'guest' | 'user', userId: string | null | undefined, installationId: string | null | undefined) {
+  return ownerKind === 'user' ? `user:${String(userId || '').trim()}` : `guest:${String(installationId || '').trim()}`;
+}
+
+function mobilePushOutboxKey(
+  ownerKind: 'guest' | 'user',
+  userId: string | null | undefined,
+  installationId: string | null | undefined,
+  launchId: string | null,
+  eventType: string
+) {
+  const ownerKey = mobileOwnerKey(ownerKind, userId, installationId);
+  const normalizedLaunchId = launchId ? String(launchId).trim() : 'none';
+  const normalizedEventType = String(eventType || '').trim();
+  if (!ownerKey || !normalizedEventType) return null;
+  return `${ownerKey}:${normalizedLaunchId}:push:${normalizedEventType}`;
+}
+
+function mobilePushOutboxUpdateKey(
+  ownerKind: 'guest' | 'user',
+  userId: string | null | undefined,
+  installationId: string | null | undefined,
+  launchId: string | null,
+  eventType: string,
+  updateId: number
+) {
+  const base = mobilePushOutboxKey(ownerKind, userId, installationId, launchId, eventType);
+  if (!base || !Number.isFinite(updateId)) return null;
+  return `${base}:update:${updateId}`;
+}
+
+function resolveNextDailyDigestWindow(now: Date, timeZone: string, localTime: string) {
+  const [hourRaw, minuteRaw] = localTime.split(':');
+  const hour = Number(hourRaw);
+  const minute = Number(minuteRaw);
+  const parts = getTimeZoneParts(now, timeZone);
+  const today = { year: parts.year, month: parts.month, day: parts.day };
+  const target = parts.hour < hour || (parts.hour === hour && parts.minute < minute) ? today : addDaysLocal(today, timeZone, 1);
+  const scheduledFor = zonedTimeToUtcDate({ ...target, hour, minute }, timeZone);
+  const dayStart = zonedTimeToUtcDate({ ...target, hour: 0, minute: 0 }, timeZone);
+  const nextDay = addDaysLocal(target, timeZone, 1);
+  const dayEnd = zonedTimeToUtcDate({ ...nextDay, hour: 0, minute: 0 }, timeZone);
+  const dateKey = `${target.year}${pad2(target.month)}${pad2(target.day)}`;
+  return { scheduledFor, dayStart, dayEnd, dateKey };
+}
+
+function buildMobileDailyDigestPayload(launches: LaunchRow[], timeZone: string, dateKey: string, maxChars?: number) {
+  const launchCount = launches.length;
+  const firstLaunch = launches[0];
+  const firstTime = firstLaunch ? formatLocalTimeLabel(firstLaunch.net, timeZone) : '';
+  let message =
+    launchCount === 1 && firstLaunch
+      ? `${firstLaunch.name} matches your alert rule today. Launch at ${firstTime}.`
+      : `${launchCount} launches match your alert rule today. First launch at ${firstTime}.`;
+  message = prefixSmsWithBrand(message);
+  if (maxChars && message.length > maxChars) {
+    message = message.slice(0, maxChars - 3) + '...';
+  }
+  return {
+    title: 'Today’s launch alerts',
+    message,
+    url: '/preferences',
+    date_key: dateKey,
+    launch_ids: launches.map((launch) => launch.id)
+  };
+}
+
+function mobileRuleIdentity(rule: MobilePushRuleRowV2) {
+  if (rule.owner_kind === 'user') {
+    return `user:${String(rule.user_id || '').trim()}:${rule.id}`;
+  }
+  return `guest:${String(rule.installation_id || '').trim()}:${rule.id}`;
 }
 
 async function dispatchLaunchDayEmailDigests(

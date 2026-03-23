@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { stripe } from '@/lib/api/stripe';
 import { mirrorStripeCustomerMapping, mirrorStripeEntitlement } from '@/lib/server/providerEntitlements';
+import { markStripePremiumClaimVerified } from '@/lib/server/premiumClaims';
 import { createSupabaseAdminClient } from '@/lib/server/supabaseServer';
 import { isStripeConfigured, isStripeWebhookConfigured, isSupabaseAdminConfigured } from '@/lib/server/env';
 import {
@@ -104,6 +105,10 @@ async function handleStripeEvent(admin: ReturnType<typeof createSupabaseAdminCli
       const stripeCustomerId = session.customer as string | null;
       const stripeSubscriptionId = session.subscription as string | null;
       const userId = (session.metadata?.user_id as string | undefined) || (session.client_reference_id as string | undefined);
+
+      await markStripePremiumClaimVerified(session).catch((error) => {
+        console.error('stripe premium claim verification warning', error);
+      });
 
       if (userId && stripeCustomerId) {
         const { error: customerUpsertError } = await admin

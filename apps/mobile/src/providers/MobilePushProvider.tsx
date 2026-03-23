@@ -6,11 +6,7 @@ import * as Device from 'expo-device';
 import { ApiClientError } from '@tminuszero/api-client';
 import { useQueryClient } from '@tanstack/react-query';
 import { sharedQueryKeys } from '@tminuszero/query';
-import {
-  useNotificationPreferencesQuery,
-  useUpdateNotificationPreferencesMutation,
-  useViewerSessionQuery
-} from '@/src/api/queries';
+import { useViewerEntitlementsQuery, useViewerSessionQuery } from '@/src/api/queries';
 import { useMobileApiClient } from '@/src/api/useMobileApiClient';
 import {
   readPushPermissionState,
@@ -19,7 +15,6 @@ import {
 } from '@/src/notifications/runtime';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import {
-  clearStoredPushSyncSnapshot,
   readOrCreateInstallationId,
   readStoredPushSyncSnapshot,
   writeStoredPushSyncSnapshot
@@ -29,6 +24,7 @@ type PermissionState = 'granted' | 'denied' | 'undetermined';
 
 type MobilePushContextValue = {
   installationId: string | null;
+  deviceSecret: string | null;
   permissionStatus: PermissionState;
   isPushEnabled: boolean;
   isRegistered: boolean;
@@ -61,19 +57,19 @@ function getExpoProjectId() {
 function getPlatform() {
   if (Platform.OS === 'ios') return 'ios' as const;
   if (Platform.OS === 'android') return 'android' as const;
-  return 'web' as const;
+  throw new Error('Mobile push is only available on iOS and Android.');
 }
 
 function describePushError(error: unknown) {
   if (error instanceof ApiClientError) {
-    if (error.code === 'subscription_required') {
-      return 'This push action needs a Premium capability that is not available on the current plan.';
+    if (error.code === 'payment_required') {
+      return 'That alert configuration needs Premium on mobile.';
     }
     if (error.code === 'push_not_registered') {
-      return 'This account does not have an active push destination yet.';
+      return 'Enable push on this device before saving alerts.';
     }
-    if (error.code === 'push_not_enabled') {
-      return 'Enable push alerts for this account before sending a test notification.';
+    if (error.code === 'invalid_guest_device') {
+      return 'This device push session expired. Enable push again to refresh it.';
     }
     if (error.code === 'notifications_not_configured') {
       return 'Push sending is not configured on the shared backend yet.';
@@ -85,19 +81,20 @@ function describePushError(error: unknown) {
 
 export function MobilePushProvider({ children }: MobilePushProviderProps) {
   const queryClient = useQueryClient();
-  const { accessToken, isAuthHydrated } = useMobileBootstrap();
+  const { isAuthHydrated } = useMobileBootstrap();
   const client = useMobileApiClient();
   const viewerSessionQuery = useViewerSessionQuery();
-  const notificationPreferencesQuery = useNotificationPreferencesQuery();
-  const updateNotificationPreferencesMutation = useUpdateNotificationPreferencesMutation();
+  const entitlementsQuery = useViewerEntitlementsQuery();
   const [installationId, setInstallationId] = useState<string | null>(null);
+  const [deviceSecret, setDeviceSecret] = useState<string | null>(null);
   const [permissionStatus, setPermissionStatus] = useState<PermissionState>('undetermined');
   const [isRegistered, setIsRegistered] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const [lastTestQueuedAt, setLastTestQueuedAt] = useState<string | null>(null);
-  const lastSyncedUserIdRef = useRef<string | null>(null);
+  const lastSyncedOwnerKeyRef = useRef<string | null>(null);
   const lastSyncedTokenRef = useRef<string | null>(null);
+  const deviceSecretRef = useRef<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -110,9 +107,11 @@ export function MobilePushProvider({ children }: MobilePushProviderProps) {
 
       if (!isMounted) return;
       setInstallationId(nextInstallationId);
-      lastSyncedUserIdRef.current = lastSync.userId;
+      setDeviceSecret(lastSync.deviceSecret);
+      deviceSecretRef.current = lastSync.deviceSecret;
+      lastSyncedOwnerKeyRef.current = lastSync.ownerKey;
       lastSyncedTokenRef.current = lastSync.token;
-      setIsRegistered(Boolean(lastSync.userId && lastSync.token));
+      setIsRegistered(Boolean(lastSync.ownerKey && lastSync.token));
     }
 
     void hydrateInstallation();
@@ -129,65 +128,74 @@ export function MobilePushProvider({ children }: MobilePushProviderProps) {
 
   const syncCurrentDevice = useCallback(
     async (force: boolean) => {
-      if (!accessToken || !isAuthHydrated || !installationId) {
-        return;
-      }
-
-      const pushEnabled = notificationPreferencesQuery.data?.pushEnabled === true;
-      if (!pushEnabled) {
+      if (!installationId || !isAuthHydrated) {
         return;
       }
 
       const permission = await refreshPermissionStatus();
       if (permission !== 'granted') {
-        const viewerId = viewerSessionQuery.data?.viewerId ?? null;
-        if (viewerId && lastSyncedUserIdRef.current === viewerId) {
-          await client.removePushDevice({
-            platform: getPlatform(),
-            installationId
-          }).catch(() => {});
+        if (lastSyncedOwnerKeyRef.current || deviceSecretRef.current) {
+          await client
+            .removeMobilePushDevice({
+              platform: getPlatform(),
+              installationId,
+              deviceSecret: deviceSecretRef.current
+            })
+            .catch(() => {});
         }
-        await clearStoredPushSyncSnapshot();
-        lastSyncedUserIdRef.current = null;
+
+        await writeStoredPushSyncSnapshot({
+          ownerKey: null,
+          token: null,
+          deviceSecret: deviceSecretRef.current
+        });
+        lastSyncedOwnerKeyRef.current = null;
         lastSyncedTokenRef.current = null;
         setIsRegistered(false);
         return;
       }
 
       const token = await resolvePushRegistrationToken(getExpoProjectId());
-
-      const viewerId = viewerSessionQuery.data?.viewerId ?? 'authed';
-      if (!force && lastSyncedUserIdRef.current === viewerId && lastSyncedTokenRef.current === token) {
+      const isPremium = entitlementsQuery.data?.isPaid === true || entitlementsQuery.data?.isAdmin === true;
+      const ownerKey = isPremium ? `user:${viewerSessionQuery.data?.viewerId ?? 'authed'}` : `guest:${installationId}`;
+      if (!force && lastSyncedOwnerKeyRef.current === ownerKey && lastSyncedTokenRef.current === token) {
         setIsRegistered(true);
         return;
       }
 
-      const payload = await client.registerPushDevice({
+      const payload = await client.registerMobilePushDevice({
         platform: getPlatform(),
         installationId,
+        deviceSecret: deviceSecretRef.current,
         token,
         appVersion: Application.nativeApplicationVersion ?? Constants.expoConfig?.version ?? null,
         deviceName: Device.deviceName ?? null,
         pushProvider: 'expo'
       });
 
+      const nextDeviceSecret = payload.deviceSecret ?? deviceSecretRef.current;
+      deviceSecretRef.current = nextDeviceSecret;
+      setDeviceSecret(nextDeviceSecret);
+
       await writeStoredPushSyncSnapshot({
-        userId: viewerId,
-        token
+        ownerKey,
+        token,
+        deviceSecret: nextDeviceSecret ?? null
       });
 
-      lastSyncedUserIdRef.current = viewerId;
+      lastSyncedOwnerKeyRef.current = ownerKey;
       lastSyncedTokenRef.current = token;
-      setIsRegistered(payload.active !== false);
+      setIsRegistered(payload.active === true);
       setLastError(null);
       queryClient.setQueryData(sharedQueryKeys.pushDevice(installationId), payload);
+      await queryClient.invalidateQueries({ queryKey: sharedQueryKeys.mobilePushRules(installationId) });
     },
     [
-      accessToken,
       client,
+      entitlementsQuery.data?.isAdmin,
+      entitlementsQuery.data?.isPaid,
       installationId,
       isAuthHydrated,
-      notificationPreferencesQuery.data?.pushEnabled,
       queryClient,
       refreshPermissionStatus,
       viewerSessionQuery.data?.viewerId
@@ -195,10 +203,6 @@ export function MobilePushProvider({ children }: MobilePushProviderProps) {
   );
 
   const enablePush = useCallback(async () => {
-    if (!accessToken) {
-      throw new Error('Sign in before enabling push alerts.');
-    }
-
     setIsSyncing(true);
     setLastError(null);
     try {
@@ -208,9 +212,6 @@ export function MobilePushProvider({ children }: MobilePushProviderProps) {
         throw new Error('Notification permission was not granted.');
       }
 
-      await updateNotificationPreferencesMutation.mutateAsync({
-        pushEnabled: true
-      });
       await syncCurrentDevice(true);
     } catch (error) {
       const message = describePushError(error);
@@ -219,27 +220,33 @@ export function MobilePushProvider({ children }: MobilePushProviderProps) {
     } finally {
       setIsSyncing(false);
     }
-  }, [accessToken, syncCurrentDevice, updateNotificationPreferencesMutation]);
+  }, [syncCurrentDevice]);
 
   const unregisterCurrentDevice = useCallback(async () => {
-    if (!accessToken || !installationId) {
+    if (!installationId) {
       return;
     }
 
     setIsSyncing(true);
     try {
-      await client.removePushDevice({
+      await client.removeMobilePushDevice({
         platform: getPlatform(),
-        installationId
+        installationId,
+        deviceSecret: deviceSecretRef.current
       });
-      await clearStoredPushSyncSnapshot();
-      lastSyncedUserIdRef.current = null;
+      await writeStoredPushSyncSnapshot({
+        ownerKey: null,
+        token: null,
+        deviceSecret: deviceSecretRef.current
+      });
+      lastSyncedOwnerKeyRef.current = null;
       lastSyncedTokenRef.current = null;
       setIsRegistered(false);
       setLastError(null);
       queryClient.removeQueries({
         queryKey: sharedQueryKeys.pushDevice(installationId)
       });
+      await queryClient.invalidateQueries({ queryKey: sharedQueryKeys.mobilePushRules(installationId) });
     } catch (error) {
       const message = describePushError(error);
       setLastError(message);
@@ -247,33 +254,30 @@ export function MobilePushProvider({ children }: MobilePushProviderProps) {
     } finally {
       setIsSyncing(false);
     }
-  }, [accessToken, client, installationId, queryClient]);
+  }, [client, installationId, queryClient]);
 
   const disablePushAlerts = useCallback(async () => {
-    if (!accessToken) {
-      throw new Error('Sign in before changing push alert preferences.');
-    }
-
-    setIsSyncing(true);
     try {
       await unregisterCurrentDevice();
-      await updateNotificationPreferencesMutation.mutateAsync({
-        pushEnabled: false
-      });
     } catch (error) {
       const message = describePushError(error);
       setLastError(message);
       throw error;
-    } finally {
-      setIsSyncing(false);
     }
-  }, [accessToken, unregisterCurrentDevice, updateNotificationPreferencesMutation]);
+  }, [unregisterCurrentDevice]);
 
   const sendTestPush = useCallback(async () => {
+    if (!installationId) {
+      return;
+    }
+
     setIsSyncing(true);
     setLastError(null);
     try {
-      const payload = await client.sendPushTest();
+      const payload = await client.sendMobilePushTest({
+        installationId,
+        deviceSecret: deviceSecretRef.current
+      });
       setLastTestQueuedAt(payload.queuedAt);
     } catch (error) {
       const message = describePushError(error);
@@ -282,17 +286,14 @@ export function MobilePushProvider({ children }: MobilePushProviderProps) {
     } finally {
       setIsSyncing(false);
     }
-  }, [client]);
+  }, [client, installationId]);
 
   useEffect(() => {
     void refreshPermissionStatus();
   }, [refreshPermissionStatus]);
 
   useEffect(() => {
-    if (!accessToken || !installationId || !isAuthHydrated) {
-      return;
-    }
-    if (!notificationPreferencesQuery.isSuccess || notificationPreferencesQuery.data.pushEnabled !== true) {
+    if (!installationId || !isAuthHydrated) {
       return;
     }
 
@@ -304,33 +305,27 @@ export function MobilePushProvider({ children }: MobilePushProviderProps) {
       .finally(() => {
         setIsSyncing(false);
       });
-  }, [
-    accessToken,
-    installationId,
-    isAuthHydrated,
-    notificationPreferencesQuery.data?.pushEnabled,
-    notificationPreferencesQuery.isSuccess,
-    syncCurrentDevice
-  ]);
+  }, [entitlementsQuery.data?.isAdmin, entitlementsQuery.data?.isPaid, installationId, isAuthHydrated, syncCurrentDevice]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
       if (state !== 'active') return;
       void refreshPermissionStatus();
-      if (!accessToken || !notificationPreferencesQuery.data?.pushEnabled) return;
+      if (!installationId) return;
       void syncCurrentDevice(false).catch(() => {});
     });
 
     return () => {
       subscription.remove();
     };
-  }, [accessToken, notificationPreferencesQuery.data?.pushEnabled, refreshPermissionStatus, syncCurrentDevice]);
+  }, [installationId, refreshPermissionStatus, syncCurrentDevice]);
 
   const value = useMemo<MobilePushContextValue>(
     () => ({
       installationId,
+      deviceSecret,
       permissionStatus,
-      isPushEnabled: notificationPreferencesQuery.data?.pushEnabled === true,
+      isPushEnabled: permissionStatus === 'granted' && isRegistered,
       isRegistered,
       isSyncing,
       lastError,
@@ -342,6 +337,7 @@ export function MobilePushProvider({ children }: MobilePushProviderProps) {
       refreshPermissionStatus
     }),
     [
+      deviceSecret,
       disablePushAlerts,
       enablePush,
       installationId,
@@ -349,7 +345,6 @@ export function MobilePushProvider({ children }: MobilePushProviderProps) {
       isSyncing,
       lastError,
       lastTestQueuedAt,
-      notificationPreferencesQuery.data?.pushEnabled,
       permissionStatus,
       refreshPermissionStatus,
       sendTestPush,

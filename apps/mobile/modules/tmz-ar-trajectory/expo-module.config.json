@@ -1,7 +1,9 @@
 {
-  "platforms": ["apple"],
+  "platforms": ["apple", "android"],
   "apple": {
     "modules": ["TmzArTrajectoryModule"]
   },
-  "android": {}
+  "android": {
+    "modules": ["expo.modules.tmzartrajectory.TmzArTrajectoryModule"]
+  }
 }

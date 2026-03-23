@@ -21,6 +21,7 @@ const JOBS = {
   spacex_infographics_ingest: { slug: 'spacex-infographics-ingest' },
   spacex_x_post_snapshot: { slug: 'spacex-x-post-snapshot' },
   launch_social_refresh: { slug: 'launch-social-refresh' },
+  social_posts_dispatch: { slug: 'social-posts-dispatch' },
   launch_social_link_backfill: { slug: 'launch-social-link-backfill' },
 
   ll2_backfill: { slug: 'll2-backfill' },
@@ -66,6 +67,7 @@ const schema = z.object({
     'spacex_infographics_ingest',
     'spacex_x_post_snapshot',
     'launch_social_refresh',
+    'social_posts_dispatch',
     'launch_social_link_backfill',
 
     'll2_backfill',

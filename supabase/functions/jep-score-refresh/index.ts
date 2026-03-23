@@ -2,6 +2,7 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createSupabaseAdminClient } from '../_shared/supabase.ts';
 import { requireJobAuth } from '../_shared/jobAuth.ts';
 import { getSettings, readBooleanSetting, readNumberSetting, readStringArraySetting, readStringSetting } from '../_shared/settings.ts';
+import { computeJepScoreRecord, intervalMinutesForLaunch } from '../../../apps/web/lib/jep/serverShared.ts';
 import {
   combineJepWeatherFactors,
   computeJepCloudObstructionFactor,
@@ -472,49 +473,48 @@ serve(async (req) => {
         }
 
         const intervalMinutes = launchPassedT0 ? 0 : intervalMinutesForLaunch(netMs, nowMs);
-        const expiresAt = launchPassedT0 ? null : new Date(nowMs + intervalMinutes * 60 * 1000).toISOString();
-        const azimuthSource = deriveAzimuthSource(trajectory.product);
-        const timeConfidence = mapTimeConfidence(launch.net_precision);
-        const trajectoryConfidence = mapTrajectoryConfidence(trajectory.confidence_tier);
+        const computeLaunch = {
+          launchId: launch.launch_id,
+          net: launch.net,
+          netPrecision: launch.net_precision,
+          padLat: Number(launch.pad_latitude),
+          padLon: Number(launch.pad_longitude),
+          padCountryCode: launch.pad_country_code
+        };
+        const computeSettings = {
+          modelVersion,
+          weatherCacheMinutes,
+          openMeteoUsModels
+        };
 
         let launchComputed = false;
 
         for (const observer of observersToCompute) {
-          const depressionDeg = solarDepressionDegrees(observer.latDeg, observer.lonDeg, new Date(netMs));
-          const darknessFactor = computeDarknessFactor(depressionDeg);
-          const illumination = computeIlluminationMetrics({
-            samples,
-            events: trajectory.product.events,
-            solarDepressionDeg: depressionDeg
-          });
-          const los = computeLosMetrics({
-            samples,
-            events: trajectory.product.events,
-            solarDepressionDeg: depressionDeg,
-            observerLatDeg: observer.latDeg,
-            observerLonDeg: observer.lonDeg
-          });
-          const illuminationFactor = illumination.factor;
-          const losFactor = los.factor;
-          const samplingPlan = buildWeatherSamplingPlan({
-            samples,
-            observerLatDeg: observer.latDeg,
-            observerLonDeg: observer.lonDeg,
-            solarDepressionDeg: depressionDeg
-          });
-
-          const weather = await resolveWeatherAssessment({
+          const computed = await computeJepScoreRecord({
             supabase,
-            observer,
-            launch,
-            targetMs: netMs,
-            samplingPlan,
-            weatherCache,
-            nwsPointCache,
-            nwsGridCache,
-            weatherCacheMinutes,
-            openMeteoUsModels
+            launch: computeLaunch,
+            observer: {
+              hash: observer.hash,
+              latDeg: observer.latDeg,
+              lonDeg: observer.lonDeg,
+              source: observer.source
+            },
+            trajectory: {
+              version: null,
+              confidenceTier: trajectory.confidence_tier,
+              product: trajectory.product
+            },
+            nowMs,
+            settings: computeSettings,
+            weatherCaches: {
+              weatherCache,
+              nwsPointCache,
+              nwsGridCache
+            },
+            launchPassedT0
           });
+          if (!computed) continue;
+          const weather = computed.weather;
 
           if (weather.openMeteoFetchCount > 0) {
             stats.weatherFetches = Number(stats.weatherFetches || 0) + weather.openMeteoFetchCount;
@@ -524,72 +524,11 @@ serve(async (req) => {
           }
           incrementWeatherSourceStats(stats, weather.primarySource, 'resolved');
 
-          const weatherFactor = weather.weatherFactor;
-          const geometryOnlyFallback = weather.primarySource === 'none' || weather.sourceUsed === 'geometry_only';
-          const score = computeScore(illuminationFactor, darknessFactor, losFactor, weatherFactor);
-          const weatherConfidence = mapWeatherConfidence(weather.fetchedAtMs, nowMs, weather.primarySource);
-          const probability = computeCalibratedProbability({
-            score,
-            illuminationFactor,
-            darknessFactor,
-            losFactor,
-            weatherFactor,
-            timeConfidence,
-            trajectoryConfidence,
-            weatherConfidence
-          });
-          const calibrationBand = deriveCalibrationBand(probability);
-          const weatherFreshnessMin =
-            weather.fetchedAtMs != null && Number.isFinite(weather.fetchedAtMs)
-              ? clampInt((nowMs - weather.fetchedAtMs) / 60000, 0, 60 * 24 * 7)
-              : null;
-          const explainability = buildExplainability({
-            illuminationFactor,
-            darknessFactor,
-            losFactor,
-            weatherFactor,
-            geometryOnlyFallback,
-            observerSource: observer.source,
-            weatherConfidence,
-            trajectoryConfidence,
-            timeConfidence,
-            weatherAssessment: weather
-          });
-
-          const inputPayload = {
-            modelVersion,
-            observerHash: observer.hash,
-            observerLatBucket: round(observer.latDeg, 3),
-            observerLonBucket: round(observer.lonDeg, 3),
-            score,
-            probability: round(probability, 4),
-            calibrationBand,
-            illuminationFactor,
-            darknessFactor,
-            losFactor,
-            weatherFactor,
-            depressionDeg: round(depressionDeg, 3),
-            sunlitMarginKm: illumination.sunlitMarginKm,
-            losVisibleFraction: round(los.visibleFraction, 4),
-            weatherFreshnessMin,
-            cloudCoverTotal: toInt(weather.observer?.totalCloudPct ?? null),
-            cloudCoverLow: toInt(weather.observer?.lowCloudPct ?? null),
-            cloudCoverMid: toInt(weather.observer?.midCloudPct ?? null),
-            cloudCoverHigh: toInt(weather.observer?.highCloudPct ?? null),
-            timeConfidence,
-            trajectoryConfidence,
-            weatherConfidence,
-            weatherSource: weather.primarySource,
-            azimuthSource,
-            geometryOnlyFallback,
-            explainability
-          };
-          const inputHash = await hashPayload(inputPayload);
           const existing = existingScores.get(scoreKey(launch.launch_id, observer.hash));
           if (
             !launchPassedT0 &&
             existing &&
-            existing.input_hash === inputHash &&
+            existing.input_hash === computed.row.input_hash &&
             existing.expires_at &&
             Date.parse(existing.expires_at) > nowMs + intervalMinutes * 30 * 1000
           ) {
@@ -597,55 +536,7 @@ serve(async (req) => {
             continue;
           }
 
-          upserts.push({
-            launch_id: launch.launch_id,
-            observer_location_hash: observer.hash,
-            observer_lat_bucket: round(observer.latDeg, 3),
-            observer_lon_bucket: round(observer.lonDeg, 3),
-            score,
-            probability: round(probability, 4),
-            calibration_band: calibrationBand,
-            illumination_factor: round(illuminationFactor, 3),
-            darkness_factor: round(darknessFactor, 3),
-            los_factor: round(losFactor, 3),
-            sunlit_margin_km: illumination.sunlitMarginKm != null ? round(illumination.sunlitMarginKm, 3) : null,
-            los_visible_fraction: round(los.visibleFraction, 4),
-            weather_factor: round(weatherFactor, 3),
-            weather_freshness_min: weatherFreshnessMin,
-            solar_depression_deg: round(depressionDeg, 3),
-            cloud_cover_pct: toInt(weather.observer?.totalCloudPct ?? null),
-            cloud_cover_low_pct: toInt(weather.observer?.lowCloudPct ?? null),
-            cloud_cover_mid_pct: toInt(weather.observer?.midCloudPct ?? null),
-            cloud_cover_high_pct: toInt(weather.observer?.highCloudPct ?? null),
-            time_confidence: timeConfidence,
-            trajectory_confidence: trajectoryConfidence,
-            weather_confidence: weatherConfidence,
-            weather_source: weather.primarySource,
-            azimuth_source: azimuthSource,
-            geometry_only_fallback: geometryOnlyFallback,
-            explainability: {
-              ...explainability,
-              sunlitMarginKm: illumination.sunlitMarginKm,
-              losVisibleFraction: round(los.visibleFraction, 4),
-              weatherDetails: {
-                sourceUsed: weather.sourceUsed,
-                mainBlocker: weather.mainBlocker,
-                obstructionFactor: weather.obstructionFactor,
-                contrastFactor: weather.contrastFactor,
-                samplingMode: weather.samplingMode,
-                samplingNote: weather.samplingNote,
-                observer: weather.observer,
-                alongPath: weather.alongPath,
-                pad: weather.pad
-              }
-            },
-            model_version: modelVersion,
-            input_hash: inputHash,
-            computed_at: nowIso,
-            expires_at: expiresAt,
-            snapshot_at: launchPassedT0 ? nowIso : null,
-            updated_at: nowIso
-          });
+          upserts.push(computed.row);
           incrementWeatherSourceStats(stats, weather.primarySource, 'upserted');
 
           launchComputed = true;
@@ -919,15 +810,6 @@ function isSnapshotLocked(existing: ScoreRow | undefined) {
   if (!existing) return false;
   const snapshotAt = String(existing.snapshot_at || '').trim();
   return snapshotAt.length > 0;
-}
-
-function intervalMinutesForLaunch(netMs: number, nowMs: number) {
-  const hoursToNet = (netMs - nowMs) / (60 * 60 * 1000);
-  if (hoursToNet <= 1) return 5;
-  if (hoursToNet <= 6) return 15;
-  if (hoursToNet <= 24) return 60;
-  if (hoursToNet <= 24 * 7) return 360;
-  return 1440;
 }
 
 async function resolveWeatherAssessment({

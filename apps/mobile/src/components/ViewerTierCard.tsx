@@ -1,7 +1,7 @@
 import { useRouter, type Href } from 'expo-router';
 import {
-  getViewerFeatureState,
-  getViewerTierCard,
+  getMobileViewerFeatureState,
+  getMobileViewerTierCard,
   type ViewerFeatureKey,
   type ViewerTier
 } from '@tminuszero/domain';
@@ -13,6 +13,7 @@ import {
 
 type ViewerTierCardProps = {
   tier: ViewerTier;
+  isAuthed?: boolean;
   featureKey?: ViewerFeatureKey;
   href?: Href;
   onPress?: () => void;
@@ -30,6 +31,7 @@ function resolveDefaultHref(ctaTarget: 'sign-in' | 'upgrade' | 'manage'): Href {
 
 export function ViewerTierCard({
   tier,
+  isAuthed = false,
   featureKey,
   href,
   onPress,
@@ -38,14 +40,14 @@ export function ViewerTierCard({
   testID
 }: ViewerTierCardProps) {
   const router = useRouter();
-  const tierCard = getViewerTierCard(tier);
-  const featureState = featureKey ? getViewerFeatureState(featureKey, tier) : null;
+  const tierCard = getMobileViewerTierCard(tier, { isAuthed });
+  const featureState = featureKey ? getMobileViewerFeatureState(featureKey, tier, { isAuthed }) : null;
   const title = featureState && !featureState.isAccessible ? featureState.blockedTitle : tierCard.title;
   const description = featureState && !featureState.isAccessible ? featureState.blockedDescription : tierCard.description;
   const actionLabel = featureState && !featureState.isAccessible ? featureState.ctaLabel : tierCard.ctaLabel;
   const ctaTarget = featureState && !featureState.isAccessible ? featureState.ctaTarget : tierCard.ctaTarget;
   const actionHref = href ?? resolveDefaultHref(ctaTarget);
-  const badgeTone = tier === 'premium' ? 'accent' : tier === 'free' ? 'success' : 'warning';
+  const badgeTone = tier === 'premium' ? 'accent' : 'warning';
 
   return (
     <CustomerShellPanel testID={testID} title={title} description={description}>

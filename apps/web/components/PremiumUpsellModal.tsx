@@ -46,7 +46,6 @@ export function PremiumUpsellModal({
   if (!open) return null;
 
   const returnTo = pathname || '/';
-  const signUpHref = buildAuthHref('sign-up', { returnTo, intent: 'upgrade' });
   const signInHref = buildAuthHref('sign-in', { returnTo, intent: 'upgrade' });
   const upgradeHref = buildUpgradeHref({ returnTo: pathname || null });
 
@@ -88,20 +87,14 @@ export function PremiumUpsellModal({
         </div>
 
         <div className="mt-4 flex flex-col gap-2">
-          {isAuthed ? (
-            <Link href={upgradeHref} className="btn w-full rounded-lg px-4 py-2 text-sm" onClick={onClose}>
-              See Premium
+          <Link href={upgradeHref} className="btn w-full rounded-lg px-4 py-2 text-sm" onClick={onClose}>
+            {isAuthed ? 'See Premium' : 'Start Premium'}
+          </Link>
+          {!isAuthed ? (
+            <Link href={signInHref} className="btn-secondary w-full rounded-lg px-4 py-2 text-sm" onClick={onClose}>
+              Sign in to existing account
             </Link>
-          ) : (
-            <>
-              <Link href={signUpHref} className="btn w-full rounded-lg px-4 py-2 text-sm" onClick={onClose}>
-                Create free account
-              </Link>
-              <Link href={signInHref} className="btn-secondary w-full rounded-lg px-4 py-2 text-sm" onClick={onClose}>
-                Sign in
-              </Link>
-            </>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

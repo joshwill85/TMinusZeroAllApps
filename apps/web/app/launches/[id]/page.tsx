@@ -2539,7 +2539,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
                     {dateOnly ? (
                       <span className="rounded-full bg-[rgba(234,240,255,0.05)] px-3 py-1 text-xs font-semibold text-text2">Time TBD</span>
                     ) : (
-                      <Countdown net={launch.net} />
+                      <Countdown net={launch.net} initialNowMs={nowMs} />
                     )}
                   </div>
                   <div className="whitespace-nowrap">
@@ -4352,7 +4352,7 @@ async function LaunchMissionResourcesSection({
         <div>
           <div className="text-xs uppercase tracking-[0.1em] text-text3">Mission resources</div>
           <h2 className="text-xl font-semibold text-text1">Official media & timelines</h2>
-          <p className="text-sm text-text3">Matched SpaceX launch-page assets and outbound media links for this launch.</p>
+          <p className="text-sm text-text3">Matched SpaceX launch-page assets and media references for this launch.</p>
         </div>
         <span className="rounded-full border border-stroke px-3 py-1 text-xs uppercase tracking-[0.08em] text-text3">
           SpaceX content
@@ -4395,21 +4395,16 @@ function LaunchExternalResourceCard({ resource }: { resource: LaunchExternalReso
     ) || null;
 
   return (
-    <a
-      href={resource.url}
-      target="_blank"
-      rel="noreferrer"
-      className="group overflow-hidden rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] transition hover:border-primary"
-    >
+    <article className="group overflow-hidden rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)]">
       {previewUrl ? (
-        <img src={previewUrl} alt={resource.label} className="h-40 w-full object-cover transition group-hover:scale-[1.01]" loading="lazy" decoding="async" />
+        <img src={previewUrl} alt={resource.label} className="h-40 w-full object-cover" loading="lazy" decoding="async" />
       ) : null}
       <div className="p-3">
         <div className="text-[11px] uppercase tracking-[0.08em] text-text3">{formatExternalResourceKind(resource.kind)}</div>
         <div className="mt-1 text-sm font-semibold text-text1">{resource.label}</div>
         <div className="mt-1 text-xs text-text3">{formatLinkHost(resource.url)}</div>
       </div>
-    </a>
+    </article>
   );
 }
 
@@ -6771,16 +6766,32 @@ function buildExternalLinks({
   infoLinks: Array<{ url: string; label: string; meta: string }>;
   vidLinks: Array<{ url: string; label: string; meta: string }>;
 }) {
-  const links = [];
-  if (watch) links.push({ url: watch, label: 'Watch coverage', meta: 'Live/Replay' });
-  if (flightclub) links.push({ url: flightclub, label: 'Trajectory (FlightClub)', meta: 'Trajectory' });
+  const links = new Map<string, { url: string; label: string; meta: string }>();
+  const add = (entry: { url: string; label: string; meta: string }) => {
+    const normalizedUrl = normalizeExternalUrl(entry.url) || entry.url.trim();
+    if (!normalizedUrl) return;
+
+    const existing = links.get(normalizedUrl);
+    if (existing) {
+      if (existing.label === 'Watch coverage' && entry.label) existing.label = entry.label;
+      if (existing.meta === 'Live/Replay' && entry.meta) existing.meta = entry.meta;
+      return;
+    }
+
+    links.set(normalizedUrl, { ...entry, url: normalizedUrl });
+  };
+
+  if (watch) add({ url: watch, label: 'Watch coverage', meta: 'Live/Replay' });
+  if (flightclub) add({ url: flightclub, label: 'Trajectory (FlightClub)', meta: 'Trajectory' });
   if (padMap) {
     const isSatelliteMap = Boolean(padMapLabel && padMapLabel.toLowerCase().includes('satellite'));
-    links.push({ url: padMap, label: padMapLabel || 'Pad map', meta: isSatelliteMap ? 'Satellite' : 'Location' });
+    add({ url: padMap, label: padMapLabel || 'Pad map', meta: isSatelliteMap ? 'Satellite' : 'Location' });
   }
-  if (rocketInfo) links.push({ url: rocketInfo, label: 'Rocket info', meta: 'Vehicle' });
-  if (rocketWiki) links.push({ url: rocketWiki, label: 'Rocket wiki', meta: 'Reference' });
-  return [...links, ...infoLinks, ...vidLinks];
+  if (rocketInfo) add({ url: rocketInfo, label: 'Rocket info', meta: 'Vehicle' });
+  if (rocketWiki) add({ url: rocketWiki, label: 'Rocket wiki', meta: 'Reference' });
+  infoLinks.forEach(add);
+  vidLinks.forEach(add);
+  return [...links.values()];
 }
 
 function buildTimelineNodes(rows: Array<Record<string, any>>, currentLaunch: Launch): TimelineNode[] {

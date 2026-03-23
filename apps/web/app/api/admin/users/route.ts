@@ -272,7 +272,7 @@ async function loadAdminUserBatch(admin: ReturnType<typeof createSupabaseAdminCl
     const { providers, primaryProvider } = extractProviders(user);
     const userMeta = (user.user_metadata || {}) as Record<string, unknown>;
     const role: AdminUserSummary['role'] = profile?.role === 'admin' ? 'admin' : 'user';
-    const status = role === 'admin' ? 'admin' : isPaid ? 'paid' : 'free';
+    const status = role === 'admin' ? 'admin' : isPaid ? 'paid' : 'signed_in';
     const email = profile?.email ?? user.email ?? null;
     const firstName = profile?.first_name ?? (typeof userMeta.first_name === 'string' ? userMeta.first_name : null);
     const lastName = profile?.last_name ?? (typeof userMeta.last_name === 'string' ? userMeta.last_name : null);

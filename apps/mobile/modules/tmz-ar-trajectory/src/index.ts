@@ -47,6 +47,19 @@ function normalizeCapabilities(capabilities: Partial<TmzArTrajectoryCapabilities
     supportsGeoTracking: capabilities.supportsGeoTracking ?? capabilities.geoTrackingSupported === true,
     supportsHighResolutionFrameCapture:
       capabilities.supportsHighResolutionFrameCapture ?? capabilities.highResCaptureSupported === true,
+    supportsZoom: capabilities.supportsZoom === true,
+    minZoomRatio:
+      typeof capabilities.minZoomRatio === 'number' && Number.isFinite(capabilities.minZoomRatio)
+        ? capabilities.minZoomRatio
+        : 1,
+    maxZoomRatio:
+      typeof capabilities.maxZoomRatio === 'number' && Number.isFinite(capabilities.maxZoomRatio)
+        ? capabilities.maxZoomRatio
+        : 1,
+    defaultZoomRatio:
+      typeof capabilities.defaultZoomRatio === 'number' && Number.isFinite(capabilities.defaultZoomRatio)
+        ? capabilities.defaultZoomRatio
+        : 1,
     reason: capabilities.reason ?? (capabilities.isSupported === false ? 'The native AR trajectory module is not available on this device.' : null)
   }
 }
@@ -61,6 +74,10 @@ export async function getCapabilitiesAsync() {
       geoTrackingSupported: false,
       highResCaptureSupported: false,
       preferredWorldAlignment: 'gravity_and_heading',
+      supportsZoom: false,
+      minZoomRatio: 1,
+      maxZoomRatio: 1,
+      defaultZoomRatio: 1,
       reason: 'The native AR trajectory module is not available on this platform.'
     })
   }

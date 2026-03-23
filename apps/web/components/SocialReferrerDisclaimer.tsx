@@ -170,7 +170,7 @@ export function SocialReferrerDisclaimer() {
 
   if (!open) return null;
 
-  const signUpHref = '/auth/sign-up?return_to=%2F';
+  const upgradeHref = '/upgrade?return_to=%2F';
   const sourceLabel = 'X';
 
   return (
@@ -201,13 +201,13 @@ export function SocialReferrerDisclaimer() {
           Since you&apos;re visiting from {sourceLabel}: public (not signed in) data can be up to <span className="font-semibold text-text1">2 hours</span> behind.
         </p>
         <p className="mt-2 text-sm text-text2">
-          Create a free account for <span className="font-semibold text-text1">15-minute</span> refreshes. Premium refreshes every{' '}
+          Sign in when you want account ownership and purchase restore. Premium refreshes every{' '}
           <span className="font-semibold text-text1">15 seconds</span>.
         </p>
 
         <div className="mt-4 flex items-center justify-between gap-3">
-          <Link href={signUpHref} className="btn rounded-lg px-4 py-2 text-sm" onClick={close}>
-            Sign up free
+          <Link href={upgradeHref} className="btn rounded-lg px-4 py-2 text-sm" onClick={close}>
+            View Premium
           </Link>
           <button type="button" className="text-xs text-text3 hover:text-text1" onClick={close}>
             Continue

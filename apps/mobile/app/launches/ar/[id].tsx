@@ -1,7 +1,7 @@
 import { startTransition, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
-import { Platform, Pressable, Text, View } from 'react-native';
+import { AppState, Linking, PermissionsAndroid, Platform, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { ArTelemetrySessionEventV1, TrajectoryPublicV2ResponseV1 } from '@tminuszero/contracts';
 import { EmptyStateCard, ErrorStateCard, LoadingStateCard, SectionCard } from '@/src/components/SectionCard';
@@ -82,10 +82,37 @@ function buildTrajectoryStepSeconds(trajectory: TrajectoryPublicV2ResponseV1) {
   return Number.isFinite(firstStep) && firstStep > 0 ? Math.round(firstStep) : undefined;
 }
 
+function bucketZoomRatio(value: number, supported: boolean) {
+  if (!supported || !Number.isFinite(value) || value <= 0) {
+    return 'unsupported';
+  }
+  if (value < 0.75) return '0.5..0.75';
+  if (value < 1.0) return '0.75..1.0';
+  if (value < 1.5) return '1.0..1.5';
+  if (value < 2.0) return '1.5..2.0';
+  if (value < 2.5) return '2.0..2.5';
+  if (value < 3.0) return '2.5..3.0';
+  return '3.0+';
+}
+
+function normalizePermissionState(
+  value: TmzArTrajectorySessionUpdate['cameraPermission'],
+  fallback: 'granted' | 'denied' | 'prompt' | 'error' = 'granted'
+): 'granted' | 'denied' | 'prompt' | 'error' {
+  if (value === 'denied' || value === 'prompt' || value === 'error') {
+    return value;
+  }
+  if (value === 'granted') {
+    return 'granted';
+  }
+  return fallback;
+}
+
 function buildTelemetryEvent({
   type,
   sessionId,
   launchId,
+  runtimeFamily,
   startedAt,
   nativeUpdate,
   trajectory,
@@ -94,12 +121,21 @@ function buildTelemetryEvent({
   type: ArTelemetrySessionEventV1['type'];
   sessionId: string;
   launchId: string;
+  runtimeFamily: 'ios_native' | 'android_native';
   startedAt: string;
   nativeUpdate: TmzArTrajectorySessionUpdate;
   trajectory: TrajectoryPublicV2ResponseV1;
   endedAt?: string;
 }): ArTelemetrySessionEventV1 {
   const durationMs = endedAt ? Math.max(0, Date.parse(endedAt) - Date.parse(startedAt)) : undefined;
+  const cameraStatus = normalizePermissionState(nativeUpdate.cameraPermission, 'prompt');
+  const motionStatus = normalizePermissionState(nativeUpdate.motionPermission, 'granted');
+  const headingSource = nativeUpdate.headingSource ?? (runtimeFamily === 'ios_native' ? 'arkit_world' : 'unknown');
+  const poseSource = nativeUpdate.poseSource ?? (runtimeFamily === 'ios_native' ? 'arkit_world_tracking' : 'deviceorientation');
+  const poseMode = nativeUpdate.poseMode ?? (runtimeFamily === 'ios_native' ? 'arkit_world_tracking' : 'sensor_fused');
+  const visionBackend = nativeUpdate.visionBackend ?? (runtimeFamily === 'ios_native' ? 'vision_native' : 'none');
+  const headingStatus =
+    headingSource === 'arkit_world' || nativeUpdate.worldAlignment === 'gravity_and_heading' ? 'ok' : 'unknown';
 
   return {
     type,
@@ -109,15 +145,15 @@ function buildTelemetryEvent({
       startedAt,
       ...(endedAt ? { endedAt } : {}),
       ...(typeof durationMs === 'number' ? { durationMs } : {}),
-      runtimeFamily: 'ios_native',
-      cameraStatus: 'granted',
-      motionStatus: 'granted',
-      headingStatus: nativeUpdate.worldAlignment === 'gravity_and_heading' ? 'ok' : 'unknown',
-      headingSource: 'arkit_world',
-      poseSource: 'arkit_world_tracking',
-      poseMode: 'arkit_world_tracking',
+      runtimeFamily,
+      cameraStatus,
+      motionStatus,
+      headingStatus,
+      headingSource,
+      poseSource,
+      poseMode,
       overlayMode: buildOverlayMode(trajectory.qualityState),
-      visionBackend: 'vision_native',
+      visionBackend,
       trackingState: nativeUpdate.trackingState,
       trackingReason: nativeUpdate.trackingReason ?? undefined,
       worldAlignment: nativeUpdate.worldAlignment,
@@ -132,6 +168,12 @@ function buildTelemetryEvent({
       highResCaptureAttempted: nativeUpdate.highResCaptureAttempted,
       highResCaptureSucceeded: nativeUpdate.highResCaptureSucceeded,
       renderLoopRunning: nativeUpdate.renderLoopRunning,
+      zoomSupported: nativeUpdate.zoomSupported,
+      zoomRatioBucket: nativeUpdate.zoomRatioBucket ?? bucketZoomRatio(nativeUpdate.zoomRatio, nativeUpdate.zoomSupported),
+      zoomControlPath: nativeUpdate.zoomControlPath,
+      zoomApplyLatencyBucket: nativeUpdate.zoomApplyLatencyBucket,
+      zoomProjectionSyncLatencyBucket: nativeUpdate.zoomProjectionSyncLatencyBucket,
+      projectionSource: nativeUpdate.projectionSource,
       trajectoryVersion: trajectory.version,
       durationS: buildTrajectoryDurationSeconds(trajectory),
       stepS: buildTrajectoryStepSeconds(trajectory),
@@ -147,6 +189,7 @@ export default function LaunchArTrajectoryScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { theme } = useMobileBootstrap();
+  const runtimeFamily: 'ios_native' | 'android_native' = Platform.OS === 'android' ? 'android_native' : 'ios_native';
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const launchId = getLaunchId(params.id);
   const detailQuery = useLaunchDetailQuery(launchId);
@@ -156,19 +199,29 @@ export default function LaunchArTrajectoryScreen() {
   const [capabilityError, setCapabilityError] = useState<string | null>(null);
   const [nativeError, setNativeError] = useState<string | null>(null);
   const [lastNativeUpdate, setLastNativeUpdate] = useState<TmzArTrajectorySessionUpdate | null>(null);
+  const [zoomTrayOpen, setZoomTrayOpen] = useState(false);
+  const [targetZoomRatio, setTargetZoomRatio] = useState<number | null>(null);
+  const [androidCameraPermission, setAndroidCameraPermission] = useState<'prompt' | 'granted' | 'denied'>(
+    Platform.OS === 'android' ? 'prompt' : 'granted'
+  );
+  const [androidLocationPermission, setAndroidLocationPermission] = useState<'prompt' | 'granted' | 'denied'>(
+    Platform.OS === 'android' ? 'prompt' : 'granted'
+  );
 
   const detail = detailQuery.data ?? null;
   const launch = detail?.launchData ?? detail?.launch ?? null;
   const arTrajectory = detail?.arTrajectory ?? null;
   const canUseArTrajectory = entitlementsQuery.data?.capabilities.canUseArTrajectory ?? false;
-  const isAuthed = entitlementsQuery.data?.isAuthed ?? false;
 
+  const isNativePlatform = Platform.OS === 'ios' || Platform.OS === 'android';
   const canOpenNativeAr =
-    Platform.OS === 'ios' &&
+    isNativePlatform &&
     Boolean(launchId) &&
     canUseArTrajectory &&
     arTrajectory?.eligible === true &&
-    arTrajectory?.hasTrajectory === true;
+    arTrajectory?.hasTrajectory === true &&
+    (Platform.OS !== 'android' || androidCameraPermission === 'granted');
+  const androidLocationStatus = Platform.OS === 'android' ? (lastNativeUpdate?.locationPermission ?? androidLocationPermission) : 'granted';
 
   const trajectoryQuery = useLaunchTrajectoryQuery(launchId, {
     enabled: canOpenNativeAr
@@ -176,6 +229,24 @@ export default function LaunchArTrajectoryScreen() {
 
   const trajectory = trajectoryQuery.data ?? null;
   const trajectoryJson = useMemo(() => (trajectory ? JSON.stringify(trajectory) : null), [trajectory]);
+  const zoomMin = useMemo(() => {
+    const value = lastNativeUpdate?.zoomRangeMin ?? capabilities?.minZoomRatio ?? 1;
+    return Number.isFinite(value) ? value : 1;
+  }, [capabilities?.minZoomRatio, lastNativeUpdate?.zoomRangeMin]);
+  const zoomMax = useMemo(() => {
+    const value = lastNativeUpdate?.zoomRangeMax ?? capabilities?.maxZoomRatio ?? 1;
+    const safeMax = Number.isFinite(value) ? value : 1;
+    return Math.max(zoomMin, safeMax);
+  }, [capabilities?.maxZoomRatio, lastNativeUpdate?.zoomRangeMax, zoomMin]);
+  const zoomEnabled = useMemo(() => {
+    const supported = lastNativeUpdate?.zoomSupported ?? capabilities?.supportsZoom ?? false;
+    return supported && zoomMax > zoomMin + 0.01;
+  }, [capabilities?.supportsZoom, lastNativeUpdate?.zoomSupported, zoomMax, zoomMin]);
+  const zoomRatio = useMemo(() => {
+    const value = lastNativeUpdate?.zoomRatio ?? targetZoomRatio ?? capabilities?.defaultZoomRatio ?? 1;
+    if (!Number.isFinite(value)) return 1;
+    return Math.min(Math.max(value, zoomMin), zoomMax);
+  }, [capabilities?.defaultZoomRatio, lastNativeUpdate?.zoomRatio, targetZoomRatio, zoomMax, zoomMin]);
 
   const sessionIdRef = useRef<string | null>(null);
   const sessionStartedAtRef = useRef<string | null>(null);
@@ -185,8 +256,110 @@ export default function LaunchArTrajectoryScreen() {
   const hasSentStartRef = useRef(false);
   const hasSentEndRef = useRef(false);
 
+  const requestAndroidCameraPermission = useEffectEvent(async () => {
+    if (Platform.OS !== 'android') {
+      return;
+    }
+
+    try {
+      const alreadyGranted = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.CAMERA);
+      if (alreadyGranted) {
+        setAndroidCameraPermission('granted');
+        return;
+      }
+
+      setAndroidCameraPermission('prompt');
+      const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA, {
+        title: 'Camera access required',
+        message: 'Camera access is required for native AR trajectory guidance.',
+        buttonPositive: 'Allow',
+        buttonNegative: 'Not now'
+      });
+      setAndroidCameraPermission(result === PermissionsAndroid.RESULTS.GRANTED ? 'granted' : 'denied');
+    } catch {
+      setAndroidCameraPermission('denied');
+    }
+  });
+
+  const requestAndroidLocationPermission = useEffectEvent(async () => {
+    if (Platform.OS !== 'android') {
+      return;
+    }
+
+    try {
+      const hasFine = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
+      const hasCoarse = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION);
+      if (hasFine || hasCoarse) {
+        setAndroidLocationPermission('granted');
+        return;
+      }
+
+      setAndroidLocationPermission('prompt');
+      const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION, {
+        title: 'Location access recommended',
+        message: 'Location improves trajectory alignment for Android camera guidance.',
+        buttonPositive: 'Allow',
+        buttonNegative: 'Not now'
+      });
+      setAndroidLocationPermission(result === PermissionsAndroid.RESULTS.GRANTED ? 'granted' : 'denied');
+    } catch {
+      setAndroidLocationPermission('denied');
+    }
+  });
+
+  const syncAndroidPermissions = useEffectEvent(async () => {
+    if (Platform.OS !== 'android') {
+      return;
+    }
+
+    try {
+      const [cameraGranted, hasFineLocation, hasCoarseLocation] = await Promise.all([
+        PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.CAMERA),
+        PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION),
+        PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION)
+      ]);
+
+      setAndroidCameraPermission(cameraGranted ? 'granted' : 'denied');
+      setAndroidLocationPermission(hasFineLocation || hasCoarseLocation ? 'granted' : 'denied');
+    } catch {
+      setAndroidCameraPermission('denied');
+      setAndroidLocationPermission('denied');
+    }
+  });
+
   useEffect(() => {
-    if (Platform.OS !== 'ios') {
+    if (Platform.OS !== 'android') {
+      return;
+    }
+
+    void requestAndroidCameraPermission().then(async () => {
+      const cameraGranted = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.CAMERA);
+      if (!cameraGranted) {
+        return;
+      }
+      await requestAndroidLocationPermission();
+    });
+  }, [requestAndroidCameraPermission, requestAndroidLocationPermission]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') {
+      return;
+    }
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active') {
+        return;
+      }
+      void syncAndroidPermissions();
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [syncAndroidPermissions]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'ios' && Platform.OS !== 'android') {
       return;
     }
 
@@ -211,7 +384,23 @@ export default function LaunchArTrajectoryScreen() {
   }, []);
 
   useEffect(() => {
-    if (Platform.OS !== 'ios') {
+    if (!zoomEnabled) {
+      setZoomTrayOpen(false);
+      if (targetZoomRatio != null) {
+        setTargetZoomRatio(null);
+      }
+      return;
+    }
+    if (targetZoomRatio != null) {
+      return;
+    }
+    const initial = capabilities?.defaultZoomRatio ?? zoomMin;
+    const clamped = Math.min(Math.max(initial, zoomMin), zoomMax);
+    setTargetZoomRatio(clamped);
+  }, [capabilities?.defaultZoomRatio, targetZoomRatio, zoomEnabled, zoomMax, zoomMin]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'ios' && Platform.OS !== 'android') {
       return;
     }
 
@@ -245,6 +434,7 @@ export default function LaunchArTrajectoryScreen() {
         type,
         sessionId,
         launchId,
+        runtimeFamily,
         startedAt,
         nativeUpdate,
         trajectory,
@@ -264,7 +454,10 @@ export default function LaunchArTrajectoryScreen() {
         sessionRunning: false,
         trackingState: 'not_available',
         trackingReason: 'session_closed',
-        worldAlignment: 'gravity_and_heading',
+        worldAlignment:
+          runtimeFamily === 'android_native'
+            ? capabilities?.preferredWorldAlignment ?? 'camera'
+            : 'gravity_and_heading',
         worldMappingStatus: 'not_available',
         lidarAvailable: false,
         sceneDepthEnabled: false,
@@ -280,6 +473,18 @@ export default function LaunchArTrajectoryScreen() {
         qualityState: trajectory?.qualityState ?? null,
         sampleCount: trajectory?.tracks.reduce((sum, track) => sum + track.samples.length, 0) ?? 0,
         milestoneCount: trajectory?.milestones.length ?? 0,
+        zoomSupported: false,
+        zoomRatio: 1,
+        zoomRangeMin: 1,
+        zoomRangeMax: 1,
+        zoomControlPath: 'unsupported',
+        projectionSource: 'inferred_fov',
+        zoomRatioBucket: 'unsupported',
+        zoomApplyLatencyBucket: 'unknown',
+        zoomProjectionSyncLatencyBucket: 'unknown',
+        cameraPermission: Platform.OS === 'android' ? androidCameraPermission : 'granted',
+        motionPermission: 'granted',
+        locationPermission: Platform.OS === 'android' ? androidLocationPermission : 'granted',
         lastUpdatedAt: new Date().toISOString()
       } satisfies TmzArTrajectorySessionUpdate);
 
@@ -305,7 +510,9 @@ export default function LaunchArTrajectoryScreen() {
       update.worldMappingStatus,
       update.occlusionMode,
       String(update.relocalizationCount),
-      String(update.renderLoopRunning)
+      String(update.renderLoopRunning),
+      String(update.zoomRatio),
+      update.zoomControlPath
     ].join(':');
     const now = Date.now();
 
@@ -329,6 +536,14 @@ export default function LaunchArTrajectoryScreen() {
     setNativeError(event.nativeEvent.message);
   });
 
+  const handleZoomTo = useEffectEvent((value: number) => {
+    if (!zoomEnabled) {
+      return;
+    }
+    const clamped = Math.min(Math.max(value, zoomMin), zoomMax);
+    setTargetZoomRatio(clamped);
+  });
+
   useEffect(() => {
     if (!canOpenNativeAr) {
       flushTelemetryOnExit();
@@ -345,8 +560,6 @@ export default function LaunchArTrajectoryScreen() {
 
   if (!launchId) {
     content = <EmptyStateCard title="Missing launch id" body="An AR trajectory route was opened without a launch id." />;
-  } else if (Platform.OS !== 'ios') {
-    content = <EmptyStateCard title="iPhone only" body="Native AR trajectory is only available on iPhone builds of the app." />;
   } else if (detailQuery.isPending || entitlementsQuery.isPending) {
     content = <LoadingStateCard title="Loading AR trajectory" body="Checking premium access and launch eligibility." />;
   } else if (detailQuery.isError) {
@@ -359,12 +572,12 @@ export default function LaunchArTrajectoryScreen() {
     content = (
       <SectionCard
         title="Premium required"
-        description="AR trajectory is a premium-only iPhone feature and stays locked until the account has premium access."
+        description="AR trajectory is a premium feature and stays locked until the account has premium access."
       >
         <ArButton
-          label={isAuthed ? 'Open profile' : 'Sign in'}
+          label="Open Premium"
           onPress={() => {
-            router.push((isAuthed ? '/profile' : '/sign-in') as Href);
+            router.push('/profile');
           }}
         />
       </SectionCard>
@@ -373,17 +586,60 @@ export default function LaunchArTrajectoryScreen() {
     content = (
       <EmptyStateCard
         title="Launch not eligible"
-        body="This launch is outside the current AR-eligible program window, so native trajectory guidance is disabled."
+        body="This launch is outside the current AR-eligible program window, so AR trajectory guidance is disabled."
       />
     );
   } else if (!arTrajectory.hasTrajectory) {
-    content = <EmptyStateCard title="Trajectory pending" body="This launch is AR-eligible, but the native trajectory package has not been published yet." />;
+    content = <EmptyStateCard title="Trajectory pending" body="This launch is AR-eligible, but the trajectory package has not been published yet." />;
+  } else if (Platform.OS === 'android' && androidCameraPermission === 'prompt') {
+    content = <LoadingStateCard title="Preparing native AR" body="Requesting camera access for Android native AR trajectory." />;
+  } else if (Platform.OS === 'android' && androidCameraPermission !== 'granted') {
+    content = (
+      <SectionCard
+        title="Camera access required"
+        description="Android native AR trajectory requires camera access."
+        body="You can grant camera permission in app settings and retry native AR."
+      >
+        <View style={{ gap: 10 }}>
+          <ArButton
+            label="Try again"
+            onPress={() => {
+              void requestAndroidCameraPermission();
+            }}
+          />
+          <ArButton
+            label="Open settings"
+            onPress={() => {
+              void Linking.openSettings();
+            }}
+          />
+        </View>
+      </SectionCard>
+    );
+  } else if (Platform.OS !== 'ios' && Platform.OS !== 'android') {
+    content = <EmptyStateCard title="AR unavailable" body="AR trajectory is available on supported iPhone and Android devices." />;
   } else if (capabilityError) {
     content = <ErrorStateCard title="Capability check failed" body={capabilityError} />;
   } else if (!capabilities) {
     content = <LoadingStateCard title="Preparing native AR" body="Reading device capabilities and locking the AR session orientation." />;
   } else if (!capabilities.isSupported) {
-    content = <EmptyStateCard title="Device unsupported" body="This iPhone does not support ARKit world tracking, so the native AR trajectory runtime cannot start." />;
+    content =
+      Platform.OS === 'android' ? (
+        <SectionCard
+          title="Native AR unavailable"
+          description="Native Android AR trajectory is unavailable on this device."
+          body="This device cannot start the native AR runtime. You can continue tracking the launch from the native detail screen."
+        >
+          <ArButton
+            label="Back to launch detail"
+            onPress={() => {
+              router.replace((`/launches/${launchId}`) as Href);
+            }}
+          />
+        </SectionCard>
+      ) : (
+        <EmptyStateCard title="Device unsupported" body="This iPhone does not support ARKit world tracking, so the native AR trajectory runtime cannot start." />
+      );
   } else if (trajectoryQuery.isPending) {
     content = <LoadingStateCard title="Loading trajectory package" body="Fetching the premium trajectory package for this launch." />;
   } else if (trajectoryQuery.isError) {
@@ -408,10 +664,12 @@ export default function LaunchArTrajectoryScreen() {
             style={{ flex: 1 }}
             trajectoryJson={trajectoryJson}
             qualityState={trajectory.qualityState}
-            worldAlignment="gravity_and_heading"
+            worldAlignment={capabilities.preferredWorldAlignment}
             enableSceneDepth
             enableSceneReconstruction
             highResCaptureEnabled={false}
+            enablePinchZoom={zoomEnabled}
+            targetZoomRatio={zoomEnabled ? zoomRatio : undefined}
             showDebugStatistics={false}
             onSessionUpdate={handleNativeSessionUpdate}
             onSessionError={handleNativeSessionError}
@@ -442,7 +700,15 @@ export default function LaunchArTrajectoryScreen() {
             >
               <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{launch?.name ?? 'Launch trajectory'}</Text>
               <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
-                ARKit world tracking with {capabilities.lidarAvailable ? 'LiDAR-aware occlusion' : 'camera-only guidance'} and premium trajectory overlays.
+                {Platform.OS === 'android'
+                  ? androidLocationStatus === 'granted'
+                    ? capabilities.supportsWorldTracking
+                      ? 'Android ARCore world tracking with live zoom-aware premium trajectory overlays.'
+                      : 'Android native camera guidance with live zoom-aware premium trajectory overlays.'
+                    : capabilities.supportsWorldTracking
+                      ? 'Android ARCore tracking is active. Enable location for cleaner launch-site alignment.'
+                      : 'Android native camera guidance is active. Enable location for cleaner launch-site alignment.'
+                  : `ARKit world tracking with ${capabilities.lidarAvailable ? 'LiDAR-aware occlusion' : 'camera-only guidance'} and premium trajectory overlays.`}
               </Text>
             </View>
             <Pressable
@@ -460,20 +726,162 @@ export default function LaunchArTrajectoryScreen() {
               <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Close</Text>
             </Pressable>
           </View>
+          <View
+            pointerEvents="box-none"
+            style={{
+              position: 'absolute',
+              right: 12,
+              bottom: 12,
+              alignItems: 'flex-end',
+              gap: 8
+            }}
+          >
+            <Pressable
+              onPress={() => {
+                if (!zoomEnabled) {
+                  return;
+                }
+                setZoomTrayOpen((prev) => !prev);
+              }}
+              style={({ pressed }) => ({
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: 'rgba(255, 255, 255, 0.14)',
+                backgroundColor: 'rgba(7, 9, 19, 0.86)',
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                opacity: pressed ? 0.86 : 1
+              })}
+            >
+              <Text style={{ color: zoomEnabled ? theme.foreground : theme.muted, fontSize: 12, fontWeight: '700' }}>
+                {zoomEnabled ? `${zoomRatio.toFixed(2)}x` : 'Zoom unavailable'}
+              </Text>
+            </Pressable>
+            {zoomEnabled && zoomTrayOpen && (
+              <View
+                style={{
+                  borderRadius: 16,
+                  borderWidth: 1,
+                  borderColor: 'rgba(255, 255, 255, 0.12)',
+                  backgroundColor: 'rgba(7, 9, 19, 0.9)',
+                  paddingHorizontal: 10,
+                  paddingVertical: 10,
+                  gap: 8,
+                  minWidth: 220
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{ color: theme.muted, fontSize: 10, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>
+                    Zoom
+                  </Text>
+                  <Text style={{ color: theme.foreground, fontSize: 11, fontWeight: '700' }}>{zoomRatio.toFixed(2)}x</Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Pressable
+                    onPress={() => handleZoomTo(zoomRatio - 0.1)}
+                    style={({ pressed }) => ({
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: 'rgba(255, 255, 255, 0.16)',
+                      backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                      width: 32,
+                      height: 32,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      opacity: pressed ? 0.86 : 1
+                    })}
+                  >
+                    <Text style={{ color: theme.foreground, fontSize: 18, fontWeight: '700' }}>−</Text>
+                  </Pressable>
+                  <View style={{ flex: 1 }}>
+                    <View
+                      style={{
+                        height: 5,
+                        borderRadius: 999,
+                        backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                        overflow: 'hidden'
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: `${Math.max(0, Math.min(100, ((zoomRatio - zoomMin) / Math.max(zoomMax - zoomMin, 0.0001)) * 100))}%`,
+                          height: '100%',
+                          backgroundColor: theme.accent
+                        }}
+                      />
+                    </View>
+                  </View>
+                  <Pressable
+                    onPress={() => handleZoomTo(zoomRatio + 0.1)}
+                    style={({ pressed }) => ({
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: 'rgba(255, 255, 255, 0.16)',
+                      backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                      width: 32,
+                      height: 32,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      opacity: pressed ? 0.86 : 1
+                    })}
+                  >
+                    <Text style={{ color: theme.foreground, fontSize: 18, fontWeight: '700' }}>+</Text>
+                  </Pressable>
+                </View>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  {[0.5, 1, 2, 3]
+                    .filter((candidate) => candidate >= zoomMin - 0.01 && candidate <= zoomMax + 0.01)
+                    .map((candidate) => (
+                      <Pressable
+                        key={candidate}
+                        onPress={() => handleZoomTo(candidate)}
+                        style={({ pressed }) => ({
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          borderColor: Math.abs(zoomRatio - candidate) < 0.06 ? 'rgba(34, 211, 238, 0.4)' : 'rgba(255, 255, 255, 0.16)',
+                          backgroundColor:
+                            Math.abs(zoomRatio - candidate) < 0.06 ? 'rgba(34, 211, 238, 0.16)' : 'rgba(255, 255, 255, 0.06)',
+                          paddingHorizontal: 10,
+                          paddingVertical: 6,
+                          opacity: pressed ? 0.86 : 1
+                        })}
+                      >
+                        <Text style={{ color: theme.foreground, fontSize: 11, fontWeight: '700' }}>{candidate.toFixed(candidate < 1 ? 1 : 0)}x</Text>
+                      </Pressable>
+                    ))}
+                </View>
+                <Text style={{ color: theme.muted, fontSize: 10 }}>
+                  Pinch to zoom. Safe range {zoomMin.toFixed(2)}x to {zoomMax.toFixed(2)}x.
+                </Text>
+              </View>
+            )}
+          </View>
         </View>
 
         <SectionCard
           title="Session status"
-          description={nativeError ?? buildSessionDescription(lastNativeUpdate, trajectory)}
+          description={nativeError ?? buildSessionDescription(lastNativeUpdate, trajectory, Platform.OS === 'android')}
           body={trajectory.generatedAt ? `Trajectory package generated ${formatTimestamp(trajectory.generatedAt)}.` : undefined}
           compact
         >
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: Platform.OS === 'android' && androidLocationStatus !== 'granted' ? 10 : 0 }}>
             <StatusChip label={formatQualityLabel(trajectory.qualityState)} accent={trajectory.qualityState === 'precision'} />
             <StatusChip label={`Confidence ${trajectory.confidenceBadge}`} />
             <StatusChip label={lastNativeUpdate?.trackingState ?? 'starting'} />
             <StatusChip label={lastNativeUpdate?.occlusionMode ?? 'none'} />
+            <StatusChip label={zoomEnabled ? `${zoomRatio.toFixed(2)}x` : 'zoom off'} />
+            {Platform.OS === 'android' ? (
+              <StatusChip label={androidLocationStatus === 'granted' ? 'location on' : 'location off'} accent={androidLocationStatus !== 'granted'} />
+            ) : null}
           </View>
+          {Platform.OS === 'android' && androidLocationStatus !== 'granted' ? (
+            <ArButton
+              label="Enable location"
+              onPress={() => {
+                void requestAndroidLocationPermission();
+              }}
+            />
+          ) : null}
         </SectionCard>
 
         <SectionCard title="Launch cues" description="Milestones projected from the premium trajectory package." compact>
@@ -617,7 +1025,8 @@ function formatQualityLabel(qualityState: TrajectoryPublicV2ResponseV1['qualityS
 
 function buildSessionDescription(
   nativeUpdate: TmzArTrajectorySessionUpdate | null,
-  trajectory: TrajectoryPublicV2ResponseV1
+  trajectory: TrajectoryPublicV2ResponseV1,
+  isAndroid: boolean
 ) {
   if (!nativeUpdate) {
     return 'Waiting for the native AR session to emit its first tracking update.';
@@ -631,5 +1040,11 @@ function buildSessionDescription(
     return `${formatQualityLabel(trajectory.qualityState)} guidance is live with ${nativeUpdate.occlusionMode.replace(/_/g, ' ')} occlusion.`;
   }
 
-  return 'Native AR is initializing world tracking and aligning the launch trajectory shell.';
+  if (isAndroid && nativeUpdate.locationPermission && nativeUpdate.locationPermission !== 'granted') {
+    return 'Android camera guidance is running without location alignment. Grant location access for a cleaner sky fit.';
+  }
+
+  return isAndroid
+    ? 'Native AR is initializing Android camera tracking and aligning the launch trajectory shell.'
+    : 'Native AR is initializing ARKit world tracking and aligning the launch trajectory shell.';
 }

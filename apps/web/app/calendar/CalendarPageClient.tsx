@@ -110,22 +110,22 @@ export function CalendarPageClient() {
 
   if (!viewer?.capabilities.canUseLaunchCalendar) {
     const signInHref = buildAuthHref('sign-in', { returnTo, intent: 'upgrade' });
-    const signUpHref = buildAuthHref('sign-up', { returnTo });
+    const upgradeHref = buildUpgradeHref({ returnTo });
 
     return (
       <div className="mx-auto max-w-4xl px-4 py-10 md:px-6">
         <div className="rounded-3xl border border-stroke bg-surface-1 p-6 shadow-glow">
-          <div className="text-xs uppercase tracking-[0.14em] text-text3">Free account</div>
+          <div className="text-xs uppercase tracking-[0.14em] text-text3">Premium</div>
           <h1 className="mt-2 text-3xl font-semibold text-text1">Launch calendar</h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-text2">
-            Sign in to browse the monthly launch calendar, open launch detail, and add one launch at a time to your calendar.
+            This build requires Premium for the full monthly launch calendar. Individual launch pages still let you add one launch at a time to your calendar.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <Link href={signInHref} className="btn rounded-xl px-4 py-2 text-sm">
               Sign in
             </Link>
-            <Link href={signUpHref} className="btn-secondary rounded-xl px-4 py-2 text-sm">
-              Create free account
+            <Link href={upgradeHref} className="btn-secondary rounded-xl px-4 py-2 text-sm">
+              See Premium
             </Link>
           </div>
         </div>

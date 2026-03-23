@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { type QueryClient, useQueryClient } from '@tanstack/react-query';
 import type { AuthProviderV1 } from '@tminuszero/contracts';
-import { buildAuthCallbackHref, buildAuthHref, readAuthIntent, readReturnTo, sanitizeReturnTo } from '@tminuszero/navigation';
+import { buildAuthHref, readAuthIntent, readReturnTo, sanitizeReturnTo } from '@tminuszero/navigation';
 import { sharedQueryKeys } from '@tminuszero/query';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -14,7 +14,6 @@ import { invalidateViewerScopedQueries } from '@/lib/api/queries';
 import { getSharedProfile, updateSharedProfile } from '@/lib/api/webAccountAdapters';
 
 type Status = 'working' | 'error' | 'missing';
-type OAuthProvider = 'google' | 'twitter';
 
 const POST_CONFIRM_NEXT_STORAGE_KEY = 'tmn_auth_post_confirm_next';
 const PENDING_PROFILE_STORAGE_KEY = 'tmn_auth_pending_profile';
@@ -130,38 +129,9 @@ export default function AuthCallbackClient() {
   const [message, setMessage] = useState<string | null>(null);
   const [postAuthNextPath, setPostAuthNextPath] = useState<string>('/');
   const [pkceMissing, setPkceMissing] = useState(false);
-  const [retryingProvider, setRetryingProvider] = useState<OAuthProvider | null>(null);
   const authIntent = readAuthIntent(searchParams);
 
   const signInHref = buildAuthHref('sign-in', { returnTo: postAuthNextPath, intent: authIntent });
-
-  async function retryOAuth(provider: OAuthProvider) {
-    setRetryingProvider(provider);
-    setMessage(null);
-    try {
-      const supabase = getBrowserClient();
-      if (!supabase) throw new Error('Supabase not available.');
-
-      const baseUrl = window.location.origin.replace(/\/+$/, '');
-      const callbackUrl = `${baseUrl}${buildAuthCallbackHref({ returnTo: postAuthNextPath, intent: authIntent })}`;
-      try {
-        window.localStorage.setItem(POST_CONFIRM_NEXT_STORAGE_KEY, postAuthNextPath);
-      } catch {}
-
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider,
-        options: {
-          redirectTo: callbackUrl
-        }
-      });
-      if (error) throw error;
-    } catch (err: any) {
-      setStatus('error');
-      setPkceMissing(true);
-      setMessage(err?.message || 'Unable to continue with OAuth.');
-      setRetryingProvider(null);
-    }
-  }
 
   useEffect(() => {
     let cancelled = false;
@@ -306,24 +276,8 @@ export default function AuthCallbackClient() {
           {pkceMissing ? (
             <div className="space-y-2">
               <p className="text-xs text-text3">
-                Tip: if you’re in an in-app browser, open this page in Safari/Chrome and try again.
+                Tip: if you’re in an in-app browser, open this page in Safari or Chrome and sign in again there.
               </p>
-              <button
-                type="button"
-                className="btn w-full rounded-lg"
-                disabled={retryingProvider != null}
-                onClick={() => retryOAuth('google')}
-              >
-                {retryingProvider === 'google' ? 'Continuing…' : 'Continue with Google'}
-              </button>
-              <button
-                type="button"
-                className="btn-secondary w-full rounded-lg border border-stroke px-4 py-2 text-sm font-semibold text-text1 hover:border-primary disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={retryingProvider != null}
-                onClick={() => retryOAuth('twitter')}
-              >
-                {retryingProvider === 'twitter' ? 'Continuing…' : 'Continue with X'}
-              </button>
               <Link href={signInHref} className="block text-center text-sm text-text2 underline hover:text-text1">
                 Go to sign in
               </Link>

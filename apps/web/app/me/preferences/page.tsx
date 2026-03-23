@@ -128,6 +128,7 @@ export default function PreferencesPage() {
   const canManageBrowserPush = canUseBrowserLaunchAlerts && pushSupported;
   const pushToggleDisabled = form.push_enabled ? false : !canUsePush;
   const alertRules = alertRulesQuery.data?.rules ?? [];
+  const hasStoredAlertRules = alertRules.length > 0;
   const regionUsRule = alertRules.find((rule) => rule.kind === 'region_us') ?? null;
   const stateRules = alertRules.filter((rule) => rule.kind === 'state');
   const advancedAlertRules = alertRules.filter((rule) => rule.kind === 'filter_preset' || rule.kind === 'follow');
@@ -452,8 +453,8 @@ export default function PreferencesPage() {
       <h1 className="text-3xl font-semibold text-text1">Notifications</h1>
       <p className="text-sm text-text2">
         {smsComingSoon
-          ? 'Signed-in accounts can use shared push alerts on mobile devices. Premium adds browser delivery on web. SMS launch alerts are coming soon.'
-          : 'Signed-in accounts can use shared push alerts on mobile devices. Premium adds browser delivery on web plus SMS alerts.'}
+          ? 'Signing in keeps notification settings tied to your account. Premium unlocks launch alerts and browser delivery on web. SMS launch alerts are coming soon.'
+          : 'Signing in keeps notification settings tied to your account. Premium unlocks launch alerts, browser delivery on web, and SMS alerts.'}
       </p>
 
       {status === 'loading' && (
@@ -472,9 +473,9 @@ export default function PreferencesPage() {
           SMS alerts are temporarily unavailable while we finish delivery setup. Push alerts are still available.
         </div>
       )}
-      {status === 'ready' && !canUseBrowserLaunchAlerts && (
+      {status === 'ready' && !canUseBasicAlerts && (
         <div className="mt-4 rounded-xl border border-stroke bg-surface-1 p-3 text-sm text-text2">
-          Free accounts can manage push alerts for signed-in iOS and Android devices. <Link className="text-primary" href="/upgrade">Upgrade</Link> to add browser notifications on web{smsComingSoon ? '.' : ' and SMS alerts.'}
+          Signed-in anon can review stored alert settings, but launch alerts require Premium. <Link className="text-primary" href="/upgrade">Upgrade</Link> to enable push or browser delivery{smsComingSoon ? '.' : ' and SMS alerts.'}
         </div>
       )}
       {message && <div className="mt-3 rounded-xl border border-stroke bg-[rgba(234,240,255,0.04)] p-3 text-sm text-text2">{message}</div>}
@@ -486,14 +487,45 @@ export default function PreferencesPage() {
             <div className="text-xs uppercase tracking-[0.1em] text-text3">Account alert rules</div>
             <p className="mt-1 text-sm text-text2">
               {canUseAdvancedAlertRules
-                ? 'Basic rules deliver to signed-in mobile devices. Premium also supports preset-based and follow-based rules, with browser delivery available on web.'
-                : 'Choose which launches this signed-in account should watch. Free rules deliver to registered iOS and Android devices.'}
+                ? 'Premium alert rules can watch launch scopes, saved presets, and follows, with browser delivery available on web.'
+                : hasStoredAlertRules
+                  ? 'Stored alert rules stay visible on this account, but editing and delivery require Premium.'
+                  : 'Launch alerts are Premium-only. Upgrade to create account-level alert rules.'}
             </p>
 
             {!canUseBasicAlerts ? (
-              <div className="mt-4 rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3 text-sm text-text2">
-                Sign in to manage shared alert rules.
-              </div>
+              alertRulesQuery.isPending ? (
+                <div className="mt-4 rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3 text-sm text-text2">Loading alert rules…</div>
+              ) : alertRulesQuery.isError ? (
+                <div className="mt-4 rounded-xl border border-danger bg-[rgba(251,113,133,0.08)] p-3 text-sm text-danger">
+                  {getErrorMessage(alertRulesQuery.error, 'Unable to load alert rules.')}
+                </div>
+              ) : hasStoredAlertRules ? (
+                <div className="mt-4 space-y-3">
+                  <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3 text-sm text-text2">
+                    Stored alert rules remain visible on this account, but Premium is required to edit, remove, or reactivate them.{' '}
+                    <Link className="text-primary hover:underline" href="/upgrade">
+                      Upgrade
+                    </Link>
+                    .
+                  </div>
+                  <div className="space-y-2">
+                    {alertRules.map((rule) => (
+                      <div key={rule.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-stroke bg-surface-0 px-3 py-2">
+                        <div className="min-w-0">
+                          <div className="text-sm text-text1">{rule.label}</div>
+                          <div className="text-xs text-text3">{formatAlertRuleTypeLabel(rule.kind)}</div>
+                        </div>
+                        <span className="rounded-full border border-stroke px-2 py-1 text-[10px] uppercase tracking-[0.08em] text-text3">Read-only</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3 text-sm text-text2">
+                  Launch alerts are Premium-only. <Link className="text-primary hover:underline" href="/upgrade">Upgrade</Link> to create and manage alert rules.
+                </div>
+              )
             ) : alertRulesQuery.isPending ? (
               <div className="mt-4 rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3 text-sm text-text2">Loading alert rules…</div>
             ) : alertRulesQuery.isError ? (
@@ -638,16 +670,16 @@ export default function PreferencesPage() {
 
           <form className="mt-6 space-y-4 rounded-2xl border border-stroke bg-surface-1 p-4">
             <Toggle
-              label={canUseBrowserLaunchAlerts ? 'Push alerts' : 'Push alerts (browser delivery is Premium)'}
+              label={canUseBrowserLaunchAlerts ? 'Push alerts' : 'Push alerts (Premium)'}
               checked={form.push_enabled}
               onChange={(value) => {
                 if (value && !canUseBasicAlerts) {
-                  setError('Sign in to enable push alerts.');
+                  setError('Upgrade to Premium to enable push alerts.');
                   return;
                 }
                 setForm((current) => ({ ...current, push_enabled: value }));
               }}
-              helper="Shared push preference across your signed-in devices. Premium adds browser delivery on web."
+              helper="Premium unlocks launch alerts. On web, browser delivery also requires subscribing this browser."
               disabled={pushToggleDisabled}
             >
               <div className="mt-2 rounded-lg border border-stroke bg-surface-0 p-3 text-xs text-text3">
@@ -697,7 +729,7 @@ export default function PreferencesPage() {
                   </>
                 ) : (
                   <div>
-                    Free push alerts deliver to your signed-in iOS and Android devices. Upgrade if you want this browser to receive alerts directly.
+                    Launch alerts are Premium-only. Upgrade to enable push delivery across your signed-in devices and browser delivery on web.
                   </div>
                 )}
               </div>
@@ -834,7 +866,7 @@ export default function PreferencesPage() {
               )}
             </Toggle>
             <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3 text-xs text-text3">
-              Per-launch alert controls live on the bell icon. Free push alerts deliver to mobile devices; Premium adds browser delivery here on web.
+              Per-launch alert controls live on the bell icon. Premium activates launch alerts across your signed-in devices and browser delivery here on web.
             </div>
             <Toggle
               label={`Quiet hours (${quietHoursLabel})`}
@@ -957,6 +989,14 @@ function getErrorCode(error: unknown) {
 
 function normalizeAlertRuleToken(value: string) {
   return value.trim().toLowerCase();
+}
+
+function formatAlertRuleTypeLabel(kind: string) {
+  if (kind === 'region_us') return 'All U.S. launches';
+  if (kind === 'state') return 'State rule';
+  if (kind === 'filter_preset') return 'Preset-based Premium rule';
+  if (kind === 'follow') return 'Follow-based Premium rule';
+  return 'Alert rule';
 }
 
 function getErrorMessage(error: unknown, fallback: string) {

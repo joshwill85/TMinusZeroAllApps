@@ -1,8 +1,11 @@
-import { View, Text, Pressable, ScrollView } from 'react-native';
+import { Text, Pressable, ScrollView } from 'react-native';
 import Animated, {
+  type SharedValue,
   useAnimatedStyle,
+  useSharedValue,
   interpolate,
   Extrapolate,
+  withSpring,
 } from 'react-native-reanimated';
 import { ANIMATION_CONSTANTS } from '@tminuszero/launch-animations';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
@@ -15,11 +18,13 @@ export type NavSection = {
 
 type StickyNavPillsProps = {
   sections: NavSection[];
-  scrollY: Animated.SharedValue<number>;
+  scrollY: SharedValue<number>;
   activeSection: string | null;
   onSectionPress: (sectionId: string, offsetY: number) => void;
   offsetTop?: number;
 };
+
+type MobileTheme = ReturnType<typeof useMobileBootstrap>['theme'];
 
 /**
  * Sticky section navigation for mobile
@@ -108,9 +113,9 @@ function NavPill({
   section: NavSection;
   isActive: boolean;
   onPress: () => void;
-  theme: any;
+  theme: MobileTheme;
 }) {
-  const scale = Animated.useSharedValue(1);
+  const scale = useSharedValue(1);
 
   const animatedStyle = useAnimatedStyle(() => {
     'worklet';
@@ -123,13 +128,13 @@ function NavPill({
     <Animated.View style={animatedStyle}>
       <Pressable
         onPressIn={() => {
-          scale.value = Animated.withSpring(0.95, {
+          scale.value = withSpring(0.95, {
             damping: ANIMATION_CONSTANTS.SPRING_DAMPING,
             stiffness: ANIMATION_CONSTANTS.SPRING_STIFFNESS,
           });
         }}
         onPressOut={() => {
-          scale.value = Animated.withSpring(1, {
+          scale.value = withSpring(1, {
             damping: ANIMATION_CONSTANTS.SPRING_DAMPING,
             stiffness: ANIMATION_CONSTANTS.SPRING_STIFFNESS,
           });

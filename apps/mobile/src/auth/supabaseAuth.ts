@@ -11,6 +11,7 @@ import {
   type MobileAuthPasswordSignUpResponseV1,
   type MobileAuthRiskDecisionV1
 } from '@tminuszero/api-client';
+import { captureAppleAuthRevocationPlaceholder, isMobileAppleAuthEnabled } from '@/src/auth/appleAuth';
 import { getApiBaseUrl, getSupabaseAnonKey, getSupabaseUrl } from '@/src/config/api';
 import { collectMobileAuthAttestation } from '@/src/auth/attestation';
 import { getMobileAuthPlatform } from '@/src/auth/authContext';
@@ -113,6 +114,13 @@ function createGuestMobileAuthClient() {
   return createApiClient({
     baseUrl: getApiBaseUrl(),
     auth: { mode: 'guest' }
+  });
+}
+
+function createBearerMobileAuthClient(accessToken: string) {
+  return createApiClient({
+    baseUrl: getApiBaseUrl(),
+    auth: { mode: 'bearer', accessToken }
   });
 }
 
@@ -416,12 +424,6 @@ export function isSupabaseMobileAuthConfigured() {
 }
 
 export function getAvailableOAuthProviders(): MobileOAuthProvider[] {
-  if (Platform.OS === 'ios') {
-    return ['apple'];
-  }
-  if (Platform.OS === 'android') {
-    return ['google'];
-  }
   return [];
 }
 
@@ -464,6 +466,10 @@ export async function completeMobileAuthCallbackUrl(callbackUrl: string): Promis
 }
 
 export async function continueWithOAuthProvider(provider: MobileOAuthProvider): Promise<CompleteMobileAuthResult> {
+  if (provider === 'apple' && !isMobileAppleAuthEnabled()) {
+    throw new Error('Sign in with Apple is not enabled for this build.');
+  }
+
   const redirectTo = getOAuthRedirectUrl(provider);
   const supabase = getMobileSupabaseClient();
   const { data, error } = await supabase.auth.signInWithOAuth({
@@ -492,7 +498,15 @@ export async function continueWithOAuthProvider(provider: MobileOAuthProvider): 
       throw new Error('Authentication did not complete successfully.');
     }
 
-    return completeMobileAuthCallbackUrl(result.url);
+    const completed = await completeMobileAuthCallbackUrl(result.url);
+    if (provider === 'apple') {
+      await captureAppleAuthRevocationPlaceholder({
+        userId: completed.session.userId,
+        email: completed.session.email
+      }).catch(() => undefined);
+    }
+
+    return completed;
   } finally {
     if (Platform.OS === 'android') {
       void WebBrowser.coolDownAsync().catch(() => {});
@@ -514,6 +528,34 @@ export async function signInWithPassword(email: string, password: string): Promi
     session: toMobileAuthSession(payload.session),
     riskSessionId: challenge.riskSessionId
   };
+}
+
+export async function attachPremiumClaimToSession(accessToken: string, claimToken: string) {
+  const normalizedAccessToken = accessToken.trim();
+  const normalizedClaimToken = claimToken.trim();
+  if (!normalizedAccessToken) {
+    throw new Error('A signed-in session is required before Premium can be attached.');
+  }
+  if (!normalizedClaimToken) {
+    throw new Error('Premium claim token is missing.');
+  }
+
+  const client = createBearerMobileAuthClient(normalizedAccessToken);
+  return client.attachPremiumClaim(normalizedClaimToken);
+}
+
+export async function createPremiumAccountFromClaim(claimToken: string, email: string, password: string) {
+  const normalizedClaimToken = claimToken.trim();
+  if (!normalizedClaimToken) {
+    throw new Error('Premium claim token is missing.');
+  }
+
+  const client = createGuestMobileAuthClient();
+  return client.createPremiumAccountFromClaim({
+    claimToken: normalizedClaimToken,
+    email,
+    password
+  });
 }
 
 export async function signUpWithPassword(email: string, password: string, emailRedirectTo: string): Promise<MobilePasswordSignUpResult> {

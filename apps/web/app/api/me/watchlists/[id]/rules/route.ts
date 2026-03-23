@@ -64,43 +64,18 @@ export async function POST(request: Request, { params }: { params: { id: string 
   }
 
   const ruleLimit = viewer.limits.watchlistRuleLimit;
-  const limitScope = viewer.tier === 'free' ? 'total' : 'watchlist';
-  let ruleCount = 0;
+  const limitScope = 'watchlist';
+  const { count, error: countError } = await supabase
+    .from('watchlist_rules')
+    .select('id', { count: 'exact', head: true })
+    .eq('watchlist_id', parsedId.data);
 
-  if (viewer.tier === 'free') {
-    const { data: watchlists, error: watchlistsError } = await supabase.from('watchlists').select('id').eq('user_id', viewer.userId);
-
-    if (watchlistsError) {
-      console.error('watchlists lookup error', watchlistsError);
-      return NextResponse.json({ error: 'failed_to_load' }, { status: 500 });
-    }
-
-    const watchlistIds = (watchlists ?? []).map((entry) => entry.id).filter((value): value is string => typeof value === 'string' && value.length > 0);
-    const scopedWatchlistIds = watchlistIds.length > 0 ? watchlistIds : [parsedId.data];
-    const { count, error: countError } = await supabase
-      .from('watchlist_rules')
-      .select('id', { count: 'exact', head: true })
-      .in('watchlist_id', scopedWatchlistIds);
-
-    if (countError) {
-      console.error('watchlist rules total count error', countError);
-      return NextResponse.json({ error: 'failed_to_load' }, { status: 500 });
-    }
-
-    ruleCount = count ?? 0;
-  } else {
-    const { count, error: countError } = await supabase
-      .from('watchlist_rules')
-      .select('id', { count: 'exact', head: true })
-      .eq('watchlist_id', parsedId.data);
-
-    if (countError) {
-      console.error('watchlist rules count error', countError);
-      return NextResponse.json({ error: 'failed_to_load' }, { status: 500 });
-    }
-
-    ruleCount = count ?? 0;
+  if (countError) {
+    console.error('watchlist rules count error', countError);
+    return NextResponse.json({ error: 'failed_to_load' }, { status: 500 });
   }
+
+  const ruleCount = count ?? 0;
 
   if (ruleCount >= ruleLimit) {
     return NextResponse.json({ error: 'limit_reached', limit: ruleLimit, scope: limitScope }, { status: 409 });

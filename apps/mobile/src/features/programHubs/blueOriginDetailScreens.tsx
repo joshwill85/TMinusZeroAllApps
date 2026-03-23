@@ -1,0 +1,641 @@
+import { useEffect, type ReactNode } from 'react';
+import { Linking, Pressable, Text, View } from 'react-native';
+import { useRouter, type Href } from 'expo-router';
+import type { BlueOriginMissionKeyV1 } from '@tminuszero/api-client';
+import { buildLaunchHref } from '@tminuszero/navigation';
+import {
+  useBlueOriginContractsQuery,
+  useBlueOriginEnginesQuery,
+  useBlueOriginFlightsQuery,
+  useBlueOriginTravelersQuery,
+  useBlueOriginVehiclesQuery
+} from '@/src/api/queries';
+import { AppScreen } from '@/src/components/AppScreen';
+import {
+  CustomerShellHero,
+  CustomerShellMetric,
+  CustomerShellPanel
+} from '@/src/components/CustomerShell';
+import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
+
+const BLUE_ORIGIN_VEHICLE_ENGINES: Record<string, string[]> = {
+  'new-shepard': ['be-3pm'],
+  'new-glenn': ['be-4', 'be-3u'],
+  'blue-moon': ['be-7'],
+  'blue-ring': []
+};
+
+type QueryState<T> = {
+  data: T | undefined;
+  isPending: boolean;
+  isError: boolean;
+  error: Error | null;
+};
+
+export function normalizeBlueOriginFlightParam(value: string | string[] | undefined) {
+  const normalized = normalizeAlphaNumericSlug(takeFirst(value));
+  return normalized || null;
+}
+
+export function normalizeBlueOriginTravelerParam(value: string | string[] | undefined) {
+  const normalized = normalizeAlphaNumericSlug(takeFirst(value));
+  return normalized || null;
+}
+
+export function normalizeBlueOriginVehicleParam(value: string | string[] | undefined) {
+  const normalized = normalizeAlphaNumericSlug(takeFirst(value));
+  if (normalized === 'new-shepard' || normalized === 'new-glenn' || normalized === 'blue-moon' || normalized === 'blue-ring') {
+    return normalized;
+  }
+  return null;
+}
+
+export function normalizeBlueOriginEngineParam(value: string | string[] | undefined) {
+  const normalized = normalizeAlphaNumericSlug(takeFirst(value));
+  if (normalized === 'be-3pm' || normalized === 'be-3u' || normalized === 'be-4' || normalized === 'be-7') {
+    return normalized;
+  }
+  return null;
+}
+
+export function normalizeBlueOriginContractParam(value: string | string[] | undefined) {
+  const normalized = normalizeContractSlug(takeFirst(value));
+  return normalized || null;
+}
+
+export function BlueOriginFlightRouteScreen({ slug }: { slug: string }) {
+  const router = useRouter();
+  const flightsQuery = useBlueOriginFlightsQuery({ mission: 'all' });
+  const flight = flightsQuery.data?.items.find((entry) => entry.flightSlug === slug) ?? null;
+  const launchId = flight?.launchId ?? null;
+
+  useEffect(() => {
+    if (!launchId) return;
+    router.replace(buildLaunchHref(launchId) as Href);
+  }, [launchId, router]);
+
+  return (
+    <AppScreen testID="blue-origin-flight-route-screen">
+      <CustomerShellHero
+        eyebrow="Blue Origin"
+        title={flight ? flight.flightCode.toUpperCase() : 'Flight route'}
+        description="Native resolver for Blue Origin flight slugs. Linked launches hand off into the shared launch-detail screen."
+      />
+      {renderQueryState(flightsQuery, {
+        emptyTitle: 'Flight unavailable',
+        emptyDescription: 'The requested Blue Origin flight record is not available on mobile.',
+        render: () => {
+          if (!flight) {
+            return <CustomerShellPanel title="Flight unavailable" description="The requested Blue Origin flight record is not available on mobile." />;
+          }
+
+          if (launchId) {
+            return (
+              <CustomerShellPanel
+                title="Routing to launch detail"
+                description={`${flight.flightCode.toUpperCase()} is linked to a launch. Mobile is handing off to the native launch-detail screen.`}
+              />
+            );
+          }
+
+          return (
+            <>
+              <MetricsPanel
+                title="Flight record"
+                metrics={[
+                  { label: 'Mission', value: flight.missionLabel },
+                  { label: 'Status', value: flight.status || 'Pending' }
+                ]}
+              />
+              <CustomerShellPanel title="Snapshot" description="This flight record does not currently have a linked launch detail payload.">
+                <DetailRow
+                  title={flight.flightCode.toUpperCase()}
+                  body={[flight.launchName, flight.launchDate ? formatDate(flight.launchDate) : null, flight.status].filter(Boolean).join(' • ') || 'Flight record'}
+                  meta={flight.officialMissionUrl ? 'Official mission link' : null}
+                  onPress={flight.officialMissionUrl ? () => void Linking.openURL(flight.officialMissionUrl || '') : undefined}
+                />
+              </CustomerShellPanel>
+            </>
+          );
+        }
+      })}
+    </AppScreen>
+  );
+}
+
+export function BlueOriginTravelerDetailScreen({ slug }: { slug: string }) {
+  const router = useRouter();
+  const travelersQuery = useBlueOriginTravelersQuery();
+  const traveler = travelersQuery.data?.items.find((entry) => entry.travelerSlug === slug) ?? null;
+
+  return (
+    <AppScreen testID="blue-origin-traveler-detail-screen">
+      <CustomerShellHero
+        eyebrow="Blue Origin Traveler"
+        title={traveler?.name || 'Traveler profile'}
+        description="Native traveler profile backed by the shared Blue Origin traveler index."
+      />
+      {renderQueryState(travelersQuery, {
+        emptyTitle: 'Traveler unavailable',
+        emptyDescription: 'The requested Blue Origin traveler profile is not available on mobile.',
+        render: () => {
+          if (!traveler) {
+            return <CustomerShellPanel title="Traveler unavailable" description="The requested Blue Origin traveler profile is not available on mobile." />;
+          }
+
+          return (
+            <>
+              <MetricsPanel
+                title="Profile snapshot"
+                metrics={[
+                  { label: 'Flights', value: String(traveler.flightCount) },
+                  { label: 'Launches', value: String(traveler.launchCount) },
+                  { label: 'Confidence', value: titleCase(traveler.confidence) }
+                ]}
+              />
+
+              <CustomerShellPanel title="Summary" description="Traveler summary from the shared Blue Origin directory.">
+                <View style={{ gap: 10 }}>
+                  <DetailRow
+                    title={traveler.roles.length ? traveler.roles.join(' • ') : 'Crew profile'}
+                    body={
+                      [
+                        traveler.nationalities.length ? traveler.nationalities.join(' • ') : null,
+                        traveler.latestFlightCode ? traveler.latestFlightCode.toUpperCase() : null,
+                        traveler.latestLaunchDate ? formatDate(traveler.latestLaunchDate) : null
+                      ]
+                        .filter(Boolean)
+                        .join(' • ') || 'No additional traveler metadata is currently available.'
+                    }
+                  />
+                  {traveler.latestLaunchHref ? (
+                    <DetailRow
+                      title={traveler.latestLaunchName || 'Latest linked launch'}
+                      body={traveler.latestLaunchDate ? formatDate(traveler.latestLaunchDate) : 'Open the linked native launch detail screen.'}
+                      meta="Open launch detail"
+                      onPress={() => router.push(traveler.latestLaunchHref as Href)}
+                    />
+                  ) : null}
+                </View>
+              </CustomerShellPanel>
+            </>
+          );
+        }
+      })}
+    </AppScreen>
+  );
+}
+
+export function BlueOriginVehicleDetailScreen({ slug }: { slug: string }) {
+  const router = useRouter();
+  const vehiclesQuery = useBlueOriginVehiclesQuery({ mission: 'all' });
+  const enginesQuery = useBlueOriginEnginesQuery({ mission: 'all' });
+  const flightsQuery = useBlueOriginFlightsQuery({ mission: 'all' });
+  const vehicle = vehiclesQuery.data?.items.find((entry) => entry.vehicleSlug === slug) ?? null;
+  const relatedEngineSlugs = vehicle ? BLUE_ORIGIN_VEHICLE_ENGINES[vehicle.vehicleSlug] || [] : [];
+  const relatedEngines = (enginesQuery.data?.items ?? []).filter((entry) => relatedEngineSlugs.includes(entry.engineSlug));
+  const relatedFlights = vehicle
+    ? (flightsQuery.data?.items ?? []).filter((entry) => entry.missionKey === vehicle.missionKey).slice(0, 8)
+    : [];
+
+  return (
+    <AppScreen testID="blue-origin-vehicle-detail-screen">
+      <CustomerShellHero
+        eyebrow="Blue Origin Vehicle"
+        title={vehicle?.displayName || 'Vehicle profile'}
+        description="Native vehicle profile backed by the shared Blue Origin entity index."
+      />
+      {renderQueryState(vehiclesQuery, {
+        emptyTitle: 'Vehicle unavailable',
+        emptyDescription: 'The requested Blue Origin vehicle profile is not available on mobile.',
+        render: () => {
+          if (!vehicle) {
+            return <CustomerShellPanel title="Vehicle unavailable" description="The requested Blue Origin vehicle profile is not available on mobile." />;
+          }
+
+          return (
+            <>
+              <MetricsPanel
+                title="Vehicle status"
+                metrics={[
+                  { label: 'Mission', value: missionLabel(vehicle.missionKey) },
+                  { label: 'Status', value: vehicle.status || 'Pending' },
+                  { label: 'First flight', value: vehicle.firstFlight ? formatDate(vehicle.firstFlight) : 'TBD' }
+                ]}
+              />
+
+              <CustomerShellPanel title="Profile summary" description="Mission route and official source links for this vehicle.">
+                <View style={{ gap: 10 }}>
+                  <DetailRow
+                    title={vehicle.displayName}
+                    body={vehicle.description || [vehicle.vehicleClass, vehicle.status].filter(Boolean).join(' • ') || 'Vehicle profile'}
+                  />
+                  <DetailRow
+                    title={`${missionLabel(vehicle.missionKey)} mission hub`}
+                    body="Open the native Blue Origin mission route for this vehicle family."
+                    meta="Open mission hub"
+                    onPress={() => router.push(buildMissionHref(vehicle.missionKey) as Href)}
+                  />
+                  {vehicle.officialUrl ? (
+                    <DetailRow
+                      title="Official vehicle page"
+                      body={vehicle.officialUrl}
+                      meta="Open source"
+                      onPress={() => void Linking.openURL(vehicle.officialUrl || '')}
+                    />
+                  ) : null}
+                </View>
+              </CustomerShellPanel>
+
+              <CustomerShellPanel title="Linked engines" description={`${relatedEngines.length} linked engine record${relatedEngines.length === 1 ? '' : 's'} available.`}>
+                <View style={{ gap: 10 }}>
+                  {relatedEngines.length ? (
+                    relatedEngines.map((engine) => (
+                      <DetailRow
+                        key={engine.id}
+                        title={engine.displayName}
+                        body={[engine.cycle, engine.propellants, engine.status].filter(Boolean).join(' • ') || 'Engine profile'}
+                        meta="Open engine profile"
+                        onPress={() => router.push(`/blue-origin/engines/${engine.engineSlug}` as Href)}
+                      />
+                    ))
+                  ) : (
+                    <TextBlock value="No linked engine records are currently available on mobile." />
+                  )}
+                </View>
+              </CustomerShellPanel>
+
+              <CustomerShellPanel title="Related flights" description={`${relatedFlights.length} mission-linked flight record${relatedFlights.length === 1 ? '' : 's'} available.`}>
+                <View style={{ gap: 10 }}>
+                  {relatedFlights.length ? (
+                    relatedFlights.map((flight) => (
+                      <DetailRow
+                        key={flight.id}
+                        title={flight.flightCode.toUpperCase()}
+                        body={[flight.launchName, flight.launchDate ? formatDate(flight.launchDate) : null, flight.status].filter(Boolean).join(' • ') || 'Flight record'}
+                        meta="Open flight route"
+                        onPress={() => router.push(`/blue-origin/flights/${flight.flightSlug}` as Href)}
+                      />
+                    ))
+                  ) : (
+                    <TextBlock value="No mission-linked flight records are currently available on mobile." />
+                  )}
+                </View>
+              </CustomerShellPanel>
+            </>
+          );
+        }
+      })}
+    </AppScreen>
+  );
+}
+
+export function BlueOriginEngineDetailScreen({ slug }: { slug: string }) {
+  const router = useRouter();
+  const enginesQuery = useBlueOriginEnginesQuery({ mission: 'all' });
+  const vehiclesQuery = useBlueOriginVehiclesQuery({ mission: 'all' });
+  const flightsQuery = useBlueOriginFlightsQuery({ mission: 'all' });
+  const contractsQuery = useBlueOriginContractsQuery({ mission: 'all' });
+  const engine = enginesQuery.data?.items.find((entry) => entry.engineSlug === slug) ?? null;
+  const relatedVehicles = engine
+    ? (vehiclesQuery.data?.items ?? []).filter((entry) => (BLUE_ORIGIN_VEHICLE_ENGINES[entry.vehicleSlug] || []).includes(engine.engineSlug))
+    : [];
+  const relatedFlights = engine
+    ? (flightsQuery.data?.items ?? []).filter((entry) => entry.missionKey === engine.missionKey).slice(0, 8)
+    : [];
+  const relatedContracts = engine
+    ? (contractsQuery.data?.items ?? []).filter((entry) => entry.missionKey === engine.missionKey).slice(0, 8)
+    : [];
+
+  return (
+    <AppScreen testID="blue-origin-engine-detail-screen">
+      <CustomerShellHero
+        eyebrow="Blue Origin Engine"
+        title={engine?.displayName || 'Engine profile'}
+        description="Native engine profile backed by the shared Blue Origin entity index."
+      />
+      {renderQueryState(enginesQuery, {
+        emptyTitle: 'Engine unavailable',
+        emptyDescription: 'The requested Blue Origin engine profile is not available on mobile.',
+        render: () => {
+          if (!engine) {
+            return <CustomerShellPanel title="Engine unavailable" description="The requested Blue Origin engine profile is not available on mobile." />;
+          }
+
+          return (
+            <>
+              <MetricsPanel
+                title="Engine status"
+                metrics={[
+                  { label: 'Mission', value: missionLabel(engine.missionKey) },
+                  { label: 'Cycle', value: engine.cycle || 'N/A' },
+                  { label: 'Status', value: engine.status || 'Pending' }
+                ]}
+              />
+
+              <CustomerShellPanel title="Profile summary" description="Mission route and official source links for this engine.">
+                <View style={{ gap: 10 }}>
+                  <DetailRow
+                    title={engine.displayName}
+                    body={engine.description || [engine.propellants, engine.status].filter(Boolean).join(' • ') || 'Engine profile'}
+                  />
+                  <DetailRow
+                    title={`${missionLabel(engine.missionKey)} mission hub`}
+                    body="Open the native Blue Origin mission route for this engine family."
+                    meta="Open mission hub"
+                    onPress={() => router.push(buildMissionHref(engine.missionKey) as Href)}
+                  />
+                  {engine.officialUrl ? (
+                    <DetailRow
+                      title="Official engine page"
+                      body={engine.officialUrl}
+                      meta="Open source"
+                      onPress={() => void Linking.openURL(engine.officialUrl || '')}
+                    />
+                  ) : null}
+                </View>
+              </CustomerShellPanel>
+
+              <CustomerShellPanel title="Linked vehicles" description={`${relatedVehicles.length} linked vehicle record${relatedVehicles.length === 1 ? '' : 's'} available.`}>
+                <View style={{ gap: 10 }}>
+                  {relatedVehicles.length ? (
+                    relatedVehicles.map((vehicle) => (
+                      <DetailRow
+                        key={vehicle.id}
+                        title={vehicle.displayName}
+                        body={[vehicle.vehicleClass, vehicle.status, vehicle.firstFlight ? formatDate(vehicle.firstFlight) : null].filter(Boolean).join(' • ') || 'Vehicle profile'}
+                        meta="Open vehicle profile"
+                        onPress={() => router.push(`/blue-origin/vehicles/${vehicle.vehicleSlug}` as Href)}
+                      />
+                    ))
+                  ) : (
+                    <TextBlock value="No linked vehicle records are currently available on mobile." />
+                  )}
+                </View>
+              </CustomerShellPanel>
+
+              <CustomerShellPanel title="Related mission records" description="Flights and contracts sharing this engine mission family.">
+                <View style={{ gap: 10 }}>
+                  {relatedFlights.map((flight) => (
+                    <DetailRow
+                      key={flight.id}
+                      title={flight.flightCode.toUpperCase()}
+                      body={[flight.launchName, flight.launchDate ? formatDate(flight.launchDate) : null, flight.status].filter(Boolean).join(' • ') || 'Flight record'}
+                      meta="Open flight route"
+                      onPress={() => router.push(`/blue-origin/flights/${flight.flightSlug}` as Href)}
+                    />
+                  ))}
+                  {relatedContracts.map((contract) => (
+                    <DetailRow
+                      key={contract.id}
+                      title={contract.title}
+                      body={[contract.agency || contract.customer || 'Public record', contract.awardedOn ? formatDate(contract.awardedOn) : null, contract.status].filter(Boolean).join(' • ') || 'Contract record'}
+                      meta="Open contract detail"
+                      onPress={() => router.push(buildContractHref(contract.contractKey) as Href)}
+                    />
+                  ))}
+                  {relatedFlights.length === 0 && relatedContracts.length === 0 ? (
+                    <TextBlock value="No related mission records are currently available on mobile." />
+                  ) : null}
+                </View>
+              </CustomerShellPanel>
+            </>
+          );
+        }
+      })}
+    </AppScreen>
+  );
+}
+
+export function BlueOriginContractDetailScreen({ slug }: { slug: string }) {
+  const router = useRouter();
+  const contractsQuery = useBlueOriginContractsQuery({ mission: 'all' });
+  const flightsQuery = useBlueOriginFlightsQuery({ mission: 'all' });
+  const contract =
+    contractsQuery.data?.items.find((entry) => normalizeContractSlug(entry.contractKey) === slug) ?? null;
+  const relatedFlights = contract
+    ? (flightsQuery.data?.items ?? []).filter((entry) => entry.missionKey === contract.missionKey).slice(0, 8)
+    : [];
+
+  return (
+    <AppScreen testID="blue-origin-contract-detail-screen">
+      <CustomerShellHero
+        eyebrow="Blue Origin Contract"
+        title={contract?.title || 'Contract detail'}
+        description="Native contract detail backed by the shared Blue Origin contracts index."
+      />
+      {renderQueryState(contractsQuery, {
+        emptyTitle: 'Contract unavailable',
+        emptyDescription: 'The requested Blue Origin contract record is not available on mobile.',
+        render: () => {
+          if (!contract) {
+            return <CustomerShellPanel title="Contract unavailable" description="The requested Blue Origin contract record is not available on mobile." />;
+          }
+
+          return (
+            <>
+              <MetricsPanel
+                title="Award profile"
+                metrics={[
+                  { label: 'Mission', value: missionLabel(contract.missionKey) },
+                  { label: 'Status', value: contract.status || 'Pending' },
+                  { label: 'Awarded', value: contract.awardedOn ? formatDate(contract.awardedOn) : 'TBD' }
+                ]}
+              />
+
+              <CustomerShellPanel title="Contract summary" description="Public contract fields available in the shared mobile payload.">
+                <View style={{ gap: 10 }}>
+                  <DetailRow
+                    title={contract.contractKey}
+                    body={contract.description || [contract.agency || contract.customer || 'Public record', contract.status].filter(Boolean).join(' • ') || 'Contract record'}
+                  />
+                  <DetailRow
+                    title={`${missionLabel(contract.missionKey)} mission hub`}
+                    body="Open the native Blue Origin mission route linked to this contract."
+                    meta="Open mission hub"
+                    onPress={() => router.push(buildMissionHref(contract.missionKey) as Href)}
+                  />
+                  {contract.sourceUrl ? (
+                    <DetailRow
+                      title={contract.sourceLabel || 'Source record'}
+                      body={contract.sourceUrl}
+                      meta="Open source"
+                      onPress={() => void Linking.openURL(contract.sourceUrl || '')}
+                    />
+                  ) : null}
+                  {typeof contract.amount === 'number' ? (
+                    <DetailRow title="Amount" body={formatCurrency(contract.amount)} />
+                  ) : null}
+                </View>
+              </CustomerShellPanel>
+
+              <CustomerShellPanel title="Related flights" description={`${relatedFlights.length} mission-linked flight record${relatedFlights.length === 1 ? '' : 's'} available.`}>
+                <View style={{ gap: 10 }}>
+                  {relatedFlights.length ? (
+                    relatedFlights.map((flight) => (
+                      <DetailRow
+                        key={flight.id}
+                        title={flight.flightCode.toUpperCase()}
+                        body={[flight.launchName, flight.launchDate ? formatDate(flight.launchDate) : null, flight.status].filter(Boolean).join(' • ') || 'Flight record'}
+                        meta="Open flight route"
+                        onPress={() => router.push(`/blue-origin/flights/${flight.flightSlug}` as Href)}
+                      />
+                    ))
+                  ) : (
+                    <TextBlock value="No mission-linked flight records are currently available on mobile." />
+                  )}
+                </View>
+              </CustomerShellPanel>
+            </>
+          );
+        }
+      })}
+    </AppScreen>
+  );
+}
+
+function renderQueryState<T>(
+  query: QueryState<T>,
+  options: {
+    emptyTitle: string;
+    emptyDescription: string;
+    render: (payload: T) => ReactNode;
+  }
+) {
+  if (query.isPending) {
+    return <CustomerShellPanel title="Loading" description="Fetching the latest Blue Origin payload." />;
+  }
+
+  if (query.isError) {
+    return <CustomerShellPanel title="Unavailable" description={query.error?.message || 'Unable to load the Blue Origin payload.'} />;
+  }
+
+  if (!query.data) {
+    return <CustomerShellPanel title={options.emptyTitle} description={options.emptyDescription} />;
+  }
+
+  return options.render(query.data);
+}
+
+function MetricsPanel({
+  title,
+  metrics
+}: {
+  title: string;
+  metrics: Array<{ label: string; value: string }>;
+}) {
+  return (
+    <CustomerShellPanel title={title} description="Snapshot fields available in the current native payload.">
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+        {metrics.map((metric) => (
+          <CustomerShellMetric key={metric.label} label={metric.label} value={metric.value} />
+        ))}
+      </View>
+    </CustomerShellPanel>
+  );
+}
+
+function DetailRow({
+  title,
+  body,
+  meta,
+  onPress
+}: {
+  title: string;
+  body: string;
+  meta?: string | null;
+  onPress?: (() => void) | undefined;
+}) {
+  const { theme } = useMobileBootstrap();
+
+  return (
+    <Pressable
+      disabled={!onPress}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        gap: 6,
+        borderRadius: 18,
+        borderWidth: 1,
+        borderColor: theme.stroke,
+        backgroundColor: pressed && onPress ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.03)',
+        paddingHorizontal: 14,
+        paddingVertical: 14,
+        opacity: onPress ? 1 : 0.96
+      })}
+    >
+      <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{title}</Text>
+      {body ? <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>{body}</Text> : null}
+      {meta ? <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>{meta}</Text> : null}
+    </Pressable>
+  );
+}
+
+function TextBlock({ value }: { value: string }) {
+  const { theme } = useMobileBootstrap();
+  return <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>{value}</Text>;
+}
+
+function takeFirst(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] || '' : value || '';
+}
+
+function normalizeAlphaNumericSlug(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-+/g, '-');
+}
+
+function normalizeContractSlug(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-+/g, '-')
+    .slice(0, 128);
+}
+
+function missionLabel(mission: BlueOriginMissionKeyV1) {
+  if (mission === 'new-shepard') return 'New Shepard';
+  if (mission === 'new-glenn') return 'New Glenn';
+  if (mission === 'blue-moon') return 'Blue Moon';
+  if (mission === 'blue-ring') return 'Blue Ring';
+  if (mission === 'be-4') return 'BE-4';
+  return 'Blue Origin';
+}
+
+function buildMissionHref(mission: BlueOriginMissionKeyV1) {
+  return mission === 'blue-origin-program' ? '/blue-origin' : `/blue-origin/missions/${mission}`;
+}
+
+function buildContractHref(contractKey: string) {
+  return `/blue-origin/contracts/${normalizeContractSlug(contractKey)}`;
+}
+
+function formatDate(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return parsed.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0
+  }).format(value);
+}
+
+function titleCase(value: string) {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}

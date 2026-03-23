@@ -163,6 +163,12 @@ export async function POST(request: Request) {
     hfov_bucket: p.hfovBucket,
     vfov_bucket: p.vfovBucket,
     fov_source: p.fovSource,
+    zoom_supported: p.zoomSupported,
+    zoom_ratio_bucket: p.zoomRatioBucket,
+    zoom_control_path: p.zoomControlPath,
+    zoom_apply_latency_bucket: p.zoomApplyLatencyBucket,
+    zoom_projection_sync_latency_bucket: p.zoomProjectionSyncLatencyBucket,
+    projection_source: p.projectionSource,
 
     trajectory_quality: p.tier,
     trajectory_version: p.trajectoryVersion,

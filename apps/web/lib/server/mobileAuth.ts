@@ -622,36 +622,9 @@ export async function signInMobilePassword(request: Request) {
 }
 
 export async function signUpMobilePassword(request: Request) {
-  assertMobileAuthConfigured();
   const parsedBody = mobileAuthPasswordSignUpSchemaV1.parse(await request.json().catch(() => undefined));
-  const captchaToken = await consumeChallengeCode(parsedBody.riskSessionId, 'sign_up', parsedBody.challengeCode);
-  const supabase = createSupabasePublicClient();
-  const { data, error } = await supabase.auth.signUp({
-    email: normalizeEmail(parsedBody.email),
-    password: parsedBody.password,
-    options: {
-      emailRedirectTo: parsedBody.emailRedirectTo,
-      captchaToken
-    }
-  });
-
-  if (error) {
-    const code = normalizeSupabaseErrorCode(error);
-    await finalizeRiskSession(parsedBody.riskSessionId, 'failed', code);
-    throw new MobileAuthRouteError(error.status || 400, code, error.message || 'Unable to create the account.');
-  }
-
-  await finalizeRiskSession(
-    parsedBody.riskSessionId,
-    'success',
-    data.session ? 'ok' : 'verification_required',
-    data.user?.id ?? null
-  );
-  return mobileAuthPasswordSignUpResponseSchemaV1.parse({
-    session: data.session ? mapSupabaseSession(data.session) : null,
-    user: mapSupabaseUser(data.user ?? null),
-    requiresVerification: !data.session
-  });
+  await finalizeRiskSession(parsedBody.riskSessionId, 'failed', 'premium_claim_required');
+  throw new MobileAuthRouteError(403, 'premium_claim_required', 'Premium purchase verification is required before creating a new account.');
 }
 
 export async function resendMobilePasswordVerification(request: Request) {

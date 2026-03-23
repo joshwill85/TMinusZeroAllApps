@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Suspense } from 'react';
-import { buildAuthHref, readAuthIntent, readReturnTo } from '@tminuszero/navigation';
+import { readAuthIntent, readReturnTo } from '@tminuszero/navigation';
 import { AuthForm } from '@/components/AuthForm';
 import { BRAND_NAME } from '@/lib/brand';
 
@@ -14,7 +14,7 @@ export const metadata: Metadata = {
 export default function SignInPage({
   searchParams
 }: {
-  searchParams?: { next?: string | string[]; return_to?: string | string[]; intent?: string | string[] };
+  searchParams?: { next?: string | string[]; return_to?: string | string[]; intent?: string | string[]; claim_token?: string | string[] };
 }) {
   const reader = {
     get(key: string) {
@@ -23,27 +23,36 @@ export default function SignInPage({
       return Array.isArray(value) ? value[0] || null : null;
     }
   };
-  const signUpHref = buildAuthHref('sign-up', {
-    returnTo: readReturnTo(reader),
-    intent: readAuthIntent(reader)
-  });
+  const returnTo = readReturnTo(reader);
+  const authIntent = readAuthIntent(reader);
+  const claimToken = reader.get('claim_token');
+  const signUpHref =
+    claimToken && claimToken.trim()
+      ? `/auth/sign-up?${new URLSearchParams({
+          claim_token: claimToken,
+          return_to: returnTo,
+          ...(authIntent ? { intent: authIntent } : {})
+        }).toString()}`
+      : null;
 
   return (
     <div className="space-y-4">
       <div>
         <p className="text-xs uppercase tracking-[0.1em] text-text3">Auth</p>
         <h1 className="text-3xl font-semibold text-text1">Sign in</h1>
-        <p className="text-sm text-text2">Access your account and notifications.</p>
+        <p className="text-sm text-text2">Access your account for ownership, recovery, billing, and Premium attach flows.</p>
       </div>
       <Suspense fallback={<div className="text-sm text-text3">Loading sign-in…</div>}>
-        <AuthForm mode="sign-in" />
+        <AuthForm mode="sign-in" claimToken={claimToken} />
       </Suspense>
-      <p className="text-sm text-text3">
-        Don&apos;t have an account?{' '}
-        <Link href={signUpHref} className="text-primary">
-          Sign up
-        </Link>
-      </p>
+      {signUpHref ? (
+        <p className="text-sm text-text3">
+          Need an account for this Premium purchase?{' '}
+          <Link href={signUpHref} className="text-primary">
+            Create one to claim Premium
+          </Link>
+        </p>
+      ) : null}
     </div>
   );
 }

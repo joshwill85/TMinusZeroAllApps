@@ -21,6 +21,7 @@ const bodySchema = z.object({
     startedAt: z.string().datetime(),
     endedAt: z.string().datetime().optional(),
     durationMs: z.number().int().nonnegative().optional(),
+    runtimeFamily: z.enum(['web', 'ios_native', 'android_native']).optional(),
 
     clientEnv: z
       .enum([
@@ -97,6 +98,12 @@ const bodySchema = z.object({
     hfovBucket: z.string().max(32).optional(),
     vfovBucket: z.string().max(32).optional(),
     fovSource: z.enum(['xr', 'preset', 'saved', 'inferred', 'default', 'unknown']).optional(),
+    zoomSupported: z.boolean().optional(),
+    zoomRatioBucket: z.string().max(32).optional(),
+    zoomControlPath: z.enum(['native_camera', 'track_constraints', 'preset_fallback', 'unsupported']).optional(),
+    zoomApplyLatencyBucket: z.string().max(32).optional(),
+    zoomProjectionSyncLatencyBucket: z.string().max(32).optional(),
+    projectionSource: z.enum(['intrinsics_frame', 'projection_matrix', 'inferred_fov', 'preset']).optional(),
 
     tier: z.number().int().min(0).max(3).optional(),
     trajectoryVersion: z.string().max(64).optional(),
@@ -248,6 +255,12 @@ export async function POST(request: Request) {
     hfov_bucket: p.hfovBucket,
     vfov_bucket: p.vfovBucket,
     fov_source: p.fovSource,
+    zoom_supported: p.zoomSupported,
+    zoom_ratio_bucket: p.zoomRatioBucket,
+    zoom_control_path: p.zoomControlPath,
+    zoom_apply_latency_bucket: p.zoomApplyLatencyBucket,
+    zoom_projection_sync_latency_bucket: p.zoomProjectionSyncLatencyBucket,
+    projection_source: p.projectionSource,
 
     trajectory_quality: p.tier,
     trajectory_version: p.trajectoryVersion,

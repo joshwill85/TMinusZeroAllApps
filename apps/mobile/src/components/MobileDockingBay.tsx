@@ -1,10 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Linking, Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { type Href, usePathname, useRouter, useSegments } from 'expo-router';
-import * as WebBrowser from 'expo-web-browser';
 import { useProfileQuery, useViewerEntitlementsQuery, useViewerSessionQuery } from '@/src/api/queries';
-import { getPublicSiteUrl } from '@/src/config/api';
-import { getProgramHubEntryHref } from '@/src/features/programHubs/rollout';
+import { getProgramHubEntryOrCoreHref } from '@/src/features/programHubs/rollout';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import {
   MOBILE_DOCK_BOTTOM_OFFSET,
@@ -14,27 +12,14 @@ import {
 } from '@/src/components/mobileShell';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-type NativeManifestItem = {
+type ManifestItem = {
   key: string;
   title: string;
   description: string;
   testID?: string;
-  kind: 'native';
   href: Href;
   badge?: string;
 };
-
-type ExternalManifestItem = {
-  key: string;
-  title: string;
-  description: string;
-  testID?: string;
-  kind: 'external';
-  href: string;
-  badge?: string;
-};
-
-type ManifestItem = NativeManifestItem | ExternalManifestItem;
 
 type ManifestSection = {
   title: string;
@@ -52,7 +37,6 @@ export function MobileDockingBay() {
   const profileQuery = useProfileQuery();
   const [manifestOpen, setManifestOpen] = useState(false);
   const showDock = shouldShowCustomerDock(segments);
-  const siteUrl = useMemo(() => getPublicSiteUrl(), []);
   const viewerTier = viewerEntitlementsQuery.data?.tier ?? 'anon';
   const isPremium = viewerTier === 'premium';
   const profileInitials = getProfileInitials({
@@ -60,12 +44,13 @@ export function MobileDockingBay() {
     lastName: profileQuery.data?.lastName ?? null,
     email: profileQuery.data?.email ?? viewerSessionQuery.data?.email ?? null
   });
-  const profileHref = viewerSessionQuery.data?.viewerId ? ('/profile' as Href) : ('/sign-in' as Href);
+  const profileHref = '/profile' as Href;
   const profileActive =
     pathname.startsWith('/profile') ||
     pathname.startsWith('/preferences') ||
     pathname.startsWith('/saved') ||
-    pathname.startsWith('/account');
+    pathname.startsWith('/account') ||
+    pathname.startsWith('/legal/');
   const feedActive = pathname === '/' || pathname.startsWith('/feed');
   const calendarActive = pathname.startsWith('/calendar');
   const searchActive = pathname.startsWith('/search');
@@ -75,23 +60,22 @@ export function MobileDockingBay() {
   }, [pathname]);
 
   const manifestSections = useMemo<ManifestSection[]>(() => {
-    const artemisHref = getProgramHubEntryHref(viewerSessionQuery.data, 'artemis');
-    const spacexHref = getProgramHubEntryHref(viewerSessionQuery.data, 'spacex');
-    const blueOriginHref = getProgramHubEntryHref(viewerSessionQuery.data, 'blueOrigin');
+    const artemisHref = getProgramHubEntryOrCoreHref(viewerSessionQuery.data, 'artemis');
+    const spacexHref = getProgramHubEntryOrCoreHref(viewerSessionQuery.data, 'spacex');
+    const blueOriginHref = getProgramHubEntryOrCoreHref(viewerSessionQuery.data, 'blueOrigin');
+
     const nativeItems: ManifestItem[] = [
       {
         key: 'calendar',
         title: 'Calendar',
-        description: 'Browse the signed-in launch calendar and add one launch at a time.',
-        kind: 'native',
+        description: 'Browse the launch calendar and add one launch at a time.',
         href: '/calendar',
         testID: 'manifest-link-calendar'
       },
       {
         key: 'saved',
         title: 'Saved',
-        description: 'Premium saved filters, follows, and starred launches.',
-        kind: 'native',
+        description: 'Saved filters, follows, and starred launches.',
         href: '/saved',
         testID: 'tab-saved'
       },
@@ -99,15 +83,13 @@ export function MobileDockingBay() {
         key: 'settings',
         title: 'Settings',
         description: 'Notifications, push, and device preferences.',
-        kind: 'native',
         href: '/preferences',
         testID: 'tab-preferences'
       },
       {
         key: 'profile',
-        title: viewerSessionQuery.data?.viewerId ? 'Profile' : 'Sign in',
-        description: viewerSessionQuery.data?.viewerId ? 'Account, membership, and billing.' : 'Authenticate and restore your account.',
-        kind: 'native',
+        title: 'Account',
+        description: viewerSessionQuery.data?.viewerId ? 'Account, membership, and billing.' : 'Profile, membership, and purchase restore.',
         href: profileHref,
         testID: 'manifest-link-profile'
       }
@@ -116,12 +98,94 @@ export function MobileDockingBay() {
     if (!isPremium) {
       nativeItems.push({
         key: 'upgrade',
-        title: viewerSessionQuery.data?.viewerId ? 'Unlock Premium' : 'Create account',
-        description: viewerSessionQuery.data?.viewerId ? 'Upgrade for saved items, browser-style integrations, and live tools.' : 'Sign in for filters, calendar access, and basic mobile alerts.',
-        kind: 'native',
-        href: profileHref,
-        badge: viewerSessionQuery.data?.viewerId ? 'Premium' : 'Auth',
+        title: 'Unlock Premium',
+        description: 'Premium adds follows, saved views, recurring feeds, widgets, and advanced launch tools.',
+        href: '/profile',
+        badge: 'Premium',
         testID: 'manifest-link-upgrade'
+      });
+    }
+
+    const exploreItems: ManifestItem[] = [
+      {
+        key: 'news',
+        title: 'News',
+        description: 'SNAPI-powered article, blog, and report stream with linked launch context.',
+        href: '/news' as Href,
+        testID: 'manifest-link-news'
+      },
+      {
+        key: 'contracts',
+        title: 'Contracts',
+        description: 'Canonical government contract stories across SpaceX, Blue Origin, and Artemis.',
+        href: '/contracts' as Href,
+        testID: 'manifest-link-contracts'
+      },
+      {
+        key: 'satellites',
+        title: 'Satellites',
+        description: 'NORAD catalog browse, owner profiles, and related launch links.',
+        href: '/satellites' as Href,
+        testID: 'manifest-link-satellites'
+      },
+      {
+        key: 'reference',
+        title: 'Reference',
+        description: 'Agencies, astronauts, hardware, pads, and other LL2 catalog entities.',
+        href: '/catalog' as Href,
+        testID: 'manifest-link-reference'
+      },
+      {
+        key: 'info',
+        title: 'Info',
+        description: 'Guides, product context, and first-party reference resources.',
+        href: '/info' as Href,
+        testID: 'manifest-link-info'
+      },
+      {
+        key: 'integrations',
+        title: 'Integrations',
+        description: 'Recurring calendar feeds, RSS feeds, and embed widgets.',
+        href: '/account/integrations' as Href,
+        badge: 'Premium',
+        testID: 'manifest-link-integrations'
+      },
+      {
+        key: 'providers',
+        title: 'Launch Providers',
+        description: 'Browse launch providers and operator hubs.',
+        href: '/launch-providers',
+        testID: 'manifest-link-providers'
+      }
+    ];
+
+    if (artemisHref) {
+      exploreItems.push({
+        key: 'artemis',
+        title: 'Artemis',
+        description: 'NASA Artemis program hub.',
+        href: artemisHref as Href,
+        testID: 'manifest-link-artemis'
+      });
+    }
+
+    if (spacexHref) {
+      exploreItems.push({
+        key: 'spacex',
+        title: 'SpaceX',
+        description: 'SpaceX program and mission hub.',
+        href: spacexHref as Href,
+        testID: 'manifest-link-spacex'
+      });
+    }
+
+    if (blueOriginHref) {
+      exploreItems.push({
+        key: 'blue-origin',
+        title: 'Blue Origin',
+        description: 'Blue Origin launch and mission hub.',
+        href: blueOriginHref as Href,
+        testID: 'manifest-link-blue-origin'
       });
     }
 
@@ -132,89 +196,59 @@ export function MobileDockingBay() {
       },
       {
         title: 'Explore',
+        items: exploreItems
+      },
+      {
+        title: 'Info',
         items: [
-          {
-            key: 'news',
-            title: 'News',
-            description: 'Editorial coverage and mission updates.',
-            kind: 'external',
-            href: `${siteUrl}/news`,
-            testID: 'manifest-link-news'
-          },
-          {
-            key: 'providers',
-            title: 'Launch Providers',
-            description: 'Browse launch providers and operator hubs.',
-            kind: 'external',
-            href: `${siteUrl}/launch-providers`,
-            testID: 'manifest-link-providers'
-          },
-          artemisHref
-            ? {
-                key: 'artemis',
-                title: 'Artemis',
-                description: 'NASA Artemis program hub.',
-                kind: 'native',
-                href: artemisHref as Href,
-                testID: 'manifest-link-artemis'
-              }
-            : {
-                key: 'artemis',
-                title: 'Artemis',
-                description: 'NASA Artemis program hub.',
-                kind: 'external',
-                href: `${siteUrl}/artemis`,
-                testID: 'manifest-link-artemis'
-              },
-          spacexHref
-            ? {
-                key: 'spacex',
-                title: 'SpaceX',
-                description: 'SpaceX program and mission hub.',
-                kind: 'native',
-                href: spacexHref as Href,
-                testID: 'manifest-link-spacex'
-              }
-            : {
-                key: 'spacex',
-                title: 'SpaceX',
-                description: 'SpaceX program and mission hub.',
-                kind: 'external',
-                href: `${siteUrl}/spacex`,
-                testID: 'manifest-link-spacex'
-              },
-          blueOriginHref
-            ? {
-                key: 'blue-origin',
-                title: 'Blue Origin',
-                description: 'Blue Origin launch and mission hub.',
-                kind: 'native',
-                href: blueOriginHref as Href,
-                testID: 'manifest-link-blue-origin'
-              }
-            : {
-                key: 'blue-origin',
-                title: 'Blue Origin',
-                description: 'Blue Origin launch and mission hub.',
-                kind: 'external',
-                href: `${siteUrl}/blue-origin`,
-                testID: 'manifest-link-blue-origin'
-              },
           {
             key: 'about',
             title: 'About',
-            description: 'Product positioning and data sources.',
-            kind: 'external',
-            href: `${siteUrl}/about`,
+            description: 'Founder story and why T-Minus Zero exists.',
+            href: '/about' as Href,
             testID: 'manifest-link-about'
+          },
+          {
+            key: 'docs-about',
+            title: 'Product Overview',
+            description: 'Short product summary and positioning.',
+            href: '/docs/about' as Href,
+            testID: 'manifest-link-docs-about'
           },
           {
             key: 'faq',
             title: 'FAQ',
-            description: 'Common questions and support docs.',
-            kind: 'external',
-            href: `${siteUrl}/docs/faq`,
+            description: 'Common product and data questions.',
+            href: '/docs/faq' as Href,
             testID: 'manifest-link-faq'
+          },
+          {
+            key: 'roadmap',
+            title: 'Roadmap',
+            description: 'Current implementation phases and planned product work.',
+            href: '/docs/roadmap' as Href,
+            testID: 'manifest-link-roadmap'
+          },
+          {
+            key: 'jellyfish-effect',
+            title: 'Jellyfish Effect',
+            description: 'First-party guide to twilight launch plume visibility.',
+            href: '/jellyfish-effect' as Href,
+            testID: 'manifest-link-jellyfish'
+          },
+          {
+            key: 'data',
+            title: 'Data & Attribution',
+            description: 'Public source inventory and attribution notes.',
+            href: '/legal/data' as Href,
+            testID: 'manifest-link-data'
+          },
+          {
+            key: 'sms',
+            title: 'SMS Alerts',
+            description: 'Opt-in disclosures, example messages, and compliance details.',
+            href: '/docs/sms-opt-in' as Href,
+            testID: 'manifest-link-sms'
           }
         ]
       },
@@ -222,46 +256,37 @@ export function MobileDockingBay() {
         title: 'Legal',
         items: [
           {
+            key: 'sms-legal',
+            title: 'SMS Terms',
+            description: 'SMS-specific policy summary and terms linkage.',
+            href: '/legal/sms' as Href,
+            testID: 'manifest-link-sms-legal'
+          },
+          {
             key: 'terms',
             title: 'Terms',
             description: 'Platform terms and user obligations.',
-            kind: 'external',
-            href: `${siteUrl}/legal/terms`,
+            href: '/legal/terms' as Href,
             testID: 'manifest-link-terms'
           },
           {
             key: 'privacy',
             title: 'Privacy',
             description: 'Privacy policy and data handling.',
-            kind: 'external',
-            href: `${siteUrl}/legal/privacy`,
+            href: '/legal/privacy' as Href,
             testID: 'manifest-link-privacy'
           },
           {
             key: 'privacy-choices',
             title: 'Privacy Choices',
             description: 'Consumer privacy preferences and controls.',
-            kind: 'external',
-            href: `${siteUrl}/legal/privacy-choices`,
+            href: '/legal/privacy-choices' as Href,
             testID: 'manifest-link-privacy-choices'
-          }
-        ]
-      },
-      {
-        title: 'Support',
-        items: [
-          {
-            key: 'tip-jar',
-            title: 'Tip Jar',
-            description: 'Open the web tip jar checkout surface.',
-            kind: 'external',
-            href: `${siteUrl}/?tip=open`,
-            testID: 'manifest-link-tip-jar'
           }
         ]
       }
     ];
-  }, [isPremium, profileHref, siteUrl, viewerSessionQuery.data]);
+  }, [isPremium, profileHref, viewerSessionQuery.data]);
 
   if (!showDock) {
     return null;
@@ -303,13 +328,17 @@ export function MobileDockingBay() {
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <DockButton
                 testID="tab-profile"
-                label={viewerSessionQuery.data?.viewerId ? 'Profile' : 'Sign in'}
+                label="Account"
                 active={profileActive}
                 onPress={() => {
                   router.replace(profileHref);
                 }}
               >
-                {profileInitials ? <ProfileBadge initials={profileInitials} color={profileActive ? theme.accent : theme.foreground} /> : <UserGlyph color={profileActive ? theme.accent : theme.foreground} />}
+                {profileInitials ? (
+                  <ProfileBadge initials={profileInitials} color={profileActive ? theme.accent : theme.foreground} />
+                ) : (
+                  <UserGlyph color={profileActive ? theme.accent : theme.foreground} />
+                )}
               </DockButton>
 
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -427,13 +456,9 @@ export function MobileDockingBay() {
                         key={item.key}
                         item={item}
                         theme={theme}
-                        onPress={async () => {
+                        onPress={() => {
                           setManifestOpen(false);
-                          if (item.kind === 'native') {
-                            router.replace(item.href);
-                            return;
-                          }
-                          await openExternalUrl(item.href);
+                          router.replace(item.href);
                         }}
                       />
                     ))}
@@ -459,7 +484,7 @@ function DockButton({
   active: boolean;
   onPress: () => void;
   testID?: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <Pressable
@@ -491,14 +516,12 @@ function ManifestRow({
 }: {
   item: ManifestItem;
   theme: { background: string; foreground: string; muted: string; accent: string; stroke: string };
-  onPress: () => void | Promise<void>;
+  onPress: () => void;
 }) {
   return (
     <Pressable
       testID={item.testID}
-      onPress={() => {
-        void onPress();
-      }}
+      onPress={onPress}
       style={({ pressed }) => ({
         borderRadius: 18,
         borderWidth: 1,
@@ -529,21 +552,10 @@ function ManifestRow({
           </View>
           <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>{item.description}</Text>
         </View>
-        <Text style={{ color: theme.muted, fontSize: 18, fontWeight: '700' }}>{item.kind === 'native' ? '>' : '↗'}</Text>
+        <Text style={{ color: theme.muted, fontSize: 18, fontWeight: '700' }}>{'>'}</Text>
       </View>
     </Pressable>
   );
-}
-
-async function openExternalUrl(url: string) {
-  try {
-    await WebBrowser.openBrowserAsync(url);
-    return;
-  } catch {
-    // Fall back to the system URL handler if the in-app browser is unavailable.
-  }
-
-  await Linking.openURL(url);
 }
 
 function getProfileInitials({
@@ -634,9 +646,10 @@ function SearchGlyph({ color }: { color: string }) {
         style={{
           position: 'absolute',
           right: 1,
-          bottom: 3,
-          width: 7,
-          height: 1.8,
+          bottom: 1,
+          width: 6,
+          height: 1.6,
+          borderRadius: 999,
           backgroundColor: color,
           transform: [{ rotate: '45deg' }]
         }}
@@ -647,50 +660,39 @@ function SearchGlyph({ color }: { color: string }) {
 
 function CalendarGlyph({ color }: { color: string }) {
   return (
-    <View
-      style={{
-        width: 20,
-        height: 20,
-        borderRadius: 6,
-        borderWidth: 1.6,
-        borderColor: color,
-        position: 'relative'
-      }}
-    >
-      <View style={{ position: 'absolute', left: 3, right: 3, top: 5, height: 1.6, backgroundColor: color, borderRadius: 999 }} />
-      <View style={{ position: 'absolute', left: 6, top: -2, width: 2, height: 6, borderRadius: 999, backgroundColor: color }} />
-      <View style={{ position: 'absolute', right: 6, top: -2, width: 2, height: 6, borderRadius: 999, backgroundColor: color }} />
-    </View>
-  );
-}
-
-function UserGlyph({ color }: { color: string }) {
-  return (
     <View style={{ height: 18, width: 18 }}>
       <View
         style={{
           position: 'absolute',
-          top: 1,
-          left: 5.5,
-          height: 6,
-          width: 6,
+          top: 3,
+          left: 2,
+          right: 2,
+          bottom: 2,
           borderWidth: 1.6,
           borderColor: color,
-          borderRadius: 999
+          borderRadius: 4
         }}
       />
       <View
         style={{
           position: 'absolute',
-          left: 2,
-          bottom: 1,
-          height: 8,
-          width: 14,
-          borderWidth: 1.6,
-          borderBottomWidth: 0,
-          borderColor: color,
-          borderTopLeftRadius: 8,
-          borderTopRightRadius: 8
+          top: 1,
+          left: 5,
+          width: 2,
+          height: 4,
+          borderRadius: 999,
+          backgroundColor: color
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          top: 1,
+          right: 5,
+          width: 2,
+          height: 4,
+          borderRadius: 999,
+          backgroundColor: color
         }}
       />
     </View>
@@ -700,16 +702,37 @@ function UserGlyph({ color }: { color: string }) {
 function MenuGlyph({ color }: { color: string }) {
   return (
     <View style={{ height: 18, width: 18, justifyContent: 'center', gap: 3 }}>
-      {[0, 1, 2].map((index) => (
-        <View
-          key={index}
-          style={{
-            height: 1.8,
-            borderRadius: 999,
-            backgroundColor: color
-          }}
-        />
+      {[0, 1, 2].map((line) => (
+        <View key={line} style={{ height: 1.8, borderRadius: 999, backgroundColor: color }} />
       ))}
+    </View>
+  );
+}
+
+function UserGlyph({ color }: { color: string }) {
+  return (
+    <View style={{ height: 18, width: 18, alignItems: 'center' }}>
+      <View
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: 999,
+          borderWidth: 1.6,
+          borderColor: color
+        }}
+      />
+      <View
+        style={{
+          marginTop: 2,
+          width: 12,
+          height: 7,
+          borderTopLeftRadius: 8,
+          borderTopRightRadius: 8,
+          borderWidth: 1.6,
+          borderBottomWidth: 0,
+          borderColor: color
+        }}
+      />
     </View>
   );
 }

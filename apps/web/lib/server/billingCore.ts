@@ -98,6 +98,19 @@ export type BillingProviderNotificationResult = {
   reason?: string | null;
 };
 
+export type VerifiedBillingClaim = {
+  provider: PurchaseProvider;
+  providerCustomerId: string | null;
+  providerSubscriptionId: string | null;
+  providerProductId: string;
+  providerEventId: string;
+  status: string;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+  email: string | null;
+  metadata: Record<string, unknown>;
+};
+
 export type VerifiedAppleBillingNotification = {
   environment: 'sandbox' | 'production';
   notification: ResponseBodyV2DecodedPayload;
@@ -479,8 +492,7 @@ export async function loadBillingSummary(session: ResolvedViewerSession, request
   });
 }
 
-export function loadBillingCatalog(session: ResolvedViewerSession, platform: BillingPlatformV1): BillingCatalogV1 | null {
-  requireAuthenticatedSession(session);
+export function loadBillingCatalog(platform: BillingPlatformV1): BillingCatalogV1 {
   const config = getBillingProductConfig();
   return {
     platform,
@@ -581,6 +593,98 @@ export async function syncGoogleBilling(
   });
 
   return buildBillingSyncResponse(session, request);
+}
+
+export async function verifyAppleBillingClaim(payload: AppleBillingSyncRequestV1): Promise<VerifiedBillingClaim> {
+  if (!isAppleBillingConfigured()) {
+    throw new BillingApiRouteError(501, 'billing_not_configured');
+  }
+
+  const config = getBillingProductConfig();
+  if (!config.appleProductId || payload.productId !== config.appleProductId) {
+    throw new BillingApiRouteError(400, 'invalid_product');
+  }
+
+  const transaction = await fetchAppleTransaction(payload.transactionId, payload.environment);
+  const transactionProductId = readString(transaction.payload.productId);
+  if (!transactionProductId || transactionProductId !== config.appleProductId || transactionProductId !== payload.productId) {
+    throw new BillingApiRouteError(400, 'invalid_product');
+  }
+
+  const originalTransactionId = readString(transaction.payload.originalTransactionId) ?? payload.originalTransactionId ?? payload.transactionId;
+  const transactionId = readString(transaction.payload.transactionId) ?? payload.transactionId;
+  const currentPeriodEnd = parseAppleTimestamp(transaction.payload.expiresDate);
+  const revocationAt = parseAppleTimestamp(transaction.payload.revocationDate);
+
+  return {
+    provider: 'apple_app_store',
+    providerCustomerId: originalTransactionId,
+    providerSubscriptionId: originalTransactionId,
+    providerProductId: transactionProductId,
+    providerEventId: transactionId,
+    status: resolveAppleStatus({
+      currentPeriodEnd,
+      revocationAt
+    }),
+    currentPeriodEnd,
+    cancelAtPeriodEnd: false,
+    email: null,
+    metadata: {
+      transactionId,
+      originalTransactionId,
+      environment: transaction.environment,
+      type: readString(transaction.payload.type),
+      revocationAt
+    }
+  };
+}
+
+export async function verifyGoogleBillingClaim(payload: GoogleBillingSyncRequestV1): Promise<VerifiedBillingClaim> {
+  if (!isGoogleBillingConfigured()) {
+    throw new BillingApiRouteError(501, 'billing_not_configured');
+  }
+
+  const config = getBillingProductConfig();
+  if (!config.googleProductId || payload.productId !== config.googleProductId) {
+    throw new BillingApiRouteError(400, 'invalid_product');
+  }
+
+  const packageName = normalizeConfigValue(payload.packageName) ?? normalizeConfigValue(process.env.GOOGLE_PLAY_PACKAGE_NAME);
+  if (!packageName) {
+    throw new BillingApiRouteError(501, 'billing_not_configured');
+  }
+
+  const purchase = await fetchGoogleSubscriptionPurchase(packageName, payload.purchaseToken);
+  const lineItem = pickGoogleLineItem(purchase.lineItems);
+  const lineItemProductId = lineItem?.productId ?? null;
+  if (!lineItemProductId || lineItemProductId !== config.googleProductId || lineItemProductId !== payload.productId) {
+    throw new BillingApiRouteError(400, 'invalid_product');
+  }
+
+  const currentPeriodEnd = normalizeIsoTimestamp(lineItem?.expiryTime);
+  const status = resolveGoogleStatus(purchase.subscriptionState, currentPeriodEnd);
+  const cancelAtPeriodEnd = Boolean(lineItem?.autoRenewingPlan && lineItem.autoRenewingPlan.autoRenewEnabled === false);
+  const obfuscatedAccountId = purchase.externalAccountIdentifiers?.obfuscatedExternalAccountId ?? null;
+
+  return {
+    provider: 'google_play',
+    providerCustomerId: obfuscatedAccountId,
+    providerSubscriptionId: purchase.latestOrderId ?? payload.purchaseToken,
+    providerProductId: lineItemProductId,
+    providerEventId: payload.purchaseToken,
+    status,
+    currentPeriodEnd,
+    cancelAtPeriodEnd,
+    email: null,
+    metadata: {
+      purchaseToken: payload.purchaseToken,
+      packageName,
+      basePlanId: lineItem?.offerDetails?.basePlanId ?? payload.basePlanId ?? null,
+      offerId: lineItem?.offerDetails?.offerId ?? null,
+      subscriptionState: purchase.subscriptionState ?? null,
+      acknowledgementState: purchase.acknowledgementState ?? null
+    }
+  };
 }
 
 export async function processAppleBillingNotification({

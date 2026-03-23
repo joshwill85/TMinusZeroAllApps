@@ -55,14 +55,20 @@ import {
 import { loadArTrajectorySummary } from '@/lib/server/arTrajectory';
 import { fetchBlueOriginPassengersDatabaseOnly, fetchBlueOriginPayloads } from '@/lib/server/blueOriginPeoplePayloads';
 import { isStripeConfigured, isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
-import { getViewerEntitlement } from '@/lib/server/entitlements';
+import { getViewerEntitlement, type ViewerEntitlement } from '@/lib/server/entitlements';
 import { fetchLaunchFaaAirspace } from '@/lib/server/faaAirspace';
 import { fetchLaunchJepScore } from '@/lib/server/jep';
 import { fetchLaunchBoosterStats } from '@/lib/server/launchBoosterStats';
 import { buildStatusFilterOrClause, parseLaunchStatusFilter } from '@/lib/server/launchStatus';
 import { fetchLaunchDetailEnrichment } from '@/lib/server/launchDetailEnrichment';
 import { loadMobileHubRollout } from '@/lib/server/mobileHubRollout';
-import { parseSiteSearchInput, parseSiteSearchTypesParam, type SearchResultType } from '@tminuszero/domain';
+import {
+  hasLaunchDayEmailPreferenceInput,
+  normalizeLaunchFilterValue,
+  parseSiteSearchInput,
+  parseSiteSearchTypesParam,
+  type SearchResultType
+} from '@tminuszero/domain';
 import { loadSmsSystemEnabled } from '@/lib/server/smsSystem';
 import { parseUsPhone } from '@/lib/notifications/phone';
 import { buildSmsOptInConfirmationMessage } from '@/lib/notifications/smsProgram';
@@ -80,7 +86,7 @@ import {
   createSupabasePublicClient,
   createSupabaseServerClient
 } from '@/lib/server/supabaseServer';
-import { mapPublicCacheRow } from '@/lib/server/transformers';
+import { mapLiveLaunchRow, mapPublicCacheRow } from '@/lib/server/transformers';
 import { parseLaunchRegion, US_PAD_COUNTRY_CODES } from '@/lib/server/us';
 import type { ResolvedViewerSession } from '@/lib/server/viewerSession';
 import { isArtemisLaunch } from '@/lib/utils/launchArtemis';
@@ -516,6 +522,10 @@ function mapCalendarFeedPayload(data: any) {
     name: String(data?.name || 'Untitled'),
     token: String(data?.token || ''),
     filters: (data?.filters as Record<string, unknown>) || {},
+    sourceKind: normalizeText(data?.source_kind),
+    presetId: normalizeText(data?.source_preset_id),
+    followRuleType: normalizeText(data?.source_follow_rule_type),
+    followRuleValue: normalizeText(data?.source_follow_rule_value),
     alarmMinutesBefore:
       typeof data?.alarm_minutes_before === 'number' && Number.isFinite(data.alarm_minutes_before)
         ? Math.trunc(data.alarm_minutes_before)
@@ -525,6 +535,91 @@ function mapCalendarFeedPayload(data: any) {
     createdAt: normalizeText(data?.created_at),
     updatedAt: normalizeText(data?.updated_at)
   });
+}
+
+type CalendarFeedSourceInput = {
+  sourceKind?: 'all_launches' | 'preset' | 'follow';
+  presetId?: string | null;
+  followRuleType?: 'launch' | 'pad' | 'provider' | 'tier' | null;
+  followRuleValue?: string | null;
+  filters?: Record<string, unknown>;
+};
+
+type CalendarFeedSourceRow = {
+  source_kind?: string | null;
+  source_preset_id?: string | null;
+  source_follow_rule_type?: 'launch' | 'pad' | 'provider' | 'tier' | null;
+  source_follow_rule_value?: string | null;
+  filters?: Record<string, unknown> | null;
+};
+
+async function resolveCalendarFeedSourcePayload(
+  client: PrivilegedClient,
+  userId: string,
+  input: CalendarFeedSourceInput,
+  current?: CalendarFeedSourceRow | null
+) {
+  const sourceKind = input.sourceKind ?? (normalizeText(current?.source_kind) as 'all_launches' | 'preset' | 'follow' | null) ?? 'all_launches';
+  const presetId =
+    input.presetId !== undefined ? normalizeText(input.presetId) : normalizeText(current?.source_preset_id);
+  const followRuleType =
+    input.followRuleType !== undefined ? input.followRuleType ?? null : current?.source_follow_rule_type ?? null;
+  const followRuleValue =
+    input.followRuleValue !== undefined ? normalizeText(input.followRuleValue) : normalizeText(current?.source_follow_rule_value);
+
+  if (sourceKind === 'preset') {
+    if (!presetId) {
+      throw new MobileApiRouteError(400, 'invalid_feed_source');
+    }
+    await requireOwnedPreset(client, userId, presetId);
+    const { data, error } = await client.from('launch_filter_presets').select('filters').eq('id', presetId).eq('user_id', userId).maybeSingle();
+    if (error) throw error;
+    if (!data) throw new MobileApiRouteError(404, 'preset_not_found');
+
+    return {
+      sourceKind,
+      presetId,
+      followRuleType: null,
+      followRuleValue: null,
+      filters: normalizeLaunchFilterValue((input.filters as Record<string, unknown> | undefined) ?? ((data as any).filters ?? {}))
+    };
+  }
+
+  if (sourceKind === 'follow') {
+    if (!followRuleType || !followRuleValue) {
+      throw new MobileApiRouteError(400, 'invalid_feed_source');
+    }
+    const normalizedFollow = normalizeWatchlistRule(followRuleType, followRuleValue);
+    if (!normalizedFollow) {
+      throw new MobileApiRouteError(400, 'invalid_rule_value');
+    }
+    await requireUserOwnedFollowRule(client, userId, normalizedFollow.rule_type, normalizedFollow.rule_value);
+
+    const baseFilters =
+      input.filters !== undefined
+        ? normalizeLaunchFilterValue(input.filters)
+        : normalizedFollow.rule_type === 'provider'
+          ? normalizeLaunchFilterValue({ range: 'all', region: 'all', sort: 'soonest', provider: normalizedFollow.rule_value })
+          : normalizeLaunchFilterValue({ range: 'all', region: 'all', sort: 'soonest' });
+
+    return {
+      sourceKind,
+      presetId: null,
+      followRuleType: normalizedFollow.rule_type,
+      followRuleValue: normalizedFollow.rule_value,
+      filters: baseFilters
+    };
+  }
+
+  return {
+    sourceKind: 'all_launches' as const,
+    presetId: null,
+    followRuleType: null,
+    followRuleValue: null,
+    filters: normalizeLaunchFilterValue(
+      input.filters !== undefined ? input.filters : (current?.filters as Record<string, unknown> | undefined) ?? { range: 'all', region: 'all', sort: 'soonest' }
+    )
+  };
 }
 
 function mapRssFeedPayload(data: any) {
@@ -2886,6 +2981,10 @@ export async function buildViewerSessionPayload(session: ResolvedViewerSession) 
 
 export async function buildViewerEntitlementPayload(session: ResolvedViewerSession) {
   const { entitlement } = await getViewerEntitlement({ session, reconcileStripe: false });
+  return buildViewerEntitlementEnvelope(entitlement);
+}
+
+function buildViewerEntitlementEnvelope(entitlement: ViewerEntitlement) {
   return entitlementSchemaV1.parse({
     tier: entitlement.tier,
     status: entitlement.status,
@@ -2919,11 +3018,17 @@ export async function loadLaunchDetailPayload(id: string, session: ResolvedViewe
     return null;
   }
 
-  const { data, error } = await createSupabasePublicClient()
-    .from('launches_public_cache')
-    .select('*')
-    .eq('launch_id', parsedLaunch.launchId)
-    .maybeSingle();
+  const { entitlement } = await getViewerEntitlement({ session, reconcileStripe: false });
+  const wantsLiveDetail = entitlement.isAuthed && (entitlement.isAdmin || entitlement.tier === 'premium');
+  const liveClient = wantsLiveDetail ? getPrivilegedClient(session) : null;
+  const useLiveDetail = Boolean(liveClient);
+  let sourceQuery;
+  if (liveClient) {
+    sourceQuery = liveClient.from('launches').select('*').eq('id', parsedLaunch.launchId).eq('hidden', false);
+  } else {
+    sourceQuery = createSupabasePublicClient().from('launches_public_cache').select('*').eq('launch_id', parsedLaunch.launchId);
+  }
+  const { data, error } = await sourceQuery.maybeSingle();
 
   if (error) {
     throw error;
@@ -2933,7 +3038,8 @@ export async function loadLaunchDetailPayload(id: string, session: ResolvedViewe
     return null;
   }
 
-  const launch = mapPublicCacheRow(data);
+  const launch = useLiveDetail ? mapLiveLaunchRow(data) : mapPublicCacheRow(data);
+  const entitlements = buildViewerEntitlementEnvelope(entitlement);
   const netMs = Date.parse(launch.net);
   const nowMs = Date.now();
   const isEasternRange = launch.pad?.state === 'FL';
@@ -2946,7 +3052,6 @@ export async function loadLaunchDetailPayload(id: string, session: ResolvedViewe
   const blueOriginMissionKey = isBlueOriginProgramLaunch(launch) ? getBlueOriginMissionKeyFromLaunch(launch) || 'all' : null;
 
   const [
-    entitlements,
     related,
     enrichment,
     jepScore,
@@ -2966,7 +3071,6 @@ export async function loadLaunchDetailPayload(id: string, session: ResolvedViewe
     blueOriginConstraintRows,
     blueOriginMissionGraphics
   ] = await Promise.all([
-    buildViewerEntitlementPayload(session),
     loadRelatedLaunchResults(launch.id),
     fetchLaunchDetailEnrichment(launch.id, launch.ll2Id),
     fetchLaunchJepScore(launch.id, { viewerIsAdmin: session.role === 'admin' }),
@@ -3623,33 +3727,14 @@ export async function createWatchlistRulePayload(session: ResolvedViewerSession,
     });
   }
 
-  let ruleCount = 0;
-  if (entitlement.tier === 'free') {
-    const { data: watchlists, error: watchlistsError } = await client.from('watchlists').select('id').eq('user_id', session.userId);
-    if (watchlistsError) {
-      throw watchlistsError;
-    }
-
-    const watchlistIds = (watchlists ?? []).map((entry) => entry.id).filter((value): value is string => typeof value === 'string' && value.length > 0);
-    const scopedWatchlistIds = watchlistIds.length > 0 ? watchlistIds : [normalizedWatchlistId];
-    const { count, error: countError } = await client
-      .from('watchlist_rules')
-      .select('id', { count: 'exact', head: true })
-      .in('watchlist_id', scopedWatchlistIds);
-    if (countError) {
-      throw countError;
-    }
-    ruleCount = count ?? 0;
-  } else {
-    const { count, error: countError } = await client
-      .from('watchlist_rules')
-      .select('id', { count: 'exact', head: true })
-      .eq('watchlist_id', normalizedWatchlistId);
-    if (countError) {
-      throw countError;
-    }
-    ruleCount = count ?? 0;
+  const { count, error: countError } = await client
+    .from('watchlist_rules')
+    .select('id', { count: 'exact', head: true })
+    .eq('watchlist_id', normalizedWatchlistId);
+  if (countError) {
+    throw countError;
   }
+  const ruleCount = count ?? 0;
 
   if (ruleCount >= entitlement.limits.watchlistRuleLimit) {
     throw new MobileApiRouteError(409, 'limit_reached');
@@ -4087,10 +4172,9 @@ export async function loadCalendarFeedsPayload(session: ResolvedViewerSession) {
     return null;
   }
 
-  await requirePremiumIntegrationsAccess(session);
   const { data, error } = await client
     .from('calendar_feeds')
-    .select('id, name, token, filters, alarm_minutes_before, created_at, updated_at')
+    .select('id, name, token, filters, source_kind, source_preset_id, source_follow_rule_type, source_follow_rule_value, alarm_minutes_before, created_at, updated_at')
     .eq('user_id', session.userId)
     .order('created_at', { ascending: false })
     .limit(SAVED_INTEGRATION_LIMIT);
@@ -4116,6 +4200,7 @@ export async function createCalendarFeedPayload(session: ResolvedViewerSession, 
 
   await requirePremiumIntegrationsAccess(session);
   const parsedBody = calendarFeedCreateSchemaV1.parse(await request.json().catch(() => undefined));
+  const sourcePayload = await resolveCalendarFeedSourcePayload(client, session.userId, parsedBody);
   const { count, error: countError } = await client
     .from('calendar_feeds')
     .select('id', { count: 'exact', head: true })
@@ -4134,12 +4219,16 @@ export async function createCalendarFeedPayload(session: ResolvedViewerSession, 
     .insert({
       user_id: session.userId,
       name: parsedBody.name,
-      filters: parsedBody.filters ?? {},
+      filters: sourcePayload.filters,
+      source_kind: sourcePayload.sourceKind,
+      source_preset_id: sourcePayload.presetId,
+      source_follow_rule_type: sourcePayload.followRuleType,
+      source_follow_rule_value: sourcePayload.followRuleValue,
       alarm_minutes_before: parsedBody.alarmMinutesBefore ?? null,
       created_at: now,
       updated_at: now
     })
-    .select('id, name, token, filters, alarm_minutes_before, created_at, updated_at')
+    .select('id, name, token, filters, source_kind, source_preset_id, source_follow_rule_type, source_follow_rule_value, alarm_minutes_before, created_at, updated_at')
     .single();
 
   if (error) {
@@ -4164,6 +4253,19 @@ export async function updateCalendarFeedPayload(session: ResolvedViewerSession, 
   await requirePremiumIntegrationsAccess(session);
   const normalizedFeedId = parseUuidOrThrow(feedId, 'invalid_feed_id');
   const parsedBody = calendarFeedUpdateSchemaV1.parse(await request.json().catch(() => undefined));
+  const existingFeedRes = await client
+    .from('calendar_feeds')
+    .select('id, filters, source_kind, source_preset_id, source_follow_rule_type, source_follow_rule_value')
+    .eq('id', normalizedFeedId)
+    .eq('user_id', session.userId)
+    .maybeSingle();
+  if (existingFeedRes.error) {
+    throw existingFeedRes.error;
+  }
+  if (!existingFeedRes.data) {
+    throw new MobileApiRouteError(404, 'not_found');
+  }
+  const sourcePayload = await resolveCalendarFeedSourcePayload(client, session.userId, parsedBody, existingFeedRes.data as CalendarFeedSourceRow);
   const payload: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
     cached_ics: null,
@@ -4171,7 +4273,11 @@ export async function updateCalendarFeedPayload(session: ResolvedViewerSession, 
     cached_ics_generated_at: null
   };
   if (parsedBody.name !== undefined) payload.name = parsedBody.name;
-  if (parsedBody.filters !== undefined) payload.filters = parsedBody.filters;
+  payload.filters = sourcePayload.filters;
+  payload.source_kind = sourcePayload.sourceKind;
+  payload.source_preset_id = sourcePayload.presetId;
+  payload.source_follow_rule_type = sourcePayload.followRuleType;
+  payload.source_follow_rule_value = sourcePayload.followRuleValue;
   if (Object.prototype.hasOwnProperty.call(parsedBody, 'alarmMinutesBefore')) {
     payload.alarm_minutes_before = parsedBody.alarmMinutesBefore ?? null;
   }
@@ -4181,7 +4287,7 @@ export async function updateCalendarFeedPayload(session: ResolvedViewerSession, 
     .update(payload)
     .eq('id', normalizedFeedId)
     .eq('user_id', session.userId)
-    .select('id, name, token, filters, alarm_minutes_before, created_at, updated_at')
+    .select('id, name, token, filters, source_kind, source_preset_id, source_follow_rule_type, source_follow_rule_value, alarm_minutes_before, created_at, updated_at')
     .maybeSingle();
 
   if (error) {
@@ -4249,7 +4355,7 @@ export async function rotateCalendarFeedPayload(session: ResolvedViewerSession, 
     })
     .eq('id', normalizedFeedId)
     .eq('user_id', session.userId)
-    .select('id, name, token, filters, alarm_minutes_before, created_at, updated_at')
+    .select('id, name, token, filters, source_kind, source_preset_id, source_follow_rule_type, source_follow_rule_value, alarm_minutes_before, created_at, updated_at')
     .maybeSingle();
 
   if (error) {
@@ -4274,7 +4380,6 @@ export async function loadRssFeedsPayload(session: ResolvedViewerSession) {
     return null;
   }
 
-  await requirePremiumIntegrationsAccess(session);
   const { data, error } = await client
     .from('rss_feeds')
     .select('id, name, token, filters, created_at, updated_at')
@@ -4460,7 +4565,6 @@ export async function loadEmbedWidgetsPayload(session: ResolvedViewerSession) {
     return null;
   }
 
-  await requirePremiumIntegrationsAccess(session);
   const { data, error } = await client
     .from('embed_widgets')
     .select('id, name, token, widget_type, filters, preset_id, watchlist_id, created_at, updated_at')
@@ -4713,6 +4817,9 @@ export async function updateNotificationPreferencesPayload(session: ResolvedView
   }
 
   const parsedBody = notificationPreferencesUpdateSchemaV1.parse(await request.json().catch(() => undefined));
+  if (session.authMode === 'bearer' && hasLaunchDayEmailPreferenceInput(parsedBody)) {
+    throw new MobileApiRouteError(400, 'unsupported_on_mobile');
+  }
   const wantsSms = parsedBody.smsEnabled === true;
   const wantsLaunchDayEmail = parsedBody.launchDayEmailEnabled === true;
   const wantsPush = parsedBody.pushEnabled === true;

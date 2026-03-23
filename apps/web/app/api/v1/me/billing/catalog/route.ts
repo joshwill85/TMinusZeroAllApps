@@ -15,11 +15,8 @@ function readPlatform(request: Request): BillingPlatformV1 {
 
 export async function GET(request: Request) {
   try {
-    const session = await resolveViewerSession(request);
-    const payload = loadBillingCatalog(session, readPlatform(request));
-    if (!payload) {
-      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-    }
+    await resolveViewerSession(request);
+    const payload = loadBillingCatalog(readPlatform(request));
     return NextResponse.json(payload, {
       headers: {
         'Cache-Control': 'private, no-store'

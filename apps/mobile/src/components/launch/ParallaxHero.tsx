@@ -1,5 +1,7 @@
+import type { ReactNode } from 'react';
 import { View, Text, Image } from 'react-native';
 import Animated, {
+  type SharedValue,
   useAnimatedStyle,
   interpolate,
   Extrapolate,
@@ -11,10 +13,10 @@ type ParallaxHeroProps = {
   backgroundImage: string | null;
   title: string;
   subtitle: string;
-  scrollY: Animated.SharedValue<number>;
+  scrollY: SharedValue<number>;
   status?: string;
   statusTone?: 'default' | 'success' | 'warning' | 'danger';
-  children?: React.ReactNode;
+  children?: ReactNode;
 };
 
 /**

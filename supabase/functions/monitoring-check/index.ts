@@ -11,7 +11,7 @@ const JOB_THRESHOLDS_MINUTES: Record<string, number> = {
   ws45_forecasts_ingest: 180,
   notifications_dispatch: 10,
   notifications_send: 5,
-  social_posts_dispatch: 30,
+  social_posts_dispatch: 90,
 
   navcen_bnm_ingest: 180,
   faa_trajectory_hazard_ingest: 180,

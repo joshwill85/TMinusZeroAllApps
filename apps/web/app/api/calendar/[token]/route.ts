@@ -44,7 +44,7 @@ export async function GET(request: Request, { params }: { params: { token: strin
   const admin = createSupabaseAdminClient();
   const { data: feed, error: feedError } = await admin
     .from('calendar_feeds')
-    .select('id,user_id,name,filters,alarm_minutes_before,cached_ics,cached_ics_etag,cached_ics_generated_at')
+    .select('id,user_id,name,filters,source_kind,source_follow_rule_type,source_follow_rule_value,alarm_minutes_before,cached_ics,cached_ics_etag,cached_ics_generated_at')
     .eq('token', token)
     .maybeSingle();
 
@@ -104,8 +104,39 @@ export async function GET(request: Request, { params }: { params: { token: strin
   if (from) query = query.gte('net', from);
   if (to) query = query.lt('net', to);
   if (filters.state) query = query.eq('pad_state', filters.state);
+  if (filters.location) query = query.eq('pad_location_name', filters.location);
+  if (filters.pad) query = query.eq('pad_name', filters.pad);
   if (filters.provider) query = query.eq('provider', filters.provider);
   if (filters.status && filters.status !== 'all') query = query.eq('status_name', filters.status);
+
+  const sourceKind = typeof (feed as any).source_kind === 'string' ? String((feed as any).source_kind) : null;
+  if (sourceKind === 'follow') {
+    const followRuleType = typeof (feed as any).source_follow_rule_type === 'string'
+      ? String((feed as any).source_follow_rule_type)
+      : null;
+    const followRuleValue = typeof (feed as any).source_follow_rule_value === 'string'
+      ? String((feed as any).source_follow_rule_value)
+      : null;
+
+    if (followRuleType === 'launch' && followRuleValue) {
+      query = query.eq('id', followRuleValue);
+    } else if (followRuleType === 'provider' && followRuleValue) {
+      query = query.eq('provider', followRuleValue);
+    } else if (followRuleType === 'pad' && followRuleValue) {
+      const normalized = followRuleValue.trim().toLowerCase();
+      if (normalized.startsWith('ll2:')) {
+        const ll2PadId = Number.parseInt(normalized.slice(4), 10);
+        if (Number.isFinite(ll2PadId)) {
+          query = query.eq('ll2_pad_id', ll2PadId);
+        }
+      } else if (normalized.startsWith('code:')) {
+        const shortCode = followRuleValue.slice(5).trim();
+        if (shortCode) {
+          query = query.eq('pad_short_code', shortCode);
+        }
+      }
+    }
+  }
 
   query = query.order('net', { ascending: true }).range(0, MAX_ITEMS - 1);
 

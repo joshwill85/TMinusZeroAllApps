@@ -1,10 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import type { PremiumClaimV1 } from '@tminuszero/api-client';
 import { buildAuthHref, buildProfileHref } from '@tminuszero/navigation';
 import { sanitizeReturnToPath } from '@/lib/billing/shared';
+import { browserApiClient } from '@/lib/api/client';
 import { WebBillingAdapterError } from '@/lib/api/webBillingAdapters';
 import { useStartBillingCheckoutMutation, useViewerEntitlementsQuery, useViewerSessionQuery } from '@/lib/api/queries';
 
@@ -45,6 +47,15 @@ function isAccountReturnPath(path: string) {
   }
 }
 
+function appendClaimToken(href: string, claimToken: string | null) {
+  if (!claimToken) {
+    return href;
+  }
+
+  const separator = href.includes('?') ? '&' : '?';
+  return `${href}${separator}claim_token=${encodeURIComponent(claimToken)}`;
+}
+
 export function UpgradePageContent() {
   const searchParams = useSearchParams();
   const { data: viewerSession, isPending: viewerSessionPending } = useViewerSessionQuery();
@@ -58,11 +69,33 @@ export function UpgradePageContent() {
   const canceled = searchParams.get('checkout') === 'cancel';
   const succeeded = searchParams.get('checkout') === 'success';
   const autostart = searchParams.get('autostart') === '1';
+  const claimToken = String(searchParams.get('claim_token') || '').trim() || null;
   const [subscriptionState, setSubscriptionState] = useState<'idle' | 'checking' | 'paid' | 'unpaid'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [autostarted, setAutostarted] = useState(false);
+  const [claim, setClaim] = useState<PremiumClaimV1 | null>(null);
+  const [claimError, setClaimError] = useState<string | null>(null);
+  const [claimLoading, setClaimLoading] = useState(Boolean(claimToken));
+  const [attachingClaim, setAttachingClaim] = useState(false);
   const signInHref = buildAuthHref('sign-in', { returnTo, intent: 'upgrade' });
-  const signUpHref = buildAuthHref('sign-up', { returnTo, intent: 'upgrade' });
+  const claimSignInHref = useMemo(
+    () =>
+      appendClaimToken(
+        buildAuthHref('sign-in', {
+          returnTo,
+          intent: 'upgrade'
+        }),
+        claimToken
+      ),
+    [claimToken, returnTo]
+  );
+  const claimSignUpHref = claimToken
+    ? `/auth/sign-up?${new URLSearchParams({
+        claim_token: claimToken,
+        return_to: returnTo,
+        intent: 'upgrade'
+      }).toString()}`
+    : null;
   const successReturnTo = isAccountReturnPath(returnTo) ? appendPremiumStatus(returnTo, 'welcome') : returnTo;
   const paymentIssueReturnTo = appendPremiumStatus('/account', 'payment_issue');
   const authStatus: 'loading' | 'authed' | 'guest' =
@@ -73,6 +106,29 @@ export function UpgradePageContent() {
         : 'guest';
   const isPaid = entitlements?.isPaid === true;
   const busy = startBillingCheckoutMutation.isPending;
+
+  const refreshClaim = useCallback(async () => {
+    if (!claimToken) {
+      setClaim(null);
+      setClaimError(null);
+      setClaimLoading(false);
+      return null;
+    }
+
+    setClaimLoading(true);
+    try {
+      const payload = await browserApiClient.getPremiumClaim(claimToken);
+      setClaim(payload.claim);
+      setClaimError(null);
+      return payload.claim;
+    } catch (err) {
+      console.error('premium claim lookup error', err);
+      setClaimError(err instanceof Error ? err.message : 'Unable to check your Premium claim.');
+      return null;
+    } finally {
+      setClaimLoading(false);
+    }
+  }, [claimToken]);
 
   const startCheckout = useCallback(async () => {
     if (busy) return;
@@ -100,6 +156,55 @@ export function UpgradePageContent() {
       setError('Unable to start checkout.');
     }
   }, [busy, paymentIssueReturnTo, returnTo, startBillingCheckoutMutation]);
+
+  const attachClaim = useCallback(async () => {
+    if (!claimToken || attachingClaim) return;
+    setError(null);
+    setAttachingClaim(true);
+
+    try {
+      const payload = await browserApiClient.attachPremiumClaim(claimToken);
+      setClaim(payload.claim);
+      await refetchEntitlements();
+      window.location.replace(payload.returnTo);
+    } catch (err) {
+      console.error('premium claim attach error', err);
+      setError(err instanceof Error ? err.message : 'Unable to attach this Premium purchase.');
+    } finally {
+      setAttachingClaim(false);
+    }
+  }, [attachingClaim, claimToken, refetchEntitlements]);
+
+  useEffect(() => {
+    if (!claimToken) {
+      setClaim(null);
+      setClaimError(null);
+      setClaimLoading(false);
+      return;
+    }
+
+    let active = true;
+    let timeoutId: number | null = null;
+    let attempts = 0;
+
+    const pollClaim = async () => {
+      if (!active) return;
+      const nextClaim = await refreshClaim();
+      if (!active || !nextClaim) return;
+
+      if (nextClaim.status === 'pending' && attempts < SUBSCRIPTION_CONFIRMATION_MAX_ATTEMPTS) {
+        attempts += 1;
+        timeoutId = window.setTimeout(pollClaim, SUBSCRIPTION_CONFIRMATION_RETRY_MS);
+      }
+    };
+
+    void pollClaim();
+
+    return () => {
+      active = false;
+      if (timeoutId) window.clearTimeout(timeoutId);
+    };
+  }, [claimToken, refreshClaim, succeeded]);
 
   useEffect(() => {
     if (authStatus !== 'authed') {
@@ -162,20 +267,67 @@ export function UpgradePageContent() {
   useEffect(() => {
     if (!autostart || autostarted) return;
     if (canceled || succeeded) return;
-    if (authStatus !== 'authed' || subscriptionState !== 'unpaid') return;
+    if (claimToken) return;
+    if (authStatus === 'loading') return;
+    if (authStatus === 'authed' && subscriptionState === 'paid') return;
     setAutostarted(true);
 
     void startCheckout();
-  }, [authStatus, autostart, autostarted, canceled, startCheckout, subscriptionState, succeeded]);
+  }, [authStatus, autostart, autostarted, canceled, claimToken, startCheckout, subscriptionState, succeeded]);
+
+  const showVerifiedGuestClaim = claim?.status === 'verified' && authStatus === 'guest';
+  const showVerifiedAuthedClaim = claim?.status === 'verified' && authStatus === 'authed' && !isPaid;
+  const showClaimedGuestNotice = claim?.status === 'claimed' && authStatus === 'guest';
+  const showPendingClaimNotice = claim?.status === 'pending';
+  const showClaimStatusCard = Boolean(claimToken && (claimLoading || claimError || claim || succeeded));
 
   return (
     <div className="mx-auto flex min-h-[70vh] w-full max-w-4xl flex-col gap-6 px-4 py-12 md:px-6">
       <div>
         <h1 className="text-3xl font-semibold text-text1">Upgrade to Premium</h1>
-        <p className="mt-1 text-text2">Unlock live data, saved filters/follows, browser alerts, and recurring feed integrations.</p>
+        <p className="mt-1 text-text2">Unlock live data, saved filters and follows, advanced alerts, and recurring feed integrations.</p>
       </div>
 
-      {succeeded && (
+      {showClaimStatusCard ? (
+        <div className="rounded-2xl border border-stroke bg-[rgba(255,255,255,0.02)] px-4 py-3 text-sm text-text2">
+          {claimLoading
+            ? 'Checking your Premium claim…'
+            : claimError
+              ? claimError
+              : showPendingClaimNotice
+                ? 'Checkout completed. We are still verifying your Premium purchase. This page will refresh automatically for a short time.'
+                : showVerifiedGuestClaim
+                  ? 'Premium is verified. Sign in to an existing account or create one now to claim it.'
+                  : showVerifiedAuthedClaim
+                    ? 'Premium is verified for this purchase. Attach it to the account currently signed in here.'
+                    : showClaimedGuestNotice
+                      ? 'This Premium purchase is already attached to an account. Sign in to manage it.'
+                      : claim?.status === 'claimed'
+                        ? 'Premium is already attached. Redirecting you back now if billing is active.'
+                        : 'Premium checkout completed.'}
+          {showVerifiedGuestClaim ? (
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <Link className="btn rounded-lg px-4 py-2 text-sm" href={claimSignInHref}>
+                Sign in to claim Premium
+              </Link>
+              {claimSignUpHref ? (
+                <Link className="btn-secondary rounded-lg px-4 py-2 text-sm" href={claimSignUpHref}>
+                  Create account to claim Premium
+                </Link>
+              ) : null}
+            </div>
+          ) : null}
+          {showVerifiedAuthedClaim ? (
+            <div className="mt-3">
+              <button className="btn rounded-lg px-4 py-2 text-sm" onClick={() => void attachClaim()} disabled={attachingClaim}>
+                {attachingClaim ? 'Attaching Premium…' : 'Attach Premium to this account'}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {!claimToken && succeeded && (
         <div className="rounded-2xl border border-stroke bg-[rgba(255,255,255,0.02)] px-4 py-3 text-sm text-text2">
           {subscriptionState === 'unpaid'
             ? 'Checkout completed. We are still confirming your subscription. Refresh this page in a moment if you are not redirected.'
@@ -222,15 +374,15 @@ export function UpgradePageContent() {
                   ? 'Starting checkout…'
                   : subscriptionState === 'paid'
                     ? 'Premium active'
-                    : 'Start Premium'}
+                  : 'Start Premium'}
             </button>
           ) : (
             <div className="mt-5 flex flex-col gap-2">
-              <Link className="btn w-full rounded-lg px-4 py-2 text-sm" href={signInHref}>
-                Sign in
-              </Link>
-              <Link className="btn-secondary w-full rounded-lg px-4 py-2 text-sm" href={signUpHref}>
-                Create free account
+              <button className="btn w-full rounded-lg px-4 py-2 text-sm" onClick={() => void startCheckout()} disabled={busy}>
+                {busy ? 'Starting checkout…' : 'Start Premium'}
+              </button>
+              <Link className="btn-secondary w-full rounded-lg px-4 py-2 text-sm" href={signInHref}>
+                Sign in to existing account
               </Link>
             </div>
           )}
@@ -252,15 +404,15 @@ export function UpgradePageContent() {
           {error && <div className="mt-3 text-xs text-danger">{error}</div>}
         </div>
         <div className="rounded-2xl border border-stroke bg-surface-1 p-5">
-          <div className="text-xs uppercase tracking-[0.1em] text-text3">Free</div>
+          <div className="text-xs uppercase tracking-[0.1em] text-text3">Anon</div>
           <div className="mt-2 text-3xl font-semibold text-text1">$0</div>
           <ul className="mt-4 space-y-2 text-sm text-text2">
-            <li>• Cached launch schedule (15 minute updates)</li>
-            <li>• Basic filters</li>
+            <li>• Public launch schedule browsing</li>
+            <li>• Public filters and calendar browsing</li>
             <li>• Weather forecast (NWS, when available)</li>
           </ul>
           <p className="mt-5 text-sm text-text3">
-            Keep browsing for free. Upgrade when you want live data, saved/default filters, follows, browser alerts, and recurring integrations.
+            Keep browsing without an account. Sign in later for account ownership and billing access, or upgrade when you want Premium features.
           </p>
         </div>
       </div>

@@ -1,4 +1,4 @@
-import { changedLaunchesSchemaV1, launchFeedSchemaV1 } from '@tminuszero/contracts';
+import { changedLaunchesSchemaV1, launchFeedSchemaV1, launchFeedVersionSchemaV1 } from '@tminuszero/contracts';
 import type { Launch } from '@/lib/types/launch';
 import { NEXT_LAUNCH_RETENTION_MS } from '@/lib/constants/launchTimeline';
 import { isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
@@ -36,7 +36,10 @@ type FeedRequest = {
   location: string | null;
   state: string | null;
   pad: string | null;
+  padId: number | null;
   provider: string | null;
+  providerId: number | null;
+  rocketId: number | null;
   status: LaunchStatusFilter;
   sort: LaunchFeedSort;
   region: FeedRegion;
@@ -103,6 +106,25 @@ export async function loadVersionedLaunchFeedPayload(request: Request) {
   }
 
   return loadWatchlistFeed(feedRequest, viewer);
+}
+
+export async function loadVersionedLaunchFeedVersionPayload(request: Request) {
+  const feedRequest = parseFeedRequest(request);
+  const viewer = await getViewerTier({ request, reconcileStripe: false });
+
+  if (feedRequest.scope === 'watchlist') {
+    throw new LaunchFeedApiRouteError(400, 'unsupported_scope');
+  }
+
+  if (!isSupabaseConfigured()) {
+    throw new LaunchFeedApiRouteError(503, 'supabase_not_configured');
+  }
+
+  if (feedRequest.scope === 'live') {
+    return loadLiveFeedVersion(feedRequest, viewer);
+  }
+
+  return loadPublicFeedVersion(feedRequest, viewer);
 }
 
 export async function loadVersionedChangedLaunchesPayload(request: Request) {
@@ -264,6 +286,40 @@ async function loadPublicFeed(feedRequest: FeedRequest) {
   });
 }
 
+async function loadPublicFeedVersion(feedRequest: FeedRequest, viewer: ViewerTierInfo) {
+  const client = createSupabaseServerClient();
+  let countQuery = client.from('launches_public_cache').select('launch_id', { count: 'exact', head: true });
+  countQuery = applyPublicLaunchFilters(countQuery, feedRequest);
+
+  const { count, error: countError } = await countQuery;
+  if (countError) {
+    console.error('public launches version count error', countError);
+    throw new LaunchFeedApiRouteError(500, 'failed_to_load');
+  }
+
+  let latestQuery = client.from('launches_public_cache').select('cache_generated_at').limit(1);
+  latestQuery = applyPublicLaunchFilters(latestQuery, feedRequest);
+  const { data: latestRow, error: latestError } = await latestQuery
+    .order('cache_generated_at', { ascending: false })
+    .maybeSingle();
+  if (latestError) {
+    console.error('public launches version latest error', latestError);
+    throw new LaunchFeedApiRouteError(500, 'failed_to_load');
+  }
+
+  const updatedAt = typeof latestRow?.cache_generated_at === 'string' ? latestRow.cache_generated_at : null;
+  const matchCount = count ?? 0;
+
+  return launchFeedVersionSchemaV1.parse({
+    scope: 'public',
+    tier: viewer.tier,
+    intervalSeconds: viewer.refreshIntervalSeconds,
+    matchCount,
+    updatedAt,
+    version: buildFeedVersionToken(matchCount, updatedAt)
+  });
+}
+
 async function loadLiveFeed(feedRequest: FeedRequest, viewer: ViewerTierInfo) {
   if (!viewer.isAuthed) {
     throw new LaunchFeedApiRouteError(401, 'unauthorized');
@@ -305,6 +361,47 @@ async function loadLiveFeed(feedRequest: FeedRequest, viewer: ViewerTierInfo) {
     intervalSeconds: viewer.refreshIntervalSeconds,
     tier: viewer.tier,
     scope: 'live'
+  });
+}
+
+async function loadLiveFeedVersion(feedRequest: FeedRequest, viewer: ViewerTierInfo) {
+  if (!viewer.isAuthed) {
+    throw new LaunchFeedApiRouteError(401, 'unauthorized');
+  }
+  if (!viewer.isAdmin && viewer.tier !== 'premium') {
+    throw new LaunchFeedApiRouteError(402, 'payment_required');
+  }
+
+  const client = createSupabaseServerClient();
+  let countQuery = client.from('launches').select('id', { count: 'exact', head: true }).eq('hidden', false);
+  countQuery = applyStandardLaunchFilters(countQuery, feedRequest);
+
+  const { count, error: countError } = await countQuery;
+  if (countError) {
+    console.error('live launches version count error', countError);
+    throw new LaunchFeedApiRouteError(500, 'failed_to_load');
+  }
+
+  let latestQuery = client.from('launches').select('last_updated_source').eq('hidden', false).limit(1);
+  latestQuery = applyStandardLaunchFilters(latestQuery, feedRequest);
+  const { data: latestRow, error: latestError } = await latestQuery
+    .order('last_updated_source', { ascending: false })
+    .maybeSingle();
+  if (latestError) {
+    console.error('live launches version latest error', latestError);
+    throw new LaunchFeedApiRouteError(500, 'failed_to_load');
+  }
+
+  const updatedAt = typeof latestRow?.last_updated_source === 'string' ? latestRow.last_updated_source : null;
+  const matchCount = count ?? 0;
+
+  return launchFeedVersionSchemaV1.parse({
+    scope: 'live',
+    tier: viewer.tier,
+    intervalSeconds: viewer.refreshIntervalSeconds,
+    matchCount,
+    updatedAt,
+    version: buildFeedVersionToken(matchCount, updatedAt)
   });
 }
 
@@ -456,7 +553,10 @@ function parseFeedRequest(request: Request): FeedRequest {
     location: normalizeText(searchParams.get('location')),
     state: normalizeText(searchParams.get('state')),
     pad: normalizeText(searchParams.get('pad')),
+    padId: parsePositiveInteger(searchParams.get('padId')),
     provider: normalizeText(searchParams.get('provider')),
+    providerId: parsePositiveInteger(searchParams.get('providerId')),
+    rocketId: parsePositiveInteger(searchParams.get('rocketId')),
     status: parseLaunchStatusFilter(searchParams.get('status')),
     sort,
     region: parseLaunchRegion(searchParams.get('region')),
@@ -491,7 +591,10 @@ function applyPublicLaunchFilters(query: any, feedRequest: FeedRequest) {
   if (feedRequest.location) next = next.eq('pad_location_name', feedRequest.location);
   if (feedRequest.state) next = next.or(buildPublicStateFilterOrClause(feedRequest.state));
   if (feedRequest.pad) next = next.eq('pad_name', feedRequest.pad);
+  if (feedRequest.padId != null) next = next.eq('ll2_pad_id', feedRequest.padId);
   if (feedRequest.provider) next = next.eq('provider', feedRequest.provider);
+  if (feedRequest.providerId != null) next = next.eq('ll2_agency_id', feedRequest.providerId);
+  if (feedRequest.rocketId != null) next = next.eq('ll2_rocket_config_id', feedRequest.rocketId);
   if (feedRequest.status) {
     const statusClause = buildStatusFilterOrClause(feedRequest.status);
     if (statusClause) next = next.or(statusClause);
@@ -508,7 +611,10 @@ function applyStandardLaunchFilters(query: any, feedRequest: FeedRequest) {
   if (feedRequest.location) next = next.eq('pad_location_name', feedRequest.location);
   if (feedRequest.state) next = next.eq('pad_state', feedRequest.state);
   if (feedRequest.pad) next = next.eq('pad_name', feedRequest.pad);
+  if (feedRequest.padId != null) next = next.eq('ll2_pad_id', feedRequest.padId);
   if (feedRequest.provider) next = next.eq('provider', feedRequest.provider);
+  if (feedRequest.providerId != null) next = next.eq('ll2_agency_id', feedRequest.providerId);
+  if (feedRequest.rocketId != null) next = next.eq('ll2_rocket_config_id', feedRequest.rocketId);
   if (feedRequest.status) {
     const statusClause = buildStatusFilterOrClause(feedRequest.status);
     if (statusClause) next = next.or(statusClause);
@@ -724,9 +830,20 @@ function parseDateParam(value: string | null) {
   return date.toISOString();
 }
 
+function buildFeedVersionToken(matchCount: number, updatedAt: string | null) {
+  return `${matchCount}|${updatedAt ?? 'null'}`;
+}
+
 function clampNumber(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) return min;
   return Math.min(max, Math.max(min, Math.trunc(value)));
+}
+
+function parsePositiveInteger(value: string | null) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return null;
+  const whole = Math.trunc(numeric);
+  return whole > 0 ? whole : null;
 }
 
 function filterChangelogFields(fields: unknown): string[] {

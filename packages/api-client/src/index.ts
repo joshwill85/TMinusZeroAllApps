@@ -6,6 +6,10 @@ import {
   appleBillingSyncRequestSchemaV1,
   authContextUpsertSchemaV1,
   billingCatalogSchemaV1,
+  premiumClaimAttachResponseSchemaV1,
+  premiumClaimEnvelopeSchemaV1,
+  premiumClaimPasswordSignUpResponseSchemaV1,
+  premiumClaimPasswordSignUpSchemaV1,
   billingSummarySchemaV1,
   billingSyncResponseSchemaV1,
   blueOriginContractsResponseSchemaV1,
@@ -15,6 +19,19 @@ import {
   blueOriginOverviewSchemaV1,
   blueOriginTravelersResponseSchemaV1,
   blueOriginVehiclesResponseSchemaV1,
+  spaceXContractsResponseSchemaV1,
+  spaceXEnginesResponseSchemaV1,
+  spaceXFlightsResponseSchemaV1,
+  spaceXMissionOverviewSchemaV1,
+  spaceXOverviewSchemaV1,
+  spaceXVehiclesResponseSchemaV1,
+  artemisAwardeeDetailSchemaV1,
+  artemisAwardeesResponseSchemaV1,
+  artemisContentResponseSchemaV1,
+  artemisContractDetailSchemaV1,
+  artemisContractsResponseSchemaV1,
+  artemisMissionOverviewSchemaV1,
+  artemisOverviewSchemaV1,
   calendarTokenSchemaV1,
   calendarFeedCreateSchemaV1,
   calendarFeedEnvelopeSchemaV1,
@@ -31,8 +48,10 @@ import {
   filterPresetsSchemaV1,
   filterPresetUpdateSchemaV1,
   launchDetailSchemaV1,
+  launchDetailVersionSchemaV1,
   launchFilterOptionsSchemaV1,
   launchFeedSchemaV1,
+  launchFeedVersionSchemaV1,
   launchNotificationPreferenceEnvelopeSchemaV1,
   launchNotificationPreferenceUpdateSchemaV1,
   marketingEmailSchemaV1,
@@ -43,6 +62,15 @@ import {
   privacyPreferencesUpdateSchemaV1,
   profileSchemaV1,
   profileUpdateSchemaV1,
+  mobilePushDeviceRegisterSchemaV1,
+  mobilePushDeviceRemoveSchemaV1,
+  mobilePushDeviceSchemaV1,
+  mobilePushLaunchPreferenceEnvelopeSchemaV1,
+  mobilePushRuleEnvelopeSchemaV1,
+  mobilePushRulesEnvelopeSchemaV1,
+  mobilePushRuleUpsertSchemaV1,
+  mobilePushTestRequestSchemaV1,
+  mobilePushTestSchemaV1,
   pushDeliveryTestSchemaV1,
   pushDeviceRegistrationSchemaV1,
   pushDeviceRemovalSchemaV1,
@@ -65,6 +93,22 @@ import {
   mobileAuthPasswordSignUpSchemaV1,
   mobileAuthRiskDecisionSchemaV1,
   mobileAuthRiskStartSchemaV1,
+  newsStreamSchemaV1,
+  canonicalContractDetailSchemaV1,
+  canonicalContractsResponseSchemaV1,
+  satellitesResponseSchemaV1,
+  satelliteDetailSchemaV1,
+  satelliteOwnerProfileSchemaV1,
+  satelliteOwnersResponseSchemaV1,
+  contentPageSchemaV1,
+  infoHubSchemaV1,
+  catalogHubSchemaV1,
+  catalogCollectionSchemaV1,
+  catalogDetailSchemaV1,
+  providerDetailSchemaV1,
+  rocketDetailSchemaV1,
+  locationDetailSchemaV1,
+  padDetailSchemaV1,
   rssFeedCreateSchemaV1,
   rssFeedEnvelopeSchemaV1,
   rssFeedsSchemaV1,
@@ -79,6 +123,10 @@ import {
   type AuthContextUpsertV1,
   type BillingCatalogProductV1,
   type BillingCatalogV1,
+  type PremiumClaimAttachResponseV1,
+  type PremiumClaimEnvelopeV1,
+  type PremiumClaimPasswordSignUpResponseV1,
+  type PremiumClaimPasswordSignUpV1,
   type BillingPlatformV1,
   type BillingSummaryV1,
   type BillingSyncResponseV1,
@@ -90,6 +138,21 @@ import {
   type BlueOriginOverviewV1,
   type BlueOriginTravelersResponseV1,
   type BlueOriginVehiclesResponseV1,
+  type SpaceXMissionKeyV1,
+  type SpaceXOverviewV1,
+  type SpaceXMissionOverviewV1,
+  type SpaceXFlightsResponseV1,
+  type SpaceXVehiclesResponseV1,
+  type SpaceXEnginesResponseV1,
+  type SpaceXContractsResponseV1,
+  type ArtemisMissionKeyV1,
+  type ArtemisContractsResponseV1,
+  type ArtemisContractDetailV1,
+  type ArtemisAwardeesResponseV1,
+  type ArtemisAwardeeDetailV1,
+  type ArtemisContentResponseV1,
+  type ArtemisOverviewV1,
+  type ArtemisMissionOverviewV1,
   type CalendarTokenV1,
   type CalendarFeedCreateV1,
   type CalendarFeedV1,
@@ -109,8 +172,10 @@ import {
   type FilterPresetsV1,
   type FilterPresetUpdateV1,
   type LaunchDetailV1,
+  type LaunchDetailVersionV1,
   type LaunchFilterOptionsV1,
   type LaunchFeedV1,
+  type LaunchFeedVersionV1,
   type TrajectoryPublicV2ResponseV1,
   type LaunchNotificationPreferenceEnvelopeV1,
   type LaunchNotificationPreferenceUpdateV1,
@@ -125,14 +190,43 @@ import {
   type MobileAuthPasswordSignUpV1,
   type MobileAuthRiskDecisionV1,
   type MobileAuthRiskStartV1,
+  type NewsStreamV1,
+  type CanonicalContractsResponseV1,
+  type CanonicalContractDetailV1,
+  type SatellitesResponseV1,
+  type SatelliteOwnersResponseV1,
+  type SatelliteDetailV1,
+  type SatelliteOwnerProfileV1,
+  type ContentPageV1,
+  type InfoHubV1,
+  type CatalogEntityTypeV1,
+  type CatalogHubV1,
+  type CatalogCollectionV1,
+  type CatalogDetailV1,
+  type ProviderDetailV1,
+  type RocketDetailV1,
+  type LocationDetailV1,
+  type PadDetailV1,
   type MarketingEmailUpdateV1,
   type MarketingEmailV1,
   type NotificationPreferencesV1,
   type NotificationPreferencesUpdateV1,
   type PrivacyPreferencesV1,
   type PrivacyPreferencesUpdateV1,
+  type PremiumClaimV1,
   type ProfileV1,
   type ProfileUpdateV1,
+  type MobilePushDeviceRegisterV1,
+  type MobilePushDeviceRemoveV1,
+  type MobilePushDeviceV1,
+  type MobilePushGuestContextV1,
+  type MobilePushLaunchPreferenceEnvelopeV1,
+  type MobilePushRuleV1,
+  type MobilePushRuleEnvelopeV1,
+  type MobilePushRulesEnvelopeV1,
+  type MobilePushRuleUpsertV1,
+  type MobilePushTestRequestV1,
+  type MobilePushTestV1,
   type PushDeliveryTestV1,
   type PushDeviceRegistrationV1,
   type PushDeviceRemovalV1,
@@ -191,10 +285,33 @@ type LaunchFeedRequest = {
   location?: string | null;
   state?: string | null;
   pad?: string | null;
+  padId?: number | null;
   region?: 'us' | 'non-us' | 'all';
   provider?: string | null;
+  providerId?: number | null;
+  rocketId?: number | null;
   sort?: 'soonest' | 'latest' | 'changed';
   status?: 'go' | 'hold' | 'scrubbed' | 'tbd' | 'unknown' | null;
+};
+
+type LaunchFeedVersionRequest = {
+  scope?: 'public' | 'live';
+  range?: 'today' | '7d' | 'month' | 'year' | 'past' | 'all';
+  from?: string | null;
+  to?: string | null;
+  location?: string | null;
+  state?: string | null;
+  pad?: string | null;
+  padId?: number | null;
+  region?: 'us' | 'non-us' | 'all';
+  provider?: string | null;
+  providerId?: number | null;
+  rocketId?: number | null;
+  status?: 'go' | 'hold' | 'scrubbed' | 'tbd' | 'unknown' | null;
+};
+
+type LaunchDetailVersionRequest = {
+  scope?: 'public' | 'live';
 };
 
 type LaunchFilterOptionsRequest = {
@@ -223,6 +340,52 @@ type ChangedLaunchesRequest = {
 
 type BlueOriginMissionFilterRequest = {
   mission?: BlueOriginMissionKeyV1 | 'all' | null;
+};
+
+type SpaceXMissionFilterRequest = {
+  mission?: SpaceXMissionKeyV1 | 'all' | null;
+};
+
+type ArtemisAwardeeIndexRequest = {
+  q?: string | null;
+  limit?: number | null;
+};
+
+type ArtemisContentRequest = {
+  mission?: ArtemisMissionKeyV1 | 'program' | 'all' | null;
+  kind?: 'article' | 'photo' | 'social' | 'data' | 'all' | null;
+  tier?: 'tier1' | 'tier2' | 'all' | null;
+  cursor?: string | null;
+  limit?: number | null;
+};
+
+type NewsStreamRequest = {
+  type?: 'all' | 'article' | 'blog' | 'report' | null;
+  provider?: string | null;
+  cursor?: number | null;
+  limit?: number | null;
+};
+
+type CanonicalContractsRequest = {
+  q?: string | null;
+  scope?: 'all' | 'spacex' | 'blue-origin' | 'artemis' | null;
+};
+
+type SatellitesRequest = {
+  limit?: number | null;
+  offset?: number | null;
+};
+
+type SatelliteOwnersRequest = {
+  limit?: number | null;
+  offset?: number | null;
+};
+
+type CatalogCollectionRequest = {
+  region?: 'all' | 'us' | null;
+  q?: string | null;
+  limit?: number | null;
+  offset?: number | null;
 };
 
 export class ApiClientError extends Error {
@@ -260,7 +423,8 @@ export class ApiClient {
   constructor(options: ApiClientOptions = {}) {
     this.baseUrl = options.baseUrl ?? '';
     this.auth = options.auth ?? { mode: 'guest' };
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    const fetchImpl = options.fetchImpl ?? globalThis.fetch;
+    this.fetchImpl = fetchImpl.bind(globalThis) as typeof fetch;
   }
 
   async getViewerSession() {
@@ -293,6 +457,37 @@ export class ApiClient {
     });
   }
 
+  async syncAppleBillingClaim(payload: AppleBillingSyncRequestV1) {
+    return this.request('/api/v1/billing/claims/apple', premiumClaimEnvelopeSchemaV1, {
+      method: 'POST',
+      body: appleBillingSyncRequestSchemaV1.parse(payload)
+    });
+  }
+
+  async syncGoogleBillingClaim(payload: GoogleBillingSyncRequestV1) {
+    return this.request('/api/v1/billing/claims/google', premiumClaimEnvelopeSchemaV1, {
+      method: 'POST',
+      body: googleBillingSyncRequestSchemaV1.parse(payload)
+    });
+  }
+
+  async getPremiumClaim(claimToken: string) {
+    return this.request(`/api/v1/billing/claims/${encodeURIComponent(claimToken)}`, premiumClaimEnvelopeSchemaV1);
+  }
+
+  async attachPremiumClaim(claimToken: string) {
+    return this.request(`/api/v1/billing/claims/${encodeURIComponent(claimToken)}/attach`, premiumClaimAttachResponseSchemaV1, {
+      method: 'POST'
+    });
+  }
+
+  async createPremiumAccountFromClaim(payload: PremiumClaimPasswordSignUpV1) {
+    return this.request('/api/v1/billing/claims/sign-up', premiumClaimPasswordSignUpResponseSchemaV1, {
+      method: 'POST',
+      body: premiumClaimPasswordSignUpSchemaV1.parse(payload)
+    });
+  }
+
   async getLaunchFeed(options: LaunchFeedRequest = {}) {
     return this.request(
       appendQuery('/api/v1/launches', {
@@ -306,12 +501,36 @@ export class ApiClient {
         location: options.location,
         state: options.state,
         pad: options.pad,
+        padId: options.padId,
         region: options.region,
         provider: options.provider,
+        providerId: options.providerId,
+        rocketId: options.rocketId,
         sort: options.sort,
         status: options.status
       }),
       launchFeedSchemaV1
+    );
+  }
+
+  async getLaunchFeedVersion(options: LaunchFeedVersionRequest = {}) {
+    return this.request(
+      appendQuery('/api/v1/launches/version', {
+        scope: options.scope,
+        range: options.range,
+        from: options.from,
+        to: options.to,
+        location: options.location,
+        state: options.state,
+        pad: options.pad,
+        padId: options.padId,
+        region: options.region,
+        provider: options.provider,
+        providerId: options.providerId,
+        rocketId: options.rocketId,
+        status: options.status
+      }),
+      launchFeedVersionSchemaV1
     );
   }
 
@@ -345,6 +564,15 @@ export class ApiClient {
 
   async getLaunchDetail(id: string) {
     return this.request(`/api/v1/launches/${encodeURIComponent(id)}`, launchDetailSchemaV1);
+  }
+
+  async getLaunchDetailVersion(id: string, options: LaunchDetailVersionRequest = {}) {
+    return this.request(
+      appendQuery(`/api/v1/launches/${encodeURIComponent(id)}/version`, {
+        scope: options.scope
+      }),
+      launchDetailVersionSchemaV1
+    );
   }
 
   async getLaunchTrajectory(id: string) {
@@ -397,6 +625,191 @@ export class ApiClient {
       }),
       blueOriginContractsResponseSchemaV1
     );
+  }
+
+  async getSpaceXOverview() {
+    return this.request('/api/v1/spacex', spaceXOverviewSchemaV1);
+  }
+
+  async getSpaceXMissionOverview(mission: Exclude<SpaceXMissionKeyV1, 'spacex-program'>) {
+    return this.request(`/api/v1/spacex/missions/${encodeURIComponent(mission)}`, spaceXMissionOverviewSchemaV1);
+  }
+
+  async getSpaceXFlights(options: SpaceXMissionFilterRequest = {}) {
+    return this.request(
+      appendQuery('/api/v1/spacex/flights', {
+        mission: options.mission ?? 'all'
+      }),
+      spaceXFlightsResponseSchemaV1
+    );
+  }
+
+  async getSpaceXVehicles(options: SpaceXMissionFilterRequest = {}) {
+    return this.request(
+      appendQuery('/api/v1/spacex/vehicles', {
+        mission: options.mission ?? 'all'
+      }),
+      spaceXVehiclesResponseSchemaV1
+    );
+  }
+
+  async getSpaceXEngines(options: SpaceXMissionFilterRequest = {}) {
+    return this.request(
+      appendQuery('/api/v1/spacex/engines', {
+        mission: options.mission ?? 'all'
+      }),
+      spaceXEnginesResponseSchemaV1
+    );
+  }
+
+  async getSpaceXContracts(options: SpaceXMissionFilterRequest = {}) {
+    return this.request(
+      appendQuery('/api/v1/spacex/contracts', {
+        mission: options.mission ?? 'all'
+      }),
+      spaceXContractsResponseSchemaV1
+    );
+  }
+
+  async getArtemisOverview() {
+    return this.request('/api/v1/artemis', artemisOverviewSchemaV1);
+  }
+
+  async getArtemisMissionOverview(mission: ArtemisMissionKeyV1) {
+    return this.request(`/api/v1/artemis/missions/${encodeURIComponent(mission)}`, artemisMissionOverviewSchemaV1);
+  }
+
+  async getArtemisContracts() {
+    return this.request('/api/v1/artemis/contracts', artemisContractsResponseSchemaV1);
+  }
+
+  async getArtemisContractDetail(piid: string) {
+    return this.request(`/api/v1/artemis/contracts/${encodeURIComponent(piid)}`, artemisContractDetailSchemaV1);
+  }
+
+  async getArtemisAwardees(options: ArtemisAwardeeIndexRequest = {}) {
+    return this.request(
+      appendQuery('/api/v1/artemis/awardees', {
+        q: options.q ?? null,
+        limit: options.limit ?? null
+      }),
+      artemisAwardeesResponseSchemaV1
+    );
+  }
+
+  async getArtemisAwardeeDetail(slug: string) {
+    return this.request(`/api/v1/artemis/awardees/${encodeURIComponent(slug)}`, artemisAwardeeDetailSchemaV1);
+  }
+
+  async getArtemisContent(options: ArtemisContentRequest = {}) {
+    return this.request(
+      appendQuery('/api/v1/artemis/content', {
+        mission: options.mission ?? 'all',
+        kind: options.kind ?? 'all',
+        tier: options.tier ?? 'all',
+        cursor: options.cursor ?? null,
+        limit: options.limit ?? null
+      }),
+      artemisContentResponseSchemaV1
+    );
+  }
+
+  async getNewsStream(options: NewsStreamRequest = {}) {
+    return this.request(
+      appendQuery('/api/v1/news', {
+        type: options.type ?? 'all',
+        provider: options.provider ?? null,
+        cursor: options.cursor ?? null,
+        limit: options.limit ?? null
+      }),
+      newsStreamSchemaV1
+    );
+  }
+
+  async getCanonicalContracts(options: CanonicalContractsRequest = {}) {
+    return this.request(
+      appendQuery('/api/v1/contracts', {
+        q: options.q ?? null,
+        scope: options.scope ?? 'all'
+      }),
+      canonicalContractsResponseSchemaV1
+    );
+  }
+
+  async getCanonicalContractDetail(contractUid: string) {
+    return this.request(`/api/v1/contracts/${encodeURIComponent(contractUid)}`, canonicalContractDetailSchemaV1);
+  }
+
+  async getSatellites(options: SatellitesRequest = {}) {
+    return this.request(
+      appendQuery('/api/v1/satellites', {
+        limit: options.limit ?? null,
+        offset: options.offset ?? null
+      }),
+      satellitesResponseSchemaV1
+    );
+  }
+
+  async getSatelliteDetail(noradCatId: string | number) {
+    return this.request(`/api/v1/satellites/${encodeURIComponent(String(noradCatId))}`, satelliteDetailSchemaV1);
+  }
+
+  async getSatelliteOwners(options: SatelliteOwnersRequest = {}) {
+    return this.request(
+      appendQuery('/api/v1/satellites/owners', {
+        limit: options.limit ?? null,
+        offset: options.offset ?? null
+      }),
+      satelliteOwnersResponseSchemaV1
+    );
+  }
+
+  async getSatelliteOwnerProfile(owner: string) {
+    return this.request(`/api/v1/satellites/owners/${encodeURIComponent(owner)}`, satelliteOwnerProfileSchemaV1);
+  }
+
+  async getInfoHub() {
+    return this.request('/api/v1/info', infoHubSchemaV1);
+  }
+
+  async getContentPage(slug: string) {
+    return this.request(`/api/v1/content/${encodeURIComponent(slug)}`, contentPageSchemaV1);
+  }
+
+  async getCatalogHub() {
+    return this.request('/api/v1/catalog', catalogHubSchemaV1);
+  }
+
+  async getCatalogCollection(entity: CatalogEntityTypeV1, options: CatalogCollectionRequest = {}) {
+    return this.request(
+      appendQuery(`/api/v1/catalog/${encodeURIComponent(entity)}`, {
+        region: options.region ?? 'all',
+        q: options.q ?? null,
+        limit: options.limit ?? null,
+        offset: options.offset ?? null
+      }),
+      catalogCollectionSchemaV1
+    );
+  }
+
+  async getCatalogDetail(entity: CatalogEntityTypeV1, entityId: string) {
+    return this.request(`/api/v1/catalog/${encodeURIComponent(entity)}/${encodeURIComponent(entityId)}`, catalogDetailSchemaV1);
+  }
+
+  async getProviderDetail(slug: string) {
+    return this.request(`/api/v1/providers/${encodeURIComponent(slug)}`, providerDetailSchemaV1);
+  }
+
+  async getRocketDetail(id: string) {
+    return this.request(`/api/v1/rockets/${encodeURIComponent(id)}`, rocketDetailSchemaV1);
+  }
+
+  async getLocationDetail(id: string) {
+    return this.request(`/api/v1/locations/${encodeURIComponent(id)}`, locationDetailSchemaV1);
+  }
+
+  async getPadDetail(id: string) {
+    return this.request(`/api/v1/pads/${encodeURIComponent(id)}`, padDetailSchemaV1);
   }
 
   async postArTelemetrySession(payload: ArTelemetrySessionEventV1) {
@@ -748,6 +1161,74 @@ export class ApiClient {
     });
   }
 
+  async registerMobilePushDevice(payload: MobilePushDeviceRegisterV1) {
+    return this.request('/api/v1/mobile/push/device', mobilePushDeviceSchemaV1, {
+      method: 'POST',
+      body: mobilePushDeviceRegisterSchemaV1.parse(payload)
+    });
+  }
+
+  async removeMobilePushDevice(payload: MobilePushDeviceRemoveV1) {
+    return this.request('/api/v1/mobile/push/device', mobilePushDeviceSchemaV1, {
+      method: 'DELETE',
+      body: mobilePushDeviceRemoveSchemaV1.parse(payload)
+    });
+  }
+
+  async getMobilePushRules(payload: MobilePushGuestContextV1) {
+    return this.request(
+      appendQuery('/api/v1/mobile/push/rules', {
+        installationId: payload.installationId,
+        deviceSecret: payload.deviceSecret ?? null
+      }),
+      mobilePushRulesEnvelopeSchemaV1
+    );
+  }
+
+  async upsertMobilePushRule(payload: MobilePushRuleUpsertV1) {
+    return this.request('/api/v1/mobile/push/rules', mobilePushRuleEnvelopeSchemaV1, {
+      method: 'POST',
+      body: mobilePushRuleUpsertSchemaV1.parse(payload)
+    });
+  }
+
+  async deleteMobilePushRule(id: string, payload: MobilePushGuestContextV1) {
+    return this.request(
+      appendQuery(`/api/v1/mobile/push/rules/${encodeURIComponent(id)}`, {
+        installationId: payload.installationId,
+        deviceSecret: payload.deviceSecret ?? null
+      }),
+      successResponseSchemaV1,
+      {
+        method: 'DELETE'
+      }
+    );
+  }
+
+  async getMobilePushLaunchPreference(launchId: string, payload: MobilePushGuestContextV1) {
+    return this.request(
+      appendQuery(`/api/v1/mobile/push/launches/${encodeURIComponent(launchId)}`, {
+        installationId: payload.installationId,
+        deviceSecret: payload.deviceSecret ?? null
+      }),
+      mobilePushLaunchPreferenceEnvelopeSchemaV1
+    );
+  }
+
+  async upsertMobilePushLaunchPreference(launchId: string, payload: MobilePushRuleUpsertV1) {
+    return this.request(`/api/v1/mobile/push/launches/${encodeURIComponent(launchId)}`, mobilePushRuleEnvelopeSchemaV1, {
+      method: 'POST',
+      body: mobilePushRuleUpsertSchemaV1.parse(payload)
+    });
+  }
+
+  async sendMobilePushTest(payload: MobilePushTestRequestV1) {
+    return this.request('/api/v1/mobile/push/test', mobilePushTestSchemaV1, {
+      method: 'POST',
+      body: mobilePushTestRequestSchemaV1.parse(payload)
+    });
+  }
+
   private async request<T>(
     path: string,
     schema: { parse: (value: unknown) => T },
@@ -798,6 +1279,10 @@ export type {
   AuthContextUpsertV1,
   BillingCatalogProductV1,
   BillingCatalogV1,
+  PremiumClaimAttachResponseV1,
+  PremiumClaimEnvelopeV1,
+  PremiumClaimPasswordSignUpResponseV1,
+  PremiumClaimPasswordSignUpV1,
   BillingPlatformV1,
   BillingSummaryV1,
   BillingSyncResponseV1,
@@ -809,6 +1294,21 @@ export type {
   BlueOriginOverviewV1,
   BlueOriginTravelersResponseV1,
   BlueOriginVehiclesResponseV1,
+  SpaceXMissionKeyV1,
+  SpaceXOverviewV1,
+  SpaceXMissionOverviewV1,
+  SpaceXFlightsResponseV1,
+  SpaceXVehiclesResponseV1,
+  SpaceXEnginesResponseV1,
+  SpaceXContractsResponseV1,
+  ArtemisMissionKeyV1,
+  ArtemisContractsResponseV1,
+  ArtemisContractDetailV1,
+  ArtemisAwardeesResponseV1,
+  ArtemisAwardeeDetailV1,
+  ArtemisContentResponseV1,
+  ArtemisOverviewV1,
+  ArtemisMissionOverviewV1,
   CalendarFeedCreateV1,
   CalendarFeedV1,
   CalendarFeedEnvelopeV1,
@@ -836,6 +1336,23 @@ export type {
   MobileAuthPasswordSignUpV1,
   MobileAuthRiskDecisionV1,
   MobileAuthRiskStartV1,
+  NewsStreamV1,
+  CanonicalContractsResponseV1,
+  CanonicalContractDetailV1,
+  SatellitesResponseV1,
+  SatelliteOwnersResponseV1,
+  SatelliteDetailV1,
+  SatelliteOwnerProfileV1,
+  ContentPageV1,
+  InfoHubV1,
+  CatalogEntityTypeV1,
+  CatalogHubV1,
+  CatalogCollectionV1,
+  CatalogDetailV1,
+  ProviderDetailV1,
+  RocketDetailV1,
+  LocationDetailV1,
+  PadDetailV1,
   LaunchDetailV1,
   LaunchFilterOptionsV1,
   LaunchFeedV1,
@@ -848,8 +1365,20 @@ export type {
   NotificationPreferencesUpdateV1,
   PrivacyPreferencesV1,
   PrivacyPreferencesUpdateV1,
+  PremiumClaimV1,
   ProfileV1,
   ProfileUpdateV1,
+  MobilePushDeviceRegisterV1,
+  MobilePushDeviceRemoveV1,
+  MobilePushDeviceV1,
+  MobilePushGuestContextV1,
+  MobilePushLaunchPreferenceEnvelopeV1,
+  MobilePushRuleV1,
+  MobilePushRuleEnvelopeV1,
+  MobilePushRulesEnvelopeV1,
+  MobilePushRuleUpsertV1,
+  MobilePushTestRequestV1,
+  MobilePushTestV1,
   ArTelemetrySessionEventV1,
   AccountExportV1,
   CalendarTokenV1,
@@ -878,4 +1407,21 @@ export type {
   WatchlistsV1
 };
 
-export type { BlueOriginMissionFilterRequest, ChangedLaunchesRequest, LaunchFeedRequest, LaunchFilterOptionsRequest };
+export type {
+  BlueOriginMissionFilterRequest,
+  SpaceXMissionFilterRequest,
+  ArtemisAwardeeIndexRequest,
+  ArtemisContentRequest,
+  NewsStreamRequest,
+  CanonicalContractsRequest,
+  SatellitesRequest,
+  SatelliteOwnersRequest,
+  CatalogCollectionRequest,
+  ChangedLaunchesRequest,
+  LaunchDetailVersionRequest,
+  LaunchDetailVersionV1,
+  LaunchFeedRequest,
+  LaunchFeedVersionRequest,
+  LaunchFeedVersionV1,
+  LaunchFilterOptionsRequest
+};

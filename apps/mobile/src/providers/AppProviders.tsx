@@ -6,6 +6,7 @@ import { useAuthBootstrap } from '@/src/bootstrap/useAuthBootstrap';
 import { useThemeBootstrap } from '@/src/bootstrap/useThemeBootstrap';
 import { MobilePushProvider } from '@/src/providers/MobilePushProvider';
 import { MobileBootstrapContext, useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
+import { MobileToastProvider } from '@/src/providers/MobileToastProvider';
 
 type AppProvidersProps = {
   children: ReactNode;
@@ -41,7 +42,9 @@ function isAuthScopedQueryKey(queryKey: readonly unknown[]) {
     root === sharedQueryKeys.embedWidgets[0] ||
     root === sharedQueryKeys.notificationPreferences[0] ||
     root === 'launch-notification-preference' ||
-    root === 'push-device'
+    root === 'push-device' ||
+    root === 'mobile-push-rules' ||
+    root === 'mobile-push-launch-preference'
   ) {
     return true;
   }
@@ -78,10 +81,12 @@ export function AppProviders({ children }: AppProvidersProps) {
           refreshSession
         }}
       >
-        <MobilePushProvider>
-          <BootstrapPrefetcher />
-          {children}
-        </MobilePushProvider>
+        <MobileToastProvider>
+          <MobilePushProvider>
+            <BootstrapPrefetcher />
+            {children}
+          </MobilePushProvider>
+        </MobileToastProvider>
       </MobileBootstrapContext.Provider>
     </QueryClientProvider>
   );

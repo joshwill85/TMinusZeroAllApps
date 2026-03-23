@@ -1,4 +1,5 @@
 import ARKit
+import AVFoundation
 import ExpoModulesCore
 
 public final class TmzArTrajectoryModule: Module {
@@ -13,6 +14,21 @@ public final class TmzArTrajectoryModule: Module {
       let supportsHighResolutionCapture = ARWorldTrackingConfiguration.supportedVideoFormats.contains { format in
         let maxDimension = max(format.imageResolution.width, format.imageResolution.height)
         return maxDimension >= 3_840
+      }
+      var supportsZoom = false
+      var minZoomRatio = 1.0
+      var maxZoomRatio = 1.0
+      var defaultZoomRatio = 1.0
+
+      if #available(iOS 16.0, *) {
+        if let captureDevice = ARWorldTrackingConfiguration.configurableCaptureDeviceForPrimaryCamera {
+          let minAvailable = max(0.5, Double(captureDevice.minAvailableVideoZoomFactor))
+          let maxAvailable = min(3.0, Double(captureDevice.maxAvailableVideoZoomFactor))
+          supportsZoom = maxAvailable > minAvailable + 0.01
+          minZoomRatio = minAvailable
+          maxZoomRatio = maxAvailable
+          defaultZoomRatio = Double(captureDevice.videoZoomFactor)
+        }
       }
 
       return [
@@ -29,6 +45,10 @@ public final class TmzArTrajectoryModule: Module {
         "supportsSceneReconstruction": sceneReconstructionSupported,
         "supportsGeoTracking": geoTrackingSupported,
         "supportsHighResolutionFrameCapture": supportsHighResolutionCapture,
+        "supportsZoom": supportsZoom,
+        "minZoomRatio": minZoomRatio,
+        "maxZoomRatio": maxZoomRatio,
+        "defaultZoomRatio": defaultZoomRatio,
         "reason": worldTrackingSupported ? NSNull() : "ARKit world tracking is unavailable on this iPhone."
       ]
     }
@@ -66,6 +86,14 @@ public final class TmzArTrajectoryModule: Module {
 
       Prop("highResCaptureEnabled", false) { (view: TmzArTrajectoryView, enabled: Bool) in
         view.highResCaptureEnabled = enabled
+      }
+
+      Prop("enablePinchZoom", true) { (view: TmzArTrajectoryView, enabled: Bool) in
+        view.enablePinchZoom = enabled
+      }
+
+      Prop("targetZoomRatio") { (view: TmzArTrajectoryView, zoomRatio: Double?) in
+        view.targetZoomRatio = zoomRatio
       }
 
       Prop("showDebugStatistics", false) { (view: TmzArTrajectoryView, enabled: Bool) in

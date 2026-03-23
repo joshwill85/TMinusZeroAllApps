@@ -329,7 +329,7 @@ export default function AccountPage() {
       {showLoading && <p className="text-text3">Loading...</p>}
       {status === 'guest' && !showLoading && (
         <p className="text-text2">
-          You are not signed in. <Link className="text-primary" href={buildAuthHref('sign-in', { returnTo: buildProfileHref() })}>Sign in</Link> to manage your account, alerts, and membership settings.
+          You are not signed in. <Link className="text-primary" href={buildAuthHref('sign-in', { returnTo: buildProfileHref() })}>Sign in</Link> to manage your account, restore purchases, and billing settings.
         </p>
       )}
       {status === 'authed' && !showLoading && (

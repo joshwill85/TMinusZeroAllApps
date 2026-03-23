@@ -9,6 +9,12 @@ export type TmzArTrajectoryGeoTrackingAccuracy = 'unknown' | 'low' | 'medium' | 
 export type TmzArTrajectoryOcclusionMode = 'none' | 'scene_depth' | 'mesh'
 export type TmzArTrajectoryPermissionState = 'granted' | 'denied' | 'prompt' | 'error'
 export type TmzArTrajectoryOrientationLock = 'portrait' | 'landscape' | 'all'
+export type TmzArTrajectoryZoomControlPath = 'native_camera' | 'track_constraints' | 'preset_fallback' | 'unsupported'
+export type TmzArTrajectoryProjectionSource = 'intrinsics_frame' | 'projection_matrix' | 'inferred_fov' | 'preset'
+export type TmzArTrajectoryHeadingSource = 'arkit_world' | 'core_location_heading' | 'unknown'
+export type TmzArTrajectoryPoseSource = 'arkit_world_tracking' | 'deviceorientation'
+export type TmzArTrajectoryPoseMode = 'arkit_world_tracking' | 'sensor_fused'
+export type TmzArTrajectoryVisionBackend = 'vision_native' | 'none'
 
 export type TmzArTrajectoryCapabilities = {
   isSupported: boolean
@@ -24,6 +30,10 @@ export type TmzArTrajectoryCapabilities = {
   supportsSceneReconstruction: boolean
   supportsGeoTracking: boolean
   supportsHighResolutionFrameCapture: boolean
+  supportsZoom: boolean
+  minZoomRatio: number
+  maxZoomRatio: number
+  defaultZoomRatio: number
   reason: string | null
 }
 
@@ -47,6 +57,22 @@ export type TmzArTrajectorySessionUpdate = {
   qualityState: TmzArTrajectoryQualityState | null
   sampleCount: number
   milestoneCount: number
+  zoomSupported: boolean
+  zoomRatio: number
+  zoomRangeMin: number
+  zoomRangeMax: number
+  zoomControlPath: TmzArTrajectoryZoomControlPath
+  projectionSource: TmzArTrajectoryProjectionSource
+  cameraPermission?: TmzArTrajectoryPermissionState
+  motionPermission?: TmzArTrajectoryPermissionState
+  locationPermission?: TmzArTrajectoryPermissionState
+  headingSource?: TmzArTrajectoryHeadingSource
+  poseSource?: TmzArTrajectoryPoseSource
+  poseMode?: TmzArTrajectoryPoseMode
+  visionBackend?: TmzArTrajectoryVisionBackend
+  zoomRatioBucket?: string
+  zoomApplyLatencyBucket?: string
+  zoomProjectionSyncLatencyBucket?: string
   lastUpdatedAt: string
 }
 
@@ -77,6 +103,8 @@ export type TmzArTrajectoryViewProps = {
   enableSceneDepth?: boolean
   enableSceneReconstruction?: boolean
   highResCaptureEnabled?: boolean
+  enablePinchZoom?: boolean
+  targetZoomRatio?: number
   showDebugStatistics?: boolean
   onSessionUpdate?: (event: TmzArTrajectorySessionUpdateEvent) => void
   onSessionError?: (event: TmzArTrajectoryErrorEvent) => void

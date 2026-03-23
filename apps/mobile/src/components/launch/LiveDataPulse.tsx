@@ -1,16 +1,17 @@
+import { useEffect, type ReactNode } from 'react';
 import { View, Text } from 'react-native';
 import Animated, {
+  useSharedValue,
   useAnimatedStyle,
   withRepeat,
   withTiming,
   Easing,
 } from 'react-native-reanimated';
-import { useEffect } from 'react';
 import { ANIMATION_CONSTANTS } from '@tminuszero/launch-animations';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 
 type LiveDataPulseProps = {
-  children: React.ReactNode;
+  children: ReactNode;
   variant?: 'glow' | 'dot' | 'both';
   color?: 'success' | 'primary' | 'warning' | 'danger';
   size?: 'sm' | 'md' | 'lg';
@@ -26,9 +27,8 @@ export function LiveDataPulse({
   color = 'success',
   size = 'md',
 }: LiveDataPulseProps) {
-  const { theme } = useMobileBootstrap();
-  const opacity = Animated.useSharedValue(ANIMATION_CONSTANTS.LIVE_GLOW_MIN_OPACITY);
-  const scale = Animated.useSharedValue(ANIMATION_CONSTANTS.LIVE_DOT_SCALE_MIN);
+  const opacity = useSharedValue<number>(ANIMATION_CONSTANTS.LIVE_GLOW_MIN_OPACITY);
+  const scale = useSharedValue<number>(ANIMATION_CONSTANTS.LIVE_DOT_SCALE_MIN);
 
   const colors = {
     success: {
@@ -88,7 +88,7 @@ export function LiveDataPulse({
       -1,
       true
     );
-  }, []);
+  }, [opacity, scale]);
 
   const glowStyle = useAnimatedStyle(() => {
     'worklet';
@@ -156,8 +156,6 @@ export function LiveDataPulse({
  * Live badge with pulse effect
  */
 export function LiveBadge({ label = 'LIVE' }: { label?: string }) {
-  const { theme } = useMobileBootstrap();
-
   return (
     <LiveDataPulse variant="both" color="danger" size="sm">
       <View

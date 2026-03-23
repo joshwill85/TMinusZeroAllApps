@@ -31,6 +31,7 @@ type AdminSyncJob =
   | 'spacex_infographics_ingest'
   | 'spacex_x_post_snapshot'
   | 'launch_social_refresh'
+  | 'social_posts_dispatch'
   | 'launch_social_link_backfill'
   | 'll2_backfill'
   | 'll2_payload_backfill'
@@ -61,6 +62,7 @@ const JOB_TRIGGER_BY_ID: Partial<Record<JobStatus['id'], AdminSyncJob>> = {
   spacex_infographics_ingest: 'spacex_infographics_ingest',
   spacex_x_post_snapshot: 'spacex_x_post_snapshot',
   launch_social_refresh: 'launch_social_refresh',
+  social_posts_dispatch: 'social_posts_dispatch',
   launch_social_link_backfill: 'launch_social_link_backfill',
   celestrak_gp_groups_sync: 'celestrak_gp_groups_sync',
   celestrak_ingest: 'celestrak_ingest',

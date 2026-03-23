@@ -1,6 +1,9 @@
 import { getTierCapabilities, type ViewerTier } from './viewer';
 
 export type ViewerCtaTarget = 'sign-in' | 'upgrade' | 'manage';
+export type ViewerAccessContext = {
+  isAuthed?: boolean;
+};
 
 export type ViewerFeatureKey =
   | 'saved_items'
@@ -41,16 +44,16 @@ export const viewerTierCardManifest: Record<ViewerTier, ViewerTierCard> = {
   anon: {
     tier: 'anon',
     badgeLabel: 'Anon',
-    title: 'Browse now, sign in when you want control',
-    description: 'Browse launches without an account, then sign in for faster refreshes, filters, calendar access, and basic alert controls across web, iPhone, and Android.',
-    ctaLabel: 'Sign in',
-    ctaTarget: 'sign-in'
+    title: 'Mobile browsing is open by default',
+    description: 'Browse launches, use filters, and open the calendar on mobile by default. Premium unlocks follows, saved views, recurring calendar feeds, and advanced notifications.',
+    ctaLabel: 'View Premium',
+    ctaTarget: 'upgrade'
   },
   free: {
     tier: 'free',
-    badgeLabel: 'Free',
-    title: 'Your account is active',
-    description: 'Signed-in accounts unlock faster refreshes, launch filters, calendar access, one-off calendar adds, and basic mobile alert rules. Upgrade for saved presets, follows, browser alerts, and live operations tools.',
+    badgeLabel: 'Legacy',
+    title: 'Legacy account state',
+    description: 'This legacy tier no longer unlocks product access. Keep your account for ownership and recovery, then upgrade to Premium for the launch toolkit.',
     ctaLabel: 'View Premium',
     ctaTarget: 'upgrade'
   },
@@ -77,38 +80,38 @@ export const viewerFeatureManifest: Record<ViewerFeatureKey, ViewerFeatureManife
   preferences: {
     key: 'preferences',
     title: 'Preferences',
-    minimumTier: 'free',
-    blockedTitle: 'Preferences sync needs an account',
-    blockedDescription: 'Sign in to manage notification settings, quiet hours, and account-level preferences.',
-    ctaLabel: 'Sign in',
-    ctaTarget: 'sign-in'
+    minimumTier: 'anon',
+    blockedTitle: 'Preferences are available on mobile',
+    blockedDescription: 'Notification settings and device controls are available from this screen.',
+    ctaLabel: 'Open settings',
+    ctaTarget: 'manage'
   },
   launch_filters: {
     key: 'launch_filters',
     title: 'Launch filters',
-    minimumTier: 'free',
-    blockedTitle: 'Sign in to unlock launch filters',
-    blockedDescription: 'Create a free account to filter launches across web, iPhone, and Android.',
-    ctaLabel: 'Sign in',
-    ctaTarget: 'sign-in'
+    minimumTier: 'anon',
+    blockedTitle: 'Launch filters are available',
+    blockedDescription: 'Everyone on mobile can filter launches. Premium adds saved views and default filters.',
+    ctaLabel: 'View Premium',
+    ctaTarget: 'upgrade'
   },
   launch_calendar: {
     key: 'launch_calendar',
     title: 'Launch calendar',
-    minimumTier: 'free',
-    blockedTitle: 'Sign in to unlock the calendar',
-    blockedDescription: 'Create a free account to browse the monthly launch calendar and open detailed schedule views.',
-    ctaLabel: 'Sign in',
-    ctaTarget: 'sign-in'
+    minimumTier: 'anon',
+    blockedTitle: 'Launch calendar is available',
+    blockedDescription: 'Everyone on mobile can browse the launch calendar. Premium adds recurring calendar feeds.',
+    ctaLabel: 'View Premium',
+    ctaTarget: 'upgrade'
   },
   one_off_calendar: {
     key: 'one_off_calendar',
     title: 'One-off calendar export',
-    minimumTier: 'free',
-    blockedTitle: 'Sign in to add launches to your calendar',
-    blockedDescription: 'Create a free account to add individual launches to your calendar from launch detail.',
-    ctaLabel: 'Sign in',
-    ctaTarget: 'sign-in'
+    minimumTier: 'anon',
+    blockedTitle: 'One-off calendar export is available',
+    blockedDescription: 'Anyone on mobile can add an individual launch to a calendar from launch detail.',
+    ctaLabel: 'View Premium',
+    ctaTarget: 'upgrade'
   },
   live_feed: {
     key: 'live_feed',
@@ -133,7 +136,7 @@ export const viewerFeatureManifest: Record<ViewerFeatureKey, ViewerFeatureManife
     title: 'Instant alerts',
     minimumTier: 'premium',
     blockedTitle: 'Premium unlocks advanced alerts',
-    blockedDescription: 'Free accounts can use basic mobile alert rules. Upgrade for browser delivery plus preset-based and follow-based alerting.',
+    blockedDescription: 'Upgrade to enable launch reminders, follow scopes, preset-driven alerts, and status-change notifications on this account.',
     ctaLabel: 'Upgrade',
     ctaTarget: 'upgrade'
   },
@@ -195,12 +198,12 @@ export const viewerFeatureManifest: Record<ViewerFeatureKey, ViewerFeatureManife
 
 const viewerTierRank: Record<ViewerTier, number> = {
   anon: 0,
-  free: 1,
-  premium: 2
+  free: 0,
+  premium: 1
 };
 
 export function getViewerTierCard(tier: ViewerTier) {
-  return viewerTierCardManifest[tier];
+  return viewerTierCardManifest[normalizeViewerTierForDisplay(tier)];
 }
 
 export function canViewerAccessFeature(featureKey: ViewerFeatureKey, tier: ViewerTier) {
@@ -216,6 +219,39 @@ export function getViewerFeatureState(featureKey: ViewerFeatureKey, tier: Viewer
   };
 }
 
+export function getMobileViewerTierCard(tier: ViewerTier, context: ViewerAccessContext = {}) {
+  const normalizedTier = normalizeViewerTierForDisplay(tier);
+  if (normalizedTier !== 'anon' || !context.isAuthed) {
+    return getViewerTierCard(normalizedTier);
+  }
+
+  return {
+    ...viewerTierCardManifest.anon,
+    title: 'Premium is available on this account',
+    description:
+      'You are signed in. Premium unlocks follows, saved views, default filters, recurring calendar feeds, and advanced notifications on iPhone and Android.',
+    ctaLabel: 'View Premium',
+    ctaTarget: 'upgrade' as const
+  };
+}
+
+export function getMobileViewerFeatureState(
+  featureKey: ViewerFeatureKey,
+  tier: ViewerTier,
+  context: ViewerAccessContext = {}
+) {
+  const feature = getViewerFeatureState(featureKey, tier);
+  if (feature.isAccessible || tier !== 'anon' || !context.isAuthed || feature.ctaTarget !== 'sign-in') {
+    return feature;
+  }
+
+  return {
+    ...feature,
+    ctaLabel: 'Upgrade',
+    ctaTarget: 'upgrade' as const
+  };
+}
+
 export function getViewerTierSummary(tier: ViewerTier) {
   const capabilities = getTierCapabilities(tier);
   return {
@@ -223,4 +259,8 @@ export function getViewerTierSummary(tier: ViewerTier) {
     card: getViewerTierCard(tier),
     capabilities
   };
+}
+
+function normalizeViewerTierForDisplay(tier: ViewerTier): ViewerTier {
+  return tier === 'free' ? 'anon' : tier;
 }

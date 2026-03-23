@@ -77,6 +77,9 @@ export function JepScoreClient({ launchId, initialScore, padTimezone }: JepScore
           if (response.status === 404) {
             throw new Error('jep_not_found');
           }
+          if (response.status === 429) {
+            throw new Error('jep_rate_limited');
+          }
           throw new Error(`jep_fetch_${response.status}`);
         }
 
@@ -109,6 +112,10 @@ export function JepScoreClient({ launchId, initialScore, padTimezone }: JepScore
         }
 
         const message = error instanceof Error ? error.message : '';
+        if (message === 'jep_rate_limited') {
+          setFallbackReason(null);
+          return;
+        }
         setFallbackReason(message === 'jep_not_found' ? 'unavailable' : 'error');
       } finally {
         if (!isCanceled) {

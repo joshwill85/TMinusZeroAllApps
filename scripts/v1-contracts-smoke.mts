@@ -248,6 +248,14 @@ async function main() {
         }
       ]
     },
+    launchFeedVersion: {
+      scope: 'public',
+      tier: 'free',
+      intervalSeconds: 900,
+      matchCount: 1,
+      updatedAt: '2026-03-08T11:59:00.000Z',
+      version: 'public|2026-03-08T11:59:00.000Z|1'
+    },
     launchDetail: {
       launch: {
         id: launchId,
@@ -304,6 +312,14 @@ async function main() {
           reasons: []
         }
       }
+    },
+    launchDetailVersion: {
+      launchId,
+      scope: 'public',
+      tier: 'free',
+      intervalSeconds: 900,
+      updatedAt: '2026-03-08T11:59:00.000Z',
+      version: `${launchId}|public|2026-03-08T11:59:00.000Z`
     },
     launchTrajectory: {
       launchId,
@@ -783,10 +799,14 @@ async function main() {
       payload = payloads.entitlements;
     } else if (url.pathname === '/api/v1/launches') {
       payload = payloads.launchFeed;
+    } else if (url.pathname === '/api/v1/launches/version') {
+      payload = payloads.launchFeedVersion;
     } else if (url.pathname === '/api/v1/launches/changed') {
       payload = payloads.changedLaunches;
     } else if (url.pathname === `/api/v1/launches/${launchId}`) {
       payload = payloads.launchDetail;
+    } else if (url.pathname === `/api/v1/launches/${launchId}/version`) {
+      payload = payloads.launchDetailVersion;
     } else if (url.pathname === `/api/v1/launches/${launchId}/trajectory`) {
       payload = payloads.launchTrajectory;
     } else if (url.pathname === '/api/v1/search') {
@@ -971,7 +991,9 @@ async function main() {
   assert.equal(typeof guestClient.getViewerSession, 'function');
   assert.equal(typeof guestClient.getViewerEntitlements, 'function');
   assert.equal(typeof guestClient.getLaunchFeed, 'function');
+  assert.equal(typeof guestClient.getLaunchFeedVersion, 'function');
   assert.equal(typeof guestClient.getLaunchDetail, 'function');
+  assert.equal(typeof guestClient.getLaunchDetailVersion, 'function');
   assert.equal(typeof guestClient.getLaunchTrajectory, 'function');
   assert.equal(typeof guestClient.postArTelemetrySession, 'function');
   assert.equal(typeof guestClient.search, 'function');
@@ -1033,6 +1055,15 @@ async function main() {
     assert.match(request.search, /\bregion=all\b/);
   }
 
+  await guestClient.getLaunchFeedVersion({ scope: 'public', range: '7d', region: 'all' });
+  {
+    const request = popLastRequest();
+    expectGuest(request, '/api/v1/launches/version');
+    assert.match(request.search, /\bscope=public\b/);
+    assert.match(request.search, /\brange=7d\b/);
+    assert.match(request.search, /\bregion=all\b/);
+  }
+
   await cookieClient.getLaunchFeed({
     scope: 'watchlist',
     watchlistId: '22222222-2222-4222-8222-222222222222',
@@ -1067,6 +1098,13 @@ async function main() {
 
   await guestClient.getLaunchDetail(launchId);
   expectGuest(popLastRequest(), `/api/v1/launches/${launchId}`);
+
+  await guestClient.getLaunchDetailVersion(launchId, { scope: 'public' });
+  {
+    const request = popLastRequest();
+    expectGuest(request, `/api/v1/launches/${launchId}/version`);
+    assert.match(request.search, /\bscope=public\b/);
+  }
 
   await bearerClient.getLaunchTrajectory(launchId);
   expectBearer(popLastRequest(), `/api/v1/launches/${launchId}/trajectory`);

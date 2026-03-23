@@ -23,6 +23,8 @@ type MaterialTelemetryFields = Pick<
   | 'trajectoryQualityState'
   | 'renderTier'
   | 'droppedFrameBucket'
+  | 'zoomControlPath'
+  | 'zoomRatioBucket'
 >;
 
 export function deriveArTelemetryUpdateCadenceMs(input: MaterialTelemetryFields) {
@@ -59,7 +61,9 @@ export function buildArTelemetryMaterialKey(input: MaterialTelemetryFields) {
     input.trajectoryAuthorityTier ?? '',
     input.trajectoryQualityState ?? '',
     input.renderTier ?? '',
-    input.droppedFrameBucket ?? ''
+    input.droppedFrameBucket ?? '',
+    input.zoomControlPath ?? '',
+    input.zoomRatioBucket ?? ''
   ]);
 }
 

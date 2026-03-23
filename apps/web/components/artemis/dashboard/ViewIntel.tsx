@@ -127,11 +127,9 @@ export function ViewIntel({
                   </div>
                 ) : (
                   <>
-                    <a href={item.url} target="_blank" rel="noreferrer" className="mt-1 block text-sm font-semibold text-text1 hover:text-primary">
-                      {item.title}
-                    </a>
+                    <div className="mt-1 text-sm font-semibold text-text1">{item.title}</div>
                     {isRenderableImageUrl(item.imageUrl) ? (
-                      <a href={item.url} target="_blank" rel="noreferrer" className="mt-2 block overflow-hidden rounded-lg border border-stroke bg-surface-1">
+                      <div className="mt-2 overflow-hidden rounded-lg border border-stroke bg-surface-1">
                         <Image
                           src={item.imageUrl}
                           alt={item.title}
@@ -140,9 +138,12 @@ export function ViewIntel({
                           unoptimized
                           className="h-auto w-full object-cover"
                         />
-                      </a>
+                      </div>
                     ) : null}
                     {item.summary ? <p className="mt-2 text-xs text-text2">{truncateText(item.summary, 180)}</p> : null}
+                    <a href={item.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-xs text-primary hover:text-primary/80">
+                      Source
+                    </a>
                   </>
                 )}
 

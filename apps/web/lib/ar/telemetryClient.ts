@@ -10,6 +10,7 @@ export type CameraGuideTelemetryPayload = {
   startedAt: string;
   endedAt?: string;
   durationMs?: number;
+  runtimeFamily?: 'web' | 'ios_native' | 'android_native';
   clientEnv?:
     | 'ios_safari'
     | 'ios_chrome'
@@ -73,6 +74,12 @@ export type CameraGuideTelemetryPayload = {
   hfovBucket?: string;
   vfovBucket?: string;
   fovSource?: 'xr' | 'preset' | 'saved' | 'inferred' | 'default' | 'unknown';
+  zoomSupported?: boolean;
+  zoomRatioBucket?: string;
+  zoomControlPath?: 'native_camera' | 'track_constraints' | 'preset_fallback' | 'unsupported';
+  zoomApplyLatencyBucket?: string;
+  zoomProjectionSyncLatencyBucket?: string;
+  projectionSource?: 'intrinsics_frame' | 'projection_matrix' | 'inferred_fov' | 'preset';
   tier?: 0 | 1 | 2 | 3;
   trajectoryVersion?: string;
   durationS?: number;

@@ -1,20 +1,28 @@
+import type { ReactNode } from 'react';
+import { useEffect } from 'react';
 import { View, Text, Pressable } from 'react-native';
 import Animated, {
+  FadeIn,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
   withDelay,
 } from 'react-native-reanimated';
-import { useEffect } from 'react';
 import { ANIMATION_CONSTANTS } from '@tminuszero/launch-animations';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
+
+const TILE_SPRING_CONFIG = {
+  damping: ANIMATION_CONSTANTS.SPRING_DAMPING,
+  stiffness: ANIMATION_CONSTANTS.SPRING_STIFFNESS,
+  mass: ANIMATION_CONSTANTS.SPRING_MASS
+} as const;
 
 export type StatTile = {
   id: string;
   label: string;
   value: string;
   description?: string;
-  icon?: React.ReactNode;
+  icon?: ReactNode;
   tone?: 'default' | 'primary' | 'success' | 'warning' | 'danger';
 };
 
@@ -42,24 +50,17 @@ function StatTileCard({ tile, index }: { tile: StatTile; index: number }) {
   const opacity = useSharedValue(0);
   const pressed = useSharedValue(false);
 
-  // Spring configuration using shared constants
-  const springConfig = {
-    damping: ANIMATION_CONSTANTS.SPRING_DAMPING,
-    stiffness: ANIMATION_CONSTANTS.SPRING_STIFFNESS,
-    mass: ANIMATION_CONSTANTS.SPRING_MASS,
-  };
-
   // Enter animation on mount
   useEffect(() => {
     opacity.value = withDelay(
       index * ANIMATION_CONSTANTS.TILE_STAGGER_DELAY,
-      withSpring(1, springConfig)
+      withSpring(1, TILE_SPRING_CONFIG)
     );
     scale.value = withDelay(
       index * ANIMATION_CONSTANTS.TILE_STAGGER_DELAY,
-      withSpring(1, springConfig)
+      withSpring(1, TILE_SPRING_CONFIG)
     );
-  }, [index]);
+  }, [index, opacity, scale]);
 
   // Animated style with press interaction
   const animatedStyle = useAnimatedStyle(() => {
@@ -71,7 +72,7 @@ function StatTileCard({ tile, index }: { tile: StatTile; index: number }) {
 
     return {
       opacity: opacity.value,
-      transform: [{ scale: withSpring(targetScale, springConfig) }],
+      transform: [{ scale: withSpring(targetScale, TILE_SPRING_CONFIG) }],
     };
   });
 
@@ -181,12 +182,7 @@ export function CompactStatTiles({ tiles }: { tiles: StatTile[] }) {
       {tiles.map((tile, index) => (
         <Animated.View
           key={tile.id}
-          entering={{
-            opacity: [0, 1],
-            scale: [0.9, 1],
-            duration: 200,
-            delay: index * 50,
-          } as any}
+          entering={FadeIn.duration(200).delay(index * 50)}
         >
           <View
             style={{

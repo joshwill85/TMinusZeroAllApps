@@ -5,7 +5,7 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "sideEffects": false,
-  "description": "Local Expo module for T-Minus Zero iOS-native AR trajectory.",
+  "description": "Local Expo module for T-Minus Zero native AR trajectory runtimes.",
   "homepage": "https://docs.expo.dev/modules/",
   "license": "UNLICENSED",
   "peerDependencies": {

@@ -1,19 +1,24 @@
 'use client';
 
+import { ApiClientError } from '@tminuszero/api-client';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { assertPasswordPolicy, PASSWORD_POLICY_HINT } from '@tminuszero/domain';
 import { buildAuthCallbackHref, readAuthIntent, readReturnTo } from '@tminuszero/navigation';
 import { browserApiClient } from '@/lib/api/client';
 import { getBrowserClient } from '@/lib/api/supabase';
 import { CaptchaWidget } from './CaptchaWidget';
 
-const POST_CONFIRM_NEXT_STORAGE_KEY = 'tmn_auth_post_confirm_next';
-
-type OAuthProvider = 'google' | 'twitter';
-
-export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
+export function AuthForm({
+  mode,
+  claimToken,
+  claimEmail
+}: {
+  mode: 'sign-in' | 'sign-up';
+  claimToken?: string | null;
+  claimEmail?: string | null;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
@@ -32,6 +37,13 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
   const passwordHint = useMemo(() => (isSignUp ? PASSWORD_POLICY_HINT : undefined), [isSignUp]);
   const redirectPath = useMemo(() => readReturnTo(searchParams), [searchParams]);
   const authIntent = useMemo(() => readAuthIntent(searchParams), [searchParams]);
+  const lockedClaimEmail = useMemo(() => {
+    if (!isSignUp) return null;
+    const normalized = String(claimEmail || '')
+      .trim()
+      .toLowerCase();
+    return normalized || null;
+  }, [claimEmail, isSignUp]);
   const captchaProvider = useMemo(() => {
     if (process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY) return 'turnstile' as const;
     if (process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY) return 'hcaptcha' as const;
@@ -42,14 +54,6 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
     if (captchaProvider === 'hcaptcha') return process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY || '';
     return '';
   }, [captchaProvider]);
-  const oauthAvailable = useMemo(() => {
-    const url = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim();
-    const anonKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').trim();
-    if (!url || !anonKey) return false;
-    if (url.includes('your-supabase-url.supabase.co') || url.includes('<project-ref>')) return false;
-    if (anonKey === 'SUPABASE_ANON_KEY' || anonKey === 'anon_placeholder' || anonKey === 'public_anon_key') return false;
-    return true;
-  }, []);
   const formId = useId();
   const emailId = `${formId}-email`;
   const passwordId = `${formId}-password`;
@@ -68,42 +72,17 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
     return `${baseUrl}${buildAuthCallbackHref({ returnTo: redirectPath, intent: authIntent })}`;
   }, [authIntent, baseUrl, redirectPath]);
 
+  useEffect(() => {
+    if (!lockedClaimEmail) return;
+    setEmail((current) => (current.trim() ? current : lockedClaimEmail));
+  }, [lockedClaimEmail]);
+
   function promptTermsAcceptance() {
     setTermsPrompt(true);
     try {
       termsInputRef.current?.focus();
       termsInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     } catch {}
-  }
-
-  async function startOAuth(provider: OAuthProvider) {
-    setMessage(null);
-    if (isSignUp && !acceptTerms) {
-      promptTermsAcceptance();
-      setMessage({ tone: 'error', text: 'Please accept the Terms and Privacy Policy to continue.' });
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const supabase = getBrowserClient();
-      if (!supabase) throw new Error('Supabase not available');
-
-      try {
-        window.localStorage.setItem(POST_CONFIRM_NEXT_STORAGE_KEY, redirectPath);
-      } catch {}
-
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider,
-        options: {
-          redirectTo: emailRedirectTo || undefined
-        }
-      });
-      if (error) throw error;
-    } catch (err: any) {
-      setMessage({ tone: 'error', text: err?.message || 'Unable to continue with OAuth.' });
-      setLoading(false);
-    }
   }
 
   async function resendVerificationEmail() {
@@ -144,6 +123,9 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
       if (!supabase) throw new Error('Supabase not available');
 
       if (isSignUp) {
+        if (!claimToken) {
+          throw new Error('New account creation now starts after Premium checkout.');
+        }
         assertPasswordPolicy(password);
         if (password !== confirmPassword) throw new Error('Passwords do not match.');
         if (!acceptTerms) {
@@ -152,51 +134,32 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
           return;
         }
         if (captchaProvider && !captchaToken) throw new Error('Please complete the captcha verification.');
-        try {
-          window.localStorage.setItem(POST_CONFIRM_NEXT_STORAGE_KEY, redirectPath);
-        } catch {}
-
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            emailRedirectTo: emailRedirectTo || undefined,
-            captchaToken: captchaToken || undefined
-          }
+        const nextEmail = lockedClaimEmail ?? email.trim().toLowerCase();
+        const payload = await browserApiClient.createPremiumAccountFromClaim({
+          claimToken,
+          email: nextEmail,
+          password
         });
-        if (error) {
-          const raw = String(error.message || 'Error');
-          const lowered = raw.toLowerCase();
-          if (lowered.includes('already registered') || lowered.includes('already exists')) {
-            throw new Error('An account with this email already exists. Try signing in.');
-          }
-          throw error;
+
+        if (!payload.session.refreshToken) {
+          throw new Error('The Premium claim session is missing a refresh token.');
         }
 
-        if (data?.session) {
-          await browserApiClient
-            .recordAuthContext({
-              provider: 'email_password',
-              platform: 'web',
-              eventType: 'sign_up'
-            })
-            .catch(() => {});
-          try {
-            window.localStorage.removeItem(POST_CONFIRM_NEXT_STORAGE_KEY);
-          } catch {}
-          router.push(redirectPath);
-          return;
-        }
-
-        const normalizedEmail = email.trim();
-        setVerificationEmail(normalizedEmail);
-        setMessage({
-          tone: 'success',
-          text:
-            authIntent === 'upgrade'
-              ? 'Account created. Please verify your email to continue. After that, we’ll bring you back to what you were viewing. If you don’t see the email within a few minutes, check your spam/junk folder (and Promotions).'
-              : 'Account created. Please verify your email to continue. If you don’t see the email within a few minutes, check your spam/junk folder (and Promotions).'
+        const { error } = await supabase.auth.setSession({
+          access_token: payload.session.accessToken,
+          refresh_token: payload.session.refreshToken
         });
+        if (error) throw error;
+
+        await browserApiClient
+          .recordAuthContext({
+            provider: 'email_password',
+            platform: 'web',
+            eventType: 'sign_up'
+          })
+          .catch(() => {});
+        router.push(payload.returnTo || redirectPath);
+        return;
       } else {
         if (captchaProvider && !captchaToken) throw new Error('Please complete the captcha verification.');
         const { error } = await supabase.auth.signInWithPassword({
@@ -214,6 +177,11 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
             eventType: 'sign_in'
           })
           .catch(() => {});
+        if (claimToken) {
+          const payload = await browserApiClient.attachPremiumClaim(claimToken);
+          router.push(payload.returnTo || redirectPath);
+          return;
+        }
         router.push(redirectPath);
       }
     } catch (err: any) {
@@ -242,6 +210,20 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
           tone: 'error',
           text: 'Captcha is enabled but no site key is configured. Add NEXT_PUBLIC_TURNSTILE_SITE_KEY or NEXT_PUBLIC_HCAPTCHA_SITE_KEY.'
         });
+      } else if (err instanceof ApiClientError) {
+        if (err.code === 'account_exists') {
+          setMessage({ tone: 'error', text: 'An account with this email already exists. Sign in to claim Premium instead.' });
+        } else if (err.code === 'claim_pending') {
+          setMessage({ tone: 'error', text: 'Your Premium purchase is still being verified. Return to Upgrade and try again in a moment.' });
+        } else if (err.code === 'claim_email_mismatch') {
+          setMessage({ tone: 'error', text: 'Use the same email address that was attached to this Premium purchase.' });
+        } else if (err.code === 'claim_already_claimed') {
+          setMessage({ tone: 'error', text: 'This Premium purchase is already linked to an account. Sign in to manage it.' });
+        } else if (err.code === 'unauthorized' && claimToken && !isSignUp) {
+          setMessage({ tone: 'error', text: 'Sign-in succeeded, but the Premium claim could not be attached yet. Open Account and try again in a moment.' });
+        } else {
+          setMessage({ tone: 'error', text: rawMessage });
+        }
       } else {
         setMessage({ tone: 'error', text: rawMessage });
       }
@@ -252,39 +234,9 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3 rounded-2xl border border-stroke bg-surface-1 p-4">
-      {oauthAvailable ? (
-        <>
-          <div className="space-y-2">
-            <OAuthButton
-              onClick={() => startOAuth('google')}
-              disabled={loading}
-              icon={<GoogleIcon className="h-5 w-5" />}
-            >
-              Continue with Google
-            </OAuthButton>
-            <OAuthButton
-              onClick={() => startOAuth('twitter')}
-              disabled={loading}
-              icon={<XIcon className="h-5 w-5" />}
-            >
-              Continue with X
-            </OAuthButton>
-          </div>
-
-          <div className="relative py-2">
-            <div className="absolute inset-0 flex items-center" aria-hidden="true">
-              <div className="w-full border-t border-stroke" />
-            </div>
-            <div className="relative flex justify-center">
-              <span className="bg-surface-1 px-2 text-xs uppercase tracking-[0.14em] text-text3">Or</span>
-            </div>
-          </div>
-        </>
-      ) : null}
-
       {isSignUp ? (
         <div className="rounded-lg border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-2 text-xs text-text3">
-          Free account perks: 15-minute refreshes, signed-in filters, the launch calendar, one-off calendar adds, and basic mobile push alerts. Premium stays optional later.
+          This account will be created from a verified Premium purchase. Signing in without Premium only keeps account ownership, recovery, and billing access.
         </div>
       ) : null}
 
@@ -299,8 +251,10 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
           className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-text1"
           value={email}
           autoComplete="email"
+          disabled={loading || Boolean(lockedClaimEmail)}
           onChange={(e) => setEmail(e.target.value)}
         />
+        {lockedClaimEmail ? <span className="text-xs text-text3">This Premium claim is locked to {lockedClaimEmail}.</span> : null}
       </div>
       <div className="flex flex-col gap-1">
         <label htmlFor={passwordId} className="text-sm text-text2">
@@ -395,7 +349,7 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
         />
       ) : null}
       <button type="submit" className="btn w-full rounded-lg" disabled={loading}>
-        {loading ? 'Working...' : mode === 'sign-in' ? 'Sign in' : 'Create free account'}
+        {loading ? 'Working...' : mode === 'sign-in' ? 'Sign in' : 'Create account to claim Premium'}
       </button>
       {message ? (
         <div className={message.tone === 'error' ? 'text-sm text-warning' : 'text-sm text-success'}>{message.text}</div>
@@ -411,67 +365,6 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
         </button>
       ) : null}
     </form>
-  );
-}
-
-function OAuthButton({
-  children,
-  onClick,
-  disabled,
-  icon
-}: {
-  children: ReactNode;
-  onClick: () => void;
-  disabled?: boolean;
-  icon: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      className="btn-secondary relative flex w-full items-center justify-center rounded-lg border border-stroke px-4 py-2 text-sm font-semibold text-text1 hover:border-primary disabled:cursor-not-allowed disabled:opacity-60"
-      onClick={onClick}
-      disabled={disabled}
-    >
-      <span className="absolute left-3 inline-flex h-5 w-5 items-center justify-center" aria-hidden="true">
-        {icon}
-      </span>
-      {children}
-    </button>
-  );
-}
-
-function GoogleIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 48 48" className={className} aria-hidden="true">
-      <path
-        fill="#EA4335"
-        d="M24 9.5c3.54 0 6.73 1.22 9.24 3.22l6.9-6.9C35.93 2.09 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l8.04 6.25C12.6 13.24 17.92 9.5 24 9.5z"
-      />
-      <path
-        fill="#4285F4"
-        d="M46.2 24.5c0-1.64-.15-3.22-.43-4.75H24v9h12.5c-.54 2.92-2.18 5.39-4.63 7.05l7.07 5.48c4.14-3.83 6.26-9.47 6.26-16.78z"
-      />
-      <path
-        fill="#FBBC05"
-        d="M10.6 28.47A14.5 14.5 0 0 1 9.5 24c0-1.55.27-3.05.75-4.47l-8.04-6.25A23.9 23.9 0 0 0 0 24c0 3.86.92 7.51 2.56 10.78l8.04-6.31z"
-      />
-      <path
-        fill="#34A853"
-        d="M24 48c6.48 0 11.93-2.14 15.9-5.82l-7.07-5.48c-1.96 1.32-4.47 2.1-8.83 2.1-6.08 0-11.4-3.74-13.4-8.97l-8.04 6.31C6.51 42.62 14.62 48 24 48z"
-      />
-      <path fill="none" d="M0 0h48v48H0z" />
-    </svg>
-  );
-}
-
-function XIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M18.9 2H22l-6.78 7.75L23 22h-6.1l-4.78-7.02L5.98 22H2.88l7.26-8.3L1 2h6.24l4.32 6.4L18.9 2zm-1.07 18.2h1.7L6.36 3.7H4.54l13.29 16.5z"
-      />
-    </svg>
   );
 }
 

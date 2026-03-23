@@ -578,6 +578,29 @@ const SERVER_JOB_DEFS: readonly JobDef[] = [
     }
   },
   {
+    id: 'social_posts_dispatch',
+    label: 'Social posts dispatch',
+    schedule: 'Every 30 min (:08/:38 UTC)',
+    cronJobName: 'social_posts_dispatch',
+    category: 'scheduled',
+    origin: 'server',
+    source: 'ingestion_runs',
+    thresholdMinutes: 90,
+    newData: (stats) => {
+      const posted = readNumber(stats, 'posted') ?? 0;
+      const updatesSent = readNumber(stats, 'updatesSent') ?? 0;
+      const repliesSent = readNumber(stats, 'missionRepliesSent') ?? 0;
+      const total = posted + updatesSent + repliesSent;
+      return {
+        count: total,
+        detail:
+          total || readNumber(stats, 'coreBacklog')
+            ? `posted=${posted}, updates=${updatesSent}, replies=${repliesSent}, coreBacklog=${readNumber(stats, 'coreBacklog') ?? 0}`
+            : null
+      };
+    }
+  },
+  {
     id: 'launch_social_link_backfill',
     label: 'Launch social link backfill',
     schedule: 'Every 4 hours (:27)',

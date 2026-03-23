@@ -1,16 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
-import { ApiClientError, type NotificationPreferencesUpdateV1, type NotificationPreferencesV1 } from '@tminuszero/api-client';
+import { useRouter } from 'expo-router';
+import type { MobilePushRuleUpsertV1, MobilePushRuleV1, WatchlistRuleV1 } from '@tminuszero/api-client';
 import {
-  useAlertRulesQuery,
-  useCompleteSmsVerificationMutation,
-  useCreateAlertRuleMutation,
-  useDeleteAlertRuleMutation,
+  useDeleteMobilePushRuleMutation,
+  useFilterPresetsQuery,
   useLaunchFilterOptionsQuery,
-  useNotificationPreferencesQuery,
-  useStartSmsVerificationMutation,
-  useUpdateNotificationPreferencesMutation,
-  useViewerEntitlementsQuery
+  useMobilePushRulesQuery,
+  useUpsertMobilePushRuleMutation,
+  useViewerEntitlementsQuery,
+  useWatchlistsQuery
 } from '@/src/api/queries';
 import { AppScreen } from '@/src/components/AppScreen';
 import {
@@ -20,27 +19,30 @@ import {
   CustomerShellMetric,
   CustomerShellPanel
 } from '@/src/components/CustomerShell';
-import { ViewerTierCard } from '@/src/components/ViewerTierCard';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import { useMobilePush } from '@/src/providers/MobilePushProvider';
 
-type PreferencesDraft = {
-  emailEnabled: boolean;
-  smsEnabled: boolean;
-  launchDayEmailEnabled: boolean;
-  launchDayEmailProviders: string[];
-  launchDayEmailStates: string[];
-  quietHoursEnabled: boolean;
-  quietStartLocal: string;
-  quietEndLocal: string;
-};
+const BASIC_OFFSET_OPTIONS = [10, 30, 60, 120] as const;
+const PREMIUM_OFFSET_OPTIONS = [10, 30, 60, 120, 360, 720, 1440] as const;
+const STATUS_OPTIONS = [
+  { key: 'any', label: 'Any change' },
+  { key: 'go', label: 'Go' },
+  { key: 'hold', label: 'Hold' },
+  { key: 'scrubbed', label: 'Scrubbed' },
+  { key: 'tbd', label: 'TBD' }
+] as const;
+
+type NoticeTone = 'info' | 'success' | 'warning';
+type Notice = { tone: NoticeTone; message: string } | null;
+type NonLaunchMobilePushRuleV1 = Exclude<MobilePushRuleV1, { scopeKind: 'launch' }>;
 
 export default function PreferencesScreen() {
+  const router = useRouter();
   const { theme } = useMobileBootstrap();
-  const notificationPreferencesQuery = useNotificationPreferencesQuery();
   const entitlementsQuery = useViewerEntitlementsQuery();
   const {
     installationId,
+    deviceSecret,
     permissionStatus,
     isPushEnabled,
     isRegistered,
@@ -51,803 +53,717 @@ export default function PreferencesScreen() {
     disablePushAlerts,
     sendTestPush
   } = useMobilePush();
-  const tier = entitlementsQuery.data?.tier ?? 'anon';
-  const isAuthed = entitlementsQuery.data?.isAuthed ?? false;
-  const canUseBasicAlertRules = entitlementsQuery.data?.capabilities.canUseBasicAlertRules ?? false;
-  const canUseAdvancedAlertRules = entitlementsQuery.data?.capabilities.canUseAdvancedAlertRules ?? false;
-  const canUseBrowserLaunchAlerts = entitlementsQuery.data?.capabilities.canUseBrowserLaunchAlerts ?? false;
-  const feedScope = entitlementsQuery.data?.mode === 'live' ? 'live' : 'public';
-  const [alertRuleError, setAlertRuleError] = useState<string | null>(null);
-  const [channelStatus, setChannelStatus] = useState<{ tone: 'error' | 'success' | null; text: string }>({
-    tone: null,
-    text: ''
+  const isPremium = entitlementsQuery.data?.isPaid === true || entitlementsQuery.data?.isAdmin === true;
+  const context = installationId ? { installationId, deviceSecret } : null;
+  const rulesQuery = useMobilePushRulesQuery(context, {
+    enabled: Boolean(installationId)
   });
-  const [smsStatus, setSmsStatus] = useState<{ tone: 'error' | 'success' | null; text: string }>({
-    tone: null,
-    text: ''
-  });
-  const prefs = notificationPreferencesQuery.data ?? null;
-  const updateNotificationPreferencesMutation = useUpdateNotificationPreferencesMutation();
-  const startSmsVerificationMutation = useStartSmsVerificationMutation();
-  const completeSmsVerificationMutation = useCompleteSmsVerificationMutation();
-  const alertRulesQuery = useAlertRulesQuery();
-  const createAlertRuleMutation = useCreateAlertRuleMutation();
-  const deleteAlertRuleMutation = useDeleteAlertRuleMutation();
   const filterOptionsQuery = useLaunchFilterOptionsQuery(
     {
-      mode: feedScope,
+      mode: 'public',
       range: 'all',
       region: 'all'
     },
-    { enabled: isAuthed && canUseBasicAlertRules }
+    { enabled: true }
   );
-  const alertRules = alertRulesQuery.data?.rules ?? [];
-  const regionUsRule = alertRules.find((rule) => rule.kind === 'region_us') ?? null;
-  const stateRules = alertRules.filter((rule) => rule.kind === 'state');
-  const selectedStateKeys = new Set(stateRules.map((rule) => normalizeAlertRuleToken(rule.kind === 'state' ? rule.state : rule.label)));
-  const availableStateOptions = (filterOptionsQuery.data?.states ?? []).filter(
-    (state) => !selectedStateKeys.has(normalizeAlertRuleToken(state))
-  );
-  const [draft, setDraft] = useState<PreferencesDraft | null>(null);
-  const [smsPhoneDraft, setSmsPhoneDraft] = useState('');
-  const [smsCodeDraft, setSmsCodeDraft] = useState('');
+  const watchlistsQuery = useWatchlistsQuery();
+  const filterPresetsQuery = useFilterPresetsQuery();
+  const upsertRuleMutation = useUpsertMobilePushRuleMutation();
+  const deleteRuleMutation = useDeleteMobilePushRuleMutation();
+  const [notice, setNotice] = useState<Notice>(null);
 
-  useEffect(() => {
-    if (!prefs) {
-      return;
-    }
+  const rules = rulesQuery.data?.rules ?? [];
+  const scopeRules = rules.filter((rule): rule is NonLaunchMobilePushRuleV1 => rule.scopeKind !== 'launch');
+  const launchRuleCount = rules.length - scopeRules.length;
+  const allUsRule = scopeRules.find((rule) => rule.scopeKind === 'all_us') ?? null;
+  const stateRules = scopeRules.filter((rule) => rule.scopeKind === 'state');
+  const allLaunchesRule = scopeRules.find((rule) => rule.scopeKind === 'all_launches') ?? null;
+  const presetRules = scopeRules.filter((rule) => rule.scopeKind === 'preset');
+  const followRules = scopeRules.filter((rule) => rule.scopeKind === 'follow');
+  const selectedStates = new Set(stateRules.map((rule) => normalizeToken(rule.scopeKind === 'state' ? rule.state : rule.label)));
+  const availableStates = (filterOptionsQuery.data?.states ?? []).filter((state) => !selectedStates.has(normalizeToken(state)));
+  const premiumFollowCandidates = useMemo(() => {
+    const followRuleKeys = new Set(
+      followRules.map((rule) => (rule.scopeKind === 'follow' ? buildFollowKey(rule.followRuleType, rule.followRuleValue) : ''))
+    );
 
-    const nextDraft = buildPreferencesDraft(prefs);
-    setDraft((current) => {
-      if (!current || !hasPreferencesDraftChanges(current, prefs)) {
-        return nextDraft;
-      }
-      return current;
-    });
-    setSmsPhoneDraft((current) => (current.trim() ? current : prefs.smsPhone ?? ''));
-  }, [prefs]);
+    return flattenWatchlistRules(watchlistsQuery.data?.watchlists ?? []).filter(
+      (rule) => !followRuleKeys.has(buildFollowKey(rule.ruleType, rule.ruleValue))
+    );
+  }, [followRules, watchlistsQuery.data?.watchlists]);
+  const premiumPresetCandidates = useMemo(() => {
+    const presetRuleIds = new Set(presetRules.map((rule) => (rule.scopeKind === 'preset' ? rule.presetId : '')));
+    return (filterPresetsQuery.data?.presets ?? []).filter((preset) => !presetRuleIds.has(preset.id));
+  }, [filterPresetsQuery.data?.presets, presetRules]);
+  const statusMessage = notice?.message ?? (rulesQuery.error instanceof Error ? rulesQuery.error.message : null) ?? lastError;
+  const statusTone = notice?.tone ?? 'warning';
 
-  const launchDayProviderOptions = useMemo(
-    () => (filterOptionsQuery.data?.providers ?? []).filter(Boolean).sort((left, right) => left.localeCompare(right)),
-    [filterOptionsQuery.data?.providers]
-  );
-  const launchDayStateOptions = useMemo(
-    () => (filterOptionsQuery.data?.states ?? []).filter(Boolean).sort((left, right) => left.localeCompare(right)),
-    [filterOptionsQuery.data?.states]
-  );
-  const channelValidationError = draft
-    ? validatePreferencesDraft(draft, {
-        canUseAdvancedAlertRules,
-        isSmsVerified: prefs?.smsVerified === true,
-        isSmsSystemEnabled: prefs?.smsSystemEnabled !== false
-      })
-    : null;
-  const hasDraftChanges = draft && prefs ? hasPreferencesDraftChanges(draft, prefs) : false;
-
-  async function upsertAlertRule(ruleKey: string, action: () => Promise<void>) {
-    setAlertRuleError(null);
-    try {
-      await action();
-    } catch (error) {
-      console.error(`mobile alert rule ${ruleKey} failed`, error);
-      setAlertRuleError(error instanceof Error && error.message ? error.message : 'Unable to update alert rule.');
-    }
-  }
-
-  function updateDraft(patch: Partial<PreferencesDraft>) {
-    setDraft((current) => {
-      const base = current ?? buildPreferencesDraft(prefs);
-      return {
-        ...base,
-        ...patch
-      };
-    });
-  }
-
-  async function saveNotificationPreferences() {
-    if (!prefs || !draft) {
-      return;
-    }
-
-    const validationError = validatePreferencesDraft(draft, {
-      canUseAdvancedAlertRules,
-      isSmsVerified: prefs.smsVerified,
-      isSmsSystemEnabled: prefs.smsSystemEnabled !== false
-    });
-    if (validationError) {
-      setChannelStatus({ tone: 'error', text: validationError });
-      return;
-    }
-
-    const payload = buildNotificationPreferencesPayload(draft, prefs);
-    if (!payload) {
-      setChannelStatus({ tone: null, text: '' });
-      return;
-    }
-
-    setChannelStatus({ tone: null, text: '' });
-    try {
-      const nextPrefs = await updateNotificationPreferencesMutation.mutateAsync(payload);
-      setDraft(buildPreferencesDraft(nextPrefs));
-      setChannelStatus({ tone: 'success', text: 'Notification settings updated.' });
-    } catch (error) {
-      setChannelStatus({
-        tone: 'error',
-        text: describePreferencesError(error)
-      });
-    }
-  }
-
-  async function handleStartSmsVerification() {
-    const phone = smsPhoneDraft.trim();
-    if (!phone) {
-      setSmsStatus({ tone: 'error', text: 'Enter a phone number before requesting a code.' });
-      return;
-    }
-
-    setSmsStatus({ tone: null, text: '' });
-    try {
-      await startSmsVerificationMutation.mutateAsync({
-        phone,
-        smsConsent: true
-      });
-      setSmsPhoneDraft(phone);
-      setSmsCodeDraft('');
-      setSmsStatus({ tone: 'success', text: 'Verification code sent. Enter it below to confirm this number.' });
-      void notificationPreferencesQuery.refetch();
-    } catch (error) {
-      setSmsStatus({
-        tone: 'error',
-        text: describePreferencesError(error)
-      });
-    }
-  }
-
-  async function handleCompleteSmsVerification() {
-    const phone = smsPhoneDraft.trim();
-    const code = smsCodeDraft.trim();
-    if (!phone || !code) {
-      setSmsStatus({ tone: 'error', text: 'Enter both the phone number and verification code.' });
-      return;
-    }
-
-    setSmsStatus({ tone: null, text: '' });
-    try {
-      await completeSmsVerificationMutation.mutateAsync({
-        phone,
-        code
-      });
-      setSmsPhoneDraft(phone);
-      setSmsStatus({ tone: 'success', text: 'Phone number verified. You can now enable SMS alerts.' });
-      setSmsCodeDraft('');
-      void notificationPreferencesQuery.refetch();
-    } catch (error) {
-      setSmsStatus({
-        tone: 'error',
-        text: describePreferencesError(error)
-      });
-    }
+  function openPremiumGate() {
+    router.push('/profile');
   }
 
   return (
     <AppScreen testID="preferences-screen">
       <CustomerShellHero
-        eyebrow="Alerts and settings"
+        eyebrow="Push alerts"
         title="Settings"
-        description="Manage shared alert rules, quiet hours, and this device’s push registration."
+        description="Manage this device’s push registration and the mobile alert rules that should deliver to it."
       >
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-          <CustomerShellBadge label={formatTierLabel(tier)} tone={tier === 'premium' ? 'accent' : 'default'} />
+          <CustomerShellBadge label={isPremium ? 'Premium' : 'Anon'} tone={isPremium ? 'accent' : 'default'} />
           <CustomerShellBadge label={formatPermissionLabel(permissionStatus)} tone={permissionStatus === 'granted' ? 'success' : 'warning'} />
         </View>
       </CustomerShellHero>
 
       <CustomerShellPanel
         title="Notification overview"
-        description="Shared account preferences control which alert channels and launch scopes are active. The native device panel below controls whether this phone can receive those push alerts."
+        description="Mobile notifications are push-only. Signing in keeps device setup and stored rules attached to your account. Premium unlocks mobile alert creation, edits, extra reminder windows, daily digests, and change alerts."
       >
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-          <CustomerShellMetric
-            label="Plan"
-            value={formatTierLabel(tier)}
-            caption={
-              canUseAdvancedAlertRules
-                ? 'Advanced alerts enabled'
-                : canUseBasicAlertRules
-                  ? 'Basic mobile alerts enabled'
-                  : 'Sign in to enable alerts'
-            }
-          />
-          <CustomerShellMetric
-            label="Push"
-            value={isPushEnabled ? 'On' : 'Off'}
-            caption={isRegistered ? 'This device is registered' : 'Device registration pending'}
-          />
-          <CustomerShellMetric
-            label="Quiet hours"
-            value={prefs ? formatQuietHours(prefs.quietHoursEnabled, prefs.quietStartLocal, prefs.quietEndLocal) : '—'}
-            caption="Shared with your account"
-          />
+          <CustomerShellMetric label="Plan" value={isPremium ? 'Premium' : 'Anon'} caption={isPremium ? 'Mobile alerts enabled' : 'Upgrade to manage mobile alerts'} />
+          <CustomerShellMetric label="Push" value={isPushEnabled ? 'On' : 'Off'} caption={isRegistered ? 'This device is registered' : 'Device registration pending'} />
+          <CustomerShellMetric label="Rules" value={String(scopeRules.length)} caption={launchRuleCount ? `${launchRuleCount} launch-specific alert${launchRuleCount === 1 ? '' : 's'} on launch detail` : 'No broad rules yet'} />
         </View>
       </CustomerShellPanel>
 
-      <ViewerTierCard tier={tier} featureKey="preferences" testID="preferences-tier-card" />
+      <CustomerShellPanel
+        testID="preferences-push-section"
+        title="Device push"
+        description="Push registration is device-specific. Turning it off here stops alerts on this phone without changing any shared account rule."
+      >
+        <View style={{ gap: 10 }}>
+          <PreferenceRow label="Permission" value={permissionStatus} />
+          <PreferenceRow label="Push enabled" value={formatOnOff(isPushEnabled)} />
+          <PreferenceRow label="Device registered" value={formatOnOff(isRegistered)} />
+        </View>
 
-      {!isAuthed ? null : notificationPreferencesQuery.isError ? (
-        <CustomerShellPanel title="Notification settings unavailable" description={notificationPreferencesQuery.error.message} />
-      ) : (
-        <>
-          <CustomerShellPanel
-            title="Account alert rules"
-            description={
-              canUseAdvancedAlertRules
-                ? 'Basic rules deliver to signed-in mobile devices. Premium also lets this account keep preset-based and follow-based rules, with browser delivery available on web.'
-                : 'Choose which launches this signed-in account should watch. Free rules deliver to registered iOS and Android devices.'
+        <View
+          style={{
+            gap: 6,
+            borderRadius: 18,
+            borderWidth: 1,
+            borderColor: 'rgba(234, 240, 255, 0.1)',
+            backgroundColor: 'rgba(255, 255, 255, 0.03)',
+            paddingHorizontal: 14,
+            paddingVertical: 14
+          }}
+        >
+          <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>Installation id: {installationId ?? 'Loading...'}</Text>
+          {lastTestQueuedAt ? (
+            <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>Last test queued: {lastTestQueuedAt}</Text>
+          ) : null}
+          {statusMessage ? (
+            <Text style={{ color: statusTone === 'success' ? theme.accent : '#ff9087', fontSize: 13, lineHeight: 19 }}>{statusMessage}</Text>
+          ) : null}
+        </View>
+
+        <CustomerShellActionButton
+          label={isPushEnabled ? 'Push enabled' : 'Enable push alerts'}
+          onPress={() => {
+            setNotice(null);
+            void enablePush()
+              .then(() => {
+                setNotice({ tone: 'success', message: 'Push is enabled on this device.' });
+              })
+              .catch(() => {});
+          }}
+          disabled={isSyncing || isPushEnabled}
+        />
+
+        <CustomerShellActionButton
+          label={isPremium ? 'Send push test' : 'Send push test (Premium)'}
+          variant="secondary"
+          onPress={() => {
+            if (!isPremium) {
+              openPremiumGate();
+              return;
             }
-          >
-            {!canUseBasicAlertRules ? (
-              <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>Sign in to manage shared alert rules.</Text>
-            ) : alertRulesQuery.isPending ? (
-              <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>Loading alert rules…</Text>
-            ) : alertRulesQuery.isError ? (
-              <Text style={{ color: '#ff9087', fontSize: 14, lineHeight: 21 }}>{alertRulesQuery.error.message}</Text>
-            ) : (
-              <View style={{ gap: 12 }}>
-                <View style={{ gap: 8 }}>
-                  <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>Basic launch scopes</Text>
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                    <AlertRuleChip
-                      label="All U.S. launches"
-                      active={Boolean(regionUsRule)}
-                      disabled={createAlertRuleMutation.isPending || deleteAlertRuleMutation.isPending}
+            setNotice(null);
+            void sendTestPush()
+              .then(() => {
+                setNotice({ tone: 'success', message: 'Queued a mobile push test.' });
+              })
+              .catch(() => {});
+          }}
+          disabled={isSyncing || !isRegistered}
+        />
+
+        <Pressable
+          onPress={() => {
+            setNotice(null);
+            void disablePushAlerts()
+              .then(() => {
+                setNotice({ tone: 'info', message: 'Push was disabled on this device.' });
+              })
+              .catch(() => {});
+          }}
+          disabled={isSyncing || (!isPushEnabled && !isRegistered)}
+          style={({ pressed }) => ({
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: theme.stroke,
+            paddingHorizontal: 16,
+            paddingVertical: 12,
+            opacity: isSyncing || (!isPushEnabled && !isRegistered) ? 0.5 : pressed ? 0.86 : 1
+          })}
+        >
+          <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>Disable push on this device</Text>
+        </Pressable>
+      </CustomerShellPanel>
+
+      <CustomerShellPanel
+        title="Alert rules"
+        description="Premium can watch all U.S. launches, specific states, launch-detail reminders, saved presets, and follows. Signed-in anon can review stored rules, but editing and delivery stay Premium-only."
+      >
+        {!installationId ? (
+          <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>Preparing mobile push rules…</Text>
+        ) : rulesQuery.isPending ? (
+          <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>Loading mobile push rules…</Text>
+        ) : (
+          <View style={{ gap: 12 }}>
+            <View style={{ gap: 8 }}>
+              <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>All U.S.</Text>
+              {allUsRule ? (
+                <RuleEditorCard
+                  rule={allUsRule}
+                  isPremium={isPremium}
+                  readOnly={!isPremium}
+                  busy={upsertRuleMutation.isPending || deleteRuleMutation.isPending}
+                  onOpenUpgrade={openPremiumGate}
+                  onSave={(payload) => {
+                    void saveRule(payload);
+                  }}
+                  onDelete={() => {
+                    void removeRule(allUsRule.id);
+                  }}
+                />
+              ) : (
+                isPremium ? (
+                  <AddRuleChip
+                    label="Add All U.S. launches"
+                    disabled={!isRegistered || upsertRuleMutation.isPending}
+                    onPress={() => {
+                      void createScopeRule({
+                        scopeKind: 'all_us'
+                      });
+                    }}
+                  />
+                ) : (
+                  <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>No stored all-U.S. rule on this account.</Text>
+                )
+              )}
+            </View>
+
+            <View style={{ gap: 8 }}>
+              <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>States</Text>
+              {stateRules.length ? (
+                <View style={{ gap: 10 }}>
+                  {stateRules.map((rule) => (
+                    <RuleEditorCard
+                      key={rule.id}
+                      rule={rule}
+                      isPremium={isPremium}
+                      readOnly={!isPremium}
+                      busy={upsertRuleMutation.isPending || deleteRuleMutation.isPending}
+                      onOpenUpgrade={openPremiumGate}
+                      onSave={(payload) => {
+                        void saveRule(payload);
+                      }}
+                      onDelete={() => {
+                        void removeRule(rule.id);
+                      }}
+                    />
+                  ))}
+                </View>
+              ) : (
+                <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>No state rules yet.</Text>
+              )}
+              {filterOptionsQuery.isPending ? (
+                <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>Loading state options…</Text>
+              ) : isPremium ? (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {availableStates.map((state) => (
+                    <AddRuleChip
+                      key={state}
+                      label={state}
+                      disabled={!isRegistered || upsertRuleMutation.isPending}
                       onPress={() => {
-                        void upsertAlertRule('region_us', async () => {
-                          if (regionUsRule) {
-                            await deleteAlertRuleMutation.mutateAsync(regionUsRule.id);
-                            return;
-                          }
-                          await createAlertRuleMutation.mutateAsync({ kind: 'region_us' });
+                        void createScopeRule({
+                          scopeKind: 'state',
+                          state
                         });
                       }}
                     />
-                  </View>
+                  ))}
                 </View>
+              ) : (
+                <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>Upgrade to Premium to add state-based alert rules.</Text>
+              )}
+            </View>
+          </View>
+        )}
+      </CustomerShellPanel>
 
-                <View style={{ gap: 8 }}>
-                  <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>Tracked states</Text>
-                  {stateRules.length ? (
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                      {stateRules.map((rule) => (
-                        <AlertRuleChip
-                          key={rule.id}
-                          label={rule.label}
-                          active
-                          disabled={deleteAlertRuleMutation.isPending}
-                          onPress={() => {
-                            void upsertAlertRule(rule.id, async () => {
-                              await deleteAlertRuleMutation.mutateAsync(rule.id);
-                            });
-                          }}
-                        />
-                      ))}
-                    </View>
-                  ) : (
-                    <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>No state rules yet.</Text>
-                  )}
-                  {filterOptionsQuery.isPending ? (
-                    <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>Loading state options…</Text>
-                  ) : availableStateOptions.length ? (
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                      {availableStateOptions.map((state) => (
-                        <AlertRuleChip
-                          key={state}
-                          label={state}
-                          active={false}
-                          disabled={createAlertRuleMutation.isPending}
-                          onPress={() => {
-                            void upsertAlertRule(state, async () => {
-                              await createAlertRuleMutation.mutateAsync({ kind: 'state', state });
-                            });
-                          }}
-                        />
-                      ))}
-                    </View>
-                  ) : (
-                    <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>All available states are already tracked.</Text>
-                  )}
-                </View>
+      <CustomerShellPanel
+        title="Premium sources"
+        description="Premium can also watch all launches, saved filter presets, and anything followed from Saved or launch detail."
+      >
+        <View style={{ gap: 12 }}>
+          {!isPremium ? (
+            <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
+              All launches, saved-filter alerts, follow alerts, daily digests, and change-alert controls are Premium on mobile.
+            </Text>
+          ) : null}
 
-                <View
-                  style={{
-                    gap: 8,
-                    borderRadius: 18,
-                    borderWidth: 1,
-                    borderColor: 'rgba(234, 240, 255, 0.1)',
-                    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                    paddingHorizontal: 14,
-                    paddingVertical: 14
-                  }}
-                >
-                  <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>Current account rules</Text>
-                  {alertRules.length ? (
-                    <View style={{ gap: 8 }}>
-                      {alertRules.map((rule) => (
-                        <View
-                          key={rule.id}
-                          style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            gap: 12,
-                            borderRadius: 14,
-                            borderWidth: 1,
-                            borderColor: 'rgba(234, 240, 255, 0.08)',
-                            backgroundColor: 'rgba(255, 255, 255, 0.02)',
-                            paddingHorizontal: 12,
-                            paddingVertical: 10
-                          }}
-                        >
-                          <View style={{ flex: 1, gap: 2 }}>
-                            <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '600' }}>{rule.label}</Text>
-                            <Text style={{ color: theme.muted, fontSize: 12 }}>
-                              {rule.kind === 'filter_preset' || rule.kind === 'follow'
-                                ? 'Premium rule'
-                                : 'Basic mobile rule'}
-                            </Text>
-                          </View>
-                          <Pressable
-                            onPress={() => {
-                              void upsertAlertRule(rule.id, async () => {
-                                await deleteAlertRuleMutation.mutateAsync(rule.id);
-                              });
-                            }}
-                            disabled={deleteAlertRuleMutation.isPending}
-                            style={({ pressed }) => ({
-                              borderRadius: 999,
-                              borderWidth: 1,
-                              borderColor: theme.stroke,
-                              paddingHorizontal: 12,
-                              paddingVertical: 8,
-                              opacity: deleteAlertRuleMutation.isPending ? 0.5 : pressed ? 0.86 : 1
-                            })}
-                          >
-                            <Text style={{ color: theme.foreground, fontSize: 12, fontWeight: '700' }}>Remove</Text>
-                          </Pressable>
-                        </View>
-                      ))}
-                    </View>
-                  ) : (
-                    <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>No alert rules are active yet.</Text>
-                  )}
-                  {canUseAdvancedAlertRules ? (
-                    <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
-                      Premium preset-based and follow-based rules can be reviewed here and created from the web saved-items surface.
-                    </Text>
-                  ) : null}
-                  {alertRuleError ? (
-                    <Text style={{ color: '#ff9087', fontSize: 12, lineHeight: 18 }}>{alertRuleError}</Text>
-                  ) : null}
-                </View>
-              </View>
-            )}
-          </CustomerShellPanel>
-
-          <CustomerShellPanel
-            title="Launch alert channels"
-            description="Shared account-level delivery settings. Push enrollment still runs through the device registration panel below because it also has to manage this phone as a destination."
-          >
-            {notificationPreferencesQuery.isPending || !prefs || !draft ? (
-              <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>Loading notification preferences…</Text>
+          <View style={{ gap: 8 }}>
+            <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>All launches</Text>
+            {allLaunchesRule ? (
+              <RuleEditorCard
+                rule={allLaunchesRule}
+                isPremium
+                readOnly={!isPremium}
+                busy={upsertRuleMutation.isPending || deleteRuleMutation.isPending}
+                onOpenUpgrade={openPremiumGate}
+                onSave={(payload) => {
+                  void saveRule(payload);
+                }}
+                onDelete={() => {
+                  void removeRule(allLaunchesRule.id);
+                }}
+              />
             ) : (
-              <View style={{ gap: 12 }}>
-                <PreferenceRow label="Push alerts" value={formatOnOff(prefs.pushEnabled)} caption="Managed by the device push section below." />
-                <TogglePreferenceRow
-                  label="Email alerts"
-                  caption="General shared account email delivery."
-                  value={draft.emailEnabled}
-                  onChange={(value) => {
-                    updateDraft({ emailEnabled: value });
-                    setChannelStatus({ tone: null, text: '' });
-                  }}
-                />
-                <TogglePreferenceRow
-                  label="SMS alerts"
-                  caption={
-                    !canUseAdvancedAlertRules
-                      ? 'Premium required.'
-                      : prefs.smsSystemEnabled === false
-                        ? 'SMS delivery is not configured right now.'
-                        : prefs.smsVerified
-                          ? `Verified for ${prefs.smsPhone ?? 'this number'}.`
-                          : 'Verify a phone number before enabling SMS delivery.'
+              <AddRuleChip
+                label="Add All launches"
+                disabled={isPremium ? !isRegistered || upsertRuleMutation.isPending : false}
+                onPress={() => {
+                  if (!isPremium) {
+                    openPremiumGate();
+                    return;
                   }
-                  value={draft.smsEnabled}
-                  disabled={!canUseAdvancedAlertRules || prefs.smsSystemEnabled === false}
-                  onChange={(value) => {
-                    updateDraft({ smsEnabled: value });
-                    setChannelStatus({ tone: null, text: '' });
-                  }}
-                />
-                <TogglePreferenceRow
-                  label="Launch-day email"
-                  caption={
-                    canUseAdvancedAlertRules
-                      ? 'Premium launch-day email summaries with optional provider and state targeting.'
-                      : 'Premium required.'
-                  }
-                  value={draft.launchDayEmailEnabled}
-                  disabled={!canUseAdvancedAlertRules}
-                  onChange={(value) => {
-                    updateDraft({ launchDayEmailEnabled: value });
-                    setChannelStatus({ tone: null, text: '' });
-                  }}
-                />
-                {draft.launchDayEmailEnabled ? (
-                  <View style={{ gap: 10 }}>
-                    <View style={{ gap: 6 }}>
-                      <Text style={{ color: theme.foreground, fontSize: 13, fontWeight: '700' }}>Launch-day providers</Text>
-                      <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
-                        Leave all providers unselected to use every provider.
-                      </Text>
-                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                        {launchDayProviderOptions.map((provider) => {
-                          const active = draft.launchDayEmailProviders.includes(provider);
-                          return (
-                            <AlertRuleChip
-                              key={provider}
-                              label={provider}
-                              active={active}
-                              onPress={() => {
-                                updateDraft({
-                                  launchDayEmailProviders: toggleListValue(draft.launchDayEmailProviders, provider)
-                                });
-                                setChannelStatus({ tone: null, text: '' });
-                              }}
-                            />
-                          );
-                        })}
-                      </View>
-                    </View>
+                  void createScopeRule({
+                    scopeKind: 'all_launches'
+                  });
+                }}
+              />
+            )}
+          </View>
 
-                    <View style={{ gap: 6 }}>
-                      <Text style={{ color: theme.foreground, fontSize: 13, fontWeight: '700' }}>Launch-day states</Text>
-                      <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
-                        Leave all states unselected to use every state.
-                      </Text>
-                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                        {launchDayStateOptions.map((state) => {
-                          const active = draft.launchDayEmailStates.includes(state);
-                          return (
-                            <AlertRuleChip
-                              key={state}
-                              label={state}
-                              active={active}
-                              onPress={() => {
-                                updateDraft({
-                                  launchDayEmailStates: toggleListValue(draft.launchDayEmailStates, state)
-                                });
-                                setChannelStatus({ tone: null, text: '' });
-                              }}
-                            />
-                          );
-                        })}
-                      </View>
-                    </View>
-                  </View>
-                ) : null}
-                <TogglePreferenceRow
-                  label="Quiet hours"
-                  caption="Suppress shared delivery during the local window below."
-                  value={draft.quietHoursEnabled}
-                  onChange={(value) => {
-                    updateDraft({ quietHoursEnabled: value });
-                    setChannelStatus({ tone: null, text: '' });
-                  }}
-                />
-                {draft.quietHoursEnabled ? (
-                  <View style={{ flexDirection: 'row', gap: 10 }}>
-                    <TimeInput
-                      label="Start"
-                      value={draft.quietStartLocal}
-                      onChangeText={(value) => {
-                        updateDraft({ quietStartLocal: value });
-                        setChannelStatus({ tone: null, text: '' });
+          <View style={{ gap: 8 }}>
+            <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>Saved filter presets</Text>
+            {isPremium ? (
+              premiumPresetCandidates.length ? (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {premiumPresetCandidates.map((preset) => (
+                    <AddRuleChip
+                      key={preset.id}
+                      label={preset.name}
+                      disabled={!isRegistered || upsertRuleMutation.isPending}
+                      onPress={() => {
+                        void createScopeRule({
+                          scopeKind: 'preset',
+                          presetId: preset.id
+                        });
                       }}
                     />
-                    <TimeInput
-                      label="End"
-                      value={draft.quietEndLocal}
-                      onChangeText={(value) => {
-                        updateDraft({ quietEndLocal: value });
-                        setChannelStatus({ tone: null, text: '' });
+                  ))}
+                </View>
+              ) : (
+                <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>No additional saved filters are available.</Text>
+              )
+            ) : (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                <AddRuleChip label="Saved filter preset" onPress={openPremiumGate} />
+              </View>
+            )}
+            {presetRules.map((rule) => (
+              <RuleEditorCard
+                key={rule.id}
+                rule={rule}
+                isPremium
+                readOnly={!isPremium}
+                busy={upsertRuleMutation.isPending || deleteRuleMutation.isPending}
+                onOpenUpgrade={openPremiumGate}
+                onSave={(payload) => {
+                  void saveRule(payload);
+                }}
+                onDelete={() => {
+                  void removeRule(rule.id);
+                }}
+              />
+            ))}
+          </View>
+
+          <View style={{ gap: 8 }}>
+            <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>Follows</Text>
+            {isPremium ? (
+              premiumFollowCandidates.length ? (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {premiumFollowCandidates.map((rule) => (
+                    <AddRuleChip
+                      key={buildFollowKey(rule.ruleType, rule.ruleValue)}
+                      label={formatFollowCandidate(rule)}
+                      disabled={!isRegistered || upsertRuleMutation.isPending}
+                      onPress={() => {
+                        void createScopeRule({
+                          scopeKind: 'follow',
+                          followRuleType: rule.ruleType,
+                          followRuleValue: rule.ruleValue
+                        });
                       }}
                     />
-                  </View>
-                ) : null}
-                {channelStatus.text ? (
-                  <Text style={{ color: channelStatus.tone === 'error' ? '#ff9087' : theme.accent, fontSize: 13, lineHeight: 19 }}>
-                    {channelStatus.text}
-                  </Text>
-                ) : channelValidationError ? (
-                  <Text style={{ color: '#ff9087', fontSize: 13, lineHeight: 19 }}>{channelValidationError}</Text>
-                ) : null}
-                <CustomerShellActionButton
-                  testID="preferences-save-account-settings"
-                  label={updateNotificationPreferencesMutation.isPending ? 'Saving…' : 'Save account notification settings'}
-                  onPress={() => {
-                    void saveNotificationPreferences();
-                  }}
-                  disabled={!hasDraftChanges || updateNotificationPreferencesMutation.isPending || Boolean(channelValidationError)}
-                />
-              </View>
-            )}
-          </CustomerShellPanel>
-
-          <CustomerShellPanel
-            title="SMS verification"
-            description={
-              canUseAdvancedAlertRules
-                ? 'Premium SMS delivery requires a verified phone number before the shared account can enable SMS alerts.'
-                : 'SMS verification is reserved for Premium notification access.'
-            }
-          >
-            {!canUseAdvancedAlertRules ? (
-              <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>Upgrade to Premium to verify a phone number for SMS delivery.</Text>
-            ) : prefs?.smsSystemEnabled === false ? (
-              <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>SMS delivery is not configured on the backend right now.</Text>
+                  ))}
+                </View>
+              ) : (
+                <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>No additional follows are available.</Text>
+              )
             ) : (
-              <View style={{ gap: 12 }}>
-                <View style={{ gap: 6 }}>
-                  <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>Phone number</Text>
-                  <TextInput
-                    testID="preferences-sms-phone-input"
-                    value={smsPhoneDraft}
-                    onChangeText={setSmsPhoneDraft}
-                    placeholder="(555) 555-1212"
-                    placeholderTextColor={theme.muted}
-                    keyboardType="phone-pad"
-                    autoCapitalize="none"
-                    style={buildTextInputStyle(theme)}
-                  />
-                  {prefs?.smsVerified && prefs.smsPhone ? (
-                    <Text style={{ color: theme.accent, fontSize: 12, lineHeight: 18 }}>Verified number: {prefs.smsPhone}</Text>
-                  ) : null}
-                </View>
-
-                <View style={{ gap: 6 }}>
-                  <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>Verification code</Text>
-                  <TextInput
-                    testID="preferences-sms-code-input"
-                    value={smsCodeDraft}
-                    onChangeText={setSmsCodeDraft}
-                    placeholder="123456"
-                    placeholderTextColor={theme.muted}
-                    keyboardType="number-pad"
-                    autoCapitalize="none"
-                    style={buildTextInputStyle(theme)}
-                  />
-                </View>
-
-                <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
-                  Requesting or enabling SMS implies consent to receive launch notifications at this number.
-                </Text>
-
-                {smsStatus.text ? (
-                  <Text style={{ color: smsStatus.tone === 'error' ? '#ff9087' : theme.accent, fontSize: 13, lineHeight: 19 }}>
-                    {smsStatus.text}
-                  </Text>
-                ) : null}
-
-                <CustomerShellActionButton
-                  testID="preferences-sms-send-code"
-                  label={startSmsVerificationMutation.isPending ? 'Sending code…' : 'Send verification code'}
-                  onPress={() => {
-                    void handleStartSmsVerification();
-                  }}
-                  disabled={startSmsVerificationMutation.isPending || completeSmsVerificationMutation.isPending}
-                />
-
-                <CustomerShellActionButton
-                  testID="preferences-sms-verify-code"
-                  label={completeSmsVerificationMutation.isPending ? 'Verifying…' : 'Verify code'}
-                  variant="secondary"
-                  onPress={() => {
-                    void handleCompleteSmsVerification();
-                  }}
-                  disabled={startSmsVerificationMutation.isPending || completeSmsVerificationMutation.isPending}
-                />
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                <AddRuleChip label="Followed providers" onPress={openPremiumGate} />
+                <AddRuleChip label="Followed pads" onPress={openPremiumGate} />
+                <AddRuleChip label="Followed launches" onPress={openPremiumGate} />
               </View>
             )}
-          </CustomerShellPanel>
-
-          <CustomerShellPanel
-            testID="preferences-push-section"
-            title="Device push"
-            description={
-              canUseBrowserLaunchAlerts
-                ? 'This phone can receive mobile push. Browser delivery is also available on web for Premium.'
-                : 'This phone is the delivery target for free and Premium mobile push alerts. Browser delivery remains Premium-only on web.'
-            }
-          >
-            <View style={{ gap: 10 }}>
-              <PreferenceRow testID="preferences-permission-state" valueTestID="preferences-permission-state-value" label="Permission" value={permissionStatus} />
-              <PreferenceRow
-                testID="preferences-push-enabled-row"
-                valueTestID="preferences-push-enabled-state"
-                label="Push enabled"
-                value={formatOnOff(isPushEnabled)}
+            {followRules.map((rule) => (
+              <RuleEditorCard
+                key={rule.id}
+                rule={rule}
+                isPremium
+                readOnly={!isPremium}
+                busy={upsertRuleMutation.isPending || deleteRuleMutation.isPending}
+                onOpenUpgrade={openPremiumGate}
+                onSave={(payload) => {
+                  void saveRule(payload);
+                }}
+                onDelete={() => {
+                  void removeRule(rule.id);
+                }}
               />
-              <PreferenceRow
-                testID="preferences-device-registered-row"
-                valueTestID="preferences-device-registered-state"
-                label="Device registered"
-                value={formatOnOff(isRegistered)}
-              />
-            </View>
-
-            <View
-              style={{
-                gap: 6,
-                borderRadius: 18,
-                borderWidth: 1,
-                borderColor: 'rgba(234, 240, 255, 0.1)',
-                backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                paddingHorizontal: 14,
-                paddingVertical: 14
-              }}
-            >
-              <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>
-                Installation id: {installationId ?? 'Loading...'}
-              </Text>
-              <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>
-                Basic mobile alert capability: {formatOnOff(canUseBasicAlertRules)}
-              </Text>
-              <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>
-                Advanced/browser alert capability: {formatOnOff(canUseAdvancedAlertRules || canUseBrowserLaunchAlerts)}
-              </Text>
-              {lastTestQueuedAt ? (
-                <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>Last test queued: {lastTestQueuedAt}</Text>
-              ) : null}
-              {lastError ? (
-                <Text testID="preferences-last-error" style={{ color: '#ff9087', fontSize: 13, lineHeight: 19 }}>
-                  {lastError}
-                </Text>
-              ) : null}
-            </View>
-
-            <CustomerShellActionButton
-              testID="preferences-enable-push"
-              label={isPushEnabled ? 'Push enabled' : 'Enable push alerts'}
-              onPress={() => {
-                void enablePush().catch(() => {});
-              }}
-              disabled={isSyncing || isPushEnabled}
-            />
-
-            <CustomerShellActionButton
-              testID="preferences-send-push-test"
-              label="Send push test"
-              variant="secondary"
-              onPress={() => {
-                void sendTestPush().catch(() => {});
-              }}
-              disabled={isSyncing || !isPushEnabled || !isRegistered}
-            />
-
-            <Pressable
-              testID="preferences-disable-push"
-              onPress={() => {
-                void disablePushAlerts().catch(() => {});
-              }}
-              disabled={isSyncing || (!isPushEnabled && !isRegistered)}
-              style={({ pressed }) => ({
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: theme.stroke,
-                backgroundColor: 'transparent',
-                paddingHorizontal: 18,
-                paddingVertical: 14,
-                opacity: isSyncing || (!isPushEnabled && !isRegistered) ? 0.5 : pressed ? 0.86 : 1
-              })}
-            >
-              <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>Disable push on this device</Text>
-            </Pressable>
-          </CustomerShellPanel>
-        </>
-      )}
+            ))}
+          </View>
+        </View>
+      </CustomerShellPanel>
     </AppScreen>
   );
+
+  function buildBasePayload(): Pick<
+    MobilePushRuleUpsertV1,
+    'installationId' | 'deviceSecret' | 'timezone' | 'prelaunchOffsetsMinutes' | 'dailyDigestLocalTime' | 'statusChangeTypes' | 'notifyNetChanges'
+  > {
+    return {
+      installationId: installationId ?? 'missing',
+      deviceSecret,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+      prelaunchOffsetsMinutes: [60],
+      dailyDigestLocalTime: null,
+      statusChangeTypes: [],
+      notifyNetChanges: false
+    };
+  }
+
+  async function createScopeRule(
+    scope:
+      | { scopeKind: 'all_us' }
+      | { scopeKind: 'state'; state: string }
+      | { scopeKind: 'all_launches' }
+      | { scopeKind: 'preset'; presetId: string }
+      | { scopeKind: 'follow'; followRuleType: WatchlistRuleV1['ruleType']; followRuleValue: string }
+  ) {
+    if (!installationId) return;
+    if (!isPremium) {
+      openPremiumGate();
+      setNotice({ tone: 'warning', message: 'Upgrade to Premium to add mobile alert rules.' });
+      return;
+    }
+    setNotice(null);
+    try {
+      await upsertRuleMutation.mutateAsync({
+        ...buildBasePayload(),
+        ...scope
+      } as MobilePushRuleUpsertV1);
+      setNotice({ tone: 'success', message: 'Added a mobile push rule.' });
+    } catch (error) {
+      setNotice({
+        tone: 'warning',
+        message: buildMutationMessage(error, 'Unable to add a mobile push rule.')
+      });
+    }
+  }
+
+  async function saveRule(payload: MobilePushRuleUpsertV1) {
+    if (!isPremium) {
+      openPremiumGate();
+      setNotice({ tone: 'warning', message: 'Upgrade to Premium to edit mobile alert rules.' });
+      return;
+    }
+    setNotice(null);
+    try {
+      await upsertRuleMutation.mutateAsync(payload);
+      setNotice({ tone: 'success', message: 'Saved mobile push rule.' });
+    } catch (error) {
+      setNotice({
+        tone: 'warning',
+        message: buildMutationMessage(error, 'Unable to save the mobile push rule.')
+      });
+    }
+  }
+
+  async function removeRule(ruleId: string) {
+    if (!context) return;
+    if (!isPremium) {
+      openPremiumGate();
+      setNotice({ tone: 'warning', message: 'Upgrade to Premium to remove mobile alert rules.' });
+      return;
+    }
+    setNotice(null);
+    try {
+      await deleteRuleMutation.mutateAsync({
+        ruleId,
+        context
+      });
+      setNotice({ tone: 'info', message: 'Removed mobile push rule.' });
+    } catch (error) {
+      setNotice({
+        tone: 'warning',
+        message: buildMutationMessage(error, 'Unable to remove the mobile push rule.')
+      });
+    }
+  }
 }
 
-function PreferenceRow({
-  label,
-  value,
-  caption,
-  testID,
-  valueTestID
+function RuleEditorCard({
+  rule,
+  isPremium,
+  readOnly = false,
+  busy,
+  onOpenUpgrade,
+  onSave,
+  onDelete
 }: {
-  label: string;
-  value: string;
-  caption?: string;
-  testID?: string;
-  valueTestID?: string;
+  rule: NonLaunchMobilePushRuleV1;
+  isPremium: boolean;
+  readOnly?: boolean;
+  busy: boolean;
+  onOpenUpgrade: () => void;
+  onSave: (payload: MobilePushRuleUpsertV1) => void;
+  onDelete: () => void;
 }) {
   const { theme } = useMobileBootstrap();
-
-  return (
-    <View
-      testID={testID}
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 12,
-        borderRadius: 16,
-        borderWidth: 1,
-        borderColor: 'rgba(234, 240, 255, 0.08)',
-        backgroundColor: 'rgba(255, 255, 255, 0.02)',
-        paddingHorizontal: 14,
-        paddingVertical: 12
-      }}
-    >
-      <View style={{ flex: 1, gap: 2 }}>
-        <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '600' }}>{label}</Text>
-        {caption ? <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>{caption}</Text> : null}
-      </View>
-      <Text testID={valueTestID} style={{ color: theme.muted, fontSize: 14, fontWeight: '700' }}>{value}</Text>
-    </View>
+  const { installationId, deviceSecret } = useMobilePush();
+  const [offsets, setOffsets] = useState<number[]>(rule.settings.prelaunchOffsetsMinutes ?? []);
+  const [dailyDigestLocalTime, setDailyDigestLocalTime] = useState(rule.settings.dailyDigestLocalTime ?? '');
+  const [statusChangeTypes, setStatusChangeTypes] = useState<Array<(typeof STATUS_OPTIONS)[number]['key']>>(
+    (rule.settings.statusChangeTypes ?? []) as Array<(typeof STATUS_OPTIONS)[number]['key']>
   );
-}
-
-function TogglePreferenceRow({
-  label,
-  caption,
-  value,
-  disabled,
-  onChange
-}: {
-  label: string;
-  caption: string;
-  value: boolean;
-  disabled?: boolean;
-  onChange: (nextValue: boolean) => void;
-}) {
-  const { theme } = useMobileBootstrap();
+  const [notifyNetChanges, setNotifyNetChanges] = useState(rule.settings.notifyNetChanges === true);
+  const offsetOptions = readOnly || isPremium ? PREMIUM_OFFSET_OPTIONS : BASIC_OFFSET_OPTIONS;
+  const maxOffsets = readOnly || isPremium ? 3 : 1;
+  const canUseDailyDigest = isPremium || Boolean(rule.settings.dailyDigestLocalTime);
 
   return (
     <View
       style={{
         gap: 10,
-        borderRadius: 16,
+        borderRadius: 18,
         borderWidth: 1,
         borderColor: 'rgba(234, 240, 255, 0.08)',
-        backgroundColor: 'rgba(255, 255, 255, 0.02)',
+        backgroundColor: 'rgba(255, 255, 255, 0.03)',
         paddingHorizontal: 14,
-        paddingVertical: 12
+        paddingVertical: 14
       }}
     >
       <View style={{ gap: 2 }}>
-        <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '600' }}>{label}</Text>
-        <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>{caption}</Text>
+        <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>{rule.label}</Text>
+        <Text style={{ color: theme.muted, fontSize: 12 }}>
+          {rule.scopeKind === 'all_us'
+            ? 'All U.S. launches'
+            : rule.scopeKind === 'state'
+              ? 'State scope'
+              : rule.scopeKind === 'all_launches'
+                ? 'Premium all-launches scope'
+                : rule.scopeKind === 'preset'
+                  ? 'Premium saved-filter scope'
+                  : 'Premium follow scope'}
+        </Text>
       </View>
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        <ToggleChip label="On" active={value} disabled={disabled} onPress={() => onChange(true)} />
-        <ToggleChip label="Off" active={!value} disabled={disabled} onPress={() => onChange(false)} />
+
+      <View style={{ gap: 8 }}>
+        <Text style={{ color: theme.foreground, fontSize: 13, fontWeight: '700' }}>Reminder times</Text>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          {offsetOptions.map((value) => {
+            const active = offsets.includes(value);
+            return (
+                  <AddRuleChip
+                    key={value}
+                    label={value >= 1440 ? '1 day' : value >= 60 ? `${Math.round(value / 60)} hr` : `${value} min`}
+                    active={active}
+                    disabled={busy || readOnly}
+                    onPress={() => {
+                      if (readOnly) return;
+                      if (active) {
+                        setOffsets((current) => current.filter((entry) => entry !== value));
+                        return;
+                  }
+                  if (offsets.length >= maxOffsets) {
+                    return;
+                  }
+                  setOffsets((current) => [...current, value].sort((left, right) => left - right));
+                }}
+              />
+            );
+          })}
+        </View>
       </View>
+
+      <View style={{ gap: 8 }}>
+        <Text style={{ color: theme.foreground, fontSize: 13, fontWeight: '700' }}>Premium change alerts</Text>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          {STATUS_OPTIONS.map((option) => {
+            const active = statusChangeTypes.includes(option.key);
+            return (
+                <AddRuleChip
+                  key={option.key}
+                  label={option.label}
+                  active={active}
+                  disabled={busy || readOnly || !isPremium}
+                  onPress={() => {
+                    if (readOnly || !isPremium) {
+                      onOpenUpgrade();
+                      return;
+                    }
+                  if (option.key === 'any') {
+                    setStatusChangeTypes((current) => (current.includes('any') ? [] : ['any']));
+                    return;
+                  }
+                  setStatusChangeTypes((current) => {
+                    const withoutAny = current.filter((entry) => entry !== 'any');
+                    return withoutAny.includes(option.key)
+                      ? withoutAny.filter((entry) => entry !== option.key)
+                      : [...withoutAny, option.key];
+                  });
+                }}
+              />
+            );
+          })}
+          <AddRuleChip
+            label="NET changes"
+            active={notifyNetChanges}
+            disabled={busy || readOnly || !isPremium}
+            onPress={() => {
+              if (readOnly || !isPremium) {
+                onOpenUpgrade();
+                return;
+              }
+              setNotifyNetChanges((current) => !current);
+            }}
+          />
+        </View>
+      </View>
+
+      {canUseDailyDigest ? (
+        <View style={{ gap: 6 }}>
+          <Text style={{ color: theme.foreground, fontSize: 13, fontWeight: '700' }}>Daily digest time</Text>
+          <TextInput
+            value={dailyDigestLocalTime}
+            onChangeText={setDailyDigestLocalTime}
+            placeholder="08:00"
+            placeholderTextColor={theme.muted}
+            autoCapitalize="none"
+            autoCorrect={false}
+            editable={!readOnly}
+            style={{
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: theme.stroke,
+              backgroundColor: 'rgba(255, 255, 255, 0.04)',
+              color: theme.foreground,
+              paddingHorizontal: 12,
+              paddingVertical: 10
+            }}
+          />
+          <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>Use `HH:MM` to send a daily push when launches match this rule.</Text>
+        </View>
+      ) : null}
+
+      {readOnly ? (
+        <View style={{ gap: 10 }}>
+          <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
+            Stored on this account. Upgrade to Premium to edit or reactivate this rule.
+          </Text>
+          <CustomerShellActionButton label="Upgrade to edit" onPress={onOpenUpgrade} disabled={busy} />
+        </View>
+      ) : (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+          <CustomerShellActionButton
+            label="Save rule"
+            onPress={() => {
+              if (!installationId) return;
+              onSave({
+                ...buildRuleScopePayload(rule),
+                installationId,
+                deviceSecret,
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+                prelaunchOffsetsMinutes: offsets,
+                dailyDigestLocalTime: isPremium ? normalizeLocalTime(dailyDigestLocalTime) : null,
+                statusChangeTypes: isPremium ? statusChangeTypes : [],
+                notifyNetChanges: isPremium ? notifyNetChanges : false
+              } as MobilePushRuleUpsertV1);
+            }}
+            disabled={busy || offsets.length === 0 || offsets.length > maxOffsets}
+          />
+          <CustomerShellActionButton label="Remove" variant="secondary" onPress={onDelete} disabled={busy} />
+        </View>
+      )}
     </View>
   );
 }
 
-function ToggleChip({
+function buildRuleScopePayload(rule: NonLaunchMobilePushRuleV1) {
+  if (rule.scopeKind === 'all_us') {
+    return { scopeKind: 'all_us' as const };
+  }
+  if (rule.scopeKind === 'state') {
+    return { scopeKind: 'state' as const, state: rule.state };
+  }
+  if (rule.scopeKind === 'all_launches') {
+    return { scopeKind: 'all_launches' as const };
+  }
+  if (rule.scopeKind === 'preset') {
+    return { scopeKind: 'preset' as const, presetId: rule.presetId };
+  }
+  if (rule.scopeKind === 'follow') {
+    return {
+      scopeKind: 'follow' as const,
+      followRuleType: rule.followRuleType,
+      followRuleValue: rule.followRuleValue
+    };
+  }
+
+  return {
+    scopeKind: 'all_launches' as const
+  };
+}
+
+function PreferenceRow({ label, value }: { label: string; value: string }) {
+  const { theme } = useMobileBootstrap();
+
+  return (
+    <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
+      <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>{label}</Text>
+      <Text style={{ color: theme.foreground, fontSize: 13, fontWeight: '600' }}>{value}</Text>
+    </View>
+  );
+}
+
+function AddRuleChip({
   label,
-  active,
-  disabled,
+  active = false,
+  disabled = false,
   onPress
 }: {
   label: string;
-  active: boolean;
+  active?: boolean;
   disabled?: boolean;
   onPress: () => void;
 }) {
@@ -855,16 +771,16 @@ function ToggleChip({
 
   return (
     <Pressable
-      onPress={onPress}
       disabled={disabled}
+      onPress={onPress}
       style={({ pressed }) => ({
         borderRadius: 999,
         borderWidth: 1,
-        borderColor: active ? 'rgba(34, 211, 238, 0.34)' : theme.stroke,
+        borderColor: active ? theme.accent : theme.stroke,
         backgroundColor: active ? 'rgba(34, 211, 238, 0.12)' : 'rgba(255, 255, 255, 0.03)',
-        paddingHorizontal: 14,
-        paddingVertical: 9,
-        opacity: disabled ? 0.45 : pressed ? 0.84 : 1
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        opacity: disabled ? 0.45 : pressed ? 0.86 : 1
       })}
     >
       <Text style={{ color: active ? theme.accent : theme.foreground, fontSize: 12, fontWeight: '700' }}>{label}</Text>
@@ -872,261 +788,52 @@ function ToggleChip({
   );
 }
 
-function TimeInput({
-  label,
-  value,
-  onChangeText
-}: {
-  label: string;
-  value: string;
-  onChangeText: (value: string) => void;
-}) {
-  const { theme } = useMobileBootstrap();
+function flattenWatchlistRules(watchlists: Array<{ rules: WatchlistRuleV1[] }>) {
+  const next = new Map<string, WatchlistRuleV1>();
+  for (const watchlist of watchlists) {
+    for (const rule of watchlist.rules) {
+      const key = buildFollowKey(rule.ruleType, rule.ruleValue);
+      if (!next.has(key)) {
+        next.set(key, rule);
+      }
+    }
+  }
+  return Array.from(next.values());
+}
 
-  return (
-    <View style={{ flex: 1, gap: 6 }}>
-      <Text style={{ color: theme.foreground, fontSize: 13, fontWeight: '700' }}>{label}</Text>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        placeholder="22:00"
-        placeholderTextColor={theme.muted}
-        keyboardType="numbers-and-punctuation"
-        autoCapitalize="none"
-        style={buildTextInputStyle(theme)}
-      />
-    </View>
-  );
+function buildFollowKey(ruleType: string, ruleValue: string) {
+  return `${normalizeToken(ruleType)}:${normalizeToken(ruleValue)}`;
+}
+
+function formatFollowCandidate(rule: WatchlistRuleV1) {
+  if (rule.ruleType === 'provider') return rule.ruleValue;
+  if (rule.ruleType === 'tier') return `Tier ${rule.ruleValue}`;
+  if (rule.ruleType === 'pad') return rule.ruleValue.replace(/^code:/, '').replace(/^ll2:/, 'Pad ');
+  return 'Launch';
+}
+
+function normalizeLocalTime(value: string) {
+  const trimmed = value.trim();
+  return /^\d{2}:\d{2}$/.test(trimmed) ? trimmed : null;
+}
+
+function normalizeToken(value: string) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function formatPermissionLabel(permissionStatus: 'granted' | 'denied' | 'undetermined') {
+  if (permissionStatus === 'granted') return 'Permission granted';
+  if (permissionStatus === 'denied') return 'Permission denied';
+  return 'Permission pending';
 }
 
 function formatOnOff(value: boolean) {
   return value ? 'On' : 'Off';
 }
 
-function formatQuietHours(enabled: boolean, start: string | null | undefined, end: string | null | undefined) {
-  if (!enabled) {
-    return 'Off';
+function buildMutationMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) {
+    return error.message;
   }
-
-  return `${start || '22:00'} to ${end || '07:00'}`;
-}
-
-function formatTierLabel(tier: 'anon' | 'free' | 'premium') {
-  if (tier === 'premium') {
-    return 'Premium';
-  }
-  if (tier === 'free') {
-    return 'Free account';
-  }
-  return 'Guest access';
-}
-
-function formatPermissionLabel(permissionStatus: string) {
-  if (permissionStatus === 'granted') {
-    return 'Push permission granted';
-  }
-  if (permissionStatus === 'denied') {
-    return 'Push permission denied';
-  }
-  return 'Push permission pending';
-}
-
-function AlertRuleChip({
-  label,
-  active,
-  disabled,
-  onPress
-}: {
-  label: string;
-  active: boolean;
-  disabled?: boolean;
-  onPress: () => void;
-}) {
-  const { theme } = useMobileBootstrap();
-
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      style={({ pressed }) => ({
-        borderRadius: 999,
-        borderWidth: 1,
-        borderColor: active ? 'rgba(34, 211, 238, 0.34)' : theme.stroke,
-        backgroundColor: active ? 'rgba(34, 211, 238, 0.12)' : 'rgba(255, 255, 255, 0.03)',
-        paddingHorizontal: 12,
-        paddingVertical: 9,
-        opacity: disabled ? 0.5 : pressed ? 0.84 : 1
-      })}
-    >
-      <Text style={{ color: active ? theme.accent : theme.foreground, fontSize: 12, fontWeight: '700' }}>{label}</Text>
-    </Pressable>
-  );
-}
-
-function normalizeAlertRuleToken(value: string) {
-  return value.trim().toLowerCase();
-}
-
-function buildPreferencesDraft(prefs: NotificationPreferencesV1 | null): PreferencesDraft {
-  return {
-    emailEnabled: prefs?.emailEnabled === true,
-    smsEnabled: prefs?.smsEnabled === true,
-    launchDayEmailEnabled: prefs?.launchDayEmailEnabled === true,
-    launchDayEmailProviders: normalizeStringList(prefs?.launchDayEmailProviders),
-    launchDayEmailStates: normalizeStringList(prefs?.launchDayEmailStates),
-    quietHoursEnabled: prefs?.quietHoursEnabled === true,
-    quietStartLocal: prefs?.quietStartLocal ?? '22:00',
-    quietEndLocal: prefs?.quietEndLocal ?? '07:00'
-  };
-}
-
-function buildNotificationPreferencesPayload(
-  draft: PreferencesDraft,
-  prefs: NotificationPreferencesV1
-): NotificationPreferencesUpdateV1 | null {
-  const payload: Partial<NotificationPreferencesUpdateV1> = {};
-  if (draft.emailEnabled !== prefs.emailEnabled) {
-    payload.emailEnabled = draft.emailEnabled;
-  }
-  if (draft.smsEnabled !== prefs.smsEnabled) {
-    payload.smsEnabled = draft.smsEnabled;
-    if (draft.smsEnabled) {
-      payload.smsConsent = true;
-    }
-  }
-  if (draft.launchDayEmailEnabled !== prefs.launchDayEmailEnabled) {
-    payload.launchDayEmailEnabled = draft.launchDayEmailEnabled;
-  }
-
-  const normalizedProviders = normalizeStringList(draft.launchDayEmailProviders);
-  const normalizedProviderPrefs = normalizeStringList(prefs.launchDayEmailProviders);
-  if (!areListsEqual(normalizedProviders, normalizedProviderPrefs)) {
-    payload.launchDayEmailProviders = normalizedProviders;
-  }
-
-  const normalizedStates = normalizeStringList(draft.launchDayEmailStates);
-  const normalizedStatePrefs = normalizeStringList(prefs.launchDayEmailStates);
-  if (!areListsEqual(normalizedStates, normalizedStatePrefs)) {
-    payload.launchDayEmailStates = normalizedStates;
-  }
-
-  if (draft.quietHoursEnabled !== prefs.quietHoursEnabled) {
-    payload.quietHoursEnabled = draft.quietHoursEnabled;
-  }
-  if (draft.quietStartLocal !== (prefs.quietStartLocal ?? '22:00')) {
-    payload.quietStartLocal = draft.quietStartLocal;
-  }
-  if (draft.quietEndLocal !== (prefs.quietEndLocal ?? '07:00')) {
-    payload.quietEndLocal = draft.quietEndLocal;
-  }
-
-  return Object.keys(payload).length > 0 ? payload : null;
-}
-
-function hasPreferencesDraftChanges(
-  draft: PreferencesDraft,
-  prefs: NotificationPreferencesV1
-) {
-  return buildNotificationPreferencesPayload(draft, prefs) !== null;
-}
-
-function validatePreferencesDraft(
-  draft: PreferencesDraft,
-  options: {
-    canUseAdvancedAlertRules: boolean;
-    isSmsVerified: boolean;
-    isSmsSystemEnabled: boolean;
-  }
-) {
-  if (draft.smsEnabled) {
-    if (!options.canUseAdvancedAlertRules) {
-      return 'SMS alerts require Premium notification access.';
-    }
-    if (!options.isSmsSystemEnabled) {
-      return 'SMS delivery is not configured right now.';
-    }
-    if (!options.isSmsVerified) {
-      return 'Verify a phone number before enabling SMS alerts.';
-    }
-  }
-
-  if (draft.launchDayEmailEnabled && !options.canUseAdvancedAlertRules) {
-    return 'Launch-day email requires Premium notification access.';
-  }
-
-  if (draft.quietHoursEnabled) {
-    if (!isValidLocalTime(draft.quietStartLocal) || !isValidLocalTime(draft.quietEndLocal)) {
-      return 'Quiet hours must use HH:MM 24-hour time.';
-    }
-  }
-
-  return null;
-}
-
-function toggleListValue(values: string[], target: string) {
-  const normalizedTarget = target.trim();
-  if (!normalizedTarget) {
-    return values;
-  }
-
-  return values.includes(normalizedTarget)
-    ? values.filter((value) => value !== normalizedTarget)
-    : [...values, normalizedTarget].sort((left, right) => left.localeCompare(right));
-}
-
-function normalizeStringList(values: string[] | null | undefined) {
-  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))].sort((left, right) => left.localeCompare(right));
-}
-
-function areListsEqual(left: string[], right: string[]) {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
-}
-
-function isValidLocalTime(value: string) {
-  return /^\d{2}:\d{2}$/.test(value.trim());
-}
-
-function buildTextInputStyle(theme: ReturnType<typeof useMobileBootstrap>['theme']) {
-  return {
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: theme.stroke,
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    color: theme.foreground,
-    fontSize: 15,
-    paddingHorizontal: 14,
-    paddingVertical: 12
-  } as const;
-}
-
-function describePreferencesError(error: unknown) {
-  if (error instanceof ApiClientError) {
-    switch (error.code) {
-      case 'payment_required':
-        return 'This setting requires a higher plan.';
-      case 'phone_required':
-        return 'Add a phone number before enabling SMS alerts.';
-      case 'sms_not_verified':
-        return 'Verify this phone number before enabling SMS alerts.';
-      case 'sms_consent_required':
-        return 'SMS consent is required before enabling delivery.';
-      case 'sms_reply_start_required':
-        return 'This number previously opted out. Reply START to the confirmation message, then try again.';
-      case 'sms_system_disabled':
-        return 'SMS delivery is not configured right now.';
-      case 'twilio_verify_not_configured':
-      case 'billing_not_configured':
-        return 'SMS verification is not configured on the backend yet.';
-      case 'invalid_phone':
-        return 'Enter a valid U.S. phone number.';
-      case 'invalid_code':
-        return 'That verification code was not accepted.';
-      case 'sms_verification_failed':
-        return 'Unable to verify this number right now.';
-      default:
-        break;
-    }
-  }
-
-  return error instanceof Error && error.message ? error.message : 'Unable to update notification settings.';
+  return fallback;
 }

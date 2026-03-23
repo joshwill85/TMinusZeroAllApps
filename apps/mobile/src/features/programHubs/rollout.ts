@@ -21,6 +21,11 @@ const DEFAULT_MOBILE_HUB_ROLLOUT: ViewerSessionV1['mobileHubRollout'] = {
   }
 };
 
+const PROGRAM_HUB_CORE_FALLBACK_ROUTES: Partial<Record<ProgramHubKey, string>> = {
+  blueOrigin: '/launch-providers/blue-origin',
+  spacex: '/launch-providers/spacex'
+};
+
 export function getMobileHubRollout(session: ViewerSessionV1 | null | undefined) {
   return session?.mobileHubRollout ?? DEFAULT_MOBILE_HUB_ROLLOUT;
 }
@@ -44,3 +49,22 @@ export function getProgramHubEntryHref(session: ViewerSessionV1 | null | undefin
   return isNativeProgramHubEnabled(session, hub) ? buildProgramHubHref(hub) : null;
 }
 
+export function resolveNativeProgramHubOrCoreHref(session: ViewerSessionV1 | null | undefined, href: string | null | undefined) {
+  const normalizedHubHref = normalizeNativeProgramHubHref(href);
+  const hub = getProgramHubKeyFromHref(href);
+  if (normalizedHubHref && hub) {
+    if (isNativeProgramHubEnabled(session, hub) || normalizedHubHref !== buildProgramHubHref(hub)) {
+      return normalizedHubHref;
+    }
+  }
+
+  const nativeHubHref = resolveNativeProgramHubHref(session, href);
+  if (nativeHubHref) return nativeHubHref;
+
+  if (!hub) return null;
+  return PROGRAM_HUB_CORE_FALLBACK_ROUTES[hub] ?? null;
+}
+
+export function getProgramHubEntryOrCoreHref(session: ViewerSessionV1 | null | undefined, hub: ProgramHubKey) {
+  return getProgramHubEntryHref(session, hub) ?? PROGRAM_HUB_CORE_FALLBACK_ROUTES[hub] ?? null;
+}

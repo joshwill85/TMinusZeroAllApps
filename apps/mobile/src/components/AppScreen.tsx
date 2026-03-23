@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 import { ScrollView, View, type ScrollViewProps } from 'react-native';
 import Animated, { type AnimatedScrollViewProps } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,20 +15,24 @@ type AppScreenProps = {
   children: ReactNode;
   scroll?: boolean;
   keyboardShouldPersistTaps?: ScrollViewProps['keyboardShouldPersistTaps'];
+  refreshControl?: ScrollViewProps['refreshControl'];
   testID?: string;
   animatedScroll?: boolean;
   onScroll?: AnimatedScrollViewProps['onScroll'];
   scrollEventThrottle?: number;
+  scrollRef?: Ref<ScrollView>;
 };
 
 export function AppScreen({
   children,
   scroll = true,
   keyboardShouldPersistTaps = 'never',
+  refreshControl,
   testID,
   animatedScroll = false,
   onScroll,
-  scrollEventThrottle = 16
+  scrollEventThrottle = 16,
+  scrollRef
 }: AppScreenProps) {
   const { theme } = useMobileBootstrap();
   const segments = useSegments();
@@ -62,10 +66,12 @@ export function AppScreen({
   if (animatedScroll) {
     return (
       <Animated.ScrollView
+        ref={scrollRef}
         testID={testID}
         style={{ flex: 1, backgroundColor: theme.background }}
         contentContainerStyle={contentStyle}
         keyboardShouldPersistTaps={keyboardShouldPersistTaps}
+        refreshControl={refreshControl}
         onScroll={onScroll}
         scrollEventThrottle={scrollEventThrottle}
         showsVerticalScrollIndicator={false}
@@ -77,10 +83,12 @@ export function AppScreen({
 
   return (
     <ScrollView
+      ref={scrollRef}
       testID={testID}
       style={{ flex: 1, backgroundColor: theme.background }}
       contentContainerStyle={contentStyle}
       keyboardShouldPersistTaps={keyboardShouldPersistTaps}
+      refreshControl={refreshControl}
     >
       {children}
     </ScrollView>

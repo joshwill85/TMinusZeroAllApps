@@ -2,7 +2,7 @@ import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { Linking, Platform } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useIAP, type Purchase, type PurchaseAndroid, type PurchaseIOS } from 'expo-iap';
-import type { BillingCatalogProductV1 } from '@tminuszero/api-client';
+import type { BillingCatalogProductV1, PremiumClaimV1 } from '@tminuszero/api-client';
 import { sharedQueryKeys } from '@tminuszero/query';
 import { useBillingCatalogQuery, useBillingSummaryQuery } from '@/src/api/queries';
 import { useMobileApiClient } from '@/src/api/useMobileApiClient';
@@ -12,6 +12,7 @@ type NativeBillingResult = {
   billingSummaryQuery: ReturnType<typeof useBillingSummaryQuery>;
   billingCatalogQuery: ReturnType<typeof useBillingCatalogQuery>;
   catalogProduct: BillingCatalogProductV1 | null;
+  claim: PremiumClaimV1 | null;
   actionMessage: string | null;
   actionError: string | null;
   isProcessingPurchase: boolean;
@@ -19,6 +20,7 @@ type NativeBillingResult = {
   requestSubscription: () => Promise<void>;
   restorePurchases: () => Promise<void>;
   openManagementLink: (url: string | null | undefined) => Promise<void>;
+  clearClaim: () => void;
 };
 
 export function useNativeBilling(viewerId: string | null): NativeBillingResult {
@@ -26,11 +28,10 @@ export function useNativeBilling(viewerId: string | null): NativeBillingResult {
   const queryClient = useQueryClient();
   const platform = Platform.OS === 'ios' ? 'ios' : 'android';
   const billingSummaryQuery = useBillingSummaryQuery();
-  const billingCatalogQuery = useBillingCatalogQuery(platform, {
-    enabled: Boolean(viewerId)
-  });
+  const billingCatalogQuery = useBillingCatalogQuery(platform);
   const catalogProduct = billingCatalogQuery.data?.products[0] ?? null;
 
+  const [claim, setClaim] = useState<PremiumClaimV1 | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [isProcessingPurchase, setIsProcessingPurchase] = useState(false);
@@ -46,6 +47,9 @@ export function useNativeBilling(viewerId: string | null): NativeBillingResult {
     syncedPurchaseKeysRef.current.clear();
     setActionMessage(null);
     setActionError(null);
+    if (viewerId) {
+      setClaim(null);
+    }
   }, [viewerId]);
 
   const iap = useIAP({
@@ -64,7 +68,7 @@ export function useNativeBilling(viewerId: string | null): NativeBillingResult {
   });
 
   const productId = catalogProduct?.providerProductId ?? null;
-  const isStoreReady = Boolean(viewerId && catalogProduct?.available && productId);
+  const isStoreReady = Boolean(catalogProduct?.available && productId);
 
   useEffect(() => {
     if (!isStoreReady || !productId) {
@@ -109,7 +113,7 @@ export function useNativeBilling(viewerId: string | null): NativeBillingResult {
 
   async function syncPurchase(purchase: Purchase) {
     const purchaseKey = [purchase.purchaseToken, purchase.transactionId, purchase.id].find(Boolean);
-    if (!viewerId || !purchaseKey || syncedPurchaseKeysRef.current.has(purchaseKey)) {
+    if (!purchaseKey || syncedPurchaseKeysRef.current.has(purchaseKey)) {
       return;
     }
 
@@ -122,30 +126,54 @@ export function useNativeBilling(viewerId: string | null): NativeBillingResult {
         if (!iosPurchase.transactionId) {
           throw new Error('Missing App Store transaction id.');
         }
-        await client.syncAppleBilling({
-          transactionId: iosPurchase.transactionId,
-          productId: iosPurchase.productId,
-          originalTransactionId: iosPurchase.originalTransactionIdentifierIOS ?? undefined,
-          appAccountToken: viewerId,
-          environment:
-            iosPurchase.environmentIOS?.toLowerCase() === 'sandbox'
-              ? 'sandbox'
-              : iosPurchase.environmentIOS?.toLowerCase() === 'production'
-                ? 'production'
-                : undefined
-        });
+        if (viewerId) {
+          await client.syncAppleBilling({
+            transactionId: iosPurchase.transactionId,
+            productId: iosPurchase.productId,
+            originalTransactionId: iosPurchase.originalTransactionIdentifierIOS ?? undefined,
+            appAccountToken: viewerId,
+            environment:
+              iosPurchase.environmentIOS?.toLowerCase() === 'sandbox'
+                ? 'sandbox'
+                : iosPurchase.environmentIOS?.toLowerCase() === 'production'
+                  ? 'production'
+                  : undefined
+          });
+        } else {
+          const payload = await client.syncAppleBillingClaim({
+            transactionId: iosPurchase.transactionId,
+            productId: iosPurchase.productId,
+            originalTransactionId: iosPurchase.originalTransactionIdentifierIOS ?? undefined,
+            environment:
+              iosPurchase.environmentIOS?.toLowerCase() === 'sandbox'
+                ? 'sandbox'
+                : iosPurchase.environmentIOS?.toLowerCase() === 'production'
+                  ? 'production'
+                  : undefined
+          });
+          setClaim(payload.claim);
+        }
       } else {
         const androidPurchase = purchase as PurchaseAndroid;
         const purchaseToken = androidPurchase.purchaseToken ?? null;
         if (!purchaseToken) {
           throw new Error('Missing Google Play purchase token.');
         }
-        await client.syncGoogleBilling({
-          purchaseToken,
-          productId: androidPurchase.productId,
-          basePlanId: androidPurchase.currentPlanId ?? undefined,
-          obfuscatedAccountId: viewerId
-        });
+        if (viewerId) {
+          await client.syncGoogleBilling({
+            purchaseToken,
+            productId: androidPurchase.productId,
+            basePlanId: androidPurchase.currentPlanId ?? undefined,
+            obfuscatedAccountId: viewerId
+          });
+        } else {
+          const payload = await client.syncGoogleBillingClaim({
+            purchaseToken,
+            productId: androidPurchase.productId,
+            basePlanId: androidPurchase.currentPlanId ?? undefined
+          });
+          setClaim(payload.claim);
+        }
       }
 
       await iap.finishTransaction({
@@ -154,8 +182,12 @@ export function useNativeBilling(viewerId: string | null): NativeBillingResult {
       });
 
       syncedPurchaseKeysRef.current.add(purchaseKey);
-      await invalidateBillingState();
-      setActionMessage('Premium access updated.');
+      if (viewerId) {
+        await invalidateBillingState();
+        setActionMessage('Premium access updated.');
+      } else {
+        setActionMessage('Premium purchase verified. Sign in or create an account to claim it.');
+      }
     } catch (error) {
       handleBillingError(error, 'Unable to sync purchase.');
       throw error;
@@ -165,10 +197,6 @@ export function useNativeBilling(viewerId: string | null): NativeBillingResult {
   }
 
   async function requestSubscription() {
-    if (!viewerId) {
-      setActionError('Sign in is required before starting a purchase.');
-      return;
-    }
     if (!catalogProduct?.available || !productId) {
       setActionError('Premium is not available on this platform yet.');
       return;
@@ -184,7 +212,7 @@ export function useNativeBilling(viewerId: string | null): NativeBillingResult {
           request: {
             apple: {
               sku: productId,
-              appAccountToken: viewerId
+              appAccountToken: viewerId || undefined
             }
           },
           type: 'subs'
@@ -194,7 +222,7 @@ export function useNativeBilling(viewerId: string | null): NativeBillingResult {
           request: {
             google: {
               skus: [productId],
-              obfuscatedAccountId: viewerId,
+              obfuscatedAccountId: viewerId || undefined,
               subscriptionOffers: catalogProduct.googleOfferToken
                 ? [{ sku: productId, offerToken: catalogProduct.googleOfferToken }]
                 : undefined
@@ -248,18 +276,24 @@ export function useNativeBilling(viewerId: string | null): NativeBillingResult {
     }
   }
 
+  function clearClaim() {
+    setClaim(null);
+  }
+
   return {
     platform,
     billingSummaryQuery,
     billingCatalogQuery,
     catalogProduct,
+    claim,
     actionMessage,
     actionError,
     isProcessingPurchase,
     isStoreReady,
     requestSubscription,
     restorePurchases,
-    openManagementLink
+    openManagementLink,
+    clearClaim
   };
 }
 

@@ -292,6 +292,599 @@ export const blueOriginContractsResponseSchemaV1 = z.object({
   items: z.array(blueOriginContractSchemaV1)
 });
 
+export const spaceXMissionKeySchemaV1 = z.enum(['spacex-program', 'starship', 'falcon-9', 'falcon-heavy', 'dragon']);
+
+const spaceXFaqItemSchemaV1 = z.object({
+  question: z.string(),
+  answer: z.string()
+});
+
+const spaceXLaunchSummarySchemaV1 = z.object({
+  id: z.string(),
+  name: z.string(),
+  provider: z.string(),
+  vehicle: z.string(),
+  net: z.string(),
+  netPrecision: z.enum(['minute', 'hour', 'day', 'month', 'tbd']),
+  status: z.enum(['go', 'hold', 'scrubbed', 'tbd', 'unknown']),
+  statusText: z.string(),
+  imageUrl: z.string().nullable(),
+  padName: z.string().nullable(),
+  padShortCode: z.string().nullable(),
+  padLocation: z.string().nullable(),
+  missionName: z.string().nullable(),
+  missionKey: spaceXMissionKeySchemaV1.nullable(),
+  flightSlug: z.string().nullable(),
+  href: z.string()
+});
+
+const spaceXProgramSnapshotSchemaV1 = z.object({
+  generatedAt: z.string(),
+  lastUpdated: z.string().nullable(),
+  nextLaunch: spaceXLaunchSummarySchemaV1.nullable(),
+  upcoming: z.array(spaceXLaunchSummarySchemaV1),
+  recent: z.array(spaceXLaunchSummarySchemaV1),
+  faq: z.array(spaceXFaqItemSchemaV1)
+});
+
+const spaceXMissionSnapshotSchemaV1 = z.object({
+  generatedAt: z.string(),
+  lastUpdated: z.string().nullable(),
+  missionKey: spaceXMissionKeySchemaV1,
+  missionName: z.string(),
+  nextLaunch: spaceXLaunchSummarySchemaV1.nullable(),
+  upcoming: z.array(spaceXLaunchSummarySchemaV1),
+  recent: z.array(spaceXLaunchSummarySchemaV1),
+  highlights: z.array(z.string()),
+  faq: z.array(spaceXFaqItemSchemaV1)
+});
+
+const spaceXVehicleSchemaV1 = z.object({
+  id: z.string(),
+  vehicleSlug: z.enum(['starship-super-heavy', 'falcon-9', 'falcon-heavy', 'dragon']),
+  missionKey: spaceXMissionKeySchemaV1,
+  displayName: z.string(),
+  vehicleClass: z.string().nullable(),
+  status: z.string().nullable(),
+  firstFlight: z.string().nullable(),
+  description: z.string().nullable(),
+  officialUrl: z.string().nullable(),
+  metadata: z.record(z.unknown()),
+  updatedAt: z.string().nullable()
+});
+
+const spaceXEngineSchemaV1 = z.object({
+  id: z.string(),
+  engineSlug: z.enum(['raptor', 'merlin-1d', 'merlin-vac', 'draco', 'superdraco']),
+  missionKey: spaceXMissionKeySchemaV1,
+  displayName: z.string(),
+  propellants: z.string().nullable(),
+  cycle: z.string().nullable(),
+  thrustVacKN: z.number().nullable(),
+  thrustSlKN: z.number().nullable(),
+  status: z.string().nullable(),
+  description: z.string().nullable(),
+  officialUrl: z.string().nullable(),
+  metadata: z.record(z.unknown()),
+  updatedAt: z.string().nullable()
+});
+
+const spaceXContractSchemaV1 = z.object({
+  id: z.string(),
+  contractKey: z.string(),
+  missionKey: spaceXMissionKeySchemaV1,
+  title: z.string(),
+  agency: z.string().nullable(),
+  customer: z.string().nullable(),
+  amount: z.number().nullable(),
+  awardedOn: z.string().nullable(),
+  description: z.string().nullable(),
+  sourceUrl: z.string().nullable(),
+  sourceLabel: z.string().nullable(),
+  status: z.string().nullable(),
+  metadata: z.record(z.unknown()),
+  updatedAt: z.string().nullable()
+});
+
+const spaceXFlightRecordSchemaV1 = z.object({
+  id: z.string(),
+  flightSlug: z.string(),
+  missionKey: spaceXMissionKeySchemaV1,
+  missionLabel: z.string(),
+  droneShipSlug: z.string().nullable(),
+  droneShipName: z.string().nullable(),
+  droneShipAbbrev: z.string().nullable(),
+  droneShipLandingResult: z.enum(['success', 'failure', 'no_attempt', 'unknown']),
+  launch: spaceXLaunchSummarySchemaV1
+});
+
+const spaceXPassengerSchemaV1 = z.object({
+  id: z.string(),
+  missionKey: spaceXMissionKeySchemaV1,
+  flightSlug: z.string(),
+  name: z.string(),
+  role: z.string().nullable(),
+  nationality: z.string().nullable(),
+  launchId: z.string(),
+  launchName: z.string(),
+  launchDate: z.string(),
+  source: z.string(),
+  confidence: blueOriginConfidenceSchemaV1
+});
+
+const spaceXPayloadSchemaV1 = z.object({
+  id: z.string(),
+  missionKey: spaceXMissionKeySchemaV1,
+  flightSlug: z.string(),
+  name: z.string(),
+  payloadType: z.string().nullable(),
+  orbit: z.string().nullable(),
+  agency: z.string().nullable(),
+  launchId: z.string(),
+  launchName: z.string(),
+  launchDate: z.string(),
+  source: z.string(),
+  confidence: blueOriginConfidenceSchemaV1
+});
+
+const spaceXMissionCardSchemaV1 = z.object({
+  missionKey: spaceXMissionKeySchemaV1,
+  title: z.string(),
+  description: z.string(),
+  href: z.string(),
+  statusLabel: z.string(),
+  highlight: z.string().nullable()
+});
+
+const spaceXOverviewStatsSchemaV1 = z.object({
+  upcomingLaunches: z.number().int().nonnegative(),
+  recentLaunches: z.number().int().nonnegative(),
+  flights: z.number().int().nonnegative(),
+  vehicles: z.number().int().nonnegative(),
+  engines: z.number().int().nonnegative(),
+  passengers: z.number().int().nonnegative(),
+  payloads: z.number().int().nonnegative(),
+  contracts: z.number().int().nonnegative()
+});
+
+export const spaceXOverviewSchemaV1 = z.object({
+  generatedAt: z.string(),
+  title: z.string(),
+  description: z.string(),
+  snapshot: spaceXProgramSnapshotSchemaV1,
+  stats: spaceXOverviewStatsSchemaV1,
+  missions: z.array(spaceXMissionCardSchemaV1),
+  flights: z.array(spaceXFlightRecordSchemaV1),
+  vehicles: z.array(spaceXVehicleSchemaV1),
+  engines: z.array(spaceXEngineSchemaV1),
+  contracts: z.array(spaceXContractSchemaV1)
+});
+
+export const spaceXMissionOverviewSchemaV1 = z.object({
+  generatedAt: z.string(),
+  title: z.string(),
+  description: z.string(),
+  snapshot: spaceXMissionSnapshotSchemaV1,
+  passengers: z.array(spaceXPassengerSchemaV1),
+  payloads: z.array(spaceXPayloadSchemaV1),
+  contracts: z.array(spaceXContractSchemaV1)
+});
+
+export const spaceXFlightsResponseSchemaV1 = z.object({
+  generatedAt: z.string(),
+  mission: z.union([spaceXMissionKeySchemaV1, z.literal('all')]),
+  items: z.array(spaceXFlightRecordSchemaV1)
+});
+
+export const spaceXVehiclesResponseSchemaV1 = z.object({
+  generatedAt: z.string(),
+  mission: z.union([spaceXMissionKeySchemaV1, z.literal('all')]),
+  items: z.array(spaceXVehicleSchemaV1)
+});
+
+export const spaceXEnginesResponseSchemaV1 = z.object({
+  generatedAt: z.string(),
+  mission: z.union([spaceXMissionKeySchemaV1, z.literal('all')]),
+  items: z.array(spaceXEngineSchemaV1)
+});
+
+export const spaceXContractsResponseSchemaV1 = z.object({
+  generatedAt: z.string(),
+  mission: z.union([spaceXMissionKeySchemaV1, z.literal('all')]),
+  items: z.array(spaceXContractSchemaV1)
+});
+
+export const artemisMissionKeySchemaV1 = z.enum([
+  'artemis-i',
+  'artemis-ii',
+  'artemis-iii',
+  'artemis-iv',
+  'artemis-v',
+  'artemis-vi',
+  'artemis-vii'
+]);
+
+const artemisFaqItemSchemaV1 = z.object({
+  question: z.string(),
+  answer: z.string()
+});
+
+const artemisChangeItemSchemaV1 = z.object({
+  title: z.string(),
+  summary: z.string(),
+  date: z.string(),
+  href: z.string().optional()
+});
+
+const artemisLaunchSummarySchemaV1 = z.object({
+  id: z.string(),
+  name: z.string(),
+  provider: z.string(),
+  vehicle: z.string(),
+  net: z.string(),
+  netPrecision: z.enum(['minute', 'hour', 'day', 'month', 'tbd']),
+  status: z.enum(['go', 'hold', 'scrubbed', 'tbd', 'unknown']),
+  statusText: z.string(),
+  imageUrl: z.string().nullable(),
+  padName: z.string().nullable(),
+  padShortCode: z.string().nullable(),
+  padLocation: z.string().nullable(),
+  missionName: z.string().nullable(),
+  missionKey: artemisMissionKeySchemaV1.nullable(),
+  href: z.string()
+});
+
+const artemisProgramSnapshotSchemaV1 = z.object({
+  generatedAt: z.string(),
+  lastUpdated: z.string().nullable(),
+  nextLaunch: artemisLaunchSummarySchemaV1.nullable(),
+  upcoming: z.array(artemisLaunchSummarySchemaV1),
+  recent: z.array(artemisLaunchSummarySchemaV1),
+  faq: z.array(artemisFaqItemSchemaV1)
+});
+
+const artemisMissionSnapshotSchemaV1 = z.object({
+  generatedAt: z.string(),
+  lastUpdated: z.string().nullable(),
+  missionKey: artemisMissionKeySchemaV1,
+  missionName: z.string(),
+  nextLaunch: artemisLaunchSummarySchemaV1.nullable(),
+  upcoming: z.array(artemisLaunchSummarySchemaV1),
+  recent: z.array(artemisLaunchSummarySchemaV1),
+  crewHighlights: z.array(z.string()),
+  changes: z.array(artemisChangeItemSchemaV1),
+  faq: z.array(artemisFaqItemSchemaV1)
+});
+
+const artemisMissionCardSchemaV1 = z.object({
+  missionKey: artemisMissionKeySchemaV1,
+  title: z.string(),
+  description: z.string(),
+  href: z.string(),
+  statusLabel: z.string(),
+  targetDate: z.string().nullable(),
+  highlight: z.string().nullable()
+});
+
+const artemisTimelinePreviewSchemaV1 = z.object({
+  id: z.string(),
+  missionKey: z.union([artemisMissionKeySchemaV1, z.literal('artemis-program')]),
+  missionLabel: z.string(),
+  title: z.string(),
+  summary: z.string(),
+  date: z.string(),
+  status: z.enum(['completed', 'upcoming', 'tentative', 'superseded']),
+  sourceLabel: z.string(),
+  href: z.string().nullable()
+});
+
+const artemisContentPreviewSchemaV1 = z.object({
+  id: z.string(),
+  kind: z.enum(['article', 'photo', 'social', 'data']),
+  title: z.string(),
+  summary: z.string().nullable(),
+  url: z.string(),
+  publishedAt: z.string().nullable(),
+  sourceLabel: z.string(),
+  missionLabel: z.string()
+});
+
+const artemisOverviewStatsSchemaV1 = z.object({
+  missions: z.number().int().nonnegative(),
+  upcomingLaunches: z.number().int().nonnegative(),
+  recentLaunches: z.number().int().nonnegative(),
+  timelineEvents: z.number().int().nonnegative(),
+  contentItems: z.number().int().nonnegative(),
+  procurementAwards: z.number().int().nonnegative(),
+  budgetLines: z.number().int().nonnegative()
+});
+
+const artemisMissionWatchLinkSchemaV1 = z.object({
+  url: z.string(),
+  label: z.string()
+});
+
+const artemisMissionEvidenceLinkSchemaV1 = z.object({
+  label: z.string(),
+  url: z.string(),
+  source: z.string().nullable().optional(),
+  detail: z.string().nullable().optional(),
+  capturedAt: z.string().nullable().optional(),
+  kind: z.enum(['stream', 'report', 'reference', 'status', 'social']).optional()
+});
+
+const artemisMissionNewsItemSchemaV1 = z.object({
+  id: z.string(),
+  title: z.string(),
+  url: z.string(),
+  newsSite: z.string().nullable(),
+  summary: z.string().nullable(),
+  publishedAt: z.string().nullable(),
+  relevance: z.enum(['launch-join', 'mission-keyword', 'both'])
+});
+
+const artemisMissionSocialItemSchemaV1 = z.object({
+  id: z.string(),
+  launchName: z.string().nullable(),
+  platform: z.string(),
+  externalUrl: z.string().nullable(),
+  postedAt: z.string().nullable(),
+  text: z.string().nullable(),
+  status: z.string()
+});
+
+const artemisMissionCoverageSchemaV1 = z.object({
+  hasLaunch: z.boolean(),
+  hasCrew: z.boolean(),
+  hasWatchLinks: z.boolean(),
+  hasEvidenceLinks: z.boolean(),
+  hasNews: z.boolean(),
+  hasSocial: z.boolean()
+});
+
+const artemisContractMissionKeySchemaV1 = z.union([artemisMissionKeySchemaV1, z.literal('program')]);
+
+const artemisContractSummarySchemaV1 = z.object({
+  id: z.string(),
+  contractKey: z.string(),
+  piid: z.string(),
+  referencedIdvPiid: z.string().nullable(),
+  parentAwardId: z.string().nullable(),
+  missionKey: artemisContractMissionKeySchemaV1.nullable(),
+  awardeeName: z.string().nullable(),
+  awardeeUei: z.string().nullable(),
+  contractType: z.string().nullable(),
+  description: z.string().nullable(),
+  baseAwardDate: z.string().nullable(),
+  agencyCode: z.string().nullable(),
+  subtierCode: z.string().nullable(),
+  sourceUrl: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+  metadata: z.record(z.unknown())
+});
+
+const artemisContractActionSchemaV1 = z.object({
+  id: z.string(),
+  contractId: z.string(),
+  actionKey: z.string(),
+  modNumber: z.string().nullable(),
+  actionDate: z.string().nullable(),
+  obligationDelta: z.number().nullable(),
+  obligationCumulative: z.number().nullable(),
+  solicitationId: z.string().nullable(),
+  samNoticeId: z.string().nullable(),
+  source: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+  metadata: z.record(z.unknown())
+});
+
+const artemisOpportunityNoticeSchemaV1 = z.object({
+  id: z.string(),
+  noticeId: z.string(),
+  solicitationId: z.string().nullable(),
+  ptype: z.string().nullable(),
+  title: z.string().nullable(),
+  postedDate: z.string().nullable(),
+  responseDeadline: z.string().nullable(),
+  latestActiveVersion: z.boolean(),
+  awardeeName: z.string().nullable(),
+  awardAmount: z.number().nullable(),
+  noticeUrl: z.string().nullable(),
+  attachmentCount: z.number().nullable(),
+  updatedAt: z.string().nullable(),
+  metadata: z.record(z.unknown())
+});
+
+const artemisContractSpendingPointSchemaV1 = z.object({
+  id: z.string(),
+  contractId: z.string(),
+  fiscalYear: z.number().int(),
+  fiscalMonth: z.number().int(),
+  obligations: z.number().nullable(),
+  outlays: z.number().nullable(),
+  source: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+  metadata: z.record(z.unknown())
+});
+
+const artemisContractStorySchemaV1 = z.object({
+  piid: z.string(),
+  missionKey: artemisContractMissionKeySchemaV1.nullable(),
+  missionLabel: z.string(),
+  members: z.array(artemisContractSummarySchemaV1),
+  actions: z.array(artemisContractActionSchemaV1),
+  notices: z.array(artemisOpportunityNoticeSchemaV1),
+  spending: z.array(artemisContractSpendingPointSchemaV1),
+  bidders: z.array(z.string())
+});
+
+const artemisSeoApprovalStateSchemaV1 = z.enum(['draft', 'approved', 'rejected']);
+
+const artemisAwardeeMissionSummarySchemaV1 = z.object({
+  missionKey: artemisContractMissionKeySchemaV1,
+  label: z.string(),
+  awardCount: z.number().int().nonnegative(),
+  obligatedAmount: z.number().nullable()
+});
+
+const artemisAwardeeAwardSchemaV1 = z.object({
+  awardId: z.string().nullable(),
+  title: z.string().nullable(),
+  recipient: z.string(),
+  obligatedAmount: z.number().nullable(),
+  awardedOn: z.string().nullable(),
+  missionKey: artemisContractMissionKeySchemaV1,
+  contractKey: z.string().nullable(),
+  solicitationId: z.string().nullable(),
+  detail: z.string().nullable(),
+  sourceUrl: z.string().nullable(),
+  sourceTitle: z.string().nullable(),
+  piid: z.string().nullable().optional()
+});
+
+const artemisAwardeeIndexItemSchemaV1 = z.object({
+  recipientKey: z.string(),
+  recipientName: z.string(),
+  slug: z.string(),
+  aliases: z.array(z.string()),
+  seoApprovalState: artemisSeoApprovalStateSchemaV1,
+  summary: z.string(),
+  awardCount: z.number().int().nonnegative(),
+  totalObligatedAmount: z.number().nullable(),
+  firstAwardedOn: z.string().nullable(),
+  lastAwardedOn: z.string().nullable(),
+  missionBreakdown: z.array(artemisAwardeeMissionSummarySchemaV1)
+});
+
+const artemisAwardeeProfileSchemaV1 = artemisAwardeeIndexItemSchemaV1.extend({
+  awards: z.array(artemisAwardeeAwardSchemaV1),
+  sourceUrls: z.array(z.string()),
+  sourceTitles: z.array(z.string()),
+  lastUpdated: z.string().nullable()
+});
+
+const artemisContentKindSchemaV1 = z.enum(['article', 'photo', 'social', 'data']);
+const artemisContentTierSchemaV1 = z.enum(['tier1', 'tier2']);
+const artemisContentMissionKeySchemaV1 = z.union([artemisMissionKeySchemaV1, z.literal('program')]);
+const artemisContentMissionFilterSchemaV1 = z.union([artemisContentMissionKeySchemaV1, z.literal('all')]);
+const artemisContentKindFilterSchemaV1 = z.union([artemisContentKindSchemaV1, z.literal('all')]);
+const artemisContentTierFilterSchemaV1 = z.union([artemisContentTierSchemaV1, z.literal('all')]);
+
+const artemisContentScoreSchemaV1 = z.object({
+  authority: z.number(),
+  relevance: z.number(),
+  freshness: z.number(),
+  stability: z.number(),
+  risk: z.number(),
+  overall: z.number()
+});
+
+const artemisContentItemSchemaV1 = z.object({
+  id: z.string(),
+  fingerprint: z.string(),
+  kind: artemisContentKindSchemaV1,
+  missionKey: artemisContentMissionKeySchemaV1,
+  title: z.string(),
+  summary: z.string().nullable(),
+  url: z.string(),
+  publishedAt: z.string().nullable(),
+  capturedAt: z.string().nullable(),
+  sourceKey: z.string().nullable(),
+  sourceType: z.enum(['nasa_primary', 'oversight', 'budget', 'procurement', 'technical', 'media', 'll2-cache', 'curated-fallback']),
+  sourceClass: z.enum(['nasa_primary', 'oversight', 'budget', 'procurement', 'technical', 'media', 'll2-cache', 'curated-fallback']),
+  sourceTier: artemisContentTierSchemaV1,
+  sourceLabel: z.string(),
+  imageUrl: z.string().nullable(),
+  externalId: z.string().nullable(),
+  platform: z.string().nullable(),
+  dataLabel: z.string().nullable(),
+  dataValue: z.number().nullable(),
+  dataUnit: z.string().nullable(),
+  missionLabel: z.string(),
+  score: artemisContentScoreSchemaV1,
+  whyShown: z.string(),
+  metadata: z.record(z.unknown())
+});
+
+const artemisContentCoverageSchemaV1 = z.object({
+  generatedFrom: z.enum(['content_items', 'fallback']),
+  totalItems: z.number().int().nonnegative(),
+  tier1Items: z.number().int().nonnegative(),
+  tier2Items: z.number().int().nonnegative(),
+  byKind: z.object({
+    article: z.number().int().nonnegative(),
+    photo: z.number().int().nonnegative(),
+    social: z.number().int().nonnegative(),
+    data: z.number().int().nonnegative()
+  }),
+  sourceKeys: z.array(z.string())
+});
+
+export const artemisOverviewSchemaV1 = z.object({
+  generatedAt: z.string(),
+  title: z.string(),
+  description: z.string(),
+  snapshot: artemisProgramSnapshotSchemaV1,
+  stats: artemisOverviewStatsSchemaV1,
+  missions: z.array(artemisMissionCardSchemaV1),
+  timeline: z.array(artemisTimelinePreviewSchemaV1),
+  content: z.array(artemisContentPreviewSchemaV1)
+});
+
+export const artemisMissionOverviewSchemaV1 = z.object({
+  generatedAt: z.string(),
+  title: z.string(),
+  description: z.string(),
+  snapshot: artemisMissionSnapshotSchemaV1,
+  watchLinks: z.array(artemisMissionWatchLinkSchemaV1),
+  evidenceLinks: z.array(artemisMissionEvidenceLinkSchemaV1),
+  news: z.array(artemisMissionNewsItemSchemaV1),
+  social: z.array(artemisMissionSocialItemSchemaV1),
+  coverage: artemisMissionCoverageSchemaV1
+});
+
+export const artemisContractsResponseSchemaV1 = z.object({
+  generatedAt: z.string(),
+  title: z.string(),
+  description: z.string(),
+  items: z.array(artemisContractSummarySchemaV1),
+  totalRows: z.number().int().nonnegative(),
+  totalFamilies: z.number().int().nonnegative()
+});
+
+export const artemisContractDetailSchemaV1 = z.object({
+  generatedAt: z.string(),
+  title: z.string(),
+  description: z.string(),
+  story: artemisContractStorySchemaV1
+});
+
+export const artemisAwardeesResponseSchemaV1 = z.object({
+  generatedAt: z.string(),
+  title: z.string(),
+  description: z.string(),
+  query: z.string().nullable(),
+  items: z.array(artemisAwardeeIndexItemSchemaV1)
+});
+
+export const artemisAwardeeDetailSchemaV1 = z.object({
+  generatedAt: z.string(),
+  title: z.string(),
+  description: z.string(),
+  profile: artemisAwardeeProfileSchemaV1,
+  related: z.array(artemisAwardeeIndexItemSchemaV1)
+});
+
+export const artemisContentResponseSchemaV1 = z.object({
+  generatedAt: z.string(),
+  mission: artemisContentMissionFilterSchemaV1,
+  kind: artemisContentKindFilterSchemaV1,
+  tier: artemisContentTierFilterSchemaV1,
+  items: z.array(artemisContentItemSchemaV1),
+  nextCursor: z.string().nullable(),
+  sourceCoverage: artemisContentCoverageSchemaV1
+});
+
 export const entitlementCapabilitiesSchemaV1 = z.object({
   canUseSavedItems: z.boolean(),
   canUseLaunchFilters: z.boolean(),
@@ -789,6 +1382,17 @@ export const launchFeedSchemaV1 = z.object({
   scope: z.enum(['public', 'live', 'watchlist']).optional()
 });
 
+const launchRefreshScopeSchemaV1 = z.enum(['public', 'live']);
+
+export const launchFeedVersionSchemaV1 = z.object({
+  scope: launchRefreshScopeSchemaV1,
+  tier: z.enum(['anon', 'free', 'premium']),
+  intervalSeconds: z.number().int().nonnegative(),
+  matchCount: z.number().int().nonnegative(),
+  updatedAt: z.string().nullable(),
+  version: z.string()
+});
+
 const changedLaunchEntrySchemaV1 = z.object({
   updateId: z.string(),
   changeSummary: z.string().optional(),
@@ -833,6 +1437,397 @@ export const searchResponseSchemaV1 = z.object({
   limit: z.number().int().nonnegative(),
   offset: z.number().int().nonnegative(),
   hasMore: z.boolean()
+});
+
+const customerRouteLinkSchemaV1 = z.object({
+  label: z.string(),
+  href: z.string(),
+  external: z.boolean().default(false)
+});
+
+const customerRouteLaunchSummarySchemaV1 = z.object({
+  id: z.string(),
+  name: z.string(),
+  provider: z.string().nullable(),
+  vehicle: z.string().nullable(),
+  net: z.string().nullable(),
+  netPrecision: z.enum(['minute', 'hour', 'day', 'month', 'tbd']).nullable(),
+  status: z.enum(['go', 'hold', 'scrubbed', 'tbd', 'unknown']).nullable(),
+  statusText: z.string().nullable(),
+  href: z.string()
+});
+
+const newsProviderSchemaV1 = z.object({
+  slug: z.string(),
+  name: z.string(),
+  type: z.string().nullable(),
+  countryCode: z.string().nullable()
+});
+
+const newsItemSchemaV1 = z.object({
+  id: z.string(),
+  itemType: z.enum(['article', 'blog', 'report']),
+  title: z.string(),
+  summary: z.string().nullable(),
+  url: z.string(),
+  newsSite: z.string().nullable(),
+  imageUrl: z.string().nullable(),
+  publishedAt: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+  authors: z.array(z.string()).default([]),
+  featured: z.boolean(),
+  matchedBy: z.enum(['join', 'mention', 'none']),
+  relatedLaunchCount: z.number().int().nonnegative(),
+  launch: customerRouteLaunchSummarySchemaV1.nullable()
+});
+
+export const newsStreamSchemaV1 = z.object({
+  generatedAt: z.string(),
+  title: z.string(),
+  description: z.string(),
+  type: z.enum(['all', 'article', 'blog', 'report']),
+  providerSlug: z.string().nullable(),
+  providers: z.array(newsProviderSchemaV1),
+  items: z.array(newsItemSchemaV1),
+  nextCursor: z.number().int().nonnegative(),
+  hasMore: z.boolean()
+});
+
+const canonicalContractProgramScopeSchemaV1 = z.enum(['spacex', 'blue-origin', 'artemis']);
+const canonicalContractScopeFilterSchemaV1 = z.enum(['all', 'spacex', 'blue-origin', 'artemis']);
+const canonicalContractStoryStatusSchemaV1 = z.enum(['exact', 'pending']);
+
+const canonicalContractSummarySchemaV1 = z.object({
+  uid: z.string(),
+  scope: canonicalContractProgramScopeSchemaV1,
+  storyStatus: canonicalContractStoryStatusSchemaV1,
+  title: z.string(),
+  description: z.string().nullable(),
+  contractKey: z.string(),
+  piid: z.string().nullable(),
+  usaspendingAwardId: z.string().nullable(),
+  missionKey: z.string().nullable(),
+  missionLabel: z.string(),
+  agency: z.string().nullable(),
+  customer: z.string().nullable(),
+  recipient: z.string().nullable(),
+  amount: z.number().nullable(),
+  awardedOn: z.string().nullable(),
+  sourceUrl: z.string().nullable(),
+  sourceLabel: z.string().nullable(),
+  status: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+  canonicalPath: z.string(),
+  programPath: z.string(),
+  keywords: z.array(z.string()).default([]),
+  actionCount: z.number().int().nonnegative(),
+  noticeCount: z.number().int().nonnegative(),
+  spendingCount: z.number().int().nonnegative(),
+  bidderCount: z.number().int().nonnegative()
+});
+
+export const canonicalContractsResponseSchemaV1 = z.object({
+  generatedAt: z.string(),
+  title: z.string(),
+  description: z.string(),
+  query: z.string().nullable(),
+  scope: canonicalContractScopeFilterSchemaV1,
+  totalRows: z.number().int().nonnegative(),
+  totals: z.object({
+    all: z.number().int().nonnegative(),
+    exact: z.number().int().nonnegative(),
+    pending: z.number().int().nonnegative(),
+    spacex: z.number().int().nonnegative(),
+    blueOrigin: z.number().int().nonnegative(),
+    artemis: z.number().int().nonnegative()
+  }),
+  items: z.array(canonicalContractSummarySchemaV1)
+});
+
+const canonicalContractFactSchemaV1 = z.object({
+  label: z.string(),
+  value: z.string()
+});
+
+export const canonicalContractDetailSchemaV1 = z.object({
+  generatedAt: z.string(),
+  title: z.string(),
+  description: z.string(),
+  contract: canonicalContractSummarySchemaV1,
+  facts: z.array(canonicalContractFactSchemaV1),
+  links: z.array(customerRouteLinkSchemaV1),
+  familyMembers: z.array(canonicalContractSummarySchemaV1)
+});
+
+const satelliteOwnerIndexItemSchemaV1 = z.object({
+  ownerCode: z.string(),
+  ownerLabel: z.string(),
+  href: z.string(),
+  satelliteCount: z.number().int().nonnegative(),
+  lastSatcatUpdatedAt: z.string().nullable()
+});
+
+const satellitePreviewItemSchemaV1 = z.object({
+  noradCatId: z.number().int().positive(),
+  intlDes: z.string().nullable(),
+  name: z.string().nullable(),
+  objectType: z.string().nullable(),
+  ownerCode: z.string().nullable(),
+  ownerLabel: z.string().nullable(),
+  ownerHref: z.string().nullable(),
+  satcatUpdatedAt: z.string().nullable(),
+  href: z.string()
+});
+
+const satelliteOrbitSummarySchemaV1 = z.object({
+  source: z.string().nullable(),
+  epoch: z.string().nullable(),
+  inclinationDeg: z.number().nullable(),
+  raanDeg: z.number().nullable(),
+  eccentricity: z.number().nullable(),
+  argPerigeeDeg: z.number().nullable(),
+  meanAnomalyDeg: z.number().nullable(),
+  meanMotionRevPerDay: z.number().nullable(),
+  bstar: z.number().nullable(),
+  fetchedAt: z.string().nullable()
+});
+
+export const satellitesResponseSchemaV1 = z.object({
+  generatedAt: z.string(),
+  title: z.string(),
+  description: z.string(),
+  items: z.array(satellitePreviewItemSchemaV1),
+  topOwners: z.array(satelliteOwnerIndexItemSchemaV1)
+});
+
+export const satelliteOwnersResponseSchemaV1 = z.object({
+  generatedAt: z.string(),
+  title: z.string(),
+  description: z.string(),
+  items: z.array(satelliteOwnerIndexItemSchemaV1)
+});
+
+export const satelliteDetailSchemaV1 = z.object({
+  generatedAt: z.string(),
+  title: z.string(),
+  description: z.string(),
+  satellite: z.object({
+    noradCatId: z.number().int().positive(),
+    intlDes: z.string().nullable(),
+    name: z.string().nullable(),
+    objectType: z.string().nullable(),
+    opsStatusCode: z.string().nullable(),
+    ownerCode: z.string().nullable(),
+    ownerLabel: z.string().nullable(),
+    ownerHref: z.string().nullable(),
+    launchDate: z.string().nullable(),
+    launchSite: z.string().nullable(),
+    decayDate: z.string().nullable(),
+    periodMinutes: z.number().nullable(),
+    inclinationDeg: z.number().nullable(),
+    apogeeKm: z.number().nullable(),
+    perigeeKm: z.number().nullable(),
+    rcsM2: z.number().nullable(),
+    satcatUpdatedAt: z.string().nullable(),
+    groups: z.array(z.string()).default([]),
+    orbit: satelliteOrbitSummarySchemaV1.nullable()
+  }),
+  relatedLaunch: customerRouteLaunchSummarySchemaV1.nullable()
+});
+
+export const satelliteOwnerProfileSchemaV1 = z.object({
+  generatedAt: z.string(),
+  title: z.string(),
+  description: z.string(),
+  profile: z.object({
+    ownerCode: z.string(),
+    ownerLabel: z.string(),
+    ownerHref: z.string(),
+    ownerSatelliteCount: z.number().int().nonnegative(),
+    lastSatcatUpdatedAt: z.string().nullable(),
+    typeCounts: z.object({
+      PAY: z.number().int().nonnegative(),
+      RB: z.number().int().nonnegative(),
+      DEB: z.number().int().nonnegative(),
+      UNK: z.number().int().nonnegative()
+    })
+  }),
+  relatedLaunches: z.array(customerRouteLaunchSummarySchemaV1),
+  satellites: z.array(
+    satellitePreviewItemSchemaV1.extend({
+      apogeeKm: z.number().nullable(),
+      perigeeKm: z.number().nullable(),
+      inclinationDeg: z.number().nullable()
+    })
+  )
+});
+
+const contentSectionSchemaV1 = z.object({
+  title: z.string(),
+  body: z.string(),
+  bullets: z.array(z.string()).default([])
+});
+
+export const contentPageSchemaV1 = z.object({
+  slug: z.string(),
+  eyebrow: z.string(),
+  title: z.string(),
+  description: z.string(),
+  lastUpdated: z.string(),
+  actions: z.array(customerRouteLinkSchemaV1),
+  sections: z.array(contentSectionSchemaV1)
+});
+
+const infoHubCardSchemaV1 = z.object({
+  title: z.string(),
+  description: z.string(),
+  href: z.string(),
+  badge: z.string().nullable()
+});
+
+export const infoHubSchemaV1 = z.object({
+  generatedAt: z.string(),
+  title: z.string(),
+  description: z.string(),
+  cards: z.array(infoHubCardSchemaV1)
+});
+
+export const catalogEntityTypeSchemaV1 = z.enum([
+  'agencies',
+  'astronauts',
+  'space_stations',
+  'expeditions',
+  'docking_events',
+  'launcher_configurations',
+  'launchers',
+  'spacecraft_configurations',
+  'locations',
+  'pads',
+  'events'
+]);
+
+const catalogEntitySummarySchemaV1 = z.object({
+  entity: catalogEntityTypeSchemaV1,
+  label: z.string(),
+  description: z.string(),
+  href: z.string()
+});
+
+const catalogCollectionItemSchemaV1 = z.object({
+  entityType: catalogEntityTypeSchemaV1,
+  entityId: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  imageUrl: z.string().nullable(),
+  countryCodes: z.array(z.string()).default([]),
+  launchCount: z.number().int().nullable(),
+  href: z.string()
+});
+
+const catalogDetailFactSchemaV1 = z.object({
+  label: z.string(),
+  value: z.string()
+});
+
+export const catalogHubSchemaV1 = z.object({
+  generatedAt: z.string(),
+  title: z.string(),
+  description: z.string(),
+  entities: z.array(catalogEntitySummarySchemaV1)
+});
+
+export const catalogCollectionSchemaV1 = z.object({
+  generatedAt: z.string(),
+  entity: catalogEntityTypeSchemaV1,
+  label: z.string(),
+  description: z.string(),
+  region: z.enum(['all', 'us']),
+  query: z.string().nullable(),
+  limit: z.number().int().positive(),
+  offset: z.number().int().nonnegative(),
+  items: z.array(catalogCollectionItemSchemaV1)
+});
+
+export const catalogDetailSchemaV1 = z.object({
+  generatedAt: z.string(),
+  entity: catalogEntityTypeSchemaV1,
+  label: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  imageUrl: z.string().nullable(),
+  href: z.string(),
+  facts: z.array(catalogDetailFactSchemaV1),
+  links: z.array(customerRouteLinkSchemaV1),
+  relatedLaunches: z.array(customerRouteLaunchSummarySchemaV1)
+});
+
+const coreEntityDetailTypeSchemaV1 = z.enum(['provider', 'rocket', 'location', 'pad']);
+
+const coreEntityBadgeSchemaV1 = z.object({
+  label: z.string(),
+  tone: z.enum(['default', 'accent', 'success', 'warning']).default('default')
+});
+
+const coreEntityFactSchemaV1 = z.object({
+  label: z.string(),
+  value: z.string()
+});
+
+const coreEntityStatSchemaV1 = z.object({
+  label: z.string(),
+  value: z.string(),
+  detail: z.string().nullable().optional()
+});
+
+const coreEntityLinkSchemaV1 = z.object({
+  title: z.string(),
+  subtitle: z.string().nullable(),
+  href: z.string(),
+  badge: z.string().nullable(),
+  external: z.boolean().default(false)
+});
+
+const coreEntityNewsItemSchemaV1 = z.object({
+  id: z.string(),
+  title: z.string(),
+  subtitle: z.string().nullable(),
+  publishedAt: z.string().nullable(),
+  href: z.string(),
+  external: z.boolean().default(false)
+});
+
+const coreEntityDetailBaseSchemaV1 = z.object({
+  generatedAt: z.string(),
+  entity: coreEntityDetailTypeSchemaV1,
+  eyebrow: z.string(),
+  title: z.string(),
+  description: z.string(),
+  canonicalPath: z.string(),
+  imageUrl: z.string().nullable(),
+  badges: z.array(coreEntityBadgeSchemaV1).default([]),
+  facts: z.array(coreEntityFactSchemaV1).default([]),
+  stats: z.array(coreEntityStatSchemaV1).default([]),
+  links: z.array(coreEntityLinkSchemaV1).default([]),
+  relatedLinks: z.array(coreEntityLinkSchemaV1).default([]),
+  relatedNews: z.array(coreEntityNewsItemSchemaV1).default([]),
+  upcomingLaunches: z.array(customerRouteLaunchSummarySchemaV1).default([]),
+  recentLaunches: z.array(customerRouteLaunchSummarySchemaV1).default([])
+});
+
+export const providerDetailSchemaV1 = coreEntityDetailBaseSchemaV1.extend({
+  entity: z.literal('provider')
+});
+
+export const rocketDetailSchemaV1 = coreEntityDetailBaseSchemaV1.extend({
+  entity: z.literal('rocket')
+});
+
+export const locationDetailSchemaV1 = coreEntityDetailBaseSchemaV1.extend({
+  entity: z.literal('location')
+});
+
+export const padDetailSchemaV1 = coreEntityDetailBaseSchemaV1.extend({
+  entity: z.literal('pad')
 });
 
 export const notificationPreferencesSchemaV1 = z.object({
@@ -968,6 +1963,48 @@ export const billingSyncResponseSchemaV1 = z.object({
   entitlements: entitlementSchemaV1
 });
 
+export const premiumClaimStatusSchemaV1 = z.enum(['pending', 'verified', 'claimed']);
+
+export const premiumClaimSchemaV1 = z.object({
+  claimToken: z.string().uuid(),
+  provider: z.enum(['stripe', 'apple_app_store', 'google_play']),
+  productKey: billingProductKeySchemaV1,
+  status: premiumClaimStatusSchemaV1,
+  email: z.string().email().nullable(),
+  returnTo: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+
+export const premiumClaimEnvelopeSchemaV1 = z.object({
+  claim: premiumClaimSchemaV1
+});
+
+export const premiumClaimPasswordSignUpSchemaV1 = z
+  .object({
+    claimToken: z.string().uuid(),
+    email: z.string().trim().email(),
+    password: z.string().min(1).max(4096)
+  })
+  .strict();
+
+export const premiumClaimPasswordSignUpResponseSchemaV1 = z
+  .object({
+    session: z.lazy(() => mobileAuthSessionSchemaV1),
+    claim: premiumClaimSchemaV1,
+    returnTo: z.string()
+  })
+  .strict();
+
+export const premiumClaimAttachResponseSchemaV1 = z
+  .object({
+    ok: z.literal(true),
+    claim: premiumClaimSchemaV1,
+    returnTo: z.string(),
+    entitlements: entitlementSchemaV1
+  })
+  .strict();
+
 export const smsVerificationRequestSchemaV1 = z.object({
   phone: z.string().trim().min(1),
   smsConsent: z.boolean().optional()
@@ -1031,6 +2068,168 @@ export const pushDeviceRemovalSchemaV1 = z.object({
 });
 
 export const pushDeliveryTestSchemaV1 = z.object({
+  ok: z.boolean(),
+  queuedAt: z.string()
+});
+
+const localHourMinuteSchemaV1 = z
+  .string()
+  .trim()
+  .regex(/^\d{2}:\d{2}$/);
+
+export const mobilePushOwnerKindSchemaV1 = z.enum(['guest', 'user']);
+export const mobilePushScopeKindSchemaV1 = z.enum(['all_us', 'state', 'launch', 'all_launches', 'preset', 'follow']);
+export const mobilePushStatusChangeTypeSchemaV1 = z.enum(['any', 'go', 'hold', 'scrubbed', 'tbd']);
+
+export const mobilePushGuestContextSchemaV1 = z
+  .object({
+    installationId: z.string().trim().min(1).max(160),
+    deviceSecret: z.string().trim().min(1).max(200).nullable().optional()
+  })
+  .strict();
+
+export const mobilePushAccessSchemaV1 = z.object({
+  ownerKind: mobilePushOwnerKindSchemaV1,
+  basicAllowed: z.boolean(),
+  advancedAllowed: z.boolean(),
+  maxPrelaunchOffsets: z.number().int().positive(),
+  canUseDailyDigest: z.boolean(),
+  canUseStatusChangeTypes: z.boolean(),
+  canUseNetChangeAlerts: z.boolean()
+});
+
+export const mobilePushDeviceSchemaV1 = z.object({
+  ownerKind: mobilePushOwnerKindSchemaV1,
+  platform: z.enum(['ios', 'android']).nullable().optional(),
+  installationId: z.string().min(1).max(160),
+  registered: z.boolean(),
+  active: z.boolean(),
+  registeredAt: z.string().nullable(),
+  lastSentAt: z.string().nullable().optional(),
+  lastReceiptAt: z.string().nullable().optional(),
+  lastFailureReason: z.string().nullable().optional(),
+  disabledAt: z.string().nullable().optional(),
+  deviceSecret: z.string().nullable().optional()
+});
+
+export const mobilePushDeviceRegisterSchemaV1 = mobilePushGuestContextSchemaV1
+  .extend({
+    platform: z.enum(['ios', 'android']),
+    token: z.string().trim().min(1).max(4096),
+    appVersion: z.string().trim().min(1).max(80).nullable().optional(),
+    deviceName: z.string().trim().min(1).max(160).nullable().optional(),
+    pushProvider: z.enum(['expo']).default('expo')
+  })
+  .strict();
+
+export const mobilePushDeviceRemoveSchemaV1 = mobilePushGuestContextSchemaV1
+  .extend({
+    platform: z.enum(['ios', 'android'])
+  })
+  .strict();
+
+export const mobilePushRuleSettingsSchemaV1 = z.object({
+  timezone: z.string().trim().min(1).max(64),
+  prelaunchOffsetsMinutes: z.array(z.number().int()).max(3),
+  dailyDigestLocalTime: localHourMinuteSchemaV1.nullable(),
+  statusChangeTypes: z.array(mobilePushStatusChangeTypeSchemaV1).max(5),
+  notifyNetChanges: z.boolean()
+});
+
+export const mobilePushRuleSettingsInputSchemaV1 = z
+  .object({
+    timezone: z.string().trim().min(1).max(64).optional(),
+    prelaunchOffsetsMinutes: z.array(z.number().int()).max(3).optional(),
+    dailyDigestLocalTime: localHourMinuteSchemaV1.nullable().optional(),
+    statusChangeTypes: z.array(mobilePushStatusChangeTypeSchemaV1).max(5).optional(),
+    notifyNetChanges: z.boolean().optional()
+  })
+  .strict();
+
+const mobilePushRuleBaseSchemaV1 = z.object({
+  id: z.string().uuid(),
+  scopeKind: mobilePushScopeKindSchemaV1,
+  label: z.string(),
+  settings: mobilePushRuleSettingsSchemaV1,
+  createdAt: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional()
+});
+
+export const mobilePushRuleSchemaV1 = z.discriminatedUnion('scopeKind', [
+  mobilePushRuleBaseSchemaV1.extend({
+    scopeKind: z.literal('all_us')
+  }),
+  mobilePushRuleBaseSchemaV1.extend({
+    scopeKind: z.literal('state'),
+    state: z.string().trim().min(1).max(60)
+  }),
+  mobilePushRuleBaseSchemaV1.extend({
+    scopeKind: z.literal('launch'),
+    launchId: z.string().uuid()
+  }),
+  mobilePushRuleBaseSchemaV1.extend({
+    scopeKind: z.literal('all_launches')
+  }),
+  mobilePushRuleBaseSchemaV1.extend({
+    scopeKind: z.literal('preset'),
+    presetId: z.string().uuid()
+  }),
+  mobilePushRuleBaseSchemaV1.extend({
+    scopeKind: z.literal('follow'),
+    followRuleType: watchlistRuleTypeSchemaV1,
+    followRuleValue: z.string().trim().min(1).max(200)
+  })
+]);
+
+const mobilePushRuleUpsertBaseSchemaV1 = mobilePushGuestContextSchemaV1.extend(mobilePushRuleSettingsInputSchemaV1.shape);
+
+export const mobilePushRuleUpsertSchemaV1 = z.discriminatedUnion('scopeKind', [
+  mobilePushRuleUpsertBaseSchemaV1.extend({
+    scopeKind: z.literal('all_us')
+  }),
+  mobilePushRuleUpsertBaseSchemaV1.extend({
+    scopeKind: z.literal('state'),
+    state: z.string().trim().min(1).max(60)
+  }),
+  mobilePushRuleUpsertBaseSchemaV1.extend({
+    scopeKind: z.literal('launch')
+  }),
+  mobilePushRuleUpsertBaseSchemaV1.extend({
+    scopeKind: z.literal('all_launches')
+  }),
+  mobilePushRuleUpsertBaseSchemaV1.extend({
+    scopeKind: z.literal('preset'),
+    presetId: z.string().uuid()
+  }),
+  mobilePushRuleUpsertBaseSchemaV1.extend({
+    scopeKind: z.literal('follow'),
+    followRuleType: watchlistRuleTypeSchemaV1,
+    followRuleValue: z.string().trim().min(1).max(200)
+  })
+]);
+
+export const mobilePushRulesEnvelopeSchemaV1 = z.object({
+  access: mobilePushAccessSchemaV1,
+  device: mobilePushDeviceSchemaV1,
+  rules: z.array(mobilePushRuleSchemaV1)
+});
+
+export const mobilePushRuleEnvelopeSchemaV1 = z.object({
+  access: mobilePushAccessSchemaV1,
+  device: mobilePushDeviceSchemaV1,
+  rule: mobilePushRuleSchemaV1,
+  source: z.enum(['existing', 'created', 'updated']).optional()
+});
+
+export const mobilePushLaunchPreferenceEnvelopeSchemaV1 = z.object({
+  access: mobilePushAccessSchemaV1,
+  device: mobilePushDeviceSchemaV1,
+  rule: mobilePushRuleSchemaV1.nullable()
+});
+
+export const mobilePushTestRequestSchemaV1 = mobilePushGuestContextSchemaV1;
+
+export const mobilePushTestSchemaV1 = z.object({
   ok: z.boolean(),
   queuedAt: z.string()
 });
@@ -1329,6 +2528,10 @@ export const calendarFeedSchemaV1 = z.object({
   name: z.string(),
   token: z.string(),
   filters: z.record(z.unknown()),
+  sourceKind: z.enum(['all_launches', 'preset', 'follow']).nullable().optional(),
+  presetId: z.string().uuid().nullable().optional(),
+  followRuleType: watchlistRuleTypeSchemaV1.nullable().optional(),
+  followRuleValue: z.string().trim().min(1).max(200).nullable().optional(),
   alarmMinutesBefore: z.number().int().min(0).max(10080).nullable().optional(),
   createdAt: z.string().nullable().optional(),
   updatedAt: z.string().nullable().optional()
@@ -1342,14 +2545,35 @@ export const calendarFeedCreateSchemaV1 = z
   .object({
     name: z.string().trim().min(1).max(80),
     filters: launchFilterValueSchemaV1.optional(),
+    sourceKind: z.enum(['all_launches', 'preset', 'follow']).optional(),
+    presetId: z.string().uuid().optional(),
+    followRuleType: watchlistRuleTypeSchemaV1.optional(),
+    followRuleValue: z.string().trim().min(1).max(200).optional(),
     alarmMinutesBefore: z.number().int().min(0).max(10080).nullable().optional()
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (value.sourceKind === 'preset' && !value.presetId) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: 'presetId is required for preset calendar feeds.' });
+    }
+    if (value.sourceKind === 'follow') {
+      if (!value.followRuleType) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: 'followRuleType is required for follow calendar feeds.' });
+      }
+      if (!value.followRuleValue) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: 'followRuleValue is required for follow calendar feeds.' });
+      }
+    }
+  });
 
 export const calendarFeedUpdateSchemaV1 = z
   .object({
     name: z.string().trim().min(1).max(80).optional(),
     filters: launchFilterValueSchemaV1.optional(),
+    sourceKind: z.enum(['all_launches', 'preset', 'follow']).optional(),
+    presetId: z.string().uuid().nullable().optional(),
+    followRuleType: watchlistRuleTypeSchemaV1.nullable().optional(),
+    followRuleValue: z.string().trim().min(1).max(200).nullable().optional(),
     alarmMinutesBefore: z.number().int().min(0).max(10080).nullable().optional()
   })
   .strict()
@@ -1734,6 +2958,15 @@ export const launchDetailSchemaV1 = z.object({
   blueOrigin: blueOriginModuleSchemaV1.nullable().optional()
 });
 
+export const launchDetailVersionSchemaV1 = z.object({
+  launchId: z.string(),
+  scope: launchRefreshScopeSchemaV1,
+  tier: z.enum(['anon', 'free', 'premium']),
+  intervalSeconds: z.number().int().nonnegative(),
+  updatedAt: z.string().nullable(),
+  version: z.string()
+});
+
 const trajectoryCovarianceSchemaV1 = z.object({
   alongTrackDeg: z.number(),
   crossTrackDeg: z.number()
@@ -1811,7 +3044,7 @@ export const trajectoryPublicV2ResponseSchemaV1 = z.object({
   product: z.record(z.unknown()).nullable()
 });
 
-const arTelemetryRuntimeFamilySchemaV1 = z.enum(['web', 'ios_native']);
+const arTelemetryRuntimeFamilySchemaV1 = z.enum(['web', 'ios_native', 'android_native']);
 const arTelemetryTrackingStateSchemaV1 = z.enum(['not_available', 'limited', 'normal']);
 const arTelemetryWorldAlignmentSchemaV1 = z.enum(['gravity', 'gravity_and_heading', 'camera']);
 const arTelemetryWorldMappingStatusSchemaV1 = z.enum(['not_available', 'limited', 'extending', 'mapped']);
@@ -1925,6 +3158,12 @@ export const arTelemetrySessionEventSchemaV1 = z.object({
     hfovBucket: z.string().max(32).optional(),
     vfovBucket: z.string().max(32).optional(),
     fovSource: z.enum(['xr', 'preset', 'saved', 'inferred', 'default', 'unknown']).optional(),
+    zoomSupported: z.boolean().optional(),
+    zoomRatioBucket: z.string().max(32).optional(),
+    zoomControlPath: z.enum(['native_camera', 'track_constraints', 'preset_fallback', 'unsupported']).optional(),
+    zoomApplyLatencyBucket: z.string().max(32).optional(),
+    zoomProjectionSyncLatencyBucket: z.string().max(32).optional(),
+    projectionSource: z.enum(['intrinsics_frame', 'projection_matrix', 'inferred_fov', 'preset']).optional(),
 
     tier: z.number().int().min(0).max(3).optional(),
     trajectoryVersion: z.string().max(64).optional(),
@@ -1958,20 +3197,60 @@ export type BlueOriginTravelersResponseV1 = z.infer<typeof blueOriginTravelersRe
 export type BlueOriginVehiclesResponseV1 = z.infer<typeof blueOriginVehiclesResponseSchemaV1>;
 export type BlueOriginEnginesResponseV1 = z.infer<typeof blueOriginEnginesResponseSchemaV1>;
 export type BlueOriginContractsResponseV1 = z.infer<typeof blueOriginContractsResponseSchemaV1>;
+export type SpaceXMissionKeyV1 = z.infer<typeof spaceXMissionKeySchemaV1>;
+export type SpaceXOverviewV1 = z.infer<typeof spaceXOverviewSchemaV1>;
+export type SpaceXMissionOverviewV1 = z.infer<typeof spaceXMissionOverviewSchemaV1>;
+export type SpaceXFlightsResponseV1 = z.infer<typeof spaceXFlightsResponseSchemaV1>;
+export type SpaceXVehiclesResponseV1 = z.infer<typeof spaceXVehiclesResponseSchemaV1>;
+export type SpaceXEnginesResponseV1 = z.infer<typeof spaceXEnginesResponseSchemaV1>;
+export type SpaceXContractsResponseV1 = z.infer<typeof spaceXContractsResponseSchemaV1>;
+export type ArtemisMissionKeyV1 = z.infer<typeof artemisMissionKeySchemaV1>;
+export type ArtemisOverviewV1 = z.infer<typeof artemisOverviewSchemaV1>;
+export type ArtemisMissionOverviewV1 = z.infer<typeof artemisMissionOverviewSchemaV1>;
+export type ArtemisContractsResponseV1 = z.infer<typeof artemisContractsResponseSchemaV1>;
+export type ArtemisContractDetailV1 = z.infer<typeof artemisContractDetailSchemaV1>;
+export type ArtemisAwardeesResponseV1 = z.infer<typeof artemisAwardeesResponseSchemaV1>;
+export type ArtemisAwardeeDetailV1 = z.infer<typeof artemisAwardeeDetailSchemaV1>;
+export type ArtemisContentResponseV1 = z.infer<typeof artemisContentResponseSchemaV1>;
 export type EntitlementCapabilitiesV1 = z.infer<typeof entitlementCapabilitiesSchemaV1>;
 export type EntitlementLimitsV1 = z.infer<typeof entitlementLimitsSchemaV1>;
 export type EntitlementsV1 = z.infer<typeof entitlementSchemaV1>;
 export type LaunchCardV1 = z.infer<typeof launchCardSchemaV1>;
 export type LaunchFeedItemV1 = z.infer<typeof launchFeedItemSchemaV1>;
 export type LaunchFeedV1 = z.infer<typeof launchFeedSchemaV1>;
+export type LaunchFeedVersionV1 = z.infer<typeof launchFeedVersionSchemaV1>;
 export type ChangedLaunchesV1 = z.infer<typeof changedLaunchesSchemaV1>;
 export type SearchResultV1 = z.infer<typeof searchResultSchemaV1>;
 export type ArTrajectorySummaryV1 = z.infer<typeof arTrajectorySummarySchemaV1>;
 export type LaunchDetailEnrichmentV1 = z.infer<typeof launchDetailEnrichmentSchemaV1>;
 export type LaunchDetailV1 = z.infer<typeof launchDetailSchemaV1>;
+export type LaunchDetailVersionV1 = z.infer<typeof launchDetailVersionSchemaV1>;
 export type TrajectoryPublicV2ResponseV1 = z.infer<typeof trajectoryPublicV2ResponseSchemaV1>;
 export type ArTelemetrySessionEventV1 = z.infer<typeof arTelemetrySessionEventSchemaV1>;
 export type SearchResponseV1 = z.infer<typeof searchResponseSchemaV1>;
+export type NewsStreamV1 = z.infer<typeof newsStreamSchemaV1>;
+export type CanonicalContractsResponseV1 = z.infer<typeof canonicalContractsResponseSchemaV1>;
+export type CanonicalContractDetailV1 = z.infer<typeof canonicalContractDetailSchemaV1>;
+export type SatellitesResponseV1 = z.infer<typeof satellitesResponseSchemaV1>;
+export type SatelliteOwnersResponseV1 = z.infer<typeof satelliteOwnersResponseSchemaV1>;
+export type SatelliteDetailV1 = z.infer<typeof satelliteDetailSchemaV1>;
+export type SatelliteOwnerProfileV1 = z.infer<typeof satelliteOwnerProfileSchemaV1>;
+export type ContentPageV1 = z.infer<typeof contentPageSchemaV1>;
+export type InfoHubV1 = z.infer<typeof infoHubSchemaV1>;
+export type CatalogEntityTypeV1 = z.infer<typeof catalogEntityTypeSchemaV1>;
+export type CatalogHubV1 = z.infer<typeof catalogHubSchemaV1>;
+export type CatalogCollectionV1 = z.infer<typeof catalogCollectionSchemaV1>;
+export type CatalogDetailV1 = z.infer<typeof catalogDetailSchemaV1>;
+export type CoreEntityDetailTypeV1 = z.infer<typeof coreEntityDetailTypeSchemaV1>;
+export type CoreEntityBadgeV1 = z.infer<typeof coreEntityBadgeSchemaV1>;
+export type CoreEntityFactV1 = z.infer<typeof coreEntityFactSchemaV1>;
+export type CoreEntityStatV1 = z.infer<typeof coreEntityStatSchemaV1>;
+export type CoreEntityLinkV1 = z.infer<typeof coreEntityLinkSchemaV1>;
+export type CoreEntityNewsItemV1 = z.infer<typeof coreEntityNewsItemSchemaV1>;
+export type ProviderDetailV1 = z.infer<typeof providerDetailSchemaV1>;
+export type RocketDetailV1 = z.infer<typeof rocketDetailSchemaV1>;
+export type LocationDetailV1 = z.infer<typeof locationDetailSchemaV1>;
+export type PadDetailV1 = z.infer<typeof padDetailSchemaV1>;
 export type NotificationPreferencesV1 = z.infer<typeof notificationPreferencesSchemaV1>;
 export type NotificationPreferencesUpdateV1 = z.infer<typeof notificationPreferencesUpdateSchemaV1>;
 export type PrivacyPreferencesV1 = z.infer<typeof privacyPreferencesSchemaV1>;
@@ -1988,6 +3267,12 @@ export type BillingCatalogV1 = z.infer<typeof billingCatalogSchemaV1>;
 export type AppleBillingSyncRequestV1 = z.infer<typeof appleBillingSyncRequestSchemaV1>;
 export type GoogleBillingSyncRequestV1 = z.infer<typeof googleBillingSyncRequestSchemaV1>;
 export type BillingSyncResponseV1 = z.infer<typeof billingSyncResponseSchemaV1>;
+export type PremiumClaimStatusV1 = z.infer<typeof premiumClaimStatusSchemaV1>;
+export type PremiumClaimV1 = z.infer<typeof premiumClaimSchemaV1>;
+export type PremiumClaimEnvelopeV1 = z.infer<typeof premiumClaimEnvelopeSchemaV1>;
+export type PremiumClaimPasswordSignUpV1 = z.infer<typeof premiumClaimPasswordSignUpSchemaV1>;
+export type PremiumClaimPasswordSignUpResponseV1 = z.infer<typeof premiumClaimPasswordSignUpResponseSchemaV1>;
+export type PremiumClaimAttachResponseV1 = z.infer<typeof premiumClaimAttachResponseSchemaV1>;
 export type SmsVerificationRequestV1 = z.infer<typeof smsVerificationRequestSchemaV1>;
 export type SmsVerificationCheckV1 = z.infer<typeof smsVerificationCheckSchemaV1>;
 export type SmsVerificationStatusV1 = z.infer<typeof smsVerificationStatusSchemaV1>;
@@ -1996,6 +3281,23 @@ export type LaunchFilterOptionsV1 = z.infer<typeof launchFilterOptionsSchemaV1>;
 export type PushDeviceRegistrationV1 = z.infer<typeof pushDeviceRegistrationSchemaV1>;
 export type PushDeviceRemovalV1 = z.infer<typeof pushDeviceRemovalSchemaV1>;
 export type PushDeliveryTestV1 = z.infer<typeof pushDeliveryTestSchemaV1>;
+export type MobilePushOwnerKindV1 = z.infer<typeof mobilePushOwnerKindSchemaV1>;
+export type MobilePushScopeKindV1 = z.infer<typeof mobilePushScopeKindSchemaV1>;
+export type MobilePushStatusChangeTypeV1 = z.infer<typeof mobilePushStatusChangeTypeSchemaV1>;
+export type MobilePushGuestContextV1 = z.infer<typeof mobilePushGuestContextSchemaV1>;
+export type MobilePushAccessV1 = z.infer<typeof mobilePushAccessSchemaV1>;
+export type MobilePushDeviceV1 = z.infer<typeof mobilePushDeviceSchemaV1>;
+export type MobilePushDeviceRegisterV1 = z.infer<typeof mobilePushDeviceRegisterSchemaV1>;
+export type MobilePushDeviceRemoveV1 = z.infer<typeof mobilePushDeviceRemoveSchemaV1>;
+export type MobilePushRuleSettingsV1 = z.infer<typeof mobilePushRuleSettingsSchemaV1>;
+export type MobilePushRuleSettingsInputV1 = z.infer<typeof mobilePushRuleSettingsInputSchemaV1>;
+export type MobilePushRuleV1 = z.infer<typeof mobilePushRuleSchemaV1>;
+export type MobilePushRuleUpsertV1 = z.infer<typeof mobilePushRuleUpsertSchemaV1>;
+export type MobilePushRulesEnvelopeV1 = z.infer<typeof mobilePushRulesEnvelopeSchemaV1>;
+export type MobilePushRuleEnvelopeV1 = z.infer<typeof mobilePushRuleEnvelopeSchemaV1>;
+export type MobilePushLaunchPreferenceEnvelopeV1 = z.infer<typeof mobilePushLaunchPreferenceEnvelopeSchemaV1>;
+export type MobilePushTestRequestV1 = z.infer<typeof mobilePushTestRequestSchemaV1>;
+export type MobilePushTestV1 = z.infer<typeof mobilePushTestSchemaV1>;
 export type AuthProviderV1 = z.infer<typeof authProviderSchemaV1>;
 export type AuthPlatformV1 = z.infer<typeof authPlatformSchemaV1>;
 export type MobileAuthPlatformV1 = z.infer<typeof mobileAuthPlatformSchemaV1>;

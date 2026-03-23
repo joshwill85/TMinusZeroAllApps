@@ -8,7 +8,6 @@ import type {
   BlueOriginMissionOverviewV1,
   BlueOriginOverviewV1
 } from '@tminuszero/api-client';
-import { buildLaunchHref } from '@tminuszero/navigation';
 import {
   useBlueOriginContractsQuery,
   useBlueOriginEnginesQuery,
@@ -154,6 +153,7 @@ export function BlueOriginFlightsScreen() {
 }
 
 export function BlueOriginTravelersScreen() {
+  const router = useRouter();
   const travelersQuery = useBlueOriginTravelersQuery();
 
   return (
@@ -174,6 +174,7 @@ export function BlueOriginTravelersScreen() {
                 title={traveler.name}
                 body={[traveler.roles[0] || 'Crew', traveler.latestFlightCode?.toUpperCase() || null, traveler.latestLaunchDate ? formatDate(traveler.latestLaunchDate) : null].filter(Boolean).join(' • ')}
                 meta={`${traveler.flightCount} flight${traveler.flightCount === 1 ? '' : 's'}`}
+                onPress={() => router.push(buildBlueOriginTravelerDetailHref(traveler.travelerSlug) as Href)}
               />
             ))}
           </View>
@@ -184,6 +185,7 @@ export function BlueOriginTravelersScreen() {
 }
 
 export function BlueOriginVehiclesScreen() {
+  const router = useRouter();
   const vehiclesQuery = useBlueOriginVehiclesQuery({ mission: 'all' });
 
   return (
@@ -203,8 +205,8 @@ export function BlueOriginVehiclesScreen() {
                 key={vehicle.id}
                 title={vehicle.displayName}
                 body={[vehicle.vehicleClass, vehicle.status, vehicle.firstFlight ? formatDate(vehicle.firstFlight) : null].filter(Boolean).join(' • ') || 'Program vehicle'}
-                meta={vehicle.officialUrl || null}
-                onPress={vehicle.officialUrl ? () => void Linking.openURL(vehicle.officialUrl || '') : undefined}
+                meta="Open vehicle profile"
+                onPress={() => router.push(buildBlueOriginVehicleDetailHref(vehicle.vehicleSlug) as Href)}
               />
             ))}
           </View>
@@ -215,6 +217,7 @@ export function BlueOriginVehiclesScreen() {
 }
 
 export function BlueOriginEnginesScreen() {
+  const router = useRouter();
   const enginesQuery = useBlueOriginEnginesQuery({ mission: 'all' });
 
   return (
@@ -234,8 +237,8 @@ export function BlueOriginEnginesScreen() {
                 key={engine.id}
                 title={engine.displayName}
                 body={[engine.cycle, engine.propellants, engine.status].filter(Boolean).join(' • ') || 'Program engine'}
-                meta={engine.officialUrl || null}
-                onPress={engine.officialUrl ? () => void Linking.openURL(engine.officialUrl || '') : undefined}
+                meta="Open engine profile"
+                onPress={() => router.push(buildBlueOriginEngineDetailHref(engine.engineSlug) as Href)}
               />
             ))}
           </View>
@@ -246,6 +249,7 @@ export function BlueOriginEnginesScreen() {
 }
 
 export function BlueOriginContractsScreen() {
+  const router = useRouter();
   const contractsQuery = useBlueOriginContractsQuery({ mission: 'all' });
 
   return (
@@ -265,8 +269,8 @@ export function BlueOriginContractsScreen() {
                 key={contract.id}
                 title={contract.title}
                 body={[contract.agency || contract.customer || 'Public record', contract.awardedOn ? formatDate(contract.awardedOn) : null, contract.status].filter(Boolean).join(' • ')}
-                meta={contract.sourceLabel || null}
-                onPress={contract.sourceUrl ? () => void Linking.openURL(contract.sourceUrl || '') : undefined}
+                meta={contract.sourceLabel || 'Open contract detail'}
+                onPress={() => router.push(buildBlueOriginContractDetailHref(contract.contractKey) as Href)}
               />
             ))}
           </View>
@@ -483,14 +487,8 @@ function FlightList({
             key={flight.id}
             title={`${flight.flightCode.toUpperCase()} • ${flight.missionLabel}`}
             body={[flight.launchName, flight.launchDate ? formatDate(flight.launchDate) : null, flight.status].filter(Boolean).join(' • ') || 'Flight record'}
-            meta={launchId ? 'Open launch detail' : null}
-            onPress={
-              launchId
-                ? () => {
-                    router.push(buildLaunchHref(launchId) as Href);
-                  }
-                : undefined
-            }
+            meta={launchId ? 'Open flight route' : 'Open flight record'}
+            onPress={() => router.push(buildBlueOriginFlightDetailHref(flight.flightSlug) as Href)}
           />
         );
       })}
@@ -499,6 +497,8 @@ function FlightList({
 }
 
 function TravelerPreviewPanel({ travelers }: { travelers: BlueOriginOverviewV1['travelers'] }) {
+  const router = useRouter();
+
   return (
     <CustomerShellPanel title="Travelers" description={`${travelers.length} traveler profiles in preview.`}>
       <View style={{ gap: 10 }}>
@@ -508,6 +508,7 @@ function TravelerPreviewPanel({ travelers }: { travelers: BlueOriginOverviewV1['
             title={traveler.name}
             body={[traveler.roles[0] || 'Crew', traveler.latestFlightCode?.toUpperCase() || null, traveler.latestLaunchDate ? formatDate(traveler.latestLaunchDate) : null].filter(Boolean).join(' • ')}
             meta={`${traveler.flightCount} flight${traveler.flightCount === 1 ? '' : 's'}`}
+            onPress={() => router.push(buildBlueOriginTravelerDetailHref(traveler.travelerSlug) as Href)}
           />
         ))}
       </View>
@@ -520,6 +521,8 @@ function ContractPreviewPanel({
 }: {
   contracts: BlueOriginOverviewV1['contracts'] | BlueOriginMissionOverviewV1['contracts'] | BlueOriginContractsResponseV1['items'];
 }) {
+  const router = useRouter();
+
   return (
     <CustomerShellPanel title="Contracts" description={`${contracts.length} public contract records in view.`}>
       <View style={{ gap: 10 }}>
@@ -528,8 +531,8 @@ function ContractPreviewPanel({
             key={contract.id}
             title={contract.title}
             body={[contract.agency || contract.customer || 'Public record', contract.awardedOn ? formatDate(contract.awardedOn) : null, contract.status].filter(Boolean).join(' • ')}
-            meta={contract.sourceLabel || null}
-            onPress={contract.sourceUrl ? () => void Linking.openURL(contract.sourceUrl || '') : undefined}
+            meta={contract.sourceLabel || 'Open contract detail'}
+            onPress={() => router.push(buildBlueOriginContractDetailHref(contract.contractKey) as Href)}
           />
         ))}
       </View>
@@ -631,4 +634,30 @@ function formatDate(value: string) {
 
 function missionLabel(mission: Exclude<BlueOriginMissionKeyV1, 'blue-origin-program'>) {
   return BLUE_ORIGIN_MISSIONS.find((entry) => entry.key === mission)?.title || mission;
+}
+
+function buildBlueOriginFlightDetailHref(flightSlug: string) {
+  return `/blue-origin/flights/${encodeURIComponent(flightSlug)}`;
+}
+
+function buildBlueOriginTravelerDetailHref(travelerSlug: string) {
+  return `/blue-origin/travelers/${encodeURIComponent(travelerSlug)}`;
+}
+
+function buildBlueOriginVehicleDetailHref(vehicleSlug: string) {
+  return `/blue-origin/vehicles/${encodeURIComponent(vehicleSlug)}`;
+}
+
+function buildBlueOriginEngineDetailHref(engineSlug: string) {
+  return `/blue-origin/engines/${encodeURIComponent(engineSlug)}`;
+}
+
+function buildBlueOriginContractDetailHref(contractKey: string) {
+  return `/blue-origin/contracts/${contractKey
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-+/g, '-')
+    .slice(0, 128)}`;
 }

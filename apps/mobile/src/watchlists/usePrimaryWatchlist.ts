@@ -23,6 +23,11 @@ type ToggleRuleKind = 'launch' | 'provider' | 'pad';
 type ToggleRuleResult = {
   notice: WatchlistActionNotice;
   action: 'added' | 'removed';
+  watchlistId: string;
+  ruleId: string | null;
+  ruleType: ToggleRuleKind;
+  ruleValue: string;
+  label: string;
 };
 
 type PrimaryWatchlistState = {
@@ -290,6 +295,11 @@ export function usePrimaryWatchlist({
           });
           return {
             action: 'removed',
+            watchlistId,
+            ruleId: existingRuleId,
+            ruleType: kind,
+            ruleValue: normalizedRuleValue,
+            label,
             notice: {
               tone: 'info',
               message: kind === 'launch' ? 'Removed from My Launches.' : `Unfollowed ${label}.`
@@ -297,7 +307,7 @@ export function usePrimaryWatchlist({
           };
         }
 
-        await createWatchlistRuleMutation.mutateAsync({
+        const payload = await createWatchlistRuleMutation.mutateAsync({
           watchlistId,
           payload: {
             ruleType: kind,
@@ -306,6 +316,11 @@ export function usePrimaryWatchlist({
         });
         return {
           action: 'added',
+          watchlistId,
+          ruleId: payload.rule.id ?? null,
+          ruleType: kind,
+          ruleValue: normalizedRuleValue,
+          label,
           notice: {
             tone: 'success',
             message: kind === 'launch' ? 'Added to My Launches.' : `Following ${label}.`

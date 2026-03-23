@@ -63,6 +63,8 @@
     "test:public-cache": "ts-node --project tsconfig.scripts.json --transpile-only -r tsconfig-paths/register scripts/public-cache-guard.ts",
     "test:v1-contracts": "TS_NODE_TRANSPILE_ONLY=1 node --loader ts-node/esm scripts/v1-contracts-smoke.mts",
     "test:mobile-query-guard": "TS_NODE_TRANSPILE_ONLY=1 node --loader ts-node/esm scripts/mobile-query-guard.mts",
+    "test:launch-refresh-guard": "TS_NODE_TRANSPILE_ONLY=1 node --loader ts-node/esm scripts/launch-refresh-guard.mts",
+    "test:gating-alignment-guard": "TS_NODE_TRANSPILE_ONLY=1 node --loader ts-node/esm scripts/gating-alignment-guard.mts",
     "test:mobile-security-guard": "TS_NODE_TRANSPILE_ONLY=1 node --loader ts-node/esm scripts/mobile-security-guard.mts",
     "test:shared-domain": "TS_NODE_TRANSPILE_ONLY=1 node --experimental-specifier-resolution=node --loader ts-node/esm scripts/shared-domain-smoke.mts",
     "test:phase3-web-guard": "TS_NODE_TRANSPILE_ONLY=1 node --loader ts-node/esm scripts/phase3-web-closeout-guard.mts",

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Linking, Modal, Platform, Pressable, Text, View } from 'react-native';
-import { ApiClientError } from '@tminuszero/api-client';
-import { useMobileApiClient } from '@/src/api/useMobileApiClient';
+import { Linking, Modal, Pressable, Share, Text, View } from 'react-native';
+import { type Href, useRouter } from 'expo-router';
 import type { LaunchCalendarLaunch } from '@/src/calendar/launchCalendar';
 import { buildLaunchCalendarLinks } from '@/src/calendar/launchCalendar';
+import { buildLaunchHref } from '@tminuszero/navigation';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 
 export function LaunchCalendarSheet({
@@ -15,8 +15,8 @@ export function LaunchCalendarSheet({
   open: boolean;
   onClose: () => void;
 }) {
+  const router = useRouter();
   const { theme } = useMobileBootstrap();
-  const client = useMobileApiClient();
   const [calendarImportPending, setCalendarImportPending] = useState(false);
   const [calendarImportError, setCalendarImportError] = useState<string | null>(null);
 
@@ -41,24 +41,13 @@ export function LaunchCalendarSheet({
     setCalendarImportError(null);
 
     try {
-      const payload = await client.getCalendarToken();
-      const token = payload.token?.trim();
-      if (!token) {
-        setCalendarImportError('Calendar export is unavailable in this environment.');
-        return;
-      }
-
-      const tokenizedLinks = buildLaunchCalendarLinks(activeLaunch, { calendarToken: token });
-      await Linking.openURL(tokenizedLinks.icsUrl);
+      await Share.share({
+        message: links.icsUrl,
+        url: links.icsUrl
+      });
       onClose();
-    } catch (error) {
-      if (error instanceof ApiClientError && error.status === 402) {
-        setCalendarImportError('Premium is required to export launch events.');
-      } else if (error instanceof ApiClientError && error.status === 401) {
-        setCalendarImportError('Sign in again to continue adding launches to your calendar.');
-      } else {
-        setCalendarImportError('Unable to prepare the calendar file right now.');
-      }
+    } catch {
+      setCalendarImportError('Unable to prepare the calendar file right now.');
     } finally {
       setCalendarImportPending(false);
     }
@@ -105,7 +94,7 @@ export function LaunchCalendarSheet({
           </View>
 
           <SheetButton
-            label={calendarImportPending ? 'Preparing .ics...' : Platform.OS === 'ios' ? 'Apple Calendar' : 'Download .ics'}
+            label={calendarImportPending ? 'Preparing .ics...' : 'Add to Calendar'}
             onPress={() => {
               void handleCalendarImport();
             }}
@@ -128,7 +117,7 @@ export function LaunchCalendarSheet({
           <SheetButton
             label="Launch details"
             onPress={() => {
-              void Linking.openURL(links.detailUrl);
+              router.push(buildLaunchHref(activeLaunch.id) as Href);
               onClose();
             }}
             secondary

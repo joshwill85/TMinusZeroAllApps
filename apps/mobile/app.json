@@ -18,7 +18,8 @@
       }
     },
     "android": {
-      "package": "app.tminuszero.mobile"
+      "package": "app.tminuszero.mobile",
+      "permissions": ["CAMERA"]
     },
     "plugins": [
       "expo-router",
@@ -32,8 +33,7 @@
           }
         }
       ],
-      "expo-iap",
-      "react-native-reanimated/plugin"
+      "expo-iap"
     ],
     "extra": {
       "eas": {

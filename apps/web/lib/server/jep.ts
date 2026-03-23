@@ -6,16 +6,38 @@ import { applyJepObserverGuidancePolicy } from '@/lib/jep/fallbackPolicy';
 import { deriveJepForecastHorizon } from '@/lib/jep/forecastHorizon';
 import { deriveJepGuidance } from '@/lib/jep/guidance';
 import { deriveJepReadiness } from '@/lib/jep/readiness';
+import {
+  computeJepScoreRecord,
+  normalizeModelList,
+  type JepComputeLaunch,
+  type JepComputeSettings,
+  type JepComputedScore,
+  type JepObserverPoint,
+  type JepTrajectoryInput,
+  type JepWeatherCaches,
+  type NwsGridForecast,
+  type NwsPointRow,
+  type OpenMeteoForecast
+} from '@/lib/jep/serverShared';
 import { deriveJepCloudObstructionImpact, deriveJepWeatherContrastImpact } from '@/lib/jep/weather';
 import {
   buildTrajectoryContract,
   TRAJECTORY_CONTRACT_COLUMNS,
+  type TrajectoryContractRow,
   type TrajectoryContract
 } from '@/lib/server/trajectoryContract';
 import type { JepCalibrationBand, JepConfidence, LaunchJepScore } from '@/lib/types/jep';
 
 const PAD_OBSERVER_HASH = 'pad';
 const GATE_CACHE_TTL_MS = 60_000;
+const TRANSIENT_TIMEOUT_MS = 750;
+const TRANSIENT_CACHE_TTL_MS = 60_000;
+const TRANSIENT_PERSIST_HORIZON_MS = 24 * 60 * 60 * 1000;
+const TRANSIENT_RESULT_CACHE_MAX_ENTRIES = 256;
+const TRANSIENT_WEATHER_CACHE_MAX_ENTRIES = 256;
+const DEFAULT_TRANSIENT_MODEL_VERSION = 'jep_v5';
+const DEFAULT_TRANSIENT_WEATHER_CACHE_MINUTES = 10;
+const DEFAULT_TRANSIENT_OPEN_METEO_US_MODELS = ['best_match', 'gfs_seamless'];
 
 const SCORE_COLUMNS_EXTENDED =
   'probability, calibration_band, sunlit_margin_km, los_visible_fraction, weather_freshness_min, explainability, snapshot_at';
@@ -66,16 +88,19 @@ type FetchLaunchJepScoreOptions = {
   viewerIsAdmin?: boolean;
   observer?: JepObserver | null;
   skipObserverRegistration?: boolean;
+  allowTransientCompute?: boolean;
 };
 
 type JepGateState = {
   publicEnabled: boolean;
   publicVisible: boolean;
   readiness: LaunchJepScore['readiness'];
+  transientPersonalizationEnabled: boolean;
 };
 
 type JepLaunchContext = {
   net: string | null;
+  netPrecision: string | null;
   padLat: number | null;
   padLon: number | null;
   padCountryCode: string | null;
@@ -83,10 +108,28 @@ type JepLaunchContext = {
 
 type Explainability = LaunchJepScore['explainability'];
 
+type JepTrajectoryContext = {
+  contract: TrajectoryContract | null;
+  input: JepTrajectoryInput | null;
+};
+
+type JepTransientSettings = JepComputeSettings & {
+  enabled: boolean;
+};
+
+type TransientCacheEntry = {
+  value: JepComputedScore;
+  expiresAtMs: number;
+};
+
 let gateCache: { value: JepGateState; expiresAtMs: number } | null = null;
+let transientSettingsCache: { value: JepTransientSettings; expiresAtMs: number } | null = null;
 let observerSchemaSupported: boolean | null = null;
 let extendedSchemaSupported: boolean | null = null;
 let weatherLayerSchemaSupported: boolean | null = null;
+const transientResultCache = new Map<string, TransientCacheEntry>();
+const transientInFlight = new Map<string, Promise<JepComputedScore | null>>();
+const transientWeatherCache = new Map<string, { atMs: number; forecast: OpenMeteoForecast | null }>();
 
 export async function fetchLaunchJepScore(
   launchId: string,
@@ -100,13 +143,37 @@ export async function fetchLaunchJepScore(
 
   const requestedObserver = options.observer ?? null;
   const requestedHash = requestedObserver?.locationHash || PAD_OBSERVER_HASH;
-  const trajectoryPromise = fetchTrajectoryContractForJep(launchId);
+  const trajectoryContextPromise = fetchTrajectoryContextForJep(launchId);
   const launchContextPromise = fetchJepLaunchContext(launchId);
 
   const supabase = createSupabasePublicClient();
   let row = await fetchObserverRow(supabase, launchId, requestedHash);
-  let usingPadFallback = false;
+  if (requestedObserver && options.skipObserverRegistration !== true && (!row || isRowStale(row))) {
+    void registerObserver(requestedObserver);
+  }
 
+  if (
+    requestedObserver &&
+    options.allowTransientCompute === true &&
+    gate.transientPersonalizationEnabled &&
+    isExplicitTransientObserverSource(requestedObserver.source) &&
+    requestedHash !== PAD_OBSERVER_HASH &&
+    (!row || isRowStale(row)) &&
+    !isRowSnapshotLocked(row)
+  ) {
+    const [launchContext, trajectoryContext] = await Promise.all([launchContextPromise, trajectoryContextPromise]);
+    const transient = await computeTransientLaunchJepScore({
+      launchId,
+      requestedObserver,
+      existingRow: row,
+      gate,
+      launchContext,
+      trajectoryContext
+    });
+    if (transient) return transient;
+  }
+
+  let usingPadFallback = false;
   if (!row && requestedHash !== PAD_OBSERVER_HASH) {
     usingPadFallback = true;
     row = await fetchObserverRow(supabase, launchId, PAD_OBSERVER_HASH);
@@ -114,25 +181,47 @@ export async function fetchLaunchJepScore(
 
   if (!row) {
     row = await fetchLegacyRow(supabase, launchId);
-    if (!row) {
-      if (requestedObserver && options.skipObserverRegistration !== true) {
-        void registerObserver(requestedObserver);
-      }
-      return null;
-    }
+    if (!row) return null;
     usingPadFallback = requestedHash !== PAD_OBSERVER_HASH;
   }
 
+  const [trajectoryContext, launchContext] = await Promise.all([trajectoryContextPromise, launchContextPromise]);
+  return mapRowToLaunchJepScore({
+    row,
+    requestedObserver,
+    usingPadFallback,
+    gate,
+    trajectoryContract: trajectoryContext?.contract ?? null,
+    launchContext
+  });
+}
+
+export async function canAttemptTransientJepPersonalization(observer: JepObserver | null | undefined) {
+  if (!observer || !isExplicitTransientObserverSource(observer.source)) return false;
+  const gate = await loadJepVisibilityGate();
+  return gate.transientPersonalizationEnabled;
+}
+
+async function mapRowToLaunchJepScore({
+  row,
+  requestedObserver,
+  usingPadFallback,
+  gate,
+  trajectoryContract,
+  launchContext
+}: {
+  row: LaunchJepScoreRow;
+  requestedObserver: JepObserver | null;
+  usingPadFallback: boolean;
+  gate: JepGateState;
+  trajectoryContract: TrajectoryContract | null;
+  launchContext: JepLaunchContext | null;
+}): Promise<LaunchJepScore> {
   const rowObserverHash = normalizeText(row.observer_location_hash) || PAD_OBSERVER_HASH;
   const snapshotAt = normalizeText(row.snapshot_at);
   const isSnapshot = snapshotAt != null;
   const expiresAtMs = row.expires_at ? Date.parse(row.expires_at) : Number.NaN;
   const isStale = !isSnapshot && Number.isFinite(expiresAtMs) ? expiresAtMs <= Date.now() : false;
-
-  if (requestedObserver && options.skipObserverRegistration !== true && (usingPadFallback || isStale)) {
-    void registerObserver(requestedObserver);
-  }
-
   const factors = {
     illumination: clamp(normalizeNumber(row.illumination_factor, 0), 0, 1),
     darkness: clamp(normalizeNumber(row.darkness_factor, 0), 0, 1),
@@ -155,8 +244,6 @@ export async function fetchLaunchJepScore(
       usingPadFallback,
       geometryOnlyFallback: Boolean(row.geometry_only_fallback)
     });
-  const trajectoryContract = await trajectoryPromise;
-  const launchContext = await launchContextPromise;
   const weatherDetails =
     normalizeWeatherDetails((row.explainability as Record<string, unknown> | null)?.weatherDetails) ??
     buildDefaultWeatherDetails({
@@ -201,7 +288,7 @@ export async function fetchLaunchJepScore(
     score,
     probability,
     calibrationBand,
-    modelVersion: normalizeText(row.model_version) || 'jep_v5',
+    modelVersion: normalizeText(row.model_version) || DEFAULT_TRANSIENT_MODEL_VERSION,
     computedAt: normalizeText(row.computed_at),
     expiresAt: normalizeText(row.expires_at),
     isStale,
@@ -245,6 +332,268 @@ export async function fetchLaunchJepScore(
     scenarioWindows: guidance.scenarioWindows,
     trajectory: trajectoryContract ? mapTrajectoryContractToJepEvidence(trajectoryContract) : null
   };
+}
+
+async function computeTransientLaunchJepScore({
+  launchId,
+  requestedObserver,
+  existingRow,
+  gate,
+  launchContext,
+  trajectoryContext
+}: {
+  launchId: string;
+  requestedObserver: JepObserver;
+  existingRow: LaunchJepScoreRow | null;
+  gate: JepGateState;
+  launchContext: JepLaunchContext | null;
+  trajectoryContext: JepTrajectoryContext | null;
+}): Promise<LaunchJepScore | null> {
+  if (!isSupabaseAdminConfigured()) return null;
+  if (!launchContext?.net || launchContext.padLat == null || launchContext.padLon == null) return null;
+  if (!trajectoryContext?.input?.product) return null;
+
+  const netMs = Date.parse(launchContext.net);
+  if (!Number.isFinite(netMs) || netMs <= Date.now()) return null;
+
+  const settings = await loadJepTransientSettings();
+  if (!settings.enabled) return null;
+
+  const trajectoryVersion = trajectoryContext.input.version || trajectoryContext.contract?.version || 'none';
+  const cacheKey = `${launchId}:${requestedObserver.locationHash}:${trajectoryVersion}:${settings.modelVersion}`;
+  const cached = readTransientScoreCache(cacheKey);
+  if (cached) {
+    console.info('jep transient cache hit', { launchId, observerSource: requestedObserver.source });
+    return mapRowToLaunchJepScore({
+      row: cached.row as LaunchJepScoreRow,
+      requestedObserver,
+      usingPadFallback: false,
+      gate,
+      trajectoryContract: trajectoryContext.contract,
+      launchContext
+    });
+  }
+
+  const inFlight = transientInFlight.get(cacheKey);
+  if (inFlight) {
+    console.info('jep transient inflight join', { launchId, observerSource: requestedObserver.source });
+    const joined = await inFlight;
+    if (!joined) return null;
+    return mapRowToLaunchJepScore({
+      row: joined.row as LaunchJepScoreRow,
+      requestedObserver,
+      usingPadFallback: false,
+      gate,
+      trajectoryContract: trajectoryContext.contract,
+      launchContext
+    });
+  }
+
+  const promise = runTransientLaunchJepComputation({
+    cacheKey,
+    launchId,
+    requestedObserver,
+    existingRow,
+    launchContext,
+    trajectoryContext,
+    settings
+  });
+  transientInFlight.set(cacheKey, promise);
+
+  try {
+    const computed = await promise;
+    if (!computed) return null;
+    return mapRowToLaunchJepScore({
+      row: computed.row as LaunchJepScoreRow,
+      requestedObserver,
+      usingPadFallback: false,
+      gate,
+      trajectoryContract: trajectoryContext.contract,
+      launchContext
+    });
+  } finally {
+    transientInFlight.delete(cacheKey);
+  }
+}
+
+async function runTransientLaunchJepComputation({
+  cacheKey,
+  launchId,
+  requestedObserver,
+  existingRow,
+  launchContext,
+  trajectoryContext,
+  settings
+}: {
+  cacheKey: string;
+  launchId: string;
+  requestedObserver: JepObserver;
+  existingRow: LaunchJepScoreRow | null;
+  launchContext: JepLaunchContext;
+  trajectoryContext: JepTrajectoryContext;
+  settings: JepTransientSettings;
+}): Promise<JepComputedScore | null> {
+  const startedAt = Date.now();
+  const admin = createSupabaseAdminClient();
+  trimMapToMaxEntries(transientWeatherCache, TRANSIENT_WEATHER_CACHE_MAX_ENTRIES);
+  const launch: JepComputeLaunch = {
+    launchId,
+    net: launchContext.net,
+    netPrecision: launchContext.netPrecision,
+    padLat: launchContext.padLat,
+    padLon: launchContext.padLon,
+    padCountryCode: launchContext.padCountryCode
+  };
+  const observer: JepObserverPoint = {
+    hash: requestedObserver.locationHash,
+    latDeg: requestedObserver.latBucket,
+    lonDeg: requestedObserver.lonBucket,
+    source: requestedObserver.source
+  };
+  const weatherCaches: JepWeatherCaches = {
+    weatherCache: transientWeatherCache,
+    nwsPointCache: new Map<string, NwsPointRow | null>(),
+    nwsGridCache: new Map<string, NwsGridForecast | null>()
+  };
+
+  try {
+    const computed = await computeTransientWithinDeadline((signal) =>
+      computeJepScoreRecord({
+        supabase: admin,
+        launch,
+        observer,
+        trajectory: trajectoryContext.input!,
+        nowMs: Date.now(),
+        settings,
+        weatherCaches,
+        signal
+      })
+    );
+    if (!computed) {
+      console.info('jep transient timeout_or_empty', { launchId, elapsedMs: Date.now() - startedAt });
+      return null;
+    }
+
+    writeTransientScoreCache(cacheKey, computed);
+    console.info('jep transient success', { launchId, elapsedMs: Date.now() - startedAt });
+    await persistTransientScoreIfNeeded({
+      admin,
+      requestedObserver,
+      existingRow,
+      computed,
+      launchContext
+    });
+    return computed;
+  } catch (error) {
+    console.warn('jep transient error', {
+      launchId,
+      elapsedMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return null;
+  }
+}
+
+async function computeTransientWithinDeadline(factory: (signal: AbortSignal) => Promise<JepComputedScore | null>) {
+  const controller = new AbortController();
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  try {
+    const timeout = new Promise<JepComputedScore | null>((resolve) => {
+      timeoutId = setTimeout(() => {
+        controller.abort();
+        resolve(null);
+      }, TRANSIENT_TIMEOUT_MS);
+    });
+    return await Promise.race([factory(controller.signal), timeout]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+function readTransientScoreCache(cacheKey: string) {
+  const cached = transientResultCache.get(cacheKey);
+  if (!cached) return null;
+  if (cached.expiresAtMs <= Date.now()) {
+    transientResultCache.delete(cacheKey);
+    return null;
+  }
+  return cached.value;
+}
+
+function writeTransientScoreCache(cacheKey: string, computed: JepComputedScore) {
+  pruneExpiredTransientScoreCache();
+  const expiresAtMs = computed.row.expires_at ? Date.parse(computed.row.expires_at) : Number.NaN;
+  const ttlMs = Number.isFinite(expiresAtMs)
+    ? Math.max(1_000, Math.min(TRANSIENT_CACHE_TTL_MS, expiresAtMs - Date.now()))
+    : TRANSIENT_CACHE_TTL_MS;
+  transientResultCache.set(cacheKey, {
+    value: computed,
+    expiresAtMs: Date.now() + ttlMs
+  });
+  trimMapToMaxEntries(transientResultCache, TRANSIENT_RESULT_CACHE_MAX_ENTRIES);
+}
+
+function pruneExpiredTransientScoreCache() {
+  const nowMs = Date.now();
+  for (const [key, entry] of transientResultCache) {
+    if (entry.expiresAtMs <= nowMs) transientResultCache.delete(key);
+  }
+}
+
+async function persistTransientScoreIfNeeded({
+  admin,
+  requestedObserver,
+  existingRow,
+  computed,
+  launchContext
+}: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  requestedObserver: JepObserver;
+  existingRow: LaunchJepScoreRow | null;
+  computed: JepComputedScore;
+  launchContext: JepLaunchContext;
+}) {
+  if (requestedObserver.source !== 'provided') return;
+  if (isRowSnapshotLocked(existingRow)) return;
+  if (existingRow && !isRowStale(existingRow)) return;
+
+  const netMs = Date.parse(String(launchContext.net || ''));
+  if (!Number.isFinite(netMs)) return;
+  const nowMs = Date.now();
+  if (netMs <= nowMs || netMs - nowMs > TRANSIENT_PERSIST_HORIZON_MS) return;
+
+  try {
+    const { error } = await admin
+      .from('launch_jep_scores')
+      .upsert(computed.row, { onConflict: 'launch_id,observer_location_hash' });
+    if (error) {
+      console.warn('jep transient persist failed', {
+        launchId: computed.row.launch_id,
+        error: error.message
+      });
+      return;
+    }
+    console.info('jep transient persisted', { launchId: computed.row.launch_id });
+  } catch (error) {
+    console.warn('jep transient persist exception', {
+      launchId: computed.row.launch_id,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
+
+function isExplicitTransientObserverSource(source: JepObserver['source']) {
+  return source === 'query' || source === 'provided';
+}
+
+function isRowSnapshotLocked(row: LaunchJepScoreRow | null) {
+  return Boolean(normalizeText(row?.snapshot_at));
+}
+
+function isRowStale(row: LaunchJepScoreRow | null) {
+  if (!row || isRowSnapshotLocked(row)) return false;
+  const expiresAtMs = row.expires_at ? Date.parse(row.expires_at) : Number.NaN;
+  return Number.isFinite(expiresAtMs) ? expiresAtMs <= Date.now() : false;
 }
 
 async function fetchObserverRow(supabase: ReturnType<typeof createSupabasePublicClient>, launchId: string, observerHash: string) {
@@ -392,7 +741,7 @@ async function registerObserver(observer: JepObserver) {
   }
 }
 
-async function fetchTrajectoryContractForJep(launchId: string): Promise<TrajectoryContract | null> {
+async function fetchTrajectoryContextForJep(launchId: string): Promise<JepTrajectoryContext | null> {
   if (!launchId || !isSupabaseAdminConfigured()) return null;
 
   try {
@@ -408,7 +757,17 @@ async function fetchTrajectoryContractForJep(launchId: string): Promise<Trajecto
       return null;
     }
 
-    return buildTrajectoryContract(data);
+    const row = (data as TrajectoryContractRow | null) ?? null;
+    return {
+      contract: buildTrajectoryContract(row),
+      input: row
+        ? {
+            version: normalizeText(row.version),
+            confidenceTier: normalizeText(row.confidence_tier),
+            product: row.product && typeof row.product === 'object' && !Array.isArray(row.product) ? (row.product as Record<string, unknown>) : null
+          }
+        : null
+    };
   } catch (error) {
     console.warn('jep trajectory contract fetch exception', error);
     return null;
@@ -422,7 +781,7 @@ async function fetchJepLaunchContext(launchId: string): Promise<JepLaunchContext
     const admin = createSupabaseAdminClient();
     const { data, error } = await admin
       .from('launches')
-      .select('net,pad_latitude,pad_longitude,pad_country_code')
+      .select('net,net_precision,pad_latitude,pad_longitude,pad_country_code')
       .eq('id', launchId)
       .maybeSingle();
 
@@ -433,6 +792,7 @@ async function fetchJepLaunchContext(launchId: string): Promise<JepLaunchContext
 
     return {
       net: normalizeText(data?.net) || null,
+      netPrecision: normalizeText(data?.net_precision) || null,
       padLat: toNumber(data?.pad_latitude),
       padLon: toNumber(data?.pad_longitude),
       padCountryCode: normalizeText(data?.pad_country_code) || null
@@ -491,7 +851,8 @@ async function loadJepVisibilityGate(): Promise<JepGateState> {
     const fallback: JepGateState = {
       publicEnabled: true,
       publicVisible: readiness.publicVisible,
-      readiness
+      readiness,
+      transientPersonalizationEnabled: false
     };
     gateCache = { value: fallback, expiresAtMs: nowMs + GATE_CACHE_TTL_MS };
     return fallback;
@@ -505,6 +866,7 @@ async function loadJepVisibilityGate(): Promise<JepGateState> {
       'jep_public_enabled',
       'jep_validation_ready',
       'jep_model_card_published',
+      'jep_transient_personalization_enabled',
       'jep_probability_min_labeled_outcomes',
       'jep_probability_labeled_outcomes',
       'jep_probability_max_ece',
@@ -529,7 +891,8 @@ async function loadJepVisibilityGate(): Promise<JepGateState> {
     const fallback: JepGateState = {
       publicEnabled: false,
       publicVisible: readiness.publicVisible,
-      readiness
+      readiness,
+      transientPersonalizationEnabled: false
     };
     gateCache = { value: fallback, expiresAtMs: nowMs + GATE_CACHE_TTL_MS };
     return fallback;
@@ -557,11 +920,75 @@ async function loadJepVisibilityGate(): Promise<JepGateState> {
   const value: JepGateState = {
     publicEnabled,
     publicVisible: readiness.publicVisible,
-    readiness
+    readiness,
+    transientPersonalizationEnabled: readBooleanSetting(map.jep_transient_personalization_enabled, false)
   };
 
   gateCache = { value, expiresAtMs: nowMs + GATE_CACHE_TTL_MS };
   return value;
+}
+
+async function loadJepTransientSettings(): Promise<JepTransientSettings> {
+  const nowMs = Date.now();
+  if (transientSettingsCache && transientSettingsCache.expiresAtMs > nowMs) {
+    return transientSettingsCache.value;
+  }
+
+  const fallback: JepTransientSettings = {
+    enabled: false,
+    modelVersion: DEFAULT_TRANSIENT_MODEL_VERSION,
+    weatherCacheMinutes: DEFAULT_TRANSIENT_WEATHER_CACHE_MINUTES,
+    openMeteoUsModels: [...DEFAULT_TRANSIENT_OPEN_METEO_US_MODELS]
+  };
+
+  if (!isSupabaseAdminConfigured()) {
+    transientSettingsCache = { value: fallback, expiresAtMs: nowMs + GATE_CACHE_TTL_MS };
+    return fallback;
+  }
+
+  try {
+    const admin = createSupabaseAdminClient();
+    const { data, error } = await admin
+      .from('system_settings')
+      .select('key,value')
+      .in('key', [
+        'jep_transient_personalization_enabled',
+        'jep_score_model_version',
+        'jep_score_weather_cache_minutes',
+        'jep_score_open_meteo_us_models'
+      ]);
+
+    if (error) {
+      console.warn('jep transient settings query error', error.message);
+      transientSettingsCache = { value: fallback, expiresAtMs: nowMs + GATE_CACHE_TTL_MS };
+      return fallback;
+    }
+
+    const map: Record<string, unknown> = {};
+    for (const row of data || []) {
+      map[row.key] = row.value;
+    }
+
+    const value: JepTransientSettings = {
+      enabled: readBooleanSetting(map.jep_transient_personalization_enabled, false),
+      modelVersion: readStringSetting(map.jep_score_model_version, DEFAULT_TRANSIENT_MODEL_VERSION),
+      weatherCacheMinutes: clampInt(
+        readIntegerSetting(map.jep_score_weather_cache_minutes) ?? DEFAULT_TRANSIENT_WEATHER_CACHE_MINUTES,
+        1,
+        60
+      ),
+      openMeteoUsModels: normalizeModelList(
+        readStringArraySetting(map.jep_score_open_meteo_us_models),
+        DEFAULT_TRANSIENT_OPEN_METEO_US_MODELS
+      )
+    };
+    transientSettingsCache = { value, expiresAtMs: nowMs + GATE_CACHE_TTL_MS };
+    return value;
+  } catch (error) {
+    console.warn('jep transient settings exception', error);
+    transientSettingsCache = { value: fallback, expiresAtMs: nowMs + GATE_CACHE_TTL_MS };
+    return fallback;
+  }
 }
 
 function resolveProbability(row: LaunchJepScoreRow, score: number) {
@@ -915,6 +1342,20 @@ function readRatioSetting(value: unknown) {
   return parsed;
 }
 
+function readStringSetting(value: unknown, fallback: string) {
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  return fallback;
+}
+
+function readStringArraySetting(value: unknown) {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+      .filter((entry) => entry.length > 0);
+  }
+  return [];
+}
+
 function isMissingObserverSchemaError(message: string) {
   const text = (message || '').toLowerCase();
   return text.includes('observer_location_hash') || text.includes('observer_lat_bucket') || text.includes('observer_lon_bucket');
@@ -945,4 +1386,17 @@ function uniqueColumns(values: Array<string | null>) {
 function isMissingObserverTableError(message: string) {
   const text = (message || '').toLowerCase();
   return text.includes('jep_observer_locations') && (text.includes('does not exist') || text.includes('relation'));
+}
+
+function trimMapToMaxEntries<K, V>(map: Map<K, V>, maxEntries: number) {
+  if (maxEntries < 1) {
+    map.clear();
+    return;
+  }
+
+  while (map.size > maxEntries) {
+    const oldestKey = map.keys().next().value as K | undefined;
+    if (oldestKey === undefined) break;
+    map.delete(oldestKey);
+  }
 }

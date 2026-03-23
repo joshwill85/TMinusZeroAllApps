@@ -121,7 +121,7 @@ export default function AdminUsersPage() {
         setUsers((prev) =>
           prev.map((user) => {
             if (user.user_id !== userId) return user;
-            const nextStatus = role === 'admin' ? 'admin' : user.is_paid ? 'paid' : 'free';
+            const nextStatus = role === 'admin' ? 'admin' : user.is_paid ? 'paid' : 'signed_in';
             return { ...user, role, status: nextStatus };
           })
         );
@@ -507,20 +507,20 @@ function Badge({ label }: { label: string }) {
   );
 }
 
-function resolveUserStatus(user: AdminUser): 'free' | 'paid' | 'admin' {
+function resolveUserStatus(user: AdminUser): 'signed_in' | 'paid' | 'admin' {
   if (user.role === 'admin') return 'admin';
   if (user.is_paid) return 'paid';
-  if (user.status === 'paid' || user.status === 'admin' || user.status === 'free') return user.status;
-  return 'free';
+  if (user.status === 'paid' || user.status === 'admin') return user.status;
+  return 'signed_in';
 }
 
-function formatUserStatusLabel(status: 'free' | 'paid' | 'admin') {
+function formatUserStatusLabel(status: 'signed_in' | 'paid' | 'admin') {
   if (status === 'admin') return 'Admin';
   if (status === 'paid') return 'Paid';
-  return 'Free';
+  return 'Signed in';
 }
 
-function statusBadgeClass(status: 'free' | 'paid' | 'admin') {
+function statusBadgeClass(status: 'signed_in' | 'paid' | 'admin') {
   if (status === 'admin') return 'border-warning/40 text-warning bg-warning/10';
   if (status === 'paid') return 'border-success/40 text-success bg-success/10';
   return 'border-stroke text-text3 bg-[rgba(255,255,255,0.02)]';

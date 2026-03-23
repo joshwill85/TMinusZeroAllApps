@@ -46,16 +46,14 @@ export function ParallaxHero({
   );
 
   // Content fade out as user scrolls
-  const contentOpacity = useTransform(scrollY, [0, 300], (latest) => {
-    const progress = latest / 300;
-    return calculateParallaxOpacity(progress, 0, 1);
-  });
+  const contentOpacity = useTransform(
+    scrollY,
+    [0, 300],
+    [calculateParallaxOpacity(0, 0, 1), calculateParallaxOpacity(1, 0, 1)]
+  );
 
   // Background scale effect (subtle zoom)
-  const backgroundScale = useTransform(scrollY, [0, 300], (latest) => {
-    const progress = latest / 300;
-    return calculateParallaxScale(progress);
-  });
+  const backgroundScale = useTransform(scrollY, [0, 300], [calculateParallaxScale(0), calculateParallaxScale(1)]);
 
   return (
     <div className="relative h-[60vh] min-h-[500px] overflow-hidden rounded-3xl border border-stroke">

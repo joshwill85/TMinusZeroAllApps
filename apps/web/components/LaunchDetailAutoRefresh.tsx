@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { getNextAlignedRefreshMs, getTierRefreshSeconds, type ViewerTier } from '@tminuszero/domain';
+import { useQueryClient } from '@tanstack/react-query';
+import { buildDetailVersionToken, getNextAlignedRefreshMs, getTierRefreshSeconds, hasVersionChanged, tierToMode, type ViewerTier } from '@tminuszero/domain';
+import { fetchLaunchDetailVersion } from '@/lib/api/queries';
 
 const LAUNCH_ROUTE_TRACE_KEY = '__tmzBlueOriginRouteTrace';
 const LAUNCH_PERF_SLOW_RESOURCE_MS = 150;
@@ -93,6 +95,7 @@ export function LaunchDetailAutoRefresh({
   lastUpdated?: string | null;
 }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const debugToken = String(searchParams.get('debug') || '').trim().toLowerCase();
@@ -108,8 +111,9 @@ export function LaunchDetailAutoRefresh({
 
   const refreshIntervalSeconds = getTierRefreshSeconds(tier);
   const refreshIntervalMs = refreshIntervalSeconds * 1000;
+  const scope = tierToMode(tier);
   const [nextRefreshAt, setNextRefreshAt] = useState<number | null>(null);
-  const lastSeenRef = useRef<string | null>(lastUpdated ?? null);
+  const lastSeenRef = useRef<string | null>(buildDetailVersionToken(launchId, scope, lastUpdated ?? null));
   const debugSessionIdRef = useRef(Math.random().toString(36).slice(2));
   const debugName = useMemo(() => `LaunchDetailAutoRefresh:${debugSessionIdRef.current}`, []);
 
@@ -166,44 +170,58 @@ export function LaunchDetailAutoRefresh({
   }, [debugEnabled, pathname]);
 
   useEffect(() => {
-    lastSeenRef.current = lastUpdated ?? null;
-  }, [lastUpdated]);
+    lastSeenRef.current = buildDetailVersionToken(launchId, scope, lastUpdated ?? null);
+  }, [lastUpdated, launchId, scope]);
 
   useEffect(() => {
     if (!Number.isFinite(refreshIntervalMs) || refreshIntervalMs <= 0) return;
     let timeout: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
 
+    const canCheckForUpdates = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return false;
+      }
+      if (typeof navigator !== 'undefined' && 'onLine' in navigator && navigator.onLine === false) {
+        return false;
+      }
+      return true;
+    };
+
     const checkForUpdates = async () => {
+      if (!canCheckForUpdates()) {
+        if (debugEnabled) console.log(`[${debugName}] refresh_paused_inactive`);
+        return;
+      }
       if (!launchId) {
         if (debugEnabled) console.log(`[${debugName}] refresh_no_launch_id`);
         router.refresh();
         return;
       }
       try {
-        const url = `/api/live/launches/${launchId}/version`;
-        if (debugEnabled) console.log(`[${debugName}] version_check_start`, { url });
+        if (debugEnabled) console.log(`[${debugName}] version_check_start`, { launchId, scope });
         const startedAt = Date.now();
-        const res = await fetch(url, { cache: 'no-store' });
-        if (debugEnabled) console.log(`[${debugName}] version_check_response`, { url, status: res.status, ok: res.ok, ms: Date.now() - startedAt });
-        if (res.status === 401 || res.status === 402) {
-          if (debugEnabled) console.log(`[${debugName}] refresh_auth_fallback`, { status: res.status });
-          router.refresh();
-          return;
-        }
-        if (!res.ok) return;
-        const json = await res.json().catch(() => ({}));
-        const latest = typeof json?.lastUpdated === 'string' ? json.lastUpdated : null;
-        if (debugEnabled) console.log(`[${debugName}] version_check_payload`, { latest, lastSeen: lastSeenRef.current });
-        if (latest && latest !== lastSeenRef.current) {
-          lastSeenRef.current = latest;
+        const payload = await fetchLaunchDetailVersion(queryClient, launchId, { scope });
+        if (debugEnabled) console.log(`[${debugName}] version_check_response`, { scope, ms: Date.now() - startedAt, version: payload.version });
+        const nextVersion = typeof payload?.version === 'string'
+          ? payload.version
+          : buildDetailVersionToken(launchId, scope, payload?.updatedAt ?? null);
+        if (debugEnabled) console.log(`[${debugName}] version_check_payload`, { nextVersion, lastSeen: lastSeenRef.current });
+        if (hasVersionChanged(lastSeenRef.current, nextVersion)) {
+          lastSeenRef.current = nextVersion;
           if (debugEnabled) {
-            console.log(`[${debugName}] refresh_triggered`, { reason: 'version_changed', latest });
+            console.log(`[${debugName}] refresh_triggered`, { reason: 'version_changed', nextVersion });
             if (debugTrace) console.trace(`[${debugName}] router.refresh trace`);
           }
           router.refresh();
         }
       } catch (err) {
+        const status = typeof (err as { status?: unknown })?.status === 'number' ? Number((err as { status?: number }).status) : null;
+        if (status === 401 || status === 402) {
+          if (debugEnabled) console.log(`[${debugName}] refresh_auth_fallback`, { status, scope });
+          router.refresh();
+          return;
+        }
         console.error('launch refresh check error', err);
         if (debugEnabled) console.log(`[${debugName}] version_check_error`, { error: String((err as any)?.message || err) });
       }
@@ -211,6 +229,14 @@ export function LaunchDetailAutoRefresh({
 
     const schedule = () => {
       if (cancelled) return;
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = null;
+      }
+      if (!canCheckForUpdates()) {
+        setNextRefreshAt(null);
+        return;
+      }
       const now = Date.now();
       const next = getNextAlignedRefreshMs(now, refreshIntervalMs);
       setNextRefreshAt(next);
@@ -219,38 +245,54 @@ export function LaunchDetailAutoRefresh({
       timeout = setTimeout(async () => {
         if (cancelled) return;
         if (debugEnabled) console.log(`[${debugName}] tick`, { tier, now: Date.now() });
-        if (tier === 'premium') {
-          await checkForUpdates();
-        } else {
-          if (debugEnabled) {
-            console.log(`[${debugName}] refresh_triggered`, { reason: 'non_premium_interval' });
-            if (debugTrace) console.trace(`[${debugName}] router.refresh trace`);
-          }
-          router.refresh();
-        }
+        await checkForUpdates();
         schedule();
       }, delay);
     };
 
+    const resumeChecks = () => {
+      if (cancelled || !canCheckForUpdates()) return;
+      void checkForUpdates();
+      schedule();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        setNextRefreshAt(null);
+        if (timeout) {
+          clearTimeout(timeout);
+          timeout = null;
+        }
+        return;
+      }
+      resumeChecks();
+    };
+
+    const handleOnline = () => resumeChecks();
+    const handleFocus = () => resumeChecks();
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('focus', handleFocus);
     schedule();
     return () => {
       cancelled = true;
       if (timeout) clearTimeout(timeout);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('focus', handleFocus);
     };
-  }, [debugEnabled, debugName, debugTrace, launchId, refreshIntervalMs, router, tier]);
+  }, [debugEnabled, debugName, debugTrace, launchId, queryClient, refreshIntervalMs, router, scope, tier]);
 
   const summary = useMemo(() => {
     if (tier === 'premium') return 'Checks for updates every 15 seconds.';
-    if (tier === 'free') return 'Updates every 15 minutes.';
     return 'Updates every 2 hours.';
   }, [tier]);
 
   const cadence =
     tier === 'premium'
       ? 'Aligned to :00, :15, :30, :45 each minute.'
-      : tier === 'free'
-        ? 'Aligned to :00, :15, :30, :45 each hour.'
-        : 'Aligned to 12:00am, 2:00am, 4:00am, … local time.';
+      : 'Aligned to 12:00am, 2:00am, 4:00am, … local time.';
   const nextLabel = nextRefreshAt ? formatRefreshTime(nextRefreshAt, tier === 'premium') : null;
 
   return (

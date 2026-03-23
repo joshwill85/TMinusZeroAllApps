@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+import { useState } from 'react';
 import { View, Text, Pressable } from 'react-native';
 import Animated, {
   useAnimatedStyle,
@@ -7,7 +9,6 @@ import Animated, {
   useAnimatedRef,
   runOnUI,
 } from 'react-native-reanimated';
-import { useState } from 'react';
 import { ANIMATION_CONSTANTS } from '@tminuszero/launch-animations';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 
@@ -15,9 +16,9 @@ type CollapsibleSectionProps = {
   id: string;
   title: string;
   description?: string;
-  children: React.ReactNode;
+  children: ReactNode;
   defaultExpanded?: boolean;
-  icon?: React.ReactNode;
+  icon?: ReactNode;
 };
 
 /**
@@ -25,7 +26,6 @@ type CollapsibleSectionProps = {
  * Uses Reanimated measure() worklet for accurate content height
  */
 export function CollapsibleSection({
-  id,
   title,
   description,
   children,
@@ -161,7 +161,7 @@ export function CollapsibleCard({
   defaultExpanded = false,
 }: {
   title: string;
-  children: React.ReactNode;
+  children: ReactNode;
   defaultExpanded?: boolean;
 }) {
   const { theme } = useMobileBootstrap();

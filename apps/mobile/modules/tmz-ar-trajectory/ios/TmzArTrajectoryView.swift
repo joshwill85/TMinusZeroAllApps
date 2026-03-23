@@ -4,8 +4,9 @@ import CoreLocation
 import ExpoModulesCore
 import RealityKit
 import simd
+import UIKit
 
-internal final class TmzArTrajectoryView: ExpoView, ARSessionDelegate, CLLocationManagerDelegate {
+internal final class TmzArTrajectoryView: ExpoView, ARSessionDelegate, CLLocationManagerDelegate, UIGestureRecognizerDelegate {
   let onSessionStateChange = EventDispatcher()
   let onSessionUpdate = EventDispatcher()
   let onSessionError = EventDispatcher()
@@ -16,6 +17,8 @@ internal final class TmzArTrajectoryView: ExpoView, ARSessionDelegate, CLLocatio
   var enableSceneDepth = true
   var enableSceneReconstruction = true
   var highResCaptureEnabled = false
+  var enablePinchZoom = true
+  var targetZoomRatio: Double?
   var showDebugStatistics = false
 
   private let arView: ARView
@@ -42,6 +45,17 @@ internal final class TmzArTrajectoryView: ExpoView, ARSessionDelegate, CLLocatio
   private var motionPermission: String = "granted"
   private var locationPermission: String = "prompt"
   private var locationAccuracy: String = "unknown"
+  private var zoomSupported = false
+  private var zoomRatio: Double = 1.0
+  private var zoomRangeMin: Double = 1.0
+  private var zoomRangeMax: Double = 1.0
+  private var zoomControlPath: String = "unsupported"
+  private var projectionSource: String = "inferred_fov"
+  private var pinchZoomStartRatio: Double = 1.0
+  private var lastZoomApplyAt = CFAbsoluteTimeGetCurrent()
+  private var lastZoomApplyLatencyMs: Double = 0
+  private var lastZoomProjectionSyncLatencyMs: Double = 0
+  private var pendingZoomApplyStartedAt: CFAbsoluteTime?
   private var lastPayloadFingerprint: String?
   private var lastSessionUpdateEmission = CFAbsoluteTimeGetCurrent()
 
@@ -57,6 +71,10 @@ internal final class TmzArTrajectoryView: ExpoView, ARSessionDelegate, CLLocatio
     arView.renderOptions.insert(.disableMotionBlur)
     arView.session.delegate = self
     arView.scene.addAnchor(rootAnchor)
+    let pinchRecognizer = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
+    pinchRecognizer.cancelsTouchesInView = false
+    pinchRecognizer.delegate = self
+    arView.addGestureRecognizer(pinchRecognizer)
 
     addSubview(arView)
     NSLayoutConstraint.activate([
@@ -87,6 +105,8 @@ internal final class TmzArTrajectoryView: ExpoView, ARSessionDelegate, CLLocatio
     highResCaptureAttempted = highResCaptureEnabled
     parseTrajectoryIfNeeded()
     applySessionConfiguration(resetTracking: !didStartSession)
+    refreshZoomSupportAndBounds()
+    applyTargetZoomIfNeeded()
     rebuildTrajectoryEntitiesIfPossible()
     emitSessionState()
   }
@@ -146,6 +166,13 @@ internal final class TmzArTrajectoryView: ExpoView, ARSessionDelegate, CLLocatio
       let translation = frame.camera.transform.translation
       self.rootAnchor.position = translation
       self.worldMappingStatus = self.mapWorldMappingStatus(frame.worldMappingStatus)
+      self.projectionSource = "intrinsics_frame"
+      if let startedAt = self.pendingZoomApplyStartedAt {
+        let now = CFAbsoluteTimeGetCurrent()
+        self.lastZoomProjectionSyncLatencyMs = max(0, (now - startedAt) * 1_000)
+        self.pendingZoomApplyStartedAt = nil
+      }
+      self.refreshZoomSupportAndBounds()
       self.emitSessionState()
     }
   }
@@ -307,6 +334,7 @@ internal final class TmzArTrajectoryView: ExpoView, ARSessionDelegate, CLLocatio
 
     let options: ARSession.RunOptions = resetTracking ? [.resetTracking, .removeExistingAnchors] : []
     arView.session.run(configuration, options: options)
+    refreshZoomSupportAndBounds()
     didStartSession = true
     if status == "unsupported" || status == "failed" {
       status = "initializing"
@@ -314,6 +342,151 @@ internal final class TmzArTrajectoryView: ExpoView, ARSessionDelegate, CLLocatio
     if statusMessage == nil {
       statusMessage = "Move slowly while the AR session stabilizes."
     }
+  }
+
+  @objc
+  private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
+    guard enablePinchZoom, zoomSupported else {
+      return
+    }
+
+    switch gesture.state {
+    case .began:
+      pinchZoomStartRatio = zoomRatio
+    case .changed:
+      let targetRatio = clampZoomRatio(pinchZoomStartRatio * Double(gesture.scale))
+      _ = applyZoom(to: targetRatio, reason: "pinch")
+    case .ended, .cancelled, .failed:
+      pinchZoomStartRatio = zoomRatio
+    default:
+      break
+    }
+  }
+
+  private func currentCaptureDevice() -> AVCaptureDevice? {
+    guard #available(iOS 16.0, *) else {
+      return nil
+    }
+    return ARWorldTrackingConfiguration.configurableCaptureDeviceForPrimaryCamera
+  }
+
+  private func refreshZoomSupportAndBounds() {
+    guard let captureDevice = currentCaptureDevice() else {
+      zoomSupported = false
+      zoomRangeMin = 1
+      zoomRangeMax = 1
+      zoomRatio = 1
+      zoomControlPath = "unsupported"
+      return
+    }
+
+    let minAvailable = max(0.5, Double(captureDevice.minAvailableVideoZoomFactor))
+    let maxAvailable = min(3.0, Double(captureDevice.maxAvailableVideoZoomFactor))
+    zoomRangeMin = minAvailable
+    zoomRangeMax = max(maxAvailable, minAvailable)
+    zoomSupported = zoomRangeMax > zoomRangeMin + 0.01
+    zoomRatio = clampZoomRatio(Double(captureDevice.videoZoomFactor))
+    zoomControlPath = zoomSupported ? "native_camera" : "unsupported"
+  }
+
+  private func applyTargetZoomIfNeeded() {
+    guard let targetZoomRatio else {
+      return
+    }
+    _ = applyZoom(to: targetZoomRatio, reason: "prop_target")
+  }
+
+  private func clampZoomRatio(_ value: Double) -> Double {
+    return min(max(value, zoomRangeMin), zoomRangeMax)
+  }
+
+  @discardableResult
+  private func applyZoom(to targetRatio: Double, reason: String) -> Bool {
+    guard zoomSupported else {
+      return false
+    }
+    guard let captureDevice = currentCaptureDevice() else {
+      zoomSupported = false
+      zoomControlPath = "unsupported"
+      return false
+    }
+
+    let clamped = clampZoomRatio(targetRatio)
+    if abs(clamped - zoomRatio) < 0.01 {
+      return false
+    }
+
+    let now = CFAbsoluteTimeGetCurrent()
+    if reason == "pinch" && now - lastZoomApplyAt < (1.0 / 30.0) {
+      return false
+    }
+
+    let startedAt = now
+    do {
+      try captureDevice.lockForConfiguration()
+      if abs(Double(captureDevice.videoZoomFactor) - clamped) > 0.06 {
+        captureDevice.ramp(toVideoZoomFactor: CGFloat(clamped), withRate: 8.0)
+      } else {
+        captureDevice.videoZoomFactor = CGFloat(clamped)
+      }
+      captureDevice.unlockForConfiguration()
+
+      zoomRatio = clampZoomRatio(Double(captureDevice.videoZoomFactor))
+      zoomControlPath = "native_camera"
+      lastZoomApplyAt = CFAbsoluteTimeGetCurrent()
+      lastZoomApplyLatencyMs = max(0, (lastZoomApplyAt - startedAt) * 1_000)
+      pendingZoomApplyStartedAt = startedAt
+      return true
+    } catch {
+      statusMessage = "Unable to adjust camera zoom."
+      zoomControlPath = "unsupported"
+      return false
+    }
+  }
+
+  private func bucketZoomRatio(_ zoom: Double) -> String {
+    if !zoomSupported {
+      return "unsupported"
+    }
+
+    if zoom < 0.75 {
+      return "0.5..0.75"
+    }
+    if zoom < 1.0 {
+      return "0.75..1.0"
+    }
+    if zoom < 1.5 {
+      return "1.0..1.5"
+    }
+    if zoom < 2.0 {
+      return "1.5..2.0"
+    }
+    if zoom < 2.5 {
+      return "2.0..2.5"
+    }
+    if zoom < 3.0 {
+      return "2.5..3.0"
+    }
+    return "3.0+"
+  }
+
+  private func bucketLatencyMs(_ value: Double) -> String {
+    if !value.isFinite || value < 0 {
+      return "unknown"
+    }
+    if value < 16 {
+      return "<16ms"
+    }
+    if value < 33 {
+      return "16..33ms"
+    }
+    if value < 50 {
+      return "33..50ms"
+    }
+    if value < 100 {
+      return "50..100ms"
+    }
+    return "100ms+"
   }
 
   private func rebuildTrajectoryEntitiesIfPossible() {
@@ -539,6 +712,10 @@ internal final class TmzArTrajectoryView: ExpoView, ARSessionDelegate, CLLocatio
     }
   }
 
+  func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+    return true
+  }
+
   private func emitSessionState() {
     let payload = createPayload()
     let fingerprint = [
@@ -549,6 +726,8 @@ internal final class TmzArTrajectoryView: ExpoView, ARSessionDelegate, CLLocatio
       payload["sceneDepthEnabled"] as? Bool == true ? "1" : "0",
       payload["sceneReconstructionEnabled"] as? Bool == true ? "1" : "0",
       payload["locationPermission"] as? String ?? "",
+      String(format: "%.2f", zoomRatio),
+      payload["zoomControlPath"] as? String ?? "",
       payload["message"] as? String ?? ""
     ].joined(separator: "|")
 
@@ -587,11 +766,24 @@ internal final class TmzArTrajectoryView: ExpoView, ARSessionDelegate, CLLocatio
       "qualityState": qualityState ?? parsedTrajectory?.qualityState ?? NSNull(),
       "sampleCount": parsedTrajectory?.tracks.reduce(0, { $0 + $1.samples.count }) ?? 0,
       "milestoneCount": parsedTrajectory?.milestones.count ?? 0,
+      "zoomSupported": zoomSupported,
+      "zoomRatio": zoomRatio,
+      "zoomRangeMin": zoomRangeMin,
+      "zoomRangeMax": zoomRangeMax,
+      "zoomControlPath": zoomControlPath,
+      "projectionSource": projectionSource,
+      "zoomRatioBucket": bucketZoomRatio(zoomRatio),
+      "zoomApplyLatencyBucket": bucketLatencyMs(lastZoomApplyLatencyMs),
+      "zoomProjectionSyncLatencyBucket": bucketLatencyMs(lastZoomProjectionSyncLatencyMs),
       "lastUpdatedAt": ISO8601DateFormatter().string(from: Date()),
       "cameraPermission": cameraPermission,
       "motionPermission": motionPermission,
       "locationPermission": locationPermission,
       "locationAccuracy": locationAccuracy,
+      "headingSource": "arkit_world",
+      "poseSource": "arkit_world_tracking",
+      "poseMode": "arkit_world_tracking",
+      "visionBackend": "vision_native",
       "message": statusMessage ?? NSNull(),
       "retryCount": retryCount
     ]

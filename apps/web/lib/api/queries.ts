@@ -20,8 +20,12 @@ import type {
   FilterPresetCreateV1,
   FilterPresetEnvelopeV1,
   FilterPresetUpdateV1,
+  LaunchDetailVersionRequest,
+  LaunchDetailVersionV1,
   FilterPresetsV1,
   LaunchFeedRequest,
+  LaunchFeedVersionRequest,
+  LaunchFeedVersionV1,
   LaunchFeedV1,
   LaunchNotificationPreferenceEnvelopeV1,
   LaunchNotificationPreferenceUpdateV1,
@@ -54,7 +58,9 @@ import {
   embedWidgetsQueryOptions,
   filterPresetsQueryOptions,
   launchFeedQueryOptions,
+  launchFeedVersionQueryOptions,
   launchNotificationPreferenceQueryOptions,
+  launchDetailVersionQueryOptions,
   marketingEmailQueryOptions,
   normalizeSearchQuery,
   notificationPreferencesQueryOptions,
@@ -93,8 +99,7 @@ import {
   getArEligibleLaunchIds,
   getFeedFilterOptions,
   getLegacyChangedLaunches,
-  getLegacyLaunchFeed,
-  getLiveLaunchFeedVersion
+  getLegacyLaunchFeed
 } from '@/lib/api/webLaunchFeedAdapters';
 
 const viewerScopedQueryKeys = [
@@ -187,9 +192,9 @@ export const guestViewerEntitlements: EntitlementsV1 = {
   refreshIntervalSeconds: 7200,
   capabilities: {
     canUseSavedItems: false,
-    canUseLaunchFilters: false,
-    canUseLaunchCalendar: false,
-    canUseOneOffCalendar: false,
+    canUseLaunchFilters: true,
+    canUseLaunchCalendar: true,
+    canUseOneOffCalendar: true,
     canUseLiveFeed: false,
     canUseChangeLog: false,
     canUseInstantAlerts: false,
@@ -374,8 +379,11 @@ function normalizeLaunchFeedRequest(request: LaunchFeedRequest = {}): LaunchFeed
     location: request.location ?? null,
     state: request.state ?? null,
     pad: request.pad ?? null,
+    padId: request.padId ?? null,
     region: request.region ?? undefined,
     provider: request.provider ?? null,
+    providerId: request.providerId ?? null,
+    rocketId: request.rocketId ?? null,
     sort: request.sort ?? undefined,
     status: request.status ?? null
   };
@@ -384,6 +392,33 @@ function normalizeLaunchFeedRequest(request: LaunchFeedRequest = {}): LaunchFeed
 function getLaunchFeedFetcher(request: LaunchFeedRequest) {
   const normalized = normalizeLaunchFeedRequest(request);
   return WEB_USE_LEGACY_FEED_ADAPTERS ? getLegacyLaunchFeed(normalized) : browserApiClient.getLaunchFeed(normalized);
+}
+
+function normalizeLaunchFeedVersionRequest(request: LaunchFeedVersionRequest = {}): LaunchFeedVersionRequest {
+  return {
+    scope: request.scope ?? 'public',
+    range: request.range ?? undefined,
+    from: request.from ?? null,
+    to: request.to ?? null,
+    location: request.location ?? null,
+    state: request.state ?? null,
+    pad: request.pad ?? null,
+    padId: request.padId ?? null,
+    region: request.region ?? undefined,
+    provider: request.provider ?? null,
+    providerId: request.providerId ?? null,
+    rocketId: request.rocketId ?? null,
+    status: request.status ?? null
+  };
+}
+
+function getLaunchFeedVersionFetcher(request: LaunchFeedVersionRequest = {}) {
+  const normalized = normalizeLaunchFeedVersionRequest(request);
+  return browserApiClient.getLaunchFeedVersion(normalized);
+}
+
+function getLaunchDetailVersionFetcher(launchId: string, request: LaunchDetailVersionRequest = {}) {
+  return browserApiClient.getLaunchDetailVersion(launchId, request);
 }
 
 function getChangedLaunchesFetcher(request: { hours?: number; region?: 'us' | 'non-us' | 'all' } = {}) {
@@ -412,6 +447,29 @@ export function getChangedLaunchesQueryOptions(
 ) {
   return {
     ...changedLaunchesQueryOptions(() => getChangedLaunchesFetcher(request), request),
+    enabled: options?.enabled ?? true
+  };
+}
+
+export function getLaunchFeedVersionQueryOptions(
+  request: LaunchFeedVersionRequest = {},
+  options?: { enabled?: boolean }
+) {
+  const normalized = normalizeLaunchFeedVersionRequest(request);
+
+  return {
+    ...launchFeedVersionQueryOptions(() => getLaunchFeedVersionFetcher(normalized), normalized),
+    enabled: options?.enabled ?? true
+  };
+}
+
+export function getLaunchDetailVersionQueryOptions(
+  launchId: string,
+  request: LaunchDetailVersionRequest = {},
+  options?: { enabled?: boolean }
+) {
+  return {
+    ...launchDetailVersionQueryOptions(launchId, () => getLaunchDetailVersionFetcher(launchId, request), request),
     enabled: options?.enabled ?? true
   };
 }
@@ -465,11 +523,9 @@ export function useBillingSummaryQuery() {
 }
 
 export function useBillingCatalogQuery(platform: BillingPlatformV1, options?: { enabled?: boolean }) {
-  const viewerSessionQuery = useViewerSessionQuery();
-
   return useQuery({
     ...billingCatalogQueryOptions(() => browserApiClient.getBillingCatalog(platform), { platform }),
-    enabled: (options?.enabled ?? true) && Boolean(viewerSessionQuery.data?.viewerId)
+    enabled: options?.enabled ?? true
   });
 }
 
@@ -629,22 +685,28 @@ export function useFeedFilterOptionsQuery(
   });
 }
 
+export async function fetchLaunchFeedVersion(
+  queryClient: QueryClient,
+  request: LaunchFeedVersionRequest = {}
+) {
+  return queryClient.fetchQuery(getLaunchFeedVersionQueryOptions(request)) as Promise<LaunchFeedVersionV1>;
+}
+
+export async function fetchLaunchDetailVersion(
+  queryClient: QueryClient,
+  launchId: string,
+  request: LaunchDetailVersionRequest = {}
+) {
+  return queryClient.fetchQuery(getLaunchDetailVersionQueryOptions(launchId, request)) as Promise<LaunchDetailVersionV1>;
+}
+
 export async function fetchLiveLaunchVersion(
   queryClient: QueryClient,
-  request: {
-    range: 'today' | '7d' | 'month' | 'year' | 'past' | 'all';
-    region: 'us' | 'non-us' | 'all';
-    location?: string | null;
-    state?: string | null;
-    pad?: string | null;
-    provider?: string | null;
-    status?: 'go' | 'hold' | 'scrubbed' | 'tbd' | 'unknown' | null;
-  }
+  request: Omit<LaunchFeedVersionRequest, 'scope'> = {}
 ) {
-  return queryClient.fetchQuery({
-    queryKey: webOnlyQueryKeys.liveLaunchVersion(request),
-    queryFn: () => getLiveLaunchFeedVersion(request),
-    staleTime: 0
+  return fetchLaunchFeedVersion(queryClient, {
+    ...request,
+    scope: 'live'
   });
 }
 

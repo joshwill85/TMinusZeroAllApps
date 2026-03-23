@@ -73,7 +73,7 @@ export function LiveDataPulse({
   const pulseTiming = {
     duration: ANIMATION_CONSTANTS.LIVE_PULSE_DURATION / 1000,
     repeat: Infinity,
-    ease: 'easeInOut',
+    ease: 'easeInOut' as const,
   };
 
   return (

@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { BillingStripeRouteError, createStripeCheckoutSession } from '@/lib/server/billingStripe';
+import { BillingApiRouteError } from '@/lib/server/billingCore';
+import { createGuestPremiumCheckoutSession, PremiumClaimRouteError } from '@/lib/server/premiumClaims';
 import { resolveViewerSession } from '@/lib/server/viewerSession';
 export const dynamic = 'force-dynamic';
 
@@ -19,17 +21,23 @@ export async function POST(request: Request) {
 
   try {
     const session = await resolveViewerSession(request);
-    const payload = await createStripeCheckoutSession(session, {
-      returnTo: parsed.data?.returnTo
-    });
+    const payload = session.userId
+      ? await createStripeCheckoutSession(session, {
+          returnTo: parsed.data?.returnTo
+        })
+      : await createGuestPremiumCheckoutSession(parsed.data?.returnTo);
     return NextResponse.json(payload);
   } catch (error) {
-    if (error instanceof BillingStripeRouteError) {
+    if (error instanceof BillingStripeRouteError || error instanceof PremiumClaimRouteError || error instanceof BillingApiRouteError) {
       const code = error.code === 'stripe_lookup_failed' ? 'failed_to_init_billing' : error.code;
+      const details =
+        error instanceof BillingStripeRouteError && 'details' in error
+          ? (error.details ?? {})
+          : {};
       return NextResponse.json(
         {
           error: code,
-          ...(error.details ?? {})
+          ...details
         },
         { status: error.status }
       );

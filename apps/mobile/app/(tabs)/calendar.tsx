@@ -1,26 +1,60 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, Share, Text, View } from 'react-native';
+import type { WatchlistRuleV1 } from '@tminuszero/api-client';
 import type { Href } from 'expo-router';
 import { useRouter } from 'expo-router';
-import { buildCalendarMonthDays, getCalendarMonthBounds, groupItemsByLocalDate, toLocalDateKey } from '@tminuszero/domain';
+import { buildCalendarMonthDays, getCalendarMonthBounds, getMobileViewerTier, groupItemsByLocalDate, toLocalDateKey } from '@tminuszero/domain';
 import { buildLaunchHref } from '@tminuszero/navigation';
-import { useLaunchFeedPageQuery, useViewerEntitlementsQuery } from '@/src/api/queries';
+import {
+  useCalendarFeedsQuery,
+  useCreateCalendarFeedMutation,
+  useDeleteCalendarFeedMutation,
+  useFilterPresetsQuery,
+  useLaunchFeedPageQuery,
+  useRotateCalendarFeedMutation,
+  useViewerEntitlementsQuery,
+  useWatchlistsQuery
+} from '@/src/api/queries';
 import { AppScreen } from '@/src/components/AppScreen';
 import { LaunchCalendarSheet } from '@/src/components/LaunchCalendarSheet';
 import { ErrorStateCard, LoadingStateCard, SectionCard } from '@/src/components/SectionCard';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
 import { ViewerTierCard } from '@/src/components/ViewerTierCard';
+import { getPublicSiteUrl } from '@/src/config/api';
+import { useMobileToast } from '@/src/providers/MobileToastProvider';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import type { LaunchCalendarLaunch } from '@/src/calendar/launchCalendar';
+import {
+  formatWatchlistRuleCaption,
+  formatWatchlistRuleLabel,
+  resolvePrimaryWatchlist
+} from '@/src/watchlists/usePrimaryWatchlist';
+
+type CalendarFollowRule = WatchlistRuleV1 & {
+  ruleType: 'launch' | 'provider' | 'pad';
+};
+
+function isCalendarFollowRule(rule: WatchlistRuleV1): rule is CalendarFollowRule {
+  return rule.ruleType === 'launch' || rule.ruleType === 'provider' || rule.ruleType === 'pad';
+}
 
 export default function CalendarScreen() {
   const router = useRouter();
   const { theme } = useMobileBootstrap();
+  const { showToast } = useMobileToast();
   const entitlementsQuery = useViewerEntitlementsQuery();
-  const tier = entitlementsQuery.data?.tier ?? 'anon';
+  const tier = getMobileViewerTier(entitlementsQuery.data?.tier ?? 'anon');
+  const isAuthed = entitlementsQuery.data?.isAuthed ?? false;
   const canUseLaunchCalendar = entitlementsQuery.data?.capabilities.canUseLaunchCalendar === true;
+  const canUseRecurringCalendarFeeds = entitlementsQuery.data?.capabilities.canUseRecurringCalendarFeeds === true;
   const feedScope = entitlementsQuery.data?.mode === 'live' ? 'live' : 'public';
   const refreshIntervalMs = (entitlementsQuery.data?.refreshIntervalSeconds ?? 7200) * 1000;
+  const calendarFeedsQuery = useCalendarFeedsQuery({ enabled: canUseRecurringCalendarFeeds });
+  const filterPresetsQuery = useFilterPresetsQuery();
+  const watchlistsQuery = useWatchlistsQuery();
+  const createCalendarFeedMutation = useCreateCalendarFeedMutation();
+  const deleteCalendarFeedMutation = useDeleteCalendarFeedMutation();
+  const rotateCalendarFeedMutation = useRotateCalendarFeedMutation();
   const [month, setMonth] = useState(() => {
     const today = new Date();
     return new Date(today.getFullYear(), today.getMonth(), 1);
@@ -33,7 +67,7 @@ export default function CalendarScreen() {
       from: monthBounds.from.toISOString(),
       to: monthBounds.to.toISOString(),
       sort: 'soonest',
-      region: 'all',
+      region: 'us',
       limit: 1000
     },
     {
@@ -53,6 +87,122 @@ export default function CalendarScreen() {
   }, [monthKey]);
 
   const selectedLaunches = selectedDay ? groupedLaunches.get(selectedDay) ?? [] : [];
+  const calendarFeeds = useMemo(() => calendarFeedsQuery.data?.feeds ?? [], [calendarFeedsQuery.data?.feeds]);
+  const filterPresets = filterPresetsQuery.data?.presets ?? [];
+  const primaryWatchlist = useMemo(
+    () => resolvePrimaryWatchlist(watchlistsQuery.data?.watchlists ?? []),
+    [watchlistsQuery.data?.watchlists]
+  );
+  const followRules = useMemo(
+    () => (primaryWatchlist?.rules ?? []).filter(isCalendarFollowRule),
+    [primaryWatchlist?.rules]
+  );
+
+  const allLaunchesFeed = useMemo(
+    () => calendarFeeds.find((feed) => feed.sourceKind === 'all_launches') ?? null,
+    [calendarFeeds]
+  );
+
+  function buildCalendarFeedUrl(token: string) {
+    return `${getPublicSiteUrl()}/api/calendar/${encodeURIComponent(token)}.ics`;
+  }
+
+  function findFeedForPreset(presetId: string) {
+    return calendarFeeds.find((feed) => feed.sourceKind === 'preset' && feed.presetId === presetId) ?? null;
+  }
+
+  function findFeedForFollow(ruleType: string, ruleValue: string) {
+    return (
+      calendarFeeds.find(
+        (feed) =>
+          feed.sourceKind === 'follow' &&
+          feed.followRuleType === ruleType &&
+          String(feed.followRuleValue || '').trim().toLowerCase() === String(ruleValue || '').trim().toLowerCase()
+      ) ?? null
+    );
+  }
+
+  async function shareFeedUrl(token: string) {
+    const url = buildCalendarFeedUrl(token);
+    await Share.share({
+      message: url,
+      url
+    });
+  }
+
+  async function ensureAndShareAllLaunchesFeed() {
+    try {
+      const existing = allLaunchesFeed;
+      if (existing) {
+        await shareFeedUrl(existing.token);
+        return;
+      }
+
+      const payload = await createCalendarFeedMutation.mutateAsync({
+        name: 'All launches',
+        sourceKind: 'all_launches',
+        filters: {
+          range: 'all',
+          region: 'all',
+          sort: 'soonest'
+        }
+      });
+      await shareFeedUrl(payload.feed.token);
+      showToast({ message: 'Created a dynamic All launches calendar feed.', tone: 'success' });
+    } catch (error) {
+      showToast({
+        message: error instanceof Error ? error.message : 'Unable to create or share that calendar feed.',
+        tone: 'warning'
+      });
+    }
+  }
+
+  async function ensureAndSharePresetFeed(presetId: string, presetName: string) {
+    try {
+      const existing = findFeedForPreset(presetId);
+      if (existing) {
+        await shareFeedUrl(existing.token);
+        return;
+      }
+
+      const payload = await createCalendarFeedMutation.mutateAsync({
+        name: presetName,
+        sourceKind: 'preset',
+        presetId
+      });
+      await shareFeedUrl(payload.feed.token);
+      showToast({ message: `Created a dynamic feed for ${presetName}.`, tone: 'success' });
+    } catch (error) {
+      showToast({
+        message: error instanceof Error ? error.message : `Unable to create or share ${presetName}.`,
+        tone: 'warning'
+      });
+    }
+  }
+
+  async function ensureAndShareFollowFeed(ruleType: 'launch' | 'provider' | 'pad', ruleValue: string, label: string) {
+    try {
+      const existing = findFeedForFollow(ruleType, ruleValue);
+      if (existing) {
+        await shareFeedUrl(existing.token);
+        return;
+      }
+
+      const payload = await createCalendarFeedMutation.mutateAsync({
+        name: label,
+        sourceKind: 'follow',
+        followRuleType: ruleType,
+        followRuleValue: ruleValue
+      });
+      await shareFeedUrl(payload.feed.token);
+      showToast({ message: `Created a dynamic feed for ${label}.`, tone: 'success' });
+    } catch (error) {
+      showToast({
+        message: error instanceof Error ? error.message : `Unable to create or share ${label}.`,
+        tone: 'warning'
+      });
+    }
+  }
 
   return (
     <>
@@ -68,14 +218,14 @@ export default function CalendarScreen() {
         />
 
         {!entitlementsQuery.isPending && !entitlementsQuery.isError ? (
-          <ViewerTierCard tier={tier} featureKey="launch_calendar" testID="calendar-tier-card" />
+          <ViewerTierCard tier={tier} isAuthed={isAuthed} featureKey="launch_calendar" testID="calendar-tier-card" />
         ) : null}
 
         {entitlementsQuery.isPending ? (
           <LoadingStateCard title="Loading calendar access" body="Checking your current membership." />
         ) : entitlementsQuery.isError ? (
           <ErrorStateCard title="Calendar unavailable" body={entitlementsQuery.error.message} />
-        ) : !entitlementsQuery.data.isAuthed ? null : !canUseLaunchCalendar ? null : calendarQuery.isPending ? (
+        ) : !canUseLaunchCalendar ? null : calendarQuery.isPending ? (
           <LoadingStateCard title="Loading launches" body="Fetching this month’s launch calendar." />
         ) : calendarQuery.isError ? (
           <ErrorStateCard title="Calendar unavailable" body={calendarQuery.error.message} />
@@ -216,6 +366,150 @@ export default function CalendarScreen() {
                 </View>
               )}
             </SectionCard>
+
+            <SectionCard
+              title="Premium calendar feeds"
+              description="Export dynamic feeds for all launches, saved presets, or individual follows. New matching launches appear automatically in subscribed calendars."
+            >
+              {canUseRecurringCalendarFeeds ? (
+                <View style={{ gap: 12 }}>
+                  {calendarFeedsQuery.isPending ? (
+                    <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>Loading recurring calendar feeds…</Text>
+                  ) : calendarFeedsQuery.isError ? (
+                    <Text style={{ color: '#ff9087', fontSize: 14, lineHeight: 21 }}>{calendarFeedsQuery.error.message}</Text>
+                  ) : (
+                    <>
+                      <CalendarFeedSourceRow
+                        title="All launches"
+                        caption="One dynamic feed for every launch worldwide."
+                        actionLabel={allLaunchesFeed ? 'Share feed' : 'Create feed'}
+                        onPress={() => {
+                          void ensureAndShareAllLaunchesFeed();
+                        }}
+                        disabled={createCalendarFeedMutation.isPending}
+                      />
+
+                      {filterPresets.length > 0 ? (
+                        <View style={{ gap: 8 }}>
+                          <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>Saved presets</Text>
+                          {filterPresets.map((preset) => (
+                            <CalendarFeedSourceRow
+                              key={preset.id}
+                              title={preset.name}
+                              caption={findFeedForPreset(preset.id) ? 'Existing dynamic feed ready to share.' : 'Create a dynamic feed from this saved preset.'}
+                              actionLabel={findFeedForPreset(preset.id) ? 'Share feed' : 'Create feed'}
+                              onPress={() => {
+                                void ensureAndSharePresetFeed(preset.id, preset.name);
+                              }}
+                              disabled={createCalendarFeedMutation.isPending}
+                            />
+                          ))}
+                        </View>
+                      ) : null}
+
+                      {followRules.length > 0 ? (
+                        <View style={{ gap: 8 }}>
+                          <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>Following</Text>
+                          {followRules.map((rule) => (
+                            <CalendarFeedSourceRow
+                              key={rule.id}
+                              title={formatWatchlistRuleLabel(rule)}
+                              caption={formatWatchlistRuleCaption(rule)}
+                              actionLabel={findFeedForFollow(rule.ruleType, rule.ruleValue) ? 'Share feed' : 'Create feed'}
+                              onPress={() => {
+                                void ensureAndShareFollowFeed(rule.ruleType, rule.ruleValue, formatWatchlistRuleLabel(rule));
+                              }}
+                              disabled={createCalendarFeedMutation.isPending}
+                            />
+                          ))}
+                        </View>
+                      ) : null}
+
+                      {calendarFeeds.length > 0 ? (
+                        <View style={{ gap: 8 }}>
+                          <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>Existing feeds</Text>
+                          {calendarFeeds.map((feed) => (
+                            <View
+                              key={feed.id}
+                              style={{
+                                borderRadius: 16,
+                                borderWidth: 1,
+                                borderColor: theme.stroke,
+                                backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                                padding: 14,
+                                gap: 10
+                              }}
+                            >
+                              <View style={{ gap: 4 }}>
+                                <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>{feed.name}</Text>
+                                <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
+                                  {feed.sourceKind === 'preset'
+                                    ? 'Preset-based dynamic feed'
+                                    : feed.sourceKind === 'follow'
+                                      ? 'Follow-based dynamic feed'
+                                      : 'All launches dynamic feed'}
+                                </Text>
+                              </View>
+                              <View style={{ flexDirection: 'row', gap: 10 }}>
+                                <CalendarRowButton
+                                  label="Share"
+                                  onPress={() => {
+                                    void shareFeedUrl(feed.token);
+                                  }}
+                                  primary
+                                />
+                                <CalendarRowButton
+                                  label={rotateCalendarFeedMutation.isPending ? 'Rotating…' : 'Rotate'}
+                                  onPress={() => {
+                                    void (async () => {
+                                      try {
+                                        const payload = await rotateCalendarFeedMutation.mutateAsync(feed.id);
+                                        await shareFeedUrl(payload.feed.token);
+                                        showToast({ message: `Rotated ${feed.name}.`, tone: 'success' });
+                                      } catch (error) {
+                                        showToast({
+                                          message: error instanceof Error ? error.message : `Unable to rotate ${feed.name}.`,
+                                          tone: 'warning'
+                                        });
+                                      }
+                                    })();
+                                  }}
+                                />
+                                <CalendarRowButton
+                                  label={deleteCalendarFeedMutation.isPending ? 'Deleting…' : 'Delete'}
+                                  onPress={() => {
+                                    void (async () => {
+                                      try {
+                                        await deleteCalendarFeedMutation.mutateAsync(feed.id);
+                                        showToast({ message: `Deleted ${feed.name}.`, tone: 'info' });
+                                      } catch (error) {
+                                        showToast({
+                                          message: error instanceof Error ? error.message : `Unable to delete ${feed.name}.`,
+                                          tone: 'warning'
+                                        });
+                                      }
+                                    })();
+                                  }}
+                                />
+                              </View>
+                            </View>
+                          ))}
+                        </View>
+                      ) : null}
+                    </>
+                  )}
+                </View>
+              ) : (
+                <ViewerTierCard
+                  tier="anon"
+                  isAuthed={isAuthed}
+                  featureKey="recurring_calendar_feeds"
+                  onPress={() => {
+                    router.push('/profile');
+                  }}
+                />
+              )}
+            </SectionCard>
           </>
         )}
       </AppScreen>
@@ -246,20 +540,57 @@ function MonthButton({ label, onPress }: { label: string; onPress: () => void })
   );
 }
 
+function CalendarFeedSourceRow({
+  title,
+  caption,
+  actionLabel,
+  onPress,
+  disabled = false
+}: {
+  title: string;
+  caption: string;
+  actionLabel: string;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
+  const { theme } = useMobileBootstrap();
+
+  return (
+    <View
+      style={{
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: theme.stroke,
+        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+        padding: 14,
+        gap: 10
+      }}
+    >
+      <View style={{ gap: 4 }}>
+        <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>{title}</Text>
+        <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>{caption}</Text>
+      </View>
+      <CalendarRowButton label={actionLabel} onPress={onPress} primary disabled={disabled} />
+    </View>
+  );
+}
+
 function CalendarRowButton({
   label,
   onPress,
-  primary = false
+  primary = false,
+  disabled = false
 }: {
   label: string;
   onPress: () => void;
   primary?: boolean;
+  disabled?: boolean;
 }) {
   const { theme } = useMobileBootstrap();
 
   return (
     <Pressable
-      onPress={onPress}
+      onPress={disabled ? undefined : onPress}
       style={({ pressed }) => ({
         flex: 1,
         borderRadius: 999,
@@ -268,7 +599,7 @@ function CalendarRowButton({
         backgroundColor: primary ? 'rgba(34, 211, 238, 0.1)' : 'rgba(255, 255, 255, 0.03)',
         paddingHorizontal: 14,
         paddingVertical: 11,
-        opacity: pressed ? 0.88 : 1
+        opacity: disabled ? 0.5 : pressed ? 0.88 : 1
       })}
     >
       <Text style={{ color: primary ? theme.accent : theme.foreground, fontSize: 14, fontWeight: '700', textAlign: 'center' }}>{label}</Text>

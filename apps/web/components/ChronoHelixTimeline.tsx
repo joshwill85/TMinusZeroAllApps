@@ -50,6 +50,10 @@ const STATUS_META: Record<TimelineNode['status'], { label: string; tone: string;
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const quantize = (value: number, decimals = 6) => {
+  const factor = 10 ** decimals;
+  return Math.round(value * factor) / factor;
+};
 
 function useElementSize<T extends HTMLElement>(ref: RefObject<T>) {
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -529,13 +533,13 @@ function LaunchNode({
   formatShortDateLabel: (iso: string) => string;
 }) {
   const delta = useTransform(activeSpring, (latest) => index - latest);
-  const x = useTransform(delta, (value) => radius * Math.sin(value * ANGLE_STEP));
-  const y = useTransform(delta, (value) => value * verticalStep);
-  const z = useTransform(delta, (value) => radius * Math.cos(value * ANGLE_STEP) - radius);
-  const opacity = useTransform(delta, (value) => clamp(1 - Math.abs(value) * 0.35, 0.18, 1));
-  const scale = useTransform(delta, (value) => clamp(1 - Math.abs(value) * 0.18, 0.55, 1));
-  const blur = useTransform(z, (value) => clamp(Math.abs(value) / 140, 0, 8));
-  const filter = useTransform(blur, (value) => `blur(${value}px)`);
+  const x = useTransform(delta, (value) => quantize(radius * Math.sin(value * ANGLE_STEP)));
+  const y = useTransform(delta, (value) => quantize(value * verticalStep));
+  const z = useTransform(delta, (value) => quantize(radius * Math.cos(value * ANGLE_STEP) - radius));
+  const opacity = useTransform(delta, (value) => quantize(clamp(1 - Math.abs(value) * 0.35, 0.18, 1), 3));
+  const scale = useTransform(delta, (value) => quantize(clamp(1 - Math.abs(value) * 0.18, 0.55, 1), 3));
+  const blur = useTransform(z, (value) => quantize(clamp(Math.abs(value) / 140, 0, 8)));
+  const filter = useTransform(blur, (value) => `blur(${quantize(value)}px)`);
   const zIndex = useTransform(delta, (value) => 1000 - Math.round(Math.abs(value) * 20));
 
   const statusMeta = STATUS_META[node.status];
@@ -547,6 +551,7 @@ function LaunchNode({
     <motion.div
       role="listitem"
       aria-current={isActive ? 'step' : undefined}
+      suppressHydrationWarning
       className="absolute left-1/2 top-1/2"
       style={{
         x,

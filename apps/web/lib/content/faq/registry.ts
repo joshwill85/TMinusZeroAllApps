@@ -45,7 +45,7 @@ export const FAQ_REGISTRY: readonly FaqCanonicalEntry[] = [
     surfaces: ['docs-faq'],
     question: 'How often is the data refreshed?',
     answer:
-      'Public visitors refresh every 2 hours (aligned to local clock boundaries such as 12:00am, 2:00am, and 4:00am). Signed-in free accounts refresh every 15 minutes (:00, :15, :30, :45). Premium checks for updates every 15 seconds and refreshes when source data changes.',
+      'Public visitors and signed-in non-Premium accounts refresh every 2 hours (aligned to local clock boundaries such as 12:00am, 2:00am, and 4:00am). Premium checks for updates every 15 seconds and refreshes when source data changes.',
     verificationSources: [
       internal('lib/tiers.ts', 'Defines tier refresh intervals and alignment math.'),
       internal('components/LaunchDetailAutoRefresh.tsx', 'Implements polling behavior per tier.'),

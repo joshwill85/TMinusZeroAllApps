@@ -2,10 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { Linking, Pressable, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
-import * as WebBrowser from 'expo-web-browser';
 import { useQueryClient } from '@tanstack/react-query';
 import type { SearchResultV1 } from '@tminuszero/contracts';
-import { buildMobileRoute, buildSearchHref } from '@tminuszero/navigation';
+import { buildMobileRoute, buildSearchHref, normalizeNativeMobileCustomerHref } from '@tminuszero/navigation';
 import { prefetchLaunchDetail, useSearchQuery, useViewerSessionQuery } from '@/src/api/queries';
 import { useMobileApiClient } from '@/src/api/useMobileApiClient';
 import { AppScreen } from '@/src/components/AppScreen';
@@ -15,8 +14,7 @@ import {
   CustomerShellHero,
   CustomerShellPanel
 } from '@/src/components/CustomerShell';
-import { getPublicSiteUrl } from '@/src/config/api';
-import { resolveNativeProgramHubHref } from '@/src/features/programHubs/rollout';
+import { resolveNativeProgramHubOrCoreHref } from '@/src/features/programHubs/rollout';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import { formatSearchResultLabel } from '@/src/utils/format';
 
@@ -39,8 +37,12 @@ export default function SearchScreen() {
   const routeQuery = getQueryParam(params.q).trim();
   const [draft, setDraft] = useState(routeQuery);
   const searchQuery = useSearchQuery(routeQuery);
-  const siteUrl = useMemo(() => getPublicSiteUrl(), []);
-  const results = searchQuery.data?.results ?? [];
+  const rawResults = useMemo(() => searchQuery.data?.results ?? [], [searchQuery.data?.results]);
+  const results = useMemo(
+    () => rawResults.filter((result) => Boolean(resolveNativeSearchResultHref(viewerSessionQuery.data, result.href) || isExternalHref(result.href))),
+    [rawResults, viewerSessionQuery.data]
+  );
+  const hiddenResultCount = Math.max(0, rawResults.length - results.length);
   const tookMs = searchQuery.data?.tookMs ?? null;
   const heading = getHeading(routeQuery, searchQuery.isPending, searchQuery.isError, results.length);
 
@@ -73,17 +75,20 @@ export default function SearchScreen() {
       return;
     }
 
-    const nativeHubHref = resolveNativeProgramHubHref(viewerSessionQuery.data, result.href);
+    const nativeHubHref = resolveNativeProgramHubOrCoreHref(viewerSessionQuery.data, result.href);
     if (nativeHubHref) {
       router.push(nativeHubHref as Href);
       return;
     }
 
-    const resolvedHref = resolveResultHref(result.href, siteUrl);
-    try {
-      await WebBrowser.openBrowserAsync(resolvedHref);
-    } catch {
-      await Linking.openURL(resolvedHref);
+    const nativeCustomerHref = normalizeNativeMobileCustomerHref(result.href);
+    if (nativeCustomerHref) {
+      router.push(nativeCustomerHref as Href);
+      return;
+    }
+
+    if (isExternalHref(result.href)) {
+      await Linking.openURL(result.href);
     }
   };
 
@@ -168,11 +173,11 @@ export default function SearchScreen() {
         <>
           <CustomerShellPanel
             title="Coverage"
-            description="Launch detail pages, mission hubs, program pages, contracts, people, recovery assets, catalog entities, and live news."
+            description="Native mobile currently returns launches, supported program hubs, contracts, satellites, guides, catalog routes, and account/info pages already shipped in the app."
           />
           <CustomerShellPanel
             title="Query tips"
-            description="Quoted phrases keep words together. Prefix with `-` to exclude a term. Use `type:news` when you want editorial coverage."
+            description="Quoted phrases keep words together. Prefix with `-` to exclude a term. Unsupported customer routes stay hidden until they have a native mobile destination."
           />
         </>
       ) : searchQuery.isPending ? (
@@ -180,12 +185,19 @@ export default function SearchScreen() {
       ) : searchQuery.isError ? (
         <CustomerShellPanel title="Search unavailable" description={searchQuery.error.message} />
       ) : results.length === 0 ? (
-        <CustomerShellPanel title="No matches" description={`No results were returned for “${routeQuery}”.`} />
+        <CustomerShellPanel
+          title="No mobile-native matches"
+          description={
+            hiddenResultCount > 0
+              ? `${hiddenResultCount} matching result${hiddenResultCount === 1 ? '' : 's'} are currently hidden because the route is not supported natively on mobile.`
+              : `No results were returned for “${routeQuery}”.`
+          }
+        />
       ) : (
         <CustomerShellPanel
           testID="search-results-section"
           title="Results"
-          description={`${results.length} result${results.length === 1 ? '' : 's'} returned${tookMs != null ? ` in ${tookMs} ms` : ''}.`}
+          description={`${results.length} native result${results.length === 1 ? '' : 's'} returned${tookMs != null ? ` in ${tookMs} ms` : ''}${hiddenResultCount > 0 ? ` • ${hiddenResultCount} unsupported hidden` : ''}.`}
         >
           <View style={{ gap: 12 }}>
             {results.map((result, index) => (
@@ -244,12 +256,18 @@ function getHeading(routeQuery: string, isPending: boolean, isError: boolean, re
   return `Results for "${routeQuery}"`;
 }
 
-function resolveResultHref(href: string, siteUrl: string) {
-  if (/^https?:\/\//i.test(href)) {
+function resolveNativeSearchResultHref(
+  session: Parameters<typeof resolveNativeProgramHubOrCoreHref>[0],
+  href: string
+) {
+  if (href.startsWith('/launches/')) {
     return href;
   }
+  return resolveNativeProgramHubOrCoreHref(session, href) || normalizeNativeMobileCustomerHref(href);
+}
 
-  return `${siteUrl}${href.startsWith('/') ? href : `/${href}`}`;
+function isExternalHref(href: string) {
+  return /^https?:\/\//i.test(href);
 }
 
 function trimRouteLabel(href: string) {

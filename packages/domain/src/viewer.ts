@@ -1,5 +1,6 @@
 export type ViewerTier = 'anon' | 'free' | 'premium';
 export type ViewerMode = 'public' | 'live';
+export type MobileViewerTier = 'anon' | 'premium';
 
 export type ViewerCapabilities = {
   canUseSavedItems: boolean;
@@ -45,7 +46,6 @@ export function resolveViewerTier({
   isAdmin?: boolean;
 }): ViewerTier {
   if (isPaid || isAdmin) return 'premium';
-  if (isAuthed) return 'free';
   return 'anon';
 }
 
@@ -57,21 +57,24 @@ export function getTierRefreshSeconds(tier: ViewerTier) {
   return TIER_REFRESH_SECONDS[tier];
 }
 
+export function getMobileViewerTier(tier: ViewerTier): MobileViewerTier {
+  return tier === 'premium' ? 'premium' : 'anon';
+}
+
 export function getTierCapabilities(tier: ViewerTier): ViewerCapabilities {
   const isPremium = tier === 'premium';
-  const isSignedIn = tier !== 'anon';
 
   return {
     canUseSavedItems: isPremium,
-    canUseLaunchFilters: isSignedIn,
-    canUseLaunchCalendar: isSignedIn,
-    canUseOneOffCalendar: isSignedIn,
+    canUseLaunchFilters: true,
+    canUseLaunchCalendar: true,
+    canUseOneOffCalendar: true,
     canUseLiveFeed: isPremium,
     canUseChangeLog: isPremium,
     canUseInstantAlerts: isPremium,
     canManageFilterPresets: isPremium,
     canManageFollows: isPremium,
-    canUseBasicAlertRules: isSignedIn,
+    canUseBasicAlertRules: isPremium,
     canUseAdvancedAlertRules: isPremium,
     canUseBrowserLaunchAlerts: isPremium,
     canUseRecurringCalendarFeeds: isPremium,
@@ -80,6 +83,37 @@ export function getTierCapabilities(tier: ViewerTier): ViewerCapabilities {
     canUseArTrajectory: isPremium,
     canUseEnhancedForecastInsights: isPremium,
     canUseLaunchDayEmail: isPremium
+  };
+}
+
+export function getMobileTierCapabilities(tier: ViewerTier): ViewerCapabilities {
+  if (tier === 'premium') {
+    return {
+      ...getTierCapabilities('premium'),
+      canUseBrowserLaunchAlerts: false,
+      canUseLaunchDayEmail: false
+    };
+  }
+
+  return {
+    canUseSavedItems: false,
+    canUseLaunchFilters: true,
+    canUseLaunchCalendar: true,
+    canUseOneOffCalendar: true,
+    canUseLiveFeed: false,
+    canUseChangeLog: false,
+    canUseInstantAlerts: false,
+    canManageFilterPresets: false,
+    canManageFollows: false,
+    canUseBasicAlertRules: false,
+    canUseAdvancedAlertRules: false,
+    canUseBrowserLaunchAlerts: false,
+    canUseRecurringCalendarFeeds: false,
+    canUseRssFeeds: false,
+    canUseEmbedWidgets: false,
+    canUseArTrajectory: false,
+    canUseEnhancedForecastInsights: false,
+    canUseLaunchDayEmail: false
   };
 }
 
@@ -107,6 +141,40 @@ export function getTierLimits(tier: ViewerTier): ViewerLimits {
     filterPresetLimit: 0,
     watchlistLimit: 0,
     watchlistRuleLimit: 0
+  };
+}
+
+export function getMobileTierLimits(tier: ViewerTier): ViewerLimits {
+  return tier === 'premium' ? getTierLimits('premium') : getTierLimits('anon');
+}
+
+export function getMobileTierRefreshSeconds(tier: ViewerTier) {
+  return tier === 'premium' ? TIER_REFRESH_SECONDS.premium : TIER_REFRESH_SECONDS.anon;
+}
+
+export function getMobileTierMode(tier: ViewerTier): ViewerMode {
+  return tier === 'premium' ? 'live' : 'public';
+}
+
+export function projectMobileViewerEntitlements<
+  T extends {
+    tier: ViewerTier;
+    mode: ViewerMode;
+    refreshIntervalSeconds: number;
+    capabilities: ViewerCapabilities;
+    limits: ViewerLimits;
+  }
+>(entitlements: T) {
+  const mobileTier = getMobileViewerTier(entitlements.tier);
+
+  return {
+    ...entitlements,
+    tier: mobileTier as ViewerTier,
+    mode: getMobileTierMode(entitlements.tier),
+    refreshIntervalSeconds: getMobileTierRefreshSeconds(entitlements.tier),
+    capabilities: getMobileTierCapabilities(entitlements.tier),
+    limits: getMobileTierLimits(entitlements.tier),
+    mobileMembership: mobileTier
   };
 }
 

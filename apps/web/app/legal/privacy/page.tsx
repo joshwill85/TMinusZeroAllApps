@@ -11,7 +11,7 @@ export default function PrivacyPage() {
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 text-sm text-text2 md:px-6">
       <h1 className="text-3xl font-semibold text-text1">Privacy Notice</h1>
-      <p className="mt-3 text-text3">Last updated: January 20, 2026</p>
+      <p className="mt-3 text-text3">Last updated: March 19, 2026</p>
 
       <section className="mt-6 space-y-4">
         <p>
@@ -19,28 +19,33 @@ export default function PrivacyPage() {
           apps, and related services (the “Service”). This notice is written for a US audience and includes common state privacy rights.
         </p>
         <p>
-          For privacy choices and self‑serve requests (download or delete your account data), visit{' '}
+          For privacy choices and self‑serve requests, visit{' '}
           <a className="text-primary hover:underline" href="/legal/privacy-choices">
             Privacy Choices
-          </a>
-          .
+          </a>{' '}
+          on web, or use the in-app delete-account flow from the mobile Profile screen if you want to remove your account.
+        </p>
+        <p>
+          Depending on the platform and feature you use, some data handling differs between web and mobile surfaces. This notice describes the full Service, including web billing,
+          App Store / Google Play billing, mobile push registration, and limited AR telemetry.
         </p>
 
         <h2 className="text-xl font-semibold text-text1">Information We Collect</h2>
         <p>We collect information you provide, information collected automatically when you use the Service, and information from vendors that help run the Service.</p>
         <ul className="list-disc space-y-2 pl-5">
           <li>
-            <span className="text-text1">Account information</span>: name, email address, account identifiers, timezone, and authentication information (handled by our authentication provider). If you
-            choose to sign in with Google or X, we receive your email address and basic profile information from that provider.
+            <span className="text-text1">Account information</span>: name, email address, account identifiers, timezone, and authentication information. If you choose a third-party sign-in option that
+            we enable on your platform (for example Google, X, or Apple when offered), we receive your email address and basic profile information from that provider.
           </li>
           <li>
             <span className="text-text1">Notification information</span>: phone number (if you opt into SMS), verification status, opt‑in/out timestamps, quiet hours, alert preferences, and SMS consent/compliance records (for example, action history and request metadata such as IP address and user agent).
           </li>
           <li>
-            <span className="text-text1">User preferences</span>: per‑launch notification settings.
+            <span className="text-text1">User preferences</span>: per-launch notification settings, watchlists, filter presets, alert rules, and related account preferences.
           </li>
           <li>
-            <span className="text-text1">Billing information</span>: subscription status and Stripe customer/subscription IDs; payment card details are processed by Stripe and are not stored in our database.
+            <span className="text-text1">Billing information</span>: subscription status and provider transaction, customer, or subscription identifiers from Stripe, the App Store, or Google Play.
+            Payment card details are processed by Stripe and are not stored in our database.
           </li>
           <li>
             <span className="text-text1">Communications</span>: feedback you submit (such as your email address and message) and messages you send to our support inbox.
@@ -49,17 +54,19 @@ export default function PrivacyPage() {
             <span className="text-text1">Email preferences</span>: whether you opt in/out of marketing emails (if offered).
           </li>
           <li>
-            <span className="text-text1">Push notification information</span> (if enabled): push subscription endpoint and keys, plus user agent.
+            <span className="text-text1">Push notification information</span> (if enabled): web push subscription endpoint and keys, or mobile push registration data such as platform, installation ID,
+            push token, app version, and device name.
           </li>
           <li>
-            <span className="text-text1">Automatic data</span>: IP address, device and browser information (such as user agent), and usage/diagnostic data (for example, server logs and limited feature telemetry).
+            <span className="text-text1">Automatic data</span>: IP address, device and browser information (such as user agent), app/build information, usage and diagnostic data, limited feature
+            telemetry (including AR session summaries), and mobile auth risk / attestation events used to secure sign-in.
           </li>
         </ul>
 
         <h2 className="text-xl font-semibold text-text1">How We Use Information</h2>
         <ul className="list-disc space-y-2 pl-5">
           <li>Provide and operate the Service (launch schedule, notifications, and account features).</li>
-          <li>Authenticate users, prevent abuse, and secure the Service (including optional CAPTCHA).</li>
+          <li>Authenticate users, evaluate auth risk, prevent abuse, and secure the Service (including optional CAPTCHA or similar challenge flows).</li>
           <li>Process payments and manage subscriptions.</li>
           <li>Send service communications (verification, alerts you request, and account/billing notices).</li>
           <li>If we send marketing emails, we do so only if you opt in and we provide unsubscribe options.</li>
@@ -83,6 +90,12 @@ export default function PrivacyPage() {
             <span className="text-text1">Stripe</span> (payment processing and subscription management).
           </li>
           <li>
+            <span className="text-text1">Apple</span> (App Store billing and subscription management for iOS purchases, and Sign in with Apple when enabled on iOS).
+          </li>
+          <li>
+            <span className="text-text1">Google</span> (Google Play billing and subscription management for Android purchases, and Google sign-in where offered).
+          </li>
+          <li>
             <span className="text-text1">Twilio</span> (SMS delivery and phone verification). You can opt out of SMS alerts at any time by replying STOP (or reply HELP for support). We do not share
             mobile information (including opt‑in data and consent) with third parties or affiliates for marketing or promotional purposes.
           </li>
@@ -93,7 +106,7 @@ export default function PrivacyPage() {
             <span className="text-text1">Google Workspace</span> (support email inbox and related business tools).
           </li>
           <li>
-            <span className="text-text1">Sign‑in providers</span> (Google and X) if you choose to use those login options.
+            <span className="text-text1">Sign-in providers</span> (such as Google, X, and Apple when enabled on a supported platform) if you choose to use those login options.
           </li>
           <li>
             <span className="text-text1">CAPTCHA providers</span> (Cloudflare Turnstile or hCaptcha) if enabled for account protection.
@@ -123,8 +136,8 @@ export default function PrivacyPage() {
         <h2 className="text-xl font-semibold text-text1">Data Retention</h2>
         <p>
           We retain personal information for as long as reasonably necessary to provide the Service, comply with law, resolve disputes, and enforce agreements. In general:
-          account/profile and preference data is retained until you delete your account; operational records may be retained for security, troubleshooting, and compliance; and
-          payment records are retained by Stripe and may be retained by us as required by law.
+          account, profile, saved-item, alert, and preference data is retained until you delete your account; operational and security records may be retained for troubleshooting, fraud prevention,
+          abuse prevention, and compliance; and billing records may be retained by Stripe, Apple, Google, or by us where required by law.
         </p>
 
         <h2 className="text-xl font-semibold text-text1">Your US Privacy Rights</h2>
@@ -158,7 +171,7 @@ export default function PrivacyPage() {
             <a className="text-primary hover:underline" href="/legal/privacy-choices">
               Privacy Choices
             </a>{' '}
-            to download your data or delete your account (if signed in).
+            to download your data, or use Privacy Choices on web or the in-app mobile Profile flow to delete your account (if signed in).
           </li>
           <li>
             <span className="text-text1">Email</span>: send requests to{' '}
@@ -184,7 +197,8 @@ export default function PrivacyPage() {
         <p className="text-text1">Categories of personal information collected</p>
         <ul className="list-disc space-y-2 pl-5">
           <li>
-            <span className="text-text1">Identifiers</span>: name, email address, phone number (if you opt into SMS), account identifiers, IP address, and push notification subscription identifiers (if enabled).
+            <span className="text-text1">Identifiers</span>: name, email address, phone number (if you opt into SMS), account identifiers, IP address, and push notification or mobile device
+            registration identifiers (if enabled).
           </li>
           <li>
             <span className="text-text1">Personal information categories listed in Cal. Civ. Code § 1798.80</span>: name, email address, and phone number.
@@ -193,8 +207,8 @@ export default function PrivacyPage() {
             <span className="text-text1">Commercial information</span>: subscription status and transaction identifiers.
           </li>
           <li>
-            <span className="text-text1">Internet or other electronic network activity information</span>: interactions with the Service, push notification subscription data, and limited feature telemetry
-            (for example, AR session summaries such as permission status, device category, and session duration).
+            <span className="text-text1">Internet or other electronic network activity information</span>: interactions with the Service, push notification or mobile device registration data, limited
+            feature telemetry (for example, AR session summaries such as permission status, device category, and session duration), and auth security/risk events.
           </li>
           <li>
             <span className="text-text1">Geolocation data</span>: precise location only if you enable AR features in your browser (used on-device; we do not store your precise location in our database).

@@ -15,6 +15,19 @@ type OutboxRow = {
   scheduled_for: string;
 };
 
+type OutboxRowV2 = {
+  id: number;
+  owner_kind: 'guest' | 'user';
+  user_id?: string | null;
+  installation_id?: string | null;
+  launch_id?: string | null;
+  channel: string;
+  event_type?: string | null;
+  payload: Record<string, unknown> | null;
+  attempts: number;
+  scheduled_for: string;
+};
+
 type PrefRow = {
   user_id: string;
   email_enabled?: boolean | null;
@@ -73,16 +86,20 @@ async function sendNotifications(supabase: ReturnType<typeof createSupabaseAdmin
 
   const smsStats = smsEnabled ? await sendSmsNotifications(supabase) : { processed: 0, sent: 0, skipped: 0, failed: 0, requeued: 0, reason: 'sms_disabled' };
   const pushStats = pushEnabled ? await sendPushNotifications(supabase) : { processed: 0, sent: 0, skipped: 0, failed: 0, requeued: 0, reason: 'push_disabled' };
+  const mobilePushV2Stats = pushEnabled
+    ? await sendMobilePushNotificationsV2(supabase)
+    : { processed: 0, sent: 0, skipped: 0, failed: 0, requeued: 0, reason: 'push_disabled' };
 
   return {
-    processed: emailStats.processed + smsStats.processed + pushStats.processed,
-    sent: emailStats.sent + smsStats.sent + pushStats.sent,
-    skipped: emailStats.skipped + smsStats.skipped + pushStats.skipped,
-    failed: emailStats.failed + smsStats.failed + pushStats.failed,
-    requeued: emailStats.requeued + smsStats.requeued + pushStats.requeued,
+    processed: emailStats.processed + smsStats.processed + pushStats.processed + mobilePushV2Stats.processed,
+    sent: emailStats.sent + smsStats.sent + pushStats.sent + mobilePushV2Stats.sent,
+    skipped: emailStats.skipped + smsStats.skipped + pushStats.skipped + mobilePushV2Stats.skipped,
+    failed: emailStats.failed + smsStats.failed + pushStats.failed + mobilePushV2Stats.failed,
+    requeued: emailStats.requeued + smsStats.requeued + pushStats.requeued + mobilePushV2Stats.requeued,
     email: emailStats,
     sms: smsStats,
-    push: pushStats
+    push: pushStats,
+    mobilePushV2: mobilePushV2Stats
   };
 }
 
@@ -273,6 +290,15 @@ type ExpoPushDevice = {
   platform: string;
 };
 
+type ExpoPushDeviceV2 = {
+  id: string;
+  ownerKind: 'guest' | 'user';
+  userId: string | null;
+  installationId: string;
+  token: string;
+  platform: string;
+};
+
 type ExpoPushReceipt = {
   ticketId: string | null;
   receiptStatus: 'ok' | 'error' | 'pending';
@@ -301,6 +327,19 @@ async function updateExpoPushDeviceStatus(
   };
   const { error } = await supabase.from('notification_push_devices').update(payload).eq('id', deviceId);
   if (error) console.warn('notification push device update warning', error.message);
+}
+
+async function updateExpoPushDeviceStatusV2(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  deviceId: string,
+  updates: Record<string, unknown>
+) {
+  const payload = {
+    ...updates,
+    updated_at: new Date().toISOString()
+  };
+  const { error } = await supabase.from('mobile_push_installations_v2').update(payload).eq('id', deviceId);
+  if (error) console.warn('mobile push device v2 update warning', error.message);
 }
 
 async function sendExpoPushMessage({
@@ -702,6 +741,218 @@ async function sendPushNotifications(supabase: ReturnType<typeof createSupabaseA
   return stats;
 }
 
+async function sendMobilePushNotificationsV2(supabase: ReturnType<typeof createSupabaseAdminClient>) {
+  const { data: batch, error: claimError } = await supabase.rpc('claim_mobile_push_outbox_v2', {
+    batch_size: DEFAULT_BATCH_SIZE,
+    max_attempts: MAX_ATTEMPTS
+  });
+  if (claimError) throw claimError;
+
+  const rows = (batch || []) as OutboxRowV2[];
+  if (!rows.length) {
+    return { processed: 0, sent: 0, skipped: 0, failed: 0, requeued: 0 };
+  }
+
+  const guestInstallationIds = Array.from(
+    new Set(rows.filter((row) => row.owner_kind === 'guest').map((row) => String(row.installation_id || '').trim()).filter(Boolean))
+  );
+  const userIds = Array.from(
+    new Set(rows.filter((row) => row.owner_kind === 'user').map((row) => String(row.user_id || '').trim()).filter(Boolean))
+  );
+
+  const [guestInstallationsRes, userInstallationsRes, subsRes, profilesRes] = await Promise.all([
+    guestInstallationIds.length
+      ? supabase
+          .from('mobile_push_installations_v2')
+          .select('id, owner_kind, user_id, installation_id, token, platform')
+          .eq('owner_kind', 'guest')
+          .eq('is_active', true)
+          .in('installation_id', guestInstallationIds)
+      : Promise.resolve({ data: [], error: null }),
+    userIds.length
+      ? supabase
+          .from('mobile_push_installations_v2')
+          .select('id, owner_kind, user_id, installation_id, token, platform')
+          .eq('owner_kind', 'user')
+          .eq('is_active', true)
+          .in('user_id', userIds)
+      : Promise.resolve({ data: [], error: null }),
+    userIds.length
+      ? supabase.from('subscriptions').select('user_id, status').in('user_id', userIds)
+      : Promise.resolve({ data: [], error: null }),
+    userIds.length
+      ? supabase.from('profiles').select('user_id, role').in('user_id', userIds)
+      : Promise.resolve({ data: [], error: null })
+  ]);
+  if (guestInstallationsRes.error) throw guestInstallationsRes.error;
+  if (userInstallationsRes.error) throw userInstallationsRes.error;
+  if (subsRes.error) throw subsRes.error;
+  if (profilesRes.error) throw profilesRes.error;
+
+  const guestDevicesByInstallation = new Map<string, ExpoPushDeviceV2[]>();
+  const userDevicesByUser = new Map<string, ExpoPushDeviceV2[]>();
+  const deviceRows = [...((guestInstallationsRes.data || []) as any[]), ...((userInstallationsRes.data || []) as any[])];
+  deviceRows.forEach((row) => {
+    const id = String(row.id || '').trim();
+    const ownerKind = row.owner_kind === 'user' ? 'user' : 'guest';
+    const userId = typeof row.user_id === 'string' && row.user_id.trim() ? row.user_id.trim() : null;
+    const installationId = String(row.installation_id || '').trim();
+    const token = String(row.token || '').trim();
+    const platform = String(row.platform || '').trim();
+    if (!id || !installationId || !token || !platform) return;
+
+    const device: ExpoPushDeviceV2 = {
+      id,
+      ownerKind,
+      userId,
+      installationId,
+      token,
+      platform
+    };
+
+    if (ownerKind === 'guest') {
+      const list = guestDevicesByInstallation.get(installationId) || [];
+      list.push(device);
+      guestDevicesByInstallation.set(installationId, list);
+      return;
+    }
+
+    if (!userId) return;
+    const list = userDevicesByUser.get(userId) || [];
+    list.push(device);
+    userDevicesByUser.set(userId, list);
+  });
+
+  const subsByUser = new Map<string, SubRow>();
+  (subsRes.data || []).forEach((row: SubRow) => subsByUser.set(row.user_id, row));
+  const rolesByUser = new Map<string, string | null>();
+  (profilesRes.data || []).forEach((row: { user_id: string; role: string | null }) => rolesByUser.set(row.user_id, row.role ?? null));
+
+  const stats = {
+    processed: rows.length,
+    sent: 0,
+    skipped: 0,
+    failed: 0,
+    requeued: 0
+  };
+
+  const brandName = getPushBrandName();
+
+  await runWithConcurrency(rows, CONCURRENCY, async (row) => {
+    if (row.channel !== 'push') {
+      await markMobilePushSkippedV2(supabase, row.id, 'unsupported_channel');
+      stats.skipped += 1;
+      return;
+    }
+
+    const message = normalizeMessage(row.payload);
+    if (!message) {
+      await markMobilePushFailedV2(supabase, row.id, 'empty_message');
+      stats.failed += 1;
+      return;
+    }
+
+    let devices: ExpoPushDeviceV2[] = [];
+    if (row.owner_kind === 'guest') {
+      const installationId = String(row.installation_id || '').trim();
+      devices = installationId ? guestDevicesByInstallation.get(installationId) || [] : [];
+    } else {
+      const userId = String(row.user_id || '').trim();
+      const sub = subsByUser.get(userId);
+      const isAdmin = rolesByUser.get(userId) === 'admin';
+      if (!isAdmin && !isSubscriptionActiveStatus(sub?.status)) {
+        await markMobilePushSkippedV2(supabase, row.id, 'subscription_inactive');
+        stats.skipped += 1;
+        return;
+      }
+      devices = userId ? userDevicesByUser.get(userId) || [] : [];
+    }
+
+    if (!devices.length) {
+      await markMobilePushSkippedV2(supabase, row.id, 'push_not_registered');
+      stats.skipped += 1;
+      return;
+    }
+
+    const rawTitle = typeof row.payload?.title === 'string' ? String(row.payload.title).trim() : '';
+    const rawUrl = typeof row.payload?.url === 'string' ? String(row.payload.url).trim() : '';
+    const title = rawTitle || brandName;
+    const url = rawUrl || (row.launch_id ? `/launches/${row.launch_id}` : '/');
+
+    let anySuccess = false;
+    let retryableFailure = false;
+    let lastErrorMessage = '';
+    let providerId = '';
+
+    for (const device of devices) {
+      try {
+        const receipt = await sendExpoPushMessage({
+          token: device.token,
+          title,
+          message,
+          url,
+          launchId: row.launch_id,
+          eventType: row.event_type,
+          ttlSeconds: computePushTtlSeconds(row.event_type)
+        });
+
+        if (receipt.receiptStatus === 'ok' || receipt.receiptStatus === 'pending') {
+          anySuccess = true;
+          providerId = providerId || (receipt.ticketId ? `expo:${receipt.ticketId}` : 'expo_push');
+          await updateExpoPushDeviceStatusV2(supabase, device.id, {
+            last_sent_at: new Date().toISOString(),
+            last_receipt_at: receipt.receiptStatus === 'ok' ? new Date().toISOString() : null,
+            last_failure_reason: receipt.failureReason
+          });
+          continue;
+        }
+
+        lastErrorMessage = receipt.failureReason || 'expo_push_delivery_failed';
+        if (receipt.disableDevice) {
+          await updateExpoPushDeviceStatusV2(supabase, device.id, {
+            is_active: false,
+            disabled_at: new Date().toISOString(),
+            last_receipt_at: new Date().toISOString(),
+            last_failure_reason: lastErrorMessage
+          });
+          continue;
+        }
+
+        await updateExpoPushDeviceStatusV2(supabase, device.id, {
+          last_receipt_at: new Date().toISOString(),
+          last_failure_reason: lastErrorMessage
+        });
+        if (receipt.retryable) retryableFailure = true;
+      } catch (err) {
+        const { retryable, message: errorMessage } = normalizeSendError(err);
+        lastErrorMessage = errorMessage;
+        await updateExpoPushDeviceStatusV2(supabase, device.id, {
+          last_failure_reason: errorMessage
+        });
+        if (retryable) retryableFailure = true;
+      }
+    }
+
+    if (anySuccess) {
+      await markMobilePushSentV2(supabase, row.id, providerId || 'push');
+      stats.sent += 1;
+      return;
+    }
+
+    if (retryableFailure && row.attempts < MAX_ATTEMPTS) {
+      const nextAttemptAt = new Date(Date.now() + computeBackoffMs(row.attempts)).toISOString();
+      await requeueMobilePushRowV2(supabase, row.id, lastErrorMessage || 'push_retry', nextAttemptAt);
+      stats.requeued += 1;
+      return;
+    }
+
+    await markMobilePushFailedV2(supabase, row.id, lastErrorMessage || 'push_delivery_failed');
+    stats.failed += 1;
+  });
+
+  return stats;
+}
+
 type ResendConfig = {
   enabled: boolean;
   apiKey: string;
@@ -963,6 +1214,22 @@ async function releaseStaleLocks(supabase: ReturnType<typeof createSupabaseAdmin
     .lt('attempts', MAX_ATTEMPTS)
     .or(`locked_at.is.null,locked_at.lt.${cutoff}`);
   if (requeueError) console.warn('releaseStaleLocks requeue warning', requeueError.message);
+
+  const { error: mobileFailError } = await supabase
+    .from('mobile_push_outbox_v2')
+    .update({ status: 'failed', locked_at: null, processed_at: now, error: 'stale_send' })
+    .eq('status', 'sending')
+    .gte('attempts', MAX_ATTEMPTS)
+    .or(`locked_at.is.null,locked_at.lt.${cutoff}`);
+  if (mobileFailError) console.warn('releaseStaleLocks mobile fail warning', mobileFailError.message);
+
+  const { error: mobileRequeueError } = await supabase
+    .from('mobile_push_outbox_v2')
+    .update({ status: 'queued', locked_at: null })
+    .eq('status', 'sending')
+    .lt('attempts', MAX_ATTEMPTS)
+    .or(`locked_at.is.null,locked_at.lt.${cutoff}`);
+  if (mobileRequeueError) console.warn('releaseStaleLocks mobile requeue warning', mobileRequeueError.message);
 }
 
 function normalizeMessage(payload: Record<string, unknown> | null) {
@@ -1094,6 +1361,70 @@ async function requeueRow(supabase: ReturnType<typeof createSupabaseAdminClient>
     })
     .eq('id', id);
   if (error) console.warn('requeueRow warning', error.message);
+}
+
+async function markMobilePushSentV2(supabase: ReturnType<typeof createSupabaseAdminClient>, id: number, providerId: string) {
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from('mobile_push_outbox_v2')
+    .update({
+      status: 'sent',
+      provider_message_id: providerId,
+      error: null,
+      processed_at: now,
+      locked_at: null
+    })
+    .eq('id', id);
+  if (error) console.warn('markMobilePushSentV2 warning', error.message);
+}
+
+async function markMobilePushFailedV2(supabase: ReturnType<typeof createSupabaseAdminClient>, id: number, reason: string) {
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from('mobile_push_outbox_v2')
+    .update({
+      status: 'failed',
+      provider_message_id: null,
+      error: reason,
+      processed_at: now,
+      locked_at: null
+    })
+    .eq('id', id);
+  if (error) console.warn('markMobilePushFailedV2 warning', error.message);
+}
+
+async function markMobilePushSkippedV2(supabase: ReturnType<typeof createSupabaseAdminClient>, id: number, reason: string) {
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from('mobile_push_outbox_v2')
+    .update({
+      status: 'skipped',
+      provider_message_id: null,
+      error: reason,
+      processed_at: now,
+      locked_at: null
+    })
+    .eq('id', id);
+  if (error) console.warn('markMobilePushSkippedV2 warning', error.message);
+}
+
+async function requeueMobilePushRowV2(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  id: number,
+  reason: string,
+  nextAttemptAt: string
+) {
+  const { error } = await supabase
+    .from('mobile_push_outbox_v2')
+    .update({
+      status: 'queued',
+      provider_message_id: null,
+      error: reason,
+      scheduled_for: nextAttemptAt,
+      locked_at: null
+    })
+    .eq('id', id);
+  if (error) console.warn('requeueMobilePushRowV2 warning', error.message);
 }
 
 async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T) => Promise<void>) {

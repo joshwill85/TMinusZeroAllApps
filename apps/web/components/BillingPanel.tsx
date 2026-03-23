@@ -199,7 +199,7 @@ export function BillingPanel() {
     }
   };
 
-  const planTitle = isPaid ? 'Premium plan' : hasBillingIssue ? 'Billing issue' : 'Free plan';
+  const planTitle = isPaid ? 'Premium plan' : hasBillingIssue ? 'Billing issue' : 'Signed-in anon';
   const statusLabel = summary?.status ? formatStatus(summary.status) : 'Unknown';
 
   return (
@@ -281,7 +281,7 @@ export function BillingPanel() {
             </div>
           ) : (
             <div className="space-y-2">
-              <div className="text-xs text-text3">Upgrade to Premium for live data and alerts.</div>
+              <div className="text-xs text-text3">Signing in keeps account ownership and billing access. Premium unlocks live data, alerts, and saved tools.</div>
               <div className="flex flex-wrap gap-2">
                 <button className="btn rounded-lg px-3 py-2 text-xs" onClick={startCheckout} disabled={busyAction === 'checkout'}>
                   {busyAction === 'checkout' ? 'Starting…' : 'Upgrade to Premium'}

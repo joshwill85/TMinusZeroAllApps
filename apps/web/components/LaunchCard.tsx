@@ -598,7 +598,7 @@ export function LaunchCard({
     } catch (error) {
       if (error instanceof ApiClientError) {
         if (error.code === 'subscription_required') {
-          setAlertsError(alertsChannel === 'sms' ? 'Upgrade to Premium to enable SMS alerts.' : 'Upgrade to Premium to enable browser alerts.');
+          setAlertsError('Upgrade to Premium to enable launch alerts.');
           return;
         }
         if (alertsChannel === 'sms') {
@@ -1161,12 +1161,14 @@ export function LaunchCard({
                 <div className="text-xs uppercase tracking-[0.12em] text-text3">Launch alerts</div>
                 <div className="text-sm text-text2">
                   {alertsChannel === 'push'
-                    ? canUseBrowserLaunchAlerts
+                    ? isPaid
                       ? 'Push alerts on this browser and your mobile devices.'
-                      : 'Push alerts on your signed-in iOS and Android devices.'
+                      : 'Launch alerts are Premium-only.'
                     : smsComingSoon
                       ? 'SMS alerts (coming soon).'
-                      : 'SMS alerts.'}
+                      : isPaid
+                        ? 'SMS alerts.'
+                        : 'SMS alerts are Premium-only.'}
                 </div>
               </div>
               <button type="button" className="text-xs text-text3 hover:text-text1" onClick={closeAlerts}>
@@ -1183,7 +1185,7 @@ export function LaunchCard({
               <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <AlertModeButton
                   label="Push alerts"
-                  helper={canUseBrowserLaunchAlerts ? 'Browser + mobile push' : 'Mobile push on iOS/Android'}
+                  helper={isPaid ? 'Browser + mobile push' : 'Premium required'}
                   active={alertsChannel === 'push'}
                   onClick={() => {
                     if (alertsChannel === 'push') return;
@@ -1222,15 +1224,13 @@ export function LaunchCard({
             )}
 
             {!alertsLoading && isAuthed && !isPaid && (
-              alertsChannel === 'push' && canUseBasicAlertRules && !canUseBrowserLaunchAlerts ? (
-                <div className="mt-3 rounded-lg border border-stroke bg-surface-1 p-2 text-xs text-text2">
-                  Free push alerts go to your signed-in iOS and Android devices.{' '}
-                  <Link className="text-primary" href={buildUpgradeHref({ returnTo: launchHref })}>
-                    Upgrade
-                  </Link>{' '}
-                  if you also want browser delivery on web.
-                </div>
-              ) : null
+              <div className="mt-3 rounded-lg border border-stroke bg-surface-1 p-2 text-xs text-text2">
+                Launch alerts are Premium-only.{' '}
+                <Link className="text-primary" href={buildUpgradeHref({ returnTo: launchHref })}>
+                  Upgrade
+                </Link>{' '}
+                to save reminders, status-change alerts, and browser or mobile delivery.
+              </div>
             )}
 
             {!alertsLoading && alertsChannel === 'sms' && smsComingSoon && (
@@ -1251,9 +1251,7 @@ export function LaunchCard({
             {!alertsLoading && alertsChannel === 'push' && isAuthed && canUseBasicAlertRules && pushStatus && (!pushStatus.enabled || !pushStatus.subscribed) && (
               <div className="mt-3 rounded-lg border border-stroke bg-surface-1 p-2 text-xs text-text2">
                 {pushStatus.enabled
-                  ? canUseBrowserLaunchAlerts
-                    ? 'Subscribe this browser or register a mobile device in Preferences to enable alerts.'
-                    : 'Register an iOS or Android device in Preferences to enable free push alerts.'
+                  ? 'Subscribe this browser or register a mobile device in Preferences to enable alerts.'
                   : 'Enable push alerts in Preferences to enable alerts.'}{' '}
                 <Link className="text-primary" href={buildPreferencesHref()}>
                   Open Preferences

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Alert, Pressable, Text, TextInput, View } from 'react-native';
 import { ApiClientError, type FilterPresetV1, type WatchlistRuleV1, type WatchlistV1 } from '@tminuszero/api-client';
+import { getMobileViewerTier } from '@tminuszero/domain';
 import {
   useAlertRulesQuery,
   useCreateAlertRuleMutation,
@@ -49,7 +50,8 @@ export default function SavedScreen() {
   const [editingWatchlistName, setEditingWatchlistName] = useState('');
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
   const [editingPresetName, setEditingPresetName] = useState('');
-  const tier = entitlementsQuery.data?.tier ?? 'anon';
+  const tier = getMobileViewerTier(entitlementsQuery.data?.tier ?? 'anon');
+  const isAuthed = entitlementsQuery.data?.isAuthed ?? false;
   const canUseSavedItems = entitlementsQuery.data?.capabilities.canUseSavedItems ?? false;
   const canUseAdvancedAlertRules = entitlementsQuery.data?.capabilities.canUseAdvancedAlertRules ?? false;
   const limits = entitlementsQuery.data?.limits;
@@ -58,6 +60,17 @@ export default function SavedScreen() {
   const hasSavedInventory = watchlists.length > 0 || presets.length > 0;
   const readOnly = !canUseSavedItems;
   const alertsLoading = canUseSavedItems && canUseAdvancedAlertRules && alertRulesQuery.isPending;
+  const presetAlertRuleIds = useMemo(
+    () => {
+      const alertRules = alertRulesQuery.data?.rules ?? [];
+      return new Map(
+        alertRules
+          .filter((rule) => rule.kind === 'filter_preset')
+          .map((rule) => [rule.presetId, rule.id])
+      );
+    },
+    [alertRulesQuery.data?.rules]
+  );
   const followAlertRuleIds = useMemo(
     () => {
       const alertRules = alertRulesQuery.data?.rules ?? [];
@@ -363,12 +376,44 @@ export default function SavedScreen() {
     }
   }
 
+  async function togglePresetAlertRule(preset: FilterPresetV1) {
+    if (readOnly || !canUseAdvancedAlertRules) return;
+    const existingRuleId = presetAlertRuleIds.get(preset.id) ?? null;
+    const busyKey = `alert:preset:${preset.id}`;
+    if (busy[busyKey]) return;
+
+    setBusy((current) => ({ ...current, [busyKey]: true }));
+    setNotice(null);
+    try {
+      if (existingRuleId) {
+        await deleteAlertRuleMutation.mutateAsync(existingRuleId);
+        setNotice({ tone: 'info', message: `Preset alerts disabled for "${preset.name}".` });
+      } else {
+        await createAlertRuleMutation.mutateAsync({
+          kind: 'filter_preset',
+          presetId: preset.id
+        });
+        setNotice({ tone: 'success', message: `Preset alerts enabled for "${preset.name}".` });
+      }
+    } catch (error) {
+      setNotice({
+        tone: 'warning',
+        message: buildMutationMessage(
+          error,
+          existingRuleId ? 'Unable to disable preset alerts.' : 'Unable to enable preset alerts.'
+        )
+      });
+    } finally {
+      setBusy((current) => ({ ...current, [busyKey]: false }));
+    }
+  }
+
   return (
     <AppScreen testID="saved-screen" keyboardShouldPersistTaps="handled">
       <CustomerShellHero
         eyebrow="Account"
         title="Saved"
-        description="Saved filters, follows, and starred launches are Premium features. Free keeps filters and calendar access without saved-item sync."
+        description="Saved views, follows, and My Launches are Premium features. Mobile anon access keeps filters, the calendar, and basic reminders without saved-item sync."
       >
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
           <CustomerShellBadge label={formatTierLabel(tier)} tone={tier === 'premium' ? 'accent' : 'default'} />
@@ -383,7 +428,7 @@ export default function SavedScreen() {
             ? 'Premium saved items are fully enabled across watchlists and reusable filter presets.'
             : hasSavedInventory
               ? 'Saved Premium items remain stored on your account, but they stay read-only until Premium is active again.'
-              : 'Free and guest accounts can browse with filters and calendar access, but saved filters, follows, and starred launches stay on Premium.'
+              : 'Anon access keeps browsing, filters, calendar, and basic reminders, but saved views and follows stay on Premium.'
         }
       >
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
@@ -405,7 +450,7 @@ export default function SavedScreen() {
         </View>
       </CustomerShellPanel>
 
-      <ViewerTierCard tier={tier} featureKey="saved_items" testID="saved-tier-card" />
+      <ViewerTierCard tier={tier} isAuthed={isAuthed} featureKey="saved_items" testID="saved-tier-card" />
 
       {statusMessage ? (
         <View
@@ -652,6 +697,8 @@ export default function SavedScreen() {
                   const renameBusy = busy[`preset:rename:${preset.id}`];
                   const defaultBusy = busy[`preset:default:${preset.id}`];
                   const deleteBusy = busy[`preset:delete:${preset.id}`];
+                  const presetAlertRuleId = presetAlertRuleIds.get(preset.id) ?? null;
+                  const presetAlertBusy = busy[`alert:preset:${preset.id}`];
 
                   return (
                     <View
@@ -701,6 +748,24 @@ export default function SavedScreen() {
 
                       {!readOnly && !isEditing ? (
                         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                          {canUseAdvancedAlertRules ? (
+                            <InlineActionButton
+                              label={
+                                presetAlertBusy
+                                  ? 'Saving…'
+                                  : presetAlertRuleId
+                                    ? 'Alerts on'
+                                    : alertsLoading
+                                      ? 'Loading alerts…'
+                                      : 'Use for alerts'
+                              }
+                              onPress={() => {
+                                void togglePresetAlertRule(preset);
+                              }}
+                              disabled={presetAlertBusy || alertsLoading}
+                              tone={presetAlertRuleId ? 'accent' : 'default'}
+                            />
+                          ) : null}
                           <InlineActionButton
                             label={defaultBusy ? 'Saving…' : preset.isDefault ? 'Default view' : 'Set default'}
                             onPress={() => {
@@ -716,6 +781,10 @@ export default function SavedScreen() {
                             disabled={deleteBusy}
                             tone="danger"
                           />
+                        </View>
+                      ) : !isEditing && presetAlertRuleId ? (
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                          <InlineActionButton label="Alerts on" onPress={() => undefined} disabled tone="accent" />
                         </View>
                       ) : null}
                     </View>
@@ -814,14 +883,11 @@ function InlineActionButton({
   );
 }
 
-function formatTierLabel(tier: 'anon' | 'free' | 'premium') {
+function formatTierLabel(tier: 'anon' | 'premium') {
   if (tier === 'premium') {
     return 'Premium';
   }
-  if (tier === 'free') {
-    return 'Free account';
-  }
-  return 'Guest access';
+  return 'Anon';
 }
 
 function groupWatchlistRules(rules: WatchlistRuleV1[]) {

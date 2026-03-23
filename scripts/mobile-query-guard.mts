@@ -6,6 +6,8 @@ import {
   createSharedQueryClient,
   filterPresetsQueryOptions,
   launchFeedQueryOptions,
+  launchFeedVersionQueryOptions,
+  launchDetailVersionQueryOptions,
   marketingEmailQueryOptions,
   normalizeSearchQuery,
   notificationPreferencesQueryOptions,
@@ -42,7 +44,6 @@ type MockResponseResolver = (url: URL, init: RequestInit | undefined) => unknown
 
 const launchId = '11111111-1111-4111-8111-111111111111';
 const searchQuery = 'starlink';
-const launchDayFilterOptionsKey = ['launch-day-email-filter-options'] as const;
 
 const payloadByPath = new Map<string, MockResponseResolver>([
   [
@@ -144,6 +145,28 @@ const payloadByPath = new Map<string, MockResponseResolver>([
       hasMore: false,
       freshness: 'public-cache-db',
       intervalMinutes: 15
+    })
+  ],
+  [
+    '/api/v1/launches/version',
+    () => ({
+      scope: 'public',
+      tier: 'free',
+      intervalSeconds: 900,
+      matchCount: 1,
+      updatedAt: '2026-03-08T12:00:00.000Z',
+      version: 'public|2026-03-08T12:00:00.000Z|1'
+    })
+  ],
+  [
+    `/api/v1/launches/${launchId}/version`,
+    () => ({
+      launchId,
+      scope: 'public',
+      tier: 'free',
+      intervalSeconds: 900,
+      updatedAt: '2026-03-08T12:00:00.000Z',
+      version: `${launchId}|public|2026-03-08T12:00:00.000Z`
     })
   ],
   [
@@ -336,13 +359,6 @@ function summarizeRequests(requestLog: LoggedRequest[]): ScenarioCounts {
   };
 }
 
-async function fetchLaunchDayEmailFilterOptions(fetchImpl: typeof fetch) {
-  const response = await fetchImpl('https://tmz.test/api/filters?mode=live&region=all', {
-    method: 'GET'
-  });
-  return await response.json();
-}
-
 async function runScenario(name: string, action: () => Promise<void>, assertions: string[]) {
   await action();
   return { name, assertions };
@@ -433,7 +449,7 @@ export async function collectMobileQueryGuardReport(): Promise<MobileQueryGuardR
   }
 
   {
-    const { client, fetchImpl, queryClient, requestLog, cleanup } = createMockRuntime();
+    const { client, queryClient, requestLog, cleanup } = createMockRuntime();
     try {
       const scenario = await runScenario(
         'account bootstrap',
@@ -445,33 +461,23 @@ export async function collectMobileQueryGuardReport(): Promise<MobileQueryGuardR
           await Promise.all([
             queryClient.fetchQuery(profileQueryOptions(() => client.getProfile())),
             queryClient.fetchQuery(marketingEmailQueryOptions(() => client.getMarketingEmail())),
-            queryClient.fetchQuery(notificationPreferencesQueryOptions(() => client.getNotificationPreferences())),
-            queryClient.fetchQuery({
-              queryKey: launchDayFilterOptionsKey,
-              queryFn: () => fetchLaunchDayEmailFilterOptions(fetchImpl),
-              staleTime: 5 * 60_000
-            })
+            queryClient.fetchQuery(notificationPreferencesQueryOptions(() => client.getNotificationPreferences()))
           ]);
           await Promise.all([
             queryClient.fetchQuery(profileQueryOptions(() => client.getProfile())),
             queryClient.fetchQuery(marketingEmailQueryOptions(() => client.getMarketingEmail())),
-            queryClient.fetchQuery(notificationPreferencesQueryOptions(() => client.getNotificationPreferences())),
-            queryClient.fetchQuery({
-              queryKey: launchDayFilterOptionsKey,
-              queryFn: () => fetchLaunchDayEmailFilterOptions(fetchImpl),
-              staleTime: 5 * 60_000
-            })
+            queryClient.fetchQuery(notificationPreferencesQueryOptions(() => client.getNotificationPreferences()))
           ]);
         },
         [
-          'account bootstrap reuses profile, marketing email, notification preferences, and launch-day filter caches'
+          'account bootstrap reuses profile, marketing email, and notification preference caches'
         ]
       );
       const counts = summarizeRequests(requestLog);
       assert.equal(counts.requestsByPath['GET /api/v1/me/profile'] ?? 0, 1);
       assert.equal(counts.requestsByPath['GET /api/v1/me/marketing-email'] ?? 0, 1);
       assert.equal(counts.requestsByPath['GET /api/v1/me/notification-preferences'] ?? 0, 1);
-      assert.equal(counts.requestsByPath['GET /api/filters?mode=live&region=all'] ?? 0, 1);
+      assert.equal(counts.requestsByPath['GET /api/filters?mode=live&region=all'] ?? 0, 0);
       scenarios.push({ ...scenario, counts });
     } finally {
       cleanup();
@@ -521,6 +527,57 @@ export async function collectMobileQueryGuardReport(): Promise<MobileQueryGuardR
       );
       const counts = summarizeRequests(requestLog);
       assert.equal(counts.requestsByPath['GET /api/v1/me/notification-preferences'] ?? 0, 1);
+      scenarios.push({ ...scenario, counts });
+    } finally {
+      cleanup();
+    }
+  }
+
+  {
+    const { client, queryClient, requestLog, cleanup } = createMockRuntime();
+    try {
+      const scenario = await runScenario(
+        'refresh version checks',
+        async () => {
+          await Promise.all([
+            queryClient.fetchQuery(
+              launchFeedVersionQueryOptions(
+                () => client.getLaunchFeedVersion({ scope: 'public', range: '7d', region: 'all' }),
+                { scope: 'public', range: '7d', region: 'all' }
+              )
+            ),
+            queryClient.fetchQuery(
+              launchFeedVersionQueryOptions(
+                () => client.getLaunchFeedVersion({ scope: 'public', range: '7d', region: 'all' }),
+                { scope: 'public', range: '7d', region: 'all' }
+              )
+            ),
+            queryClient.fetchQuery(
+              launchDetailVersionQueryOptions(
+                launchId,
+                () => client.getLaunchDetailVersion(launchId, { scope: 'public' }),
+                { scope: 'public' }
+              )
+            ),
+            queryClient.fetchQuery(
+              launchDetailVersionQueryOptions(
+                launchId,
+                () => client.getLaunchDetailVersion(launchId, { scope: 'public' }),
+                { scope: 'public' }
+              )
+            )
+          ]);
+        },
+        [
+          'feed and detail version checks dedupe on shared query keys',
+          'version checks do not trigger full feed or full detail payload requests'
+        ]
+      );
+      const counts = summarizeRequests(requestLog);
+      assert.equal(counts.requestsByPath['GET /api/v1/launches/version?scope=public&range=7d&region=all'] ?? 0, 1);
+      assert.equal(counts.requestsByPath[`GET /api/v1/launches/${launchId}/version?scope=public`] ?? 0, 1);
+      assert.equal(counts.requestsByPath['GET /api/v1/launches'] ?? 0, 0);
+      assert.equal(counts.requestsByPath[`GET /api/v1/launches/${launchId}`] ?? 0, 0);
       scenarios.push({ ...scenario, counts });
     } finally {
       cleanup();

@@ -174,11 +174,9 @@ export default async function ArtemisContentPage({
                   </span>
                   <span>{item.publishedAt ? formatUpdatedLabel(item.publishedAt) : 'Date n/a'}</span>
                 </div>
-                <a href={item.url} target="_blank" rel="noreferrer" className="mt-1 block text-sm font-semibold text-text1 hover:text-primary">
-                  {item.title}
-                </a>
+                <div className="mt-1 text-sm font-semibold text-text1">{item.title}</div>
                 {isRenderableImageUrl(item.imageUrl) ? (
-                  <a href={item.url} target="_blank" rel="noreferrer" className="mt-2 block overflow-hidden rounded-lg border border-stroke bg-surface-1">
+                  <div className="mt-2 overflow-hidden rounded-lg border border-stroke bg-surface-1">
                     <Image
                       src={item.imageUrl}
                       alt={item.title}
@@ -187,7 +185,7 @@ export default async function ArtemisContentPage({
                       unoptimized
                       className="h-auto w-full object-cover"
                     />
-                  </a>
+                  </div>
                 ) : null}
                 {item.summary ? <p className="mt-2 text-sm text-text2">{truncateText(item.summary, 260)}</p> : null}
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-text3">
@@ -195,6 +193,9 @@ export default async function ArtemisContentPage({
                   <span className="rounded-full border border-stroke px-2 py-0.5">{item.kind}</span>
                   <span className="rounded-full border border-stroke px-2 py-0.5">{item.sourceClass.replace(/_/g, ' ')}</span>
                   <span className="rounded-full border border-stroke px-2 py-0.5">Score {Math.round(item.score.overall * 100)}</span>
+                  <a href={item.url} target="_blank" rel="noreferrer" className="text-primary hover:text-primary/80">
+                    Source
+                  </a>
                 </div>
                 {item.dataLabel || item.dataValue != null ? (
                   <p className="mt-2 text-xs text-text3">

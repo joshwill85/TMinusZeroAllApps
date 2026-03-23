@@ -1,30 +1,46 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
-import { Image, Linking, Platform, Pressable, ScrollView, Share as NativeShare, Text, View } from 'react-native';
-import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated';
+import { useIsFocused } from '@react-navigation/native';
+import { useQueryClient } from '@tanstack/react-query';
+import { AppState, Image, Linking, Platform, Pressable, RefreshControl, ScrollView, Share as NativeShare, Text, View, type LayoutChangeEvent } from 'react-native';
+import { runOnJS, useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { ArTrajectorySummaryV1, LaunchDetailV1 } from '@tminuszero/contracts';
-import { buildCountdownSnapshot, getViewerFeatureState } from '@tminuszero/domain';
-import { useLaunchDetailQuery, useViewerEntitlementsQuery } from '@/src/api/queries';
+import {
+  buildCountdownSnapshot,
+  canAutoRefreshActiveSurface,
+  getNextAlignedRefreshMs,
+  getVisibleDetailUpdatedAt,
+  hasVersionChanged,
+  shouldPrimeVersionRefresh
+} from '@tminuszero/domain';
+import { normalizeNativeMobileCustomerHref, toProviderSlug } from '@tminuszero/navigation';
+import { useApiClient } from '@/src/api/client';
+import { fetchLaunchDetailVersion, useLaunchDetailQuery, useViewerEntitlementsQuery } from '@/src/api/queries';
 import { AppScreen } from '@/src/components/AppScreen';
 import { LaunchAlertsPanel } from '@/src/components/LaunchAlertsPanel';
 import { LaunchCalendarSheet } from '@/src/components/LaunchCalendarSheet';
 import { EmptyStateCard, ErrorStateCard, LoadingStateCard, SectionCard } from '@/src/components/SectionCard';
-import { getPublicSiteUrl } from '@/src/config/api';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
+import { useMobilePush } from '@/src/providers/MobilePushProvider';
+import { useMobileToast } from '@/src/providers/MobileToastProvider';
 import { formatTimestamp, formatSearchResultLabel } from '@/src/utils/format';
 import type { LaunchCalendarLaunch } from '@/src/calendar/launchCalendar';
 import { buildWatchlistRuleErrorMessage, buildPadRuleValue, formatPadRuleLabel, usePrimaryWatchlist } from '@/src/watchlists/usePrimaryWatchlist';
-import { ParallaxHero } from '@/src/components/launch/ParallaxHero';
+import { ParallaxHero, StaticHero } from '@/src/components/launch/ParallaxHero';
 import { InteractiveStatTiles, type StatTile } from '@/src/components/launch/InteractiveStatTiles';
 import { LiveBadge } from '@/src/components/launch/LiveDataPulse';
 import { AnimationErrorBoundary } from '@/src/components/launch/AnimationErrorBoundary';
+import { CollapsibleSection } from '@/src/components/launch/CollapsibleSection';
+import { SectionNav, StickyNavPills, type NavSection } from '@/src/components/launch/StickyNavPills';
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 
 type LegacyLaunchSummary = LaunchDetailV1['launch'];
 type RichLaunchSummary = NonNullable<LaunchDetailV1['launchData']>;
 type LaunchSummary = LegacyLaunchSummary | RichLaunchSummary;
+type LaunchExternalContentItem = LaunchDetailV1['enrichment']['externalContent'][number];
+type LaunchExternalContentResource = LaunchExternalContentItem['resources'][number];
 type WatchLinkView = { url: string; label: string; meta: string; imageUrl: string | null; host?: string | null; kind?: string | null };
 type ExternalLinkView = { url: string; label: string; meta: string; host?: string | null; kind?: string | null };
 
@@ -37,63 +53,227 @@ function getLaunchId(value: string | string[] | undefined) {
 
 export default function LaunchDetailScreen() {
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const isFocused = useIsFocused();
   const insets = useSafeAreaInsets();
   const { theme } = useMobileBootstrap();
+  const { showToast } = useMobileToast();
+  const { installationId, deviceSecret, isRegistered } = useMobilePush();
+  const { client } = useApiClient();
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const launchId = getLaunchId(params.id);
-  const siteUrl = useMemo(() => getPublicSiteUrl(), []);
   const launchDetailQuery = useLaunchDetailQuery(launchId);
   const entitlementsQuery = useViewerEntitlementsQuery();
-  const tier = entitlementsQuery.data?.tier ?? 'anon';
   const detail = launchDetailQuery.data ?? null;
   const legacyLaunch = detail?.launch ?? null;
   const launch = detail?.launchData ?? null;
   const arTrajectory = detail?.arTrajectory ?? null;
   const canUseArTrajectory = entitlementsQuery.data?.capabilities.canUseArTrajectory ?? false;
   const canUseSavedItems = entitlementsQuery.data?.capabilities.canUseSavedItems ?? false;
-  const canUseBasicAlertRules = entitlementsQuery.data?.capabilities.canUseBasicAlertRules ?? false;
-  const canUseAdvancedAlertRules = entitlementsQuery.data?.capabilities.canUseAdvancedAlertRules ?? false;
+  const isPremium = entitlementsQuery.data?.isPaid === true || entitlementsQuery.data?.isAdmin === true;
   const isAuthed = entitlementsQuery.data?.isAuthed ?? false;
+  const refreshIntervalMs = (entitlementsQuery.data?.refreshIntervalSeconds ?? 7200) * 1000;
+  const detailVersionScope = entitlementsQuery.data?.mode === 'live' ? 'live' : 'public';
   const [calendarLaunch, setCalendarLaunch] = useState<LaunchCalendarLaunch | null>(null);
   const [savedStatus, setSavedStatus] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
+  const [sectionOffsets, setSectionOffsets] = useState<Record<string, number>>({});
+  const [activeSection, setActiveSection] = useState<string | null>('mission-control');
+  const [detailRefreshing, setDetailRefreshing] = useState(false);
+  const [appStateStatus, setAppStateStatus] = useState(AppState.currentState);
   const watchlistState = usePrimaryWatchlist({
     enabled: isAuthed && canUseSavedItems,
     ruleLimit: entitlementsQuery.data?.limits.watchlistRuleLimit ?? null
   });
-  const calendarFeatureState = getViewerFeatureState('one_off_calendar', tier);
   const title = launch?.name ?? legacyLaunch?.name ?? 'Launch detail';
   const shouldReduceMotion = useReducedMotion();
+  const scrollRef = useRef<ScrollView | null>(null);
+  const activeSectionRef = useRef<string | null>('mission-control');
+  const sectionNavItemsRef = useRef<NavSection[]>([]);
+  const lastSeenVersionRef = useRef<string | null>(null);
+  const refetchLaunchDetail = launchDetailQuery.refetch;
+
+  const handleMissionControlScroll = (offsetY: number) => {
+    const sections = sectionNavItemsRef.current;
+    if (sections.length === 0) {
+      return;
+    }
+
+    let nextActive = sections[0]?.id ?? null;
+    const scrollProbe = offsetY + 180;
+
+    for (const section of sections) {
+      if (section.offsetY < 0) {
+        continue;
+      }
+      if (scrollProbe >= section.offsetY) {
+        nextActive = section.id;
+      } else {
+        break;
+      }
+    }
+
+    if (nextActive && activeSectionRef.current !== nextActive) {
+      activeSectionRef.current = nextActive;
+      setActiveSection(nextActive);
+    }
+  };
+
+  const handleSectionPress = (sectionId: string, offsetY: number) => {
+    if (offsetY < 0) {
+      return;
+    }
+    const targetY = Math.max(offsetY - 124, 0);
+    activeSectionRef.current = sectionId;
+    setActiveSection(sectionId);
+    scrollRef.current?.scrollTo({ y: targetY, animated: true });
+  };
+
+  const registerSectionOffset = (sectionId: string, event: LayoutChangeEvent) => {
+    const nextOffset = Math.max(0, Math.round(event.nativeEvent.layout.y));
+    setSectionOffsets((current) => {
+      if (current[sectionId] === nextOffset) {
+        return current;
+      }
+      return {
+        ...current,
+        [sectionId]: nextOffset
+      };
+    });
+  };
 
   // Mission Control scroll tracking
   const scrollY = useSharedValue(0);
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {
       scrollY.value = event.contentOffset.y;
+      runOnJS(handleMissionControlScroll)(event.contentOffset.y);
     },
   });
 
   let content: JSX.Element;
+  let overlayNavigation: JSX.Element | null = null;
 
   useEffect(() => {
     setSavedStatus(null);
+    setSectionOffsets({});
+    setActiveSection('mission-control');
+    activeSectionRef.current = 'mission-control';
+    sectionNavItemsRef.current = [];
+    lastSeenVersionRef.current = null;
   }, [launchId]);
 
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      setAppStateStatus(nextState);
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
+  const refreshDetail = useCallback(async (versionOverride: string | null = null) => {
+    setDetailRefreshing(true);
+    try {
+      await refetchLaunchDetail();
+      lastSeenVersionRef.current = versionOverride;
+    } finally {
+      setDetailRefreshing(false);
+    }
+  }, [refetchLaunchDetail]);
+
+  useEffect(() => {
+    if (!canAutoRefreshActiveSurface({ isFocused, appStateStatus }) || !launchId || !detail || launchDetailQuery.isPending) {
+      return;
+    }
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+
+    const runVersionCheck = async () => {
+      if (cancelled || !launchId || detailRefreshing || launchDetailQuery.isPending) {
+        return;
+      }
+
+      const payload = await fetchLaunchDetailVersion(queryClient, client, launchId, { scope: detailVersionScope });
+      const nextVersion = payload.version;
+      const visibleUpdatedAt = getVisibleDetailUpdatedAt(detail.launchData ?? null);
+
+      if (!lastSeenVersionRef.current) {
+        lastSeenVersionRef.current = nextVersion;
+        const shouldPrimeRefresh = shouldPrimeVersionRefresh(payload.updatedAt, visibleUpdatedAt);
+        if (shouldPrimeRefresh) {
+          await refreshDetail(nextVersion);
+        }
+        return;
+      }
+
+      if (hasVersionChanged(lastSeenVersionRef.current, nextVersion)) {
+        await refreshDetail(nextVersion);
+      }
+    };
+
+    const schedule = () => {
+      if (cancelled) {
+        return;
+      }
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = null;
+      }
+      const nextRefreshAt = getNextAlignedRefreshMs(Date.now(), refreshIntervalMs);
+      timeout = setTimeout(() => {
+        void runVersionCheck().catch((error) => {
+          console.error('mobile detail refresh check failed', error);
+        });
+        schedule();
+      }, Math.max(0, nextRefreshAt - Date.now()));
+    };
+
+    void runVersionCheck().catch((error) => {
+      console.error('mobile detail refresh check failed', error);
+    });
+    schedule();
+
+    return () => {
+      cancelled = true;
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+    };
+  }, [
+    appStateStatus,
+    client,
+    detailVersionScope,
+    detail,
+    detailRefreshing,
+    isFocused,
+    launchDetailQuery.isPending,
+    launchId,
+    queryClient,
+    refreshDetail,
+    refreshIntervalMs
+  ]);
+
   if (!launchId) {
+    sectionNavItemsRef.current = [];
     content = <EmptyStateCard title="Missing launch id" body="A launch detail route was opened without an id parameter." />;
   } else if (launchDetailQuery.isPending) {
+    sectionNavItemsRef.current = [];
     content = <LoadingStateCard title="Loading launch detail" body={`Fetching /api/v1/launches/${launchId}.`} />;
   } else if (launchDetailQuery.isError) {
+    sectionNavItemsRef.current = [];
     content = <ErrorStateCard title="Launch detail unavailable" body={launchDetailQuery.error.message} />;
   } else if (!detail) {
+    sectionNavItemsRef.current = [];
     content = <EmptyStateCard title="Launch detail unavailable" body="No launch detail was returned for this route." />;
   } else if (!launch) {
+    sectionNavItemsRef.current = [];
     content = legacyLaunch ? (
       <LegacyLaunchDetail
         legacyLaunch={legacyLaunch}
         launchId={launchId}
         arTrajectory={arTrajectory}
         canUseArTrajectory={canUseArTrajectory}
-        isAuthed={isAuthed}
       />
     ) : (
       <EmptyStateCard title="Launch detail unavailable" body="The legacy launch payload was missing for this route." />
@@ -148,27 +328,90 @@ export default function LaunchDetailScreen() {
     const launchBusyKey = `launch:${launchRecord.id.toLowerCase()}`;
     const providerBusyKey = `provider:${String(launchRecord.provider || '').trim().toLowerCase()}`;
     const padBusyKey = `pad:${String(padRuleValue || '').trim().toLowerCase()}`;
-    const resolveTargetUrl = (target: string) => {
-      if (/^https?:\/\//i.test(target)) {
-        return target;
-      }
-
-      return `${siteUrl}${target.startsWith('/') ? target : `/${target}`}`;
-    };
+    const launchInfoProviderHref = buildLaunchProviderEntityHref(launch.provider);
+    const launchInfoRocketLabel = launch.rocketName || launch.rocket?.fullName || launch.vehicle || 'TBD';
+    const launchInfoRocketHref = buildLaunchRocketEntityHref({
+      label: launchInfoRocketLabel,
+      ll2RocketConfigId: launch.ll2RocketConfigId
+    });
+    const launchInfoLocationLabel = launch.padLocation || launch.pad.locationName || launch.pad.state || 'TBD';
+    const launchInfoLocationHref = buildLaunchLocationEntityHref({
+      locationLabel: launchInfoLocationLabel,
+      padLabel: launch.padName || launch.pad.name,
+      ll2PadId: launch.ll2PadId
+    });
+    const launchInfoPadHref = buildLaunchPadEntityHref({
+      ll2PadId: launch.ll2PadId,
+      fallbackLocationHref: launchInfoLocationHref
+    });
     const openTarget = (target: string) => {
       if (!target) return;
+      if (/^https?:\/\//i.test(target)) {
+        void Linking.openURL(target);
+        return;
+      }
       if (target.startsWith('/launches/')) {
         router.push(target as Href);
         return;
       }
-      void Linking.openURL(resolveTargetUrl(target));
+      const nativeCustomerHref = normalizeNativeMobileCustomerHref(target);
+      if (nativeCustomerHref) {
+        router.push(nativeCustomerHref as Href);
+        return;
+      }
+      setSavedStatus({
+        tone: 'error',
+        text: 'That linked surface has not shipped natively on mobile yet.'
+      });
+    };
+
+    const openPremiumGate = () => {
+      router.push('/profile');
+    };
+
+    const showFollowToast = ({
+      message,
+      undo
+    }: {
+      message: string;
+      undo: () => Promise<void>;
+    }) => {
+      showToast({
+        message,
+        tone: 'success',
+        actionLabel: 'Undo',
+        onAction: async () => {
+          try {
+            await undo();
+          } catch (error) {
+            setSavedStatus({
+              tone: 'error',
+              text: error instanceof Error ? error.message : 'Unable to undo that follow.'
+            });
+          }
+        }
+      });
     };
 
     const handleToggleSavedLaunch = async () => {
+      if (!canUseSavedItems) {
+        openPremiumGate();
+        return;
+      }
       try {
         const result = await watchlistState.toggleLaunch(launchRecord.id);
         if (result) {
-          setSavedStatus({ tone: 'success', text: result.notice.message });
+          if (result.action === 'added') {
+            showFollowToast({
+              message: result.notice.message,
+              undo: async () => {
+                await watchlistState.toggleLaunch(launchRecord.id);
+                setSavedStatus({ tone: 'success', text: 'Removed from My Launches.' });
+              }
+            });
+          } else {
+            setSavedStatus({ tone: 'success', text: result.notice.message });
+          }
         }
       } catch (error) {
         setSavedStatus({
@@ -179,10 +422,24 @@ export default function LaunchDetailScreen() {
     };
 
     const handleToggleProviderFollow = async () => {
+      if (!canUseSavedItems) {
+        openPremiumGate();
+        return;
+      }
       try {
         const result = await watchlistState.toggleProvider(launchRecord.provider);
         if (result) {
-          setSavedStatus({ tone: 'success', text: result.notice.message });
+          if (result.action === 'added') {
+            showFollowToast({
+              message: result.notice.message,
+              undo: async () => {
+                await watchlistState.toggleProvider(launchRecord.provider);
+                setSavedStatus({ tone: 'success', text: `Unfollowed ${launchRecord.provider}.` });
+              }
+            });
+          } else {
+            setSavedStatus({ tone: 'success', text: result.notice.message });
+          }
         }
       } catch (error) {
         setSavedStatus({
@@ -196,11 +453,25 @@ export default function LaunchDetailScreen() {
       if (!padRuleValue) {
         return;
       }
+      if (!canUseSavedItems) {
+        openPremiumGate();
+        return;
+      }
 
       try {
         const result = await watchlistState.togglePad(padRuleValue);
         if (result) {
-          setSavedStatus({ tone: 'success', text: result.notice.message });
+          if (result.action === 'added') {
+            showFollowToast({
+              message: result.notice.message,
+              undo: async () => {
+                await watchlistState.togglePad(padRuleValue);
+                setSavedStatus({ tone: 'success', text: `Unfollowed ${formatPadRuleLabel(padRuleValue)}.` });
+              }
+            });
+          } else {
+            setSavedStatus({ tone: 'success', text: result.notice.message });
+          }
         }
       } catch (error) {
         setSavedStatus({
@@ -209,6 +480,107 @@ export default function LaunchDetailScreen() {
         });
       }
     };
+
+    const statTiles: StatTile[] = [
+      {
+        id: 'countdown',
+        label: buildCountdownLabel(launch.net),
+        value: buildCountdownDisplay(launch.net),
+        description: `NET: ${formatTimestamp(launch.net)}`,
+        tone: 'primary'
+      },
+      ...(weatherModule?.summary
+        ? [
+            {
+              id: 'weather',
+              label: 'Weather conditions',
+              value: weatherModule.summary.split('.')[0] || 'Favorable',
+              description: weatherConcerns.length > 0 ? `Concerns: ${weatherConcerns.join(', ')}` : 'No weather concerns',
+              tone: weatherConcerns.length > 0 ? 'warning' : 'success'
+            } satisfies StatTile
+          ]
+        : []),
+      {
+        id: 'provider',
+        label: 'Launch provider',
+        value: launch.provider,
+        description: launch.providerCountryCode ? `Based in ${launch.providerCountryCode}` : 'Space launch provider',
+        tone: 'default'
+      },
+      {
+        id: 'vehicle',
+        label: 'Launch vehicle',
+        value: launch.vehicle || launch.rocket?.fullName || 'TBD',
+        description: launch.pad?.name ? `From ${launch.pad.name}` : 'Launch vehicle',
+        tone: 'default'
+      }
+    ];
+    const hasLiveCoverage = Boolean(primaryWatchLink);
+    const hasSocialUpdates = Boolean(socialModule?.matchedPost || socialModule?.providerFeeds?.length);
+    const hasRocketProfile = Boolean(launch.rocket?.fullName || launch.vehicle || rocketPhotoUrl);
+    const hasForecastOutlook = Boolean(weatherModule?.cards?.length);
+    const hasLaunchAdvisories = detail.enrichment.faaAdvisories.length > 0;
+    const hasStagesAndRecovery = detail.enrichment.firstStages.length > 0 || detail.enrichment.recovery.length > 0;
+    const hasOfficialMedia = Boolean(
+      resourcesModule?.missionResources?.length ||
+      resourcesModule?.missionTimeline?.length ||
+      launch.launchVidUrls?.length ||
+      launch.launchInfoUrls?.length ||
+      detail.enrichment.externalContent.length
+    );
+    const hasPayloadMissionContext = Boolean(launch.payloads?.length || launch.mission?.agencies?.length || launchUpdates.length);
+    const hasPayloadManifestInventory = Boolean(
+      payloadManifest.length > 0 ||
+      objectInventory?.payloadObjects?.length ||
+      objectInventory?.nonPayloadObjects?.length ||
+      objectInventory?.summaryBadges?.length
+    );
+    const hasBlueOriginMissionDetails = Boolean(
+      blueOriginModule &&
+        (
+          blueOriginModule.resourceLinks.length ||
+          blueOriginModule.travelerProfiles.length ||
+          blueOriginModule.missionGraphics.length ||
+          blueOriginModule.facts.length ||
+          blueOriginModule.payloadNotes.length
+        )
+    );
+    const hasMissionStats = Boolean(missionStats?.cards?.length || missionStats?.boosterCards?.length || missionStats?.bonusInsights?.length);
+    const hasRelatedCoverage = relatedEvents.length === 0 && relatedNews.length === 0 && detail.related.length > 0;
+    const getSectionOffset = (sectionId: string, fallback = -1) => sectionOffsets[sectionId] ?? fallback;
+    const navSections: NavSection[] = [
+      { id: 'mission-control', label: 'Mission Control', offsetY: getSectionOffset('mission-control', 0) },
+      ...(hasLiveCoverage ? [{ id: 'live-coverage', label: 'Coverage', offsetY: getSectionOffset('live-coverage') }] : []),
+      ...(hasSocialUpdates ? [{ id: 'social-updates', label: 'Social', offsetY: getSectionOffset('social-updates') }] : []),
+      ...(hasRocketProfile ? [{ id: 'rocket-profile', label: 'Rocket', offsetY: getSectionOffset('rocket-profile') }] : []),
+      { id: 'launch-info', label: 'Info', offsetY: getSectionOffset('launch-info') },
+      ...(hasForecastOutlook ? [{ id: 'forecast-outlook', label: 'Weather', offsetY: getSectionOffset('forecast-outlook') }] : []),
+      ...(hasLaunchAdvisories ? [{ id: 'launch-advisories', label: 'Advisories', offsetY: getSectionOffset('launch-advisories') }] : []),
+      ...(hasStagesAndRecovery ? [{ id: 'stages-recovery', label: 'Stages', offsetY: getSectionOffset('stages-recovery') }] : []),
+      ...(hasOfficialMedia ? [{ id: 'official-media', label: 'Media', offsetY: getSectionOffset('official-media') }] : []),
+      ...(hasPayloadMissionContext ? [{ id: 'payload-updates', label: 'Payloads', offsetY: getSectionOffset('payload-updates') }] : []),
+      ...(hasPayloadManifestInventory ? [{ id: 'payload-inventory', label: 'Inventory', offsetY: getSectionOffset('payload-inventory') }] : []),
+      ...(relatedEvents.length > 0 ? [{ id: 'related-events', label: 'Events', offsetY: getSectionOffset('related-events') }] : []),
+      ...(relatedNews.length > 0 ? [{ id: 'launch-news', label: 'News', offsetY: getSectionOffset('launch-news') }] : []),
+      ...(hasBlueOriginMissionDetails ? [{ id: 'blue-origin', label: 'Blue Origin', offsetY: getSectionOffset('blue-origin') }] : []),
+      ...(hasMissionStats ? [{ id: 'mission-stats', label: 'Stats', offsetY: getSectionOffset('mission-stats') }] : []),
+      ...(hasRelatedCoverage ? [{ id: 'related-coverage', label: 'Related', offsetY: getSectionOffset('related-coverage') }] : [])
+    ];
+
+    sectionNavItemsRef.current = navSections;
+
+    overlayNavigation =
+      !shouldReduceMotion && navSections.length > 1 ? (
+        <AnimationErrorBoundary fallback={null}>
+          <StickyNavPills
+            sections={navSections}
+            scrollY={scrollY}
+            activeSection={activeSection}
+            onSectionPress={handleSectionPress}
+            offsetTop={Math.max(insets.top + 52, 88)}
+          />
+        </AnimationErrorBoundary>
+      ) : null;
 
     content = (
       <>
@@ -253,59 +625,16 @@ export default function LaunchDetailScreen() {
           </View>
         </View>
 
-        <View
-          style={{
-            position: 'relative',
-            overflow: 'hidden',
-            borderRadius: 24,
-            borderWidth: 1,
-            borderColor: 'rgba(234, 240, 255, 0.12)',
-            backgroundColor: 'rgba(11, 16, 35, 0.84)',
-            padding: 20,
-            shadowColor: '#000000',
-            shadowOpacity: 0.34,
-            shadowRadius: 22,
-            shadowOffset: { width: 0, height: 12 },
-            elevation: 10,
-            gap: 16
-          }}
-        >
-          {launch.image?.full || launch.image?.thumbnail ? (
-            <Image
-              source={{ uri: launch.image.full || launch.image.thumbnail }}
-              resizeMode="cover"
-              style={{
-                position: 'absolute',
-                right: -40,
-                top: -24,
-                bottom: -24,
-                width: '78%',
-                opacity: 0.22
-              }}
-            />
-          ) : null}
-          <View
-            pointerEvents="none"
-            style={{
-              position: 'absolute',
-              left: 0,
-              top: 0,
-              bottom: 0,
-              width: 4,
-              backgroundColor: getStatusAccent(launch.status)
-            }}
-          />
-
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-            <DetailChip label={(launch.statusText || 'Status pending').toUpperCase()} tone="accent" />
-            <DetailChip label={launch.tier.toUpperCase()} />
-            {launch.webcastLive ? <LiveBadge label="LIVE" /> : null}
-            {launch.hashtag ? <DetailChip label={launch.hashtag.startsWith('#') ? launch.hashtag : `#${launch.hashtag}`} /> : null}
-          </View>
-
-            <View style={{ gap: 10 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                <View style={{ flex: 1, minWidth: 0 }}>
+        <AnimationErrorBoundary
+          fallback={
+            <StaticHero
+              backgroundImage={launch.image.full || launch.image.thumbnail || rocketPhotoUrl}
+              title={heroTitle}
+              subtitle={heroMeta || formatTimestamp(launch.net)}
+              status={launch.statusText || 'Status pending'}
+              statusTone={getStatusTone(launch.status)}
+            >
+              <View style={{ gap: 12 }}>
                 {launch.providerLogoUrl ? (
                   <Image source={{ uri: launch.providerLogoUrl }} resizeMode="contain" style={{ width: 150, height: 38 }} />
                 ) : (
@@ -313,181 +642,245 @@ export default function LaunchDetailScreen() {
                     {launch.provider}
                   </Text>
                 )}
-              </View>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                  <DetailChip label={launch.tier.toUpperCase()} />
                   {launch.providerCountryCode ? <DetailChip label={launch.providerCountryCode} /> : null}
+                  {launch.webcastLive ? <DetailChip label="LIVE" tone="accent" /> : null}
+                  {launch.hashtag ? <DetailChip label={launch.hashtag.startsWith('#') ? launch.hashtag : `#${launch.hashtag}`} /> : null}
+                </View>
+                {launch.missionSummary ? <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 22 }}>{launch.missionSummary}</Text> : null}
               </View>
-              <Text style={{ color: theme.foreground, fontSize: 33, fontWeight: '800', lineHeight: 38 }}>{heroTitle}</Text>
-              <Text style={{ color: theme.muted, fontSize: 15, lineHeight: 22 }}>{heroMeta}</Text>
+            </StaticHero>
+          }
+        >
+          <ParallaxHero
+            backgroundImage={launch.image.full || launch.image.thumbnail || rocketPhotoUrl}
+            title={heroTitle}
+            subtitle={heroMeta || formatTimestamp(launch.net)}
+            scrollY={scrollY}
+            status={launch.statusText || 'Status pending'}
+            statusTone={getStatusTone(launch.status)}
+          >
+            <View style={{ gap: 12 }}>
+              {launch.providerLogoUrl ? (
+                <Image source={{ uri: launch.providerLogoUrl }} resizeMode="contain" style={{ width: 150, height: 38 }} />
+              ) : (
+                <Text style={{ color: theme.muted, fontSize: 12, fontWeight: '800', letterSpacing: 1.2, textTransform: 'uppercase' }}>
+                  {launch.provider}
+                </Text>
+              )}
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                <DetailChip label={launch.tier.toUpperCase()} />
+                {launch.providerCountryCode ? <DetailChip label={launch.providerCountryCode} /> : null}
+                {launch.webcastLive ? <LiveBadge label="LIVE" /> : null}
+                {launch.hashtag ? <DetailChip label={launch.hashtag.startsWith('#') ? launch.hashtag : `#${launch.hashtag}`} /> : null}
+              </View>
               {launch.missionSummary ? <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 22 }}>{launch.missionSummary}</Text> : null}
               {launch.holdReason ? <Text style={{ color: '#ffd36e', fontSize: 13, lineHeight: 20 }}>Hold reason: {launch.holdReason}</Text> : null}
               {launch.failReason ? <Text style={{ color: '#ff9aab', fontSize: 13, lineHeight: 20 }}>Failure context: {launch.failReason}</Text> : null}
-          </View>
-
-          <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16 }}>
-            <View style={{ flex: 1, gap: 4 }}>
-              <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase' }}>
-                Liftoff
-              </Text>
-              <Text style={{ color: theme.foreground, fontSize: 18, fontWeight: '700', lineHeight: 22 }}>{formatTimestamp(launch.net)}</Text>
-              <Text style={{ color: theme.muted, fontSize: 13 }}>
-                {launch.netPrecision === 'day' || launch.netPrecision === 'tbd' ? 'Date-only NET window' : 'Precise launch window'}
-              </Text>
             </View>
-            <View
-              style={{
-                minWidth: 132,
-                maxWidth: '48%',
-                borderRadius: 18,
-                borderWidth: 1,
-                borderColor: 'rgba(255, 255, 255, 0.06)',
-                backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                paddingHorizontal: 12,
-                paddingVertical: 10
+          </ParallaxHero>
+        </AnimationErrorBoundary>
+
+        {navSections.length > 1 ? (
+          <View
+            style={{
+              borderRadius: 20,
+              borderWidth: 1,
+              borderColor: theme.stroke,
+              backgroundColor: 'rgba(11, 16, 35, 0.84)',
+              paddingHorizontal: 16,
+              paddingVertical: 14,
+              gap: 10
+            }}
+          >
+            <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase' }}>
+              Jump to section
+            </Text>
+            <SectionNav
+              sections={navSections.map((section) => ({ id: section.id, label: section.label }))}
+              activeSection={activeSection}
+              onSectionPress={(sectionId) => {
+                const selectedSection = navSections.find((section) => section.id === sectionId);
+                if (selectedSection) {
+                  handleSectionPress(sectionId, selectedSection.offsetY);
+                }
               }}
-            >
-              <Text
+            />
+          </View>
+        ) : null}
+
+        <DetailModuleSection
+          id="mission-control"
+          title="Mission control dashboard"
+          description="Countdown, launch actions, alerts, and live launch signals."
+          onLayout={registerSectionOffset}
+        >
+          <View style={{ gap: 16 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16 }}>
+              <View style={{ flex: 1, gap: 4 }}>
+                <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase' }}>
+                  Liftoff
+                </Text>
+                <Text style={{ color: theme.foreground, fontSize: 18, fontWeight: '700', lineHeight: 22 }}>{formatTimestamp(launch.net)}</Text>
+                <Text style={{ color: theme.muted, fontSize: 13 }}>
+                  {launch.netPrecision === 'day' || launch.netPrecision === 'tbd' ? 'Date-only NET window' : 'Precise launch window'}
+                </Text>
+              </View>
+              <View
                 style={{
-                  color: theme.foreground,
-                  fontSize: 27,
-                  fontWeight: '300',
-                  lineHeight: 30,
-                  textAlign: 'right',
-                  letterSpacing: 0.4,
-                  fontVariant: ['tabular-nums']
+                  minWidth: 132,
+                  maxWidth: '48%',
+                  borderRadius: 18,
+                  borderWidth: 1,
+                  borderColor: 'rgba(255, 255, 255, 0.06)',
+                  backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                  paddingHorizontal: 12,
+                  paddingVertical: 10
                 }}
               >
-                {buildCountdownDisplay(launch.net)}
-              </Text>
-              <Text
+                <Text
+                  style={{
+                    color: theme.foreground,
+                    fontSize: 27,
+                    fontWeight: '300',
+                    lineHeight: 30,
+                    textAlign: 'right',
+                    letterSpacing: 0.4,
+                    fontVariant: ['tabular-nums']
+                  }}
+                >
+                  {buildCountdownDisplay(launch.net)}
+                </Text>
+                <Text
+                  style={{
+                    marginTop: 4,
+                    color: theme.accent,
+                    fontSize: 11,
+                    fontWeight: '700',
+                    letterSpacing: 1.1,
+                    textAlign: 'right',
+                    textTransform: 'uppercase'
+                  }}
+                >
+                  {buildCountdownLabel(launch.net)}
+                </Text>
+              </View>
+            </View>
+
+            {weatherModule?.summary || weatherConcerns.length ? (
+              <View
                 style={{
-                  marginTop: 4,
-                  color: theme.accent,
-                  fontSize: 11,
-                  fontWeight: '700',
-                  letterSpacing: 1.1,
-                  textAlign: 'right',
-                  textTransform: 'uppercase'
+                  borderRadius: 18,
+                  borderWidth: 1,
+                  borderColor: theme.stroke,
+                  backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                  padding: 14,
+                  gap: 8
                 }}
               >
-                {buildCountdownLabel(launch.net)}
-              </Text>
-            </View>
-          </View>
-
-          {weatherModule?.summary || weatherConcerns.length ? (
-            <View
-              style={{
-                borderRadius: 18,
-                borderWidth: 1,
-                borderColor: theme.stroke,
-                backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                padding: 14,
-                gap: 8
-              }}
-            >
-              <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>Weather</Text>
-              {weatherModule?.summary ? <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>{weatherModule.summary}</Text> : null}
-              {weatherConcerns.length ? (
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  {weatherConcerns.map((concern) => (
-                    <DetailChip key={concern} label={concern} />
-                  ))}
-                </View>
-              ) : null}
-            </View>
-          ) : null}
-
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-            {watchUrl ? (
-              <ActionButton
-                label="Watch live"
-                onPress={() => {
-                  void Linking.openURL(watchUrl);
-                }}
-              />
+                <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>Weather</Text>
+                {weatherModule?.summary ? <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>{weatherModule.summary}</Text> : null}
+                {weatherConcerns.length ? (
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                    {weatherConcerns.map((concern) => (
+                      <DetailChip key={concern} label={concern} />
+                    ))}
+                  </View>
+                ) : null}
+              </View>
             ) : null}
-            {resourceUrl ? (
+
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+              {watchUrl ? (
+                <ActionButton
+                  label="Watch live"
+                  onPress={() => {
+                    void Linking.openURL(watchUrl);
+                  }}
+                />
+              ) : null}
+              {resourceUrl ? (
+                <ActionButton
+                  label="Mission resources"
+                  onPress={() => {
+                    void Linking.openURL(resourceUrl);
+                  }}
+                  variant="secondary"
+                />
+              ) : null}
               <ActionButton
-                label="Mission resources"
+                label="Add to calendar"
                 onPress={() => {
-                  void Linking.openURL(resourceUrl);
+                  setCalendarLaunch({
+                    id: launch.id,
+                    name: launch.name,
+                    provider: launch.provider,
+                    vehicle: launch.vehicle,
+                    net: launch.net,
+                    netPrecision: launch.netPrecision,
+                    windowEnd: launch.windowEnd ?? null,
+                    pad: {
+                      name: launch.pad.name,
+                      state: launch.pad.state
+                    }
+                  });
                 }}
                 variant="secondary"
               />
-            ) : null}
-            <ActionButton
-              label={
-                entitlementsQuery.data?.capabilities.canUseOneOffCalendar
-                  ? 'Add to calendar'
-                  : calendarFeatureState.ctaLabel
-              }
-              onPress={() => {
-                if (!entitlementsQuery.data?.capabilities.canUseOneOffCalendar) {
-                  router.push((entitlementsQuery.data?.isAuthed ? '/profile' : '/sign-in') as Href);
-                  return;
-                }
-                setCalendarLaunch({
-                  id: launch.id,
-                  name: launch.name,
-                  provider: launch.provider,
-                  vehicle: launch.vehicle,
-                  net: launch.net,
-                  netPrecision: launch.netPrecision,
-                  windowEnd: launch.windowEnd ?? null,
-                  pad: {
-                    name: launch.pad.name,
-                    state: launch.pad.state
-                  }
-                });
-              }}
-              variant="secondary"
-            />
-            <ActionButton
-              label="Share launch"
-              onPress={() => {
-                void NativeShare.share({
-                  message: buildShareMessage(launch)
-                });
-              }}
-              variant="secondary"
-            />
-          </View>
+              <ActionButton
+                label="Share launch"
+                onPress={() => {
+                  void NativeShare.share({
+                    message: buildShareMessage(launch)
+                  });
+                }}
+                variant="secondary"
+              />
+            </View>
 
-          {canUseSavedItems ? (
             <View style={{ gap: 10 }}>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-                <ActionButton
-                  label={watchlistState.isLaunchTracked(launch.id) ? 'In My Launches' : 'My Launches'}
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                <DetailFollowChip
+                  label={watchlistState.isLaunchTracked(launch.id) ? 'Following launch' : 'Follow launch'}
+                  active={watchlistState.isLaunchTracked(launch.id)}
+                  disabled={watchlistState.isLoading || Boolean(watchlistState.busyKeys[launchBusyKey])}
                   onPress={() => {
                     void handleToggleSavedLaunch();
                   }}
-                  variant={watchlistState.isLaunchTracked(launch.id) ? 'primary' : 'secondary'}
-                  disabled={watchlistState.isLoading || Boolean(watchlistState.busyKeys[launchBusyKey])}
                 />
-                <ActionButton
+                <DetailFollowChip
                   label={watchlistState.isProviderTracked(launch.provider) ? 'Following provider' : 'Follow provider'}
-                  onPress={() => {
-                    void handleToggleProviderFollow();
-                  }}
-                  variant={watchlistState.isProviderTracked(launch.provider) ? 'primary' : 'secondary'}
+                  active={watchlistState.isProviderTracked(launch.provider)}
                   disabled={
                     watchlistState.isLoading ||
                     !String(launch.provider || '').trim() ||
                     Boolean(watchlistState.busyKeys[providerBusyKey])
                   }
+                  onPress={() => {
+                    void handleToggleProviderFollow();
+                  }}
                 />
                 {padRuleValue ? (
-                  <ActionButton
-                    label={watchlistState.isPadTracked(padRuleValue) ? `Following ${formatPadRuleLabel(padRuleValue)}` : `Follow ${formatPadRuleLabel(padRuleValue)}`}
+                  <DetailFollowChip
+                    label={
+                      watchlistState.isPadTracked(padRuleValue)
+                        ? `Following ${formatPadRuleLabel(padRuleValue)}`
+                        : `Follow ${formatPadRuleLabel(padRuleValue)}`
+                    }
+                    active={watchlistState.isPadTracked(padRuleValue)}
+                    disabled={watchlistState.isLoading || Boolean(watchlistState.busyKeys[padBusyKey])}
                     onPress={() => {
                       void handleTogglePadFollow();
                     }}
-                    variant={watchlistState.isPadTracked(padRuleValue) ? 'primary' : 'secondary'}
-                    disabled={watchlistState.isLoading || Boolean(watchlistState.busyKeys[padBusyKey])}
                   />
                 ) : null}
               </View>
-              {savedStatus ? (
+              {!canUseSavedItems ? (
+                <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>
+                  Following, My Launches, and the Following feed are Premium on mobile.
+                </Text>
+              ) : savedStatus ? (
                 <Text style={{ color: savedStatus.tone === 'error' ? '#ff9087' : theme.accent, fontSize: 13, lineHeight: 19 }}>
                   {savedStatus.text}
                 </Text>
@@ -495,79 +888,38 @@ export default function LaunchDetailScreen() {
                 <Text style={{ color: '#ff9087', fontSize: 13, lineHeight: 19 }}>{watchlistState.errorMessage}</Text>
               ) : null}
             </View>
-          ) : (
-            <ActionButton
-              label={isAuthed ? 'Upgrade for My Launches' : 'Sign in for My Launches'}
-              onPress={() => {
-                router.push((isAuthed ? '/profile' : '/sign-in') as Href);
+
+            <LaunchAlertsPanel
+              launchId={launch.id}
+              installationId={installationId}
+              deviceSecret={deviceSecret}
+              isPremium={isPremium}
+              isPushRegistered={isRegistered}
+              onOpenUpgrade={() => {
+                router.push('/profile');
               }}
-              variant="secondary"
+              onOpenPreferences={() => {
+                router.push('/preferences');
+              }}
             />
-          )}
-        </View>
 
-        <LaunchAlertsPanel
-          launchId={launch.id}
-          isAuthed={isAuthed}
-          canUseBasicAlertRules={canUseBasicAlertRules}
-          canUseAdvancedAlertRules={canUseAdvancedAlertRules}
-          onOpenSignIn={() => {
-            router.push('/sign-in');
-          }}
-          onOpenUpgrade={() => {
-            router.push('/profile');
-          }}
-          onOpenPreferences={() => {
-            router.push('/preferences');
-          }}
-        />
+            <AnimationErrorBoundary fallback={<FactGrid items={statTiles.map((tile) => [tile.label, tile.value] as [string, string])} />}>
+              <InteractiveStatTiles tiles={statTiles} />
+            </AnimationErrorBoundary>
 
-        <InteractiveStatTiles
-          tiles={[
-            {
-              id: 'countdown',
-              label: buildCountdownLabel(launch.net),
-              value: buildCountdownDisplay(launch.net),
-              description: `NET: ${formatTimestamp(launch.net)}`,
-              tone: 'primary',
-            },
-            ...(weatherModule?.summary
-              ? [{
-                  id: 'weather',
-                  label: 'Weather Conditions',
-                  value: weatherModule.summary.split('.')[0] || 'Favorable',
-                  description: weatherConcerns.length > 0 ? `Concerns: ${weatherConcerns.join(', ')}` : 'No weather concerns',
-                  tone: weatherConcerns.length > 0 ? 'warning' as const : 'success' as const,
-                }]
-              : []),
-            {
-              id: 'provider',
-              label: 'Launch Provider',
-              value: launch.provider,
-              description: launch.providerCountryCode ? `Based in ${launch.providerCountryCode}` : 'Space launch provider',
-              tone: 'default' as const,
-            },
-            {
-              id: 'vehicle',
-              label: 'Launch Vehicle',
-              value: launch.vehicle || launch.rocket?.fullName || 'TBD',
-              description: launch.pad?.name ? `From ${launch.pad.name}` : 'Launch vehicle',
-              tone: 'default' as const,
-            },
-          ]}
-        />
-
-        {arTrajectory && shouldShowArTrajectoryCard(arTrajectory, canUseArTrajectory) ? (
-          <ArTrajectoryCard
-            launchId={launch.id}
-            arTrajectory={arTrajectory}
-            canUseArTrajectory={canUseArTrajectory}
-            isAuthed={isAuthed}
-          />
-        ) : null}
+            {arTrajectory && shouldShowArTrajectoryCard(arTrajectory, canUseArTrajectory) ? (
+              <ArTrajectoryCard launchId={launch.id} arTrajectory={arTrajectory} canUseArTrajectory={canUseArTrajectory} />
+            ) : null}
+          </View>
+        </DetailModuleSection>
 
         {primaryWatchLink ? (
-          <SectionCard title="Live coverage" description="Stream links and outbound coverage surfaced from the launch payload.">
+          <DetailModuleSection
+            id="live-coverage"
+            title="Live coverage"
+            description="Stream links and outbound coverage surfaced from the launch payload."
+            onLayout={registerSectionOffset}
+          >
             <View style={{ gap: 12 }}>
               <Pressable
                 onPress={() => {
@@ -637,11 +989,16 @@ export default function LaunchDetailScreen() {
                 </View>
               ) : null}
             </View>
-          </SectionCard>
+          </DetailModuleSection>
         ) : null}
 
         {socialModule?.matchedPost || socialModule?.providerFeeds?.length ? (
-          <SectionCard title="Social & updates" description="Provider post matches and program feeds tied to this launch.">
+          <DetailModuleSection
+            id="social-updates"
+            title="Social & updates"
+            description="Provider post matches and program feeds tied to this launch."
+            onLayout={registerSectionOffset}
+          >
             <View style={{ gap: 10 }}>
               {socialModule.matchedPost ? (
                 <LinkRow
@@ -663,11 +1020,16 @@ export default function LaunchDetailScreen() {
                 />
               ))}
             </View>
-          </SectionCard>
+          </DetailModuleSection>
         ) : null}
 
         {(launch.rocket?.fullName || launch.vehicle || rocketPhotoUrl) ? (
-          <SectionCard title="Rocket profile" description={launch.rocket?.fullName || launch.vehicle}>
+          <DetailModuleSection
+            id="rocket-profile"
+            title="Rocket profile"
+            description={launch.rocket?.fullName || launch.vehicle}
+            onLayout={registerSectionOffset}
+          >
             {rocketPhotoUrl ? (
               <Image
                 source={{ uri: rocketPhotoUrl }}
@@ -692,17 +1054,25 @@ export default function LaunchDetailScreen() {
               ]}
             />
             {launch.rocket?.description ? <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>{launch.rocket.description}</Text> : null}
-          </SectionCard>
+          </DetailModuleSection>
         ) : null}
 
-        <SectionCard title="Launch info" description="Provider, vehicle, pad, window, and mission facts aligned with the web detail layout.">
+        <DetailModuleSection
+          id="launch-info"
+          title="Launch info"
+          description="Provider, vehicle, pad, window, and mission facts aligned with the web detail layout."
+          onLayout={registerSectionOffset}
+        >
           <FactGrid
+            onOpenHref={(href) => {
+              openTarget(href);
+            }}
             items={[
-              ['Provider', launch.provider],
-              ['Vehicle', launch.vehicle],
-              ['Rocket', launch.rocketName || launch.rocket?.fullName || 'TBD'],
-              ['Pad', launch.padName || launch.pad.name],
-              ['Location', launch.padLocation || launch.pad.locationName || launch.pad.state || 'TBD'],
+              { label: 'Provider', value: launch.provider, href: launchInfoProviderHref },
+              { label: 'Vehicle', value: launch.vehicle, href: launchInfoRocketHref },
+              { label: 'Rocket', value: launchInfoRocketLabel, href: launchInfoRocketHref },
+              { label: 'Pad', value: launch.padName || launch.pad.name, href: launchInfoPadHref },
+              { label: 'Location', value: launchInfoLocationLabel, href: launchInfoLocationHref },
               ['NET', formatTimestamp(launch.net)],
               ['Window start', formatTimestamp(launch.windowStart)],
               ['Window end', formatTimestamp(launch.windowEnd)],
@@ -726,7 +1096,7 @@ export default function LaunchDetailScreen() {
                     title={item.label}
                     subtitle={item.meta}
                     onPress={() => {
-                      void Linking.openURL(item.url);
+                      openTarget(item.url);
                     }}
                   />
                 ))}
@@ -800,10 +1170,15 @@ export default function LaunchDetailScreen() {
               </View>
             </SectionCard>
           ) : null}
-        </SectionCard>
+        </DetailModuleSection>
 
         {weatherModule?.cards?.length ? (
-          <SectionCard title="Forecast outlook" description="Structured weather sources matched to this launch.">
+          <DetailModuleSection
+            id="forecast-outlook"
+            title="Forecast outlook"
+            description="Structured weather sources matched to this launch."
+            onLayout={registerSectionOffset}
+          >
             <View style={{ gap: 12 }}>
               {weatherModule.cards.map((card) => (
                 <View
@@ -844,7 +1219,7 @@ export default function LaunchDetailScreen() {
                     <ActionButton
                       label={card.actionLabel}
                       onPress={() => {
-                        void Linking.openURL(card.actionUrl || '');
+                        openTarget(card.actionUrl || '');
                       }}
                       variant="secondary"
                     />
@@ -852,13 +1227,15 @@ export default function LaunchDetailScreen() {
                 </View>
               ))}
             </View>
-          </SectionCard>
+          </DetailModuleSection>
         ) : null}
 
         {detail.enrichment.faaAdvisories.length > 0 ? (
-          <SectionCard
+          <DetailModuleSection
+            id="launch-advisories"
             title="Launch advisories"
             description={`Temporary flight restrictions and NOTAM matches tied to this launch. ${detail.enrichment.faaAdvisories.length} match${detail.enrichment.faaAdvisories.length === 1 ? '' : 'es'} found.`}
+            onLayout={registerSectionOffset}
           >
             <View style={{ gap: 12 }}>
               {detail.enrichment.faaAdvisories.map((advisory) => (
@@ -921,11 +1298,16 @@ export default function LaunchDetailScreen() {
             <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 19 }}>
               Advisory data is informational. Confirm operational constraints with official FAA publications.
             </Text>
-          </SectionCard>
+          </DetailModuleSection>
         ) : null}
 
         {(detail.enrichment.firstStages.length > 0 || detail.enrichment.recovery.length > 0) ? (
-          <SectionCard title="Stages & recovery" description="Launch-stage and landing context surfaced from LL2 when it exists.">
+          <DetailModuleSection
+            id="stages-recovery"
+            title="Stages & recovery"
+            description="Launch-stage and landing context surfaced from LL2 when it exists."
+            onLayout={registerSectionOffset}
+          >
             {detail.enrichment.firstStages.length > 0 ? (
               <View style={{ gap: 10 }}>
                 {detail.enrichment.firstStages.map((stage) => (
@@ -981,13 +1363,18 @@ export default function LaunchDetailScreen() {
                 ))}
               </View>
             ) : null}
-          </SectionCard>
+          </DetailModuleSection>
         ) : null}
 
         {(resourcesModule?.missionResources?.length || resourcesModule?.missionTimeline?.length || launch.launchVidUrls?.length || launch.launchInfoUrls?.length || detail.enrichment.externalContent.length) ? (
-          <SectionCard title="Official media & timelines" description="Matched mission resources and outbound media links for this launch.">
+          <DetailModuleSection
+            id="official-media"
+            title="Official media & timelines"
+            description="Matched mission resources, SpaceX media assets, and mission timelines for this launch."
+            onLayout={registerSectionOffset}
+          >
             <View style={{ gap: 10 }}>
-              {resourcesModule?.missionResources?.map((resource) => (
+              {resourcesModule?.missionResources?.filter((resource) => !isSpaceXWebsiteUrl(resource.url))?.map((resource) => (
                 <LinkRow
                   key={`resource:${resource.id}`}
                   title={resource.title}
@@ -1000,21 +1387,14 @@ export default function LaunchDetailScreen() {
               {launch.launchVidUrls?.map((item) => (
                 <LinkRow key={`video:${item.url}`} title={item.title || item.url} subtitle={item.publisher || 'Watch link'} onPress={() => void Linking.openURL(item.url)} />
               ))}
-              {launch.launchInfoUrls?.map((item) => (
+              {launch.launchInfoUrls?.filter((item) => !isSpaceXWebsiteUrl(item.url))?.map((item) => (
                 <LinkRow key={`info:${item.url}`} title={item.title || item.url} subtitle={item.source || 'Launch resource'} onPress={() => void Linking.openURL(item.url)} />
               ))}
               {detail.enrichment.externalContent.map((item) => (
                 <View key={item.id} style={{ gap: 8 }}>
                   <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{item.title || item.contentType}</Text>
                   {item.resources.map((resource) => (
-                    <LinkRow
-                      key={resource.id}
-                      title={resource.label}
-                      subtitle={resource.kind}
-                      onPress={() => {
-                        void Linking.openURL(resource.url);
-                      }}
-                    />
+                    <ExternalContentResourceCard key={resource.id} resource={resource} />
                   ))}
                 </View>
               ))}
@@ -1038,11 +1418,16 @@ export default function LaunchDetailScreen() {
                 </SectionCard>
               ) : null}
             </View>
-          </SectionCard>
+          </DetailModuleSection>
         ) : null}
 
         {(launch.payloads?.length || launch.mission?.agencies?.length || launchUpdates.length) ? (
-          <SectionCard title="Payloads, agencies, and updates" description="Mission-side context carried through the shared launch payload.">
+          <DetailModuleSection
+            id="payload-updates"
+            title="Payloads, agencies, and updates"
+            description="Mission-side context carried through the shared launch payload."
+            onLayout={registerSectionOffset}
+          >
             {launch.payloads?.length ? (
               <SectionCard title="Payloads" compact>
                 {launch.payloads.map((payload, index) => (
@@ -1070,11 +1455,16 @@ export default function LaunchDetailScreen() {
                 ))}
               </SectionCard>
             ) : null}
-          </SectionCard>
+          </DetailModuleSection>
         ) : null}
 
         {(payloadManifest.length > 0 || objectInventory?.payloadObjects?.length || objectInventory?.nonPayloadObjects?.length || objectInventory?.summaryBadges?.length) ? (
-          <SectionCard title="Payload manifest & inventory" description="Manifested payloads and tracked launch objects linked to this mission.">
+          <DetailModuleSection
+            id="payload-inventory"
+            title="Payload manifest & inventory"
+            description="Manifested payloads and tracked launch objects linked to this mission."
+            onLayout={registerSectionOffset}
+          >
             {payloadManifest.length ? (
               <SectionCard title="Manifest" compact>
                 <View style={{ gap: 10 }}>
@@ -1184,11 +1574,16 @@ export default function LaunchDetailScreen() {
                 </View>
               </SectionCard>
             ) : null}
-          </SectionCard>
+          </DetailModuleSection>
         ) : null}
 
         {relatedEvents.length > 0 ? (
-          <SectionCard title="Related events" description="Mission-adjacent events linked to this launch.">
+          <DetailModuleSection
+            id="related-events"
+            title="Related events"
+            description="Mission-adjacent events linked to this launch."
+            onLayout={registerSectionOffset}
+          >
             <View style={{ gap: 10 }}>
               {relatedEvents.map((item) => (
                 <Pressable
@@ -1215,11 +1610,16 @@ export default function LaunchDetailScreen() {
                 </Pressable>
               ))}
             </View>
-          </SectionCard>
+          </DetailModuleSection>
         ) : null}
 
         {relatedNews.length > 0 ? (
-          <SectionCard title="Launch news" description="Related news coverage surfaced from linked launch joins.">
+          <DetailModuleSection
+            id="launch-news"
+            title="Launch news"
+            description="Related news coverage surfaced from linked launch joins."
+            onLayout={registerSectionOffset}
+          >
             <View style={{ gap: 10 }}>
               {relatedNews.map((item) => (
                 <Pressable
@@ -1245,7 +1645,7 @@ export default function LaunchDetailScreen() {
                 </Pressable>
               ))}
             </View>
-          </SectionCard>
+          </DetailModuleSection>
         ) : null}
 
         {blueOriginModule && (
@@ -1255,7 +1655,12 @@ export default function LaunchDetailScreen() {
           blueOriginModule.facts.length ||
           blueOriginModule.payloadNotes.length
         ) ? (
-          <SectionCard title="Blue Origin mission details" description="Provider-specific traveler, media, and mission context for Blue Origin launches.">
+          <DetailModuleSection
+            id="blue-origin"
+            title="Blue Origin mission details"
+            description="Provider-specific traveler, media, and mission context for Blue Origin launches."
+            onLayout={registerSectionOffset}
+          >
             {blueOriginModule.resourceLinks.length ? (
               <SectionCard title="Resources" compact>
                 <View style={{ gap: 10 }}>
@@ -1395,11 +1800,16 @@ export default function LaunchDetailScreen() {
                 </View>
               </SectionCard>
             ) : null}
-          </SectionCard>
+          </DetailModuleSection>
         ) : null}
 
         {missionStats?.cards?.length || missionStats?.boosterCards?.length || missionStats?.bonusInsights?.length ? (
-          <SectionCard title="Mission stats" description="Provider, rocket, pad, and booster history tied to this launch.">
+          <DetailModuleSection
+            id="mission-stats"
+            title="Mission stats"
+            description="Provider, rocket, pad, and booster history tied to this launch."
+            onLayout={registerSectionOffset}
+          >
             {missionStats?.cards?.length ? (
               <View style={{ gap: 10 }}>
                 {missionStats.cards.map((card) => (
@@ -1477,11 +1887,16 @@ export default function LaunchDetailScreen() {
                 </View>
               </SectionCard>
             ) : null}
-          </SectionCard>
+          </DetailModuleSection>
         ) : null}
 
         {relatedEvents.length === 0 && relatedNews.length === 0 && detail.related.length > 0 ? (
-          <SectionCard title="Related coverage" description={`${detail.related.length} linked result${detail.related.length === 1 ? '' : 's'} surfaced for this launch.`}>
+          <DetailModuleSection
+            id="related-coverage"
+            title="Related coverage"
+            description={`${detail.related.length} linked result${detail.related.length === 1 ? '' : 's'} surfaced for this launch.`}
+            onLayout={registerSectionOffset}
+          >
             <View style={{ gap: 10 }}>
               {detail.related.map((item) => (
                 <Pressable
@@ -1503,7 +1918,7 @@ export default function LaunchDetailScreen() {
                 </Pressable>
               ))}
             </View>
-          </SectionCard>
+          </DetailModuleSection>
         ) : null}
       </>
     );
@@ -1521,9 +1936,20 @@ export default function LaunchDetailScreen() {
         animatedScroll={!shouldReduceMotion}
         onScroll={scrollHandler}
         scrollEventThrottle={16}
+        scrollRef={scrollRef}
+        refreshControl={
+          <RefreshControl
+            refreshing={detailRefreshing}
+            onRefresh={() => {
+              void refreshDetail(null);
+            }}
+            tintColor={theme.accent}
+          />
+        }
       >
         {content}
       </AppScreen>
+      {overlayNavigation}
       <LaunchCalendarSheet launch={calendarLaunch} open={calendarLaunch != null} onClose={() => setCalendarLaunch(null)} />
     </>
   );
@@ -1562,6 +1988,38 @@ function ActionButton({
   );
 }
 
+function DetailFollowChip({
+  label,
+  active,
+  disabled = false,
+  onPress
+}: {
+  label: string;
+  active: boolean;
+  disabled?: boolean;
+  onPress: () => void;
+}) {
+  const { theme } = useMobileBootstrap();
+
+  return (
+    <Pressable
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: active ? theme.accent : theme.stroke,
+        backgroundColor: active ? 'rgba(34, 211, 238, 0.12)' : 'rgba(255, 255, 255, 0.03)',
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        opacity: disabled ? 0.45 : pressed ? 0.86 : 1
+      })}
+    >
+      <Text style={{ color: active ? theme.accent : theme.foreground, fontSize: 11, fontWeight: '700' }}>{label}</Text>
+    </Pressable>
+  );
+}
+
 function DetailChip({ label, tone = 'default' }: { label: string; tone?: 'default' | 'accent' | 'success' }) {
   const { theme } = useMobileBootstrap();
   const colors =
@@ -1587,28 +2045,98 @@ function DetailChip({ label, tone = 'default' }: { label: string; tone?: 'defaul
   );
 }
 
-function FactGrid({ items }: { items: Array<[string, string]> }) {
+function DetailModuleSection({
+  id,
+  title,
+  description,
+  children,
+  onLayout,
+  defaultExpanded = true
+}: {
+  id: string;
+  title: string;
+  description?: string;
+  children: ReactNode;
+  onLayout?: (sectionId: string, event: LayoutChangeEvent) => void;
+  defaultExpanded?: boolean;
+}) {
+  return (
+    <View
+      onLayout={(event) => {
+        onLayout?.(id, event);
+      }}
+    >
+      <CollapsibleSection id={id} title={title} description={description} defaultExpanded={defaultExpanded}>
+        {children}
+      </CollapsibleSection>
+    </View>
+  );
+}
+
+type FactGridItem = [string, string] | { label: string; value: string; href?: string | null };
+
+function normalizeFactGridItem(item: FactGridItem) {
+  if (Array.isArray(item)) {
+    return { label: item[0], value: item[1], href: null };
+  }
+  return {
+    label: item.label,
+    value: item.value,
+    href: item.href || null
+  };
+}
+
+function FactGrid({
+  items,
+  onOpenHref
+}: {
+  items: FactGridItem[];
+  onOpenHref?: (href: string) => void;
+}) {
   const { theme } = useMobileBootstrap();
   return (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-      {items.map(([label, value]) => (
-        <View
-          key={label}
-          style={{
-            width: '47%',
-            minWidth: 140,
-            borderRadius: 16,
-            borderWidth: 1,
-            borderColor: theme.stroke,
-            backgroundColor: 'rgba(255, 255, 255, 0.03)',
-            padding: 12,
-            gap: 4
-          }}
-        >
-          <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>{label}</Text>
-          <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700', lineHeight: 20 }}>{value}</Text>
-        </View>
-      ))}
+      {items.map((rawItem) => {
+        const item = normalizeFactGridItem(rawItem);
+        const isInteractive = Boolean(item.href && onOpenHref);
+        const key = `${item.label}:${item.value}`;
+        const cardStyle = {
+          width: '47%' as const,
+          minWidth: 140,
+          borderRadius: 16,
+          borderWidth: 1,
+          borderColor: theme.stroke,
+          backgroundColor: 'rgba(255, 255, 255, 0.03)',
+          padding: 12,
+          gap: 4
+        };
+
+        if (isInteractive && item.href) {
+          return (
+            <Pressable
+              key={key}
+              onPress={() => {
+                onOpenHref?.(item.href as string);
+              }}
+              style={({ pressed }) => ({
+                ...cardStyle,
+                backgroundColor: pressed ? 'rgba(255, 255, 255, 0.08)' : cardStyle.backgroundColor
+              })}
+            >
+              <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>{item.label}</Text>
+              <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700', lineHeight: 20 }}>{item.value}</Text>
+              <Text style={{ color: theme.accent, fontSize: 11, fontWeight: '700' }}>Open</Text>
+            </Pressable>
+          );
+        }
+
+        return (
+          <View key={key} style={cardStyle}>
+            <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>{item.label}</Text>
+            <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700', lineHeight: 20 }}>{item.value}</Text>
+          </View>
+        );
+      })}
     </View>
   );
 }
@@ -1617,14 +2145,12 @@ function LegacyLaunchDetail({
   legacyLaunch,
   launchId,
   arTrajectory,
-  canUseArTrajectory,
-  isAuthed
+  canUseArTrajectory
 }: {
   legacyLaunch: LegacyLaunchSummary;
   launchId: string;
   arTrajectory: ArTrajectorySummaryV1 | null;
   canUseArTrajectory: boolean;
-  isAuthed: boolean;
 }) {
   const { theme } = useMobileBootstrap();
 
@@ -1692,12 +2218,7 @@ function LegacyLaunchDetail({
       </View>
 
       {arTrajectory && shouldShowArTrajectoryCard(arTrajectory, canUseArTrajectory) ? (
-        <ArTrajectoryCard
-          launchId={launchId}
-          arTrajectory={arTrajectory}
-          canUseArTrajectory={canUseArTrajectory}
-          isAuthed={isAuthed}
-        />
+        <ArTrajectoryCard launchId={launchId} arTrajectory={arTrajectory} canUseArTrajectory={canUseArTrajectory} />
       ) : null}
 
       <SectionCard
@@ -1715,17 +2236,16 @@ function LegacyLaunchDetail({
 function ArTrajectoryCard({
   launchId,
   arTrajectory,
-  canUseArTrajectory,
-  isAuthed
+  canUseArTrajectory
 }: {
   launchId: string;
   arTrajectory: ArTrajectorySummaryV1;
   canUseArTrajectory: boolean;
-  isAuthed: boolean;
 }) {
   const router = useRouter();
   const { theme } = useMobileBootstrap();
   const isIos = Platform.OS === 'ios';
+  const isAndroid = Platform.OS === 'android';
   const isUnavailable = arTrajectory.availabilityReason === 'not_eligible';
   const isPending = arTrajectory.availabilityReason === 'trajectory_missing' || !arTrajectory.hasTrajectory;
   const qualityLabel = formatArQualityLabel(arTrajectory.qualityState);
@@ -1736,19 +2256,21 @@ function ArTrajectoryCard({
   let actionVariant: 'primary' | 'secondary' = 'primary';
   let disabled = false;
   let onPress = () => {
-    router.push((`/launches/ar/${launchId}`) as Href);
+    if (isIos || isAndroid) {
+      router.push((`/launches/ar/${launchId}`) as Href);
+    }
   };
 
-  if (!isIos) {
-    actionLabel = 'iPhone only';
+  if (!isIos && !isAndroid) {
+    actionLabel = 'AR unavailable';
     actionVariant = 'secondary';
     disabled = true;
     onPress = () => undefined;
   } else if (!canUseArTrajectory) {
-    actionLabel = isAuthed ? 'Upgrade for AR' : 'Sign in for AR';
+    actionLabel = 'Upgrade for AR';
     actionVariant = 'secondary';
     onPress = () => {
-      router.push((isAuthed ? '/profile' : '/sign-in') as Href);
+      router.push('/profile');
     };
   } else if (isUnavailable) {
     actionLabel = 'AR unavailable';
@@ -1765,12 +2287,12 @@ function ArTrajectoryCard({
   return (
     <SectionCard
       title="AR trajectory"
-      description={buildArTrajectoryDescription(arTrajectory, canUseArTrajectory, isIos)}
+      description={buildArTrajectoryDescription(arTrajectory, canUseArTrajectory, isIos, isAndroid)}
       body={generatedAtLabel ? `Latest trajectory package generated ${generatedAtLabel}.` : undefined}
     >
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         <DetailChip label="Premium" tone={canUseArTrajectory ? 'accent' : 'default'} />
-        <DetailChip label={isIos ? 'iPhone native' : 'iPhone only'} />
+        <DetailChip label={isIos ? 'iPhone native' : isAndroid ? 'Android native' : 'AR unavailable'} />
         {qualityLabel ? <DetailChip label={qualityLabel} tone={arTrajectory.qualityState === 'precision' ? 'success' : 'default'} /> : null}
         {confidenceLabel ? <DetailChip label={confidenceLabel} /> : null}
         {arTrajectory.publishPolicy?.enforcePadOnly ? <DetailChip label="Guide only" /> : null}
@@ -1785,9 +2307,15 @@ function ArTrajectoryCard({
           gap: 8
         }}
       >
-        <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>Native iPhone AR runtime</Text>
+        <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>
+          {isIos ? 'Native iPhone AR runtime' : isAndroid ? 'Native Android AR runtime' : 'AR runtime'}
+        </Text>
         <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
-          Uses ARKit world tracking, premium trajectory calibration, and session-quality safeguards instead of the Safari camera stack.
+          {isIos
+            ? 'Uses ARKit world tracking, premium trajectory calibration, and session-quality safeguards instead of the Safari camera stack.'
+            : isAndroid
+              ? 'Uses Android native camera controls for smooth pinch zoom and falls back to web AR only when native capabilities are unavailable.'
+              : 'AR trajectory is available on supported iPhone and Android devices.'}
         </Text>
       </View>
       <ActionButton label={actionLabel} onPress={onPress} variant={actionVariant} disabled={disabled} />
@@ -1814,27 +2342,65 @@ function LinkRow({ title, subtitle, onPress }: { title: string; subtitle: string
   );
 }
 
+function ExternalContentResourceCard({ resource }: { resource: LaunchExternalContentResource }) {
+  const { theme } = useMobileBootstrap();
+  const previewUrl = normalizeExternalContentPreviewUrl(resource);
+  return (
+    <View
+      style={{
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: theme.stroke,
+        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+        overflow: 'hidden'
+      }}
+    >
+      {previewUrl ? (
+        <Image
+          source={{ uri: previewUrl }}
+          resizeMode="cover"
+          style={{
+            width: '100%',
+            height: 180,
+            backgroundColor: 'rgba(255,255,255,0.04)'
+          }}
+        />
+      ) : null}
+      <View style={{ padding: 14, gap: 6 }}>
+        <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{resource.label}</Text>
+        <Text style={{ color: theme.muted, fontSize: 13 }}>
+          {[formatExternalContentKindLabel(resource.kind), formatUrlHost(resource.url)].filter(Boolean).join(' • ') || 'SpaceX content'}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 function shouldShowArTrajectoryCard(arTrajectory: ArTrajectorySummaryV1, canUseArTrajectory: boolean) {
   return canUseArTrajectory || arTrajectory.availabilityReason !== 'not_eligible';
 }
 
-function buildArTrajectoryDescription(arTrajectory: ArTrajectorySummaryV1, canUseArTrajectory: boolean, isIos: boolean) {
-  if (!isIos) {
-    return 'This premium AR runtime is intentionally shipping on iPhone first. Android remains out of scope for this rollout.';
+function buildArTrajectoryDescription(arTrajectory: ArTrajectorySummaryV1, canUseArTrajectory: boolean, isIos: boolean, isAndroid: boolean) {
+  if (!isIos && !isAndroid) {
+    return 'AR trajectory is available on supported iPhone and Android devices.';
   }
 
   if (!canUseArTrajectory) {
     return arTrajectory.hasTrajectory
-      ? 'Premium unlocks the native AR trajectory experience for this launch.'
-      : 'Premium unlocks native AR trajectory when an eligible launch package is ready.';
+      ? 'Premium unlocks the AR trajectory experience for this launch.'
+      : 'Premium unlocks AR trajectory when an eligible launch package is ready.';
   }
 
   if (arTrajectory.availabilityReason === 'not_eligible') {
-    return 'This launch is outside the current AR-eligible program window, so the native trajectory view stays locked out.';
+    return 'This launch is outside the current AR-eligible program window, so AR trajectory stays locked out.';
   }
 
   if (arTrajectory.availabilityReason === 'trajectory_missing') {
     return 'This launch is AR-eligible, but the premium trajectory package has not been published yet.';
+  }
+
+  if (isAndroid) {
+    return 'Android opens native AR trajectory first, with automatic fallback to web AR if native capabilities are unavailable.';
   }
 
   if (arTrajectory.qualityState === 'precision') {
@@ -1976,6 +2542,20 @@ function normalizeTextValue(value: string | null | undefined) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+function isSpaceXWebsiteUrl(value: string | null | undefined) {
+  const normalized = normalizeUrlString(value);
+  if (!normalized) {
+    return false;
+  }
+
+  try {
+    const host = new URL(normalized).hostname.replace(/^www\./, '').toLowerCase();
+    return host === 'spacex.com' || host.endsWith('.spacex.com');
+  } catch {
+    return false;
+  }
+}
+
 function formatUrlHost(value: string | null | undefined) {
   const normalized = normalizeUrlString(value);
   if (!normalized) {
@@ -1986,6 +2566,38 @@ function formatUrlHost(value: string | null | undefined) {
     return new URL(normalized).hostname.replace(/^www\./, '');
   } catch {
     return null;
+  }
+}
+
+function normalizeExternalContentPreviewUrl(resource: LaunchExternalContentResource) {
+  const preferred = normalizeUrlString(resource.previewUrl || null);
+  if (preferred) {
+    return preferred;
+  }
+  if (resource.kind === 'image' || resource.kind === 'infographic') {
+    return normalizeUrlString(resource.url);
+  }
+  return null;
+}
+
+function formatExternalContentKindLabel(kind: LaunchExternalContentResource['kind']) {
+  switch (kind) {
+    case 'infographic':
+      return 'Infographic';
+    case 'image':
+      return 'Image';
+    case 'video':
+      return 'Video';
+    case 'webcast':
+      return 'Webcast';
+    case 'timeline':
+      return 'Timeline';
+    case 'document':
+      return 'Document';
+    case 'page':
+      return 'Page';
+    default:
+      return 'Resource';
   }
 }
 
@@ -2004,18 +2616,102 @@ function getPrimaryResourceUrl(launch: LaunchSummary) {
   if (!isRichLaunchSummary(launch)) {
     return null;
   }
-  return launch.launchInfoUrls?.[0]?.url || launch.launchVidUrls?.[0]?.url || null;
+  const firstNonSpaceXInfoUrl = launch.launchInfoUrls?.find((item) => !isSpaceXWebsiteUrl(item?.url || null))?.url || null;
+  return firstNonSpaceXInfoUrl || launch.launchVidUrls?.[0]?.url || null;
 }
 
 function buildShareMessage(launch: LaunchSummary) {
   return [launch.name, getPrimaryWatchUrl(launch) || getPrimaryResourceUrl(launch) || formatTimestamp(launch.net)].filter(Boolean).join('\n');
 }
 
-function getStatusAccent(status: string) {
-  if (status === 'go') return 'rgba(52, 211, 153, 0.92)';
-  if (status === 'hold') return 'rgba(251, 191, 36, 0.92)';
-  if (status === 'scrubbed') return 'rgba(251, 113, 133, 0.92)';
-  return 'rgba(34, 211, 238, 0.92)';
+function getStatusTone(status: string): 'default' | 'success' | 'warning' | 'danger' {
+  if (status === 'go') return 'success';
+  if (status === 'hold') return 'warning';
+  if (status === 'scrubbed') return 'danger';
+  return 'default';
+}
+
+function isUnknownEntityLabel(value: string | null | undefined) {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  return !normalized || normalized === 'unknown' || normalized === 'tbd' || normalized === 'none' || normalized === 'n/a' || normalized === 'na';
+}
+
+function slugifyRouteSegment(value: string | null | undefined) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)+/g, '')
+    .slice(0, 64);
+}
+
+function buildSlugIdSegment(label: string | null | undefined, id: string) {
+  const slug = slugifyRouteSegment(label);
+  return slug ? `${slug}-${id}` : id;
+}
+
+function buildLaunchProviderEntityHref(provider: string | null | undefined) {
+  if (isUnknownEntityLabel(provider)) return null;
+  const slug = toProviderSlug(provider);
+  if (!slug) return null;
+  return `/launch-providers/${encodeURIComponent(slug)}`;
+}
+
+function buildLaunchRocketEntityHref({
+  label,
+  ll2RocketConfigId
+}: {
+  label: string | null | undefined;
+  ll2RocketConfigId: number | null | undefined;
+}) {
+  if (ll2RocketConfigId != null && Number.isFinite(ll2RocketConfigId)) {
+    const canonicalId = String(ll2RocketConfigId);
+    const slugId = buildSlugIdSegment(label, canonicalId);
+    return `/rockets/${encodeURIComponent(slugId)}`;
+  }
+  const slug = slugifyRouteSegment(label);
+  if (!slug) return null;
+  return `/rockets/${encodeURIComponent(slug)}`;
+}
+
+function buildLaunchLocationEntityHref({
+  locationLabel,
+  padLabel,
+  ll2PadId
+}: {
+  locationLabel: string | null | undefined;
+  padLabel: string | null | undefined;
+  ll2PadId: number | null | undefined;
+}) {
+  const preferredLabel = !isUnknownEntityLabel(locationLabel) ? String(locationLabel || '').trim() : '';
+  const fallbackLabel = !isUnknownEntityLabel(padLabel) ? String(padLabel || '').trim() : '';
+  const label = preferredLabel || fallbackLabel || 'location';
+
+  if (ll2PadId != null && Number.isFinite(ll2PadId)) {
+    const canonicalId = String(ll2PadId);
+    const slugId = buildSlugIdSegment(label, canonicalId);
+    return `/locations/${encodeURIComponent(slugId)}`;
+  }
+
+  const slug = slugifyRouteSegment(label);
+  if (!slug) return null;
+  return `/locations/${encodeURIComponent(slug)}`;
+}
+
+function buildLaunchPadEntityHref({
+  ll2PadId,
+  fallbackLocationHref
+}: {
+  ll2PadId: number | null | undefined;
+  fallbackLocationHref: string | null;
+}) {
+  if (ll2PadId != null && Number.isFinite(ll2PadId)) {
+    return `/catalog/pads/${encodeURIComponent(String(ll2PadId))}`;
+  }
+  return fallbackLocationHref;
 }
 
 function buildCountdownLabel(net: string | null | undefined) {

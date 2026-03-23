@@ -313,22 +313,18 @@ export default function AccountSavedPage() {
           <Link className="text-primary hover:underline" href={buildAuthHref('sign-in', { returnTo: '/account/saved' })}>
             Sign in
           </Link>{' '}
-          or{' '}
-          <Link className="text-primary hover:underline" href={buildAuthHref('sign-up', { returnTo: '/account/saved' })}>
-            create a free account
-          </Link>{' '}
-          to unlock the signed-in feed and upgrade later for saved items.
+          to review saved items already linked to your account or upgrade later for saved-item access.
         </p>
       )}
 
       {status === 'authed' && !entitlementsLoading && (
         <div className="mt-4 rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
-          <div className="text-xs uppercase tracking-[0.1em] text-text3">{viewerTier === 'premium' ? 'Premium' : 'Free account'}</div>
+          <div className="text-xs uppercase tracking-[0.1em] text-text3">{viewerTier === 'premium' ? 'Premium' : 'Signed in'}</div>
           <div className="mt-1 text-base font-semibold text-text1">
             {viewerTier === 'premium'
               ? 'Saved items are fully enabled.'
               : hasSavedInventory
-                ? 'Saved items are stored but read-only on free.'
+                ? 'Saved items are stored but read-only on signed-in anon.'
                 : 'Saved items are a Premium feature.'}
           </div>
           <div className="mt-1 text-xs text-text3">
@@ -338,7 +334,7 @@ export default function AccountSavedPage() {
                 ? 'Your saved views, follows, and starred launches are still here, but they reactivate only with Premium.'
                 : `Premium unlocks saved/default filters, follows, and starred launches, plus up to ${PREMIUM_SAVED_LIMITS.presetLimit} presets and ${PREMIUM_SAVED_LIMITS.watchlistLimit} watchlists.`}
           </div>
-          {viewerTier === 'free' && (
+          {viewerTier !== 'premium' && (
             <Link className="mt-3 inline-block text-sm text-primary hover:underline" href={buildProfileHref()}>
               View billing options
             </Link>

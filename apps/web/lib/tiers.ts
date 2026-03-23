@@ -45,7 +45,6 @@ export function resolveViewerTier({
   isAdmin?: boolean;
 }): ViewerTier {
   if (isPaid || isAdmin) return 'premium';
-  if (isAuthed) return 'free';
   return 'anon';
 }
 
@@ -59,19 +58,18 @@ export function getTierRefreshSeconds(tier: ViewerTier) {
 
 export function getTierCapabilities(tier: ViewerTier): ViewerCapabilities {
   const isPremium = tier === 'premium';
-  const isSignedIn = tier !== 'anon';
 
   return {
     canUseSavedItems: isPremium,
-    canUseLaunchFilters: isSignedIn,
-    canUseLaunchCalendar: isSignedIn,
-    canUseOneOffCalendar: isSignedIn,
+    canUseLaunchFilters: true,
+    canUseLaunchCalendar: true,
+    canUseOneOffCalendar: true,
     canUseLiveFeed: isPremium,
     canUseChangeLog: isPremium,
     canUseInstantAlerts: isPremium,
     canManageFilterPresets: isPremium,
     canManageFollows: isPremium,
-    canUseBasicAlertRules: isSignedIn,
+    canUseBasicAlertRules: isPremium,
     canUseAdvancedAlertRules: isPremium,
     canUseBrowserLaunchAlerts: isPremium,
     canUseRecurringCalendarFeeds: isPremium,

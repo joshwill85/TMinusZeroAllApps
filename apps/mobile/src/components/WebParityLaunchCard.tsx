@@ -1,6 +1,8 @@
-import { Image, Linking, Pressable, Text, View } from 'react-native';
+import { Image, Linking, Pressable, Share, Text, View } from 'react-native';
 import type { LaunchFeedItemV1 } from '@tminuszero/contracts';
 import { buildCountdownSnapshot } from '@tminuszero/domain';
+import { buildLaunchHref } from '@tminuszero/navigation';
+import { getPublicSiteUrl } from '@/src/config/api';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import { formatTimestamp } from '@/src/utils/format';
 
@@ -20,6 +22,9 @@ type WebParityLaunchCardProps = {
   isPadFollowed?: boolean;
   padFollowDisabled?: boolean;
   onToggleFollowPad?: () => void;
+  onOpenCalendar?: () => void;
+  onOpenAlerts?: () => void;
+  onOpenAr?: () => void;
 };
 
 type StatusTone = {
@@ -83,7 +88,10 @@ export function WebParityLaunchCard({
   onToggleFollowProvider,
   isPadFollowed = false,
   padFollowDisabled = false,
-  onToggleFollowPad
+  onToggleFollowPad,
+  onOpenCalendar,
+  onOpenAlerts,
+  onOpenAr
 }: WebParityLaunchCardProps) {
   const { theme } = useMobileBootstrap();
   const statusTone = STATUS_TONES[launch.status] ?? STATUS_TONES.unknown;
@@ -104,6 +112,7 @@ export function WebParityLaunchCard({
   const weatherSummary = buildWeatherSummary(launch.weatherConcerns);
   const windowSummary = buildWindowSummary(launch.windowStart ?? launch.net, launch.windowEnd ?? launch.windowStart ?? launch.net);
   const timeLabel = launch.netPrecision === 'day' || launch.netPrecision === 'tbd' ? 'NET window' : 'Liftoff';
+  const shareUrl = `${getPublicSiteUrl()}${buildLaunchHref(launch.id)}`;
 
   return (
     <Pressable
@@ -226,7 +235,6 @@ export function WebParityLaunchCard({
             {launch.featured ? (
               <BadgePill label="Featured" textColor={theme.muted} backgroundColor="rgba(255, 255, 255, 0.05)" borderColor="rgba(255, 255, 255, 0.1)" />
             ) : null}
-            {isNext ? <BadgePill label="Next launch" textColor={theme.accent} backgroundColor="rgba(34, 211, 238, 0.08)" borderColor="rgba(34, 211, 238, 0.18)" /> : null}
           </View>
 
           <View style={{ marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' }}>
@@ -342,11 +350,26 @@ export function WebParityLaunchCard({
         <CardActionButton label={launch.status === 'scrubbed' ? 'Report' : 'Details'} onPress={onOpenDetails} variant="secondary" />
       </View>
 
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        <CardUtilityButton
+          label="Share"
+          onPress={() => {
+            void Share.share({
+              message: `${launch.name}\n${shareUrl}`,
+              url: shareUrl
+            });
+          }}
+        />
+        {onOpenCalendar ? <CardUtilityButton label="Calendar" onPress={onOpenCalendar} /> : null}
+        {onOpenAlerts ? <CardUtilityButton label="Alerts" onPress={onOpenAlerts} /> : null}
+        {onOpenAr ? <CardUtilityButton label="AR" onPress={onOpenAr} /> : null}
+      </View>
+
       {onToggleWatch || onToggleFollowProvider || onToggleFollowPad ? (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
           {onToggleWatch ? (
             <FollowChip
-              label={isWatched ? 'In My Launches' : 'My Launches'}
+              label={isWatched ? 'Following launch' : 'Follow launch'}
               active={isWatched}
               disabled={watchDisabled}
               onPress={onToggleWatch}
@@ -474,6 +497,36 @@ function CardActionButton({
       >
         {label}
       </Text>
+    </Pressable>
+  );
+}
+
+function CardUtilityButton({
+  label,
+  onPress
+}: {
+  label: string;
+  onPress: () => void;
+}) {
+  const { theme } = useMobileBootstrap();
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => ({
+        flexGrow: 1,
+        flexBasis: 92,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: 'rgba(234, 240, 255, 0.1)',
+        backgroundColor: pressed ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.03)',
+        paddingHorizontal: 12,
+        paddingVertical: 10
+      })}
+    >
+      <Text style={{ color: theme.foreground, fontSize: 12, fontWeight: '700' }}>{label}</Text>
     </Pressable>
   );
 }

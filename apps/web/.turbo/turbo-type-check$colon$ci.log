@@ -1,4 +1,0 @@
-
-> @tminuszero/web@0.0.0 type-check:ci
-> node -e "require('fs').mkdirSync('.next/cache/tsc',{recursive:true})" && tsc --noEmit -p tsconfig.json --pretty false
-

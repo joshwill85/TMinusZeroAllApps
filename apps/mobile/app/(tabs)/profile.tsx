@@ -1,5 +1,17 @@
+import { useEffect, useMemo, useState } from 'react';
 import { Text, View } from 'react-native';
-import { useProfileQuery, useViewerEntitlementsQuery, useViewerSessionQuery } from '@/src/api/queries';
+import { useRouter, type Href } from 'expo-router';
+import { getMobileViewerTier } from '@tminuszero/domain';
+import {
+  useMarketingEmailQuery,
+  useNotificationPreferencesQuery,
+  useProfileQuery,
+  useUpdateMarketingEmailMutation,
+  useUpdateProfileMutation,
+  useViewerEntitlementsQuery,
+  useViewerSessionQuery
+} from '@/src/api/queries';
+import { resendSignupVerification } from '@/src/auth/supabaseAuth';
 import { useNativeBilling } from '@/src/billing/useNativeBilling';
 import { AppScreen } from '@/src/components/AppScreen';
 import {
@@ -9,21 +21,143 @@ import {
   CustomerShellMetric,
   CustomerShellPanel
 } from '@/src/components/CustomerShell';
+import { MobileAccountDeletionPanel } from '@/src/components/MobileAccountDeletionPanel';
 import { ViewerTierCard } from '@/src/components/ViewerTierCard';
+import { getPublicSiteUrl } from '@/src/config/api';
+import { AccountDetailRow, AccountNotice, AccountTextField } from '@/src/features/account/AccountUi';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 
 export default function ProfileScreen() {
+  const router = useRouter();
   const { accessToken, theme } = useMobileBootstrap();
+  const callbackUrl = useMemo(() => `${getPublicSiteUrl()}/auth/callback`, []);
   const sessionQuery = useViewerSessionQuery();
   const entitlementsQuery = useViewerEntitlementsQuery();
   const profileQuery = useProfileQuery();
+  const marketingEmailQuery = useMarketingEmailQuery();
+  const notificationPreferencesQuery = useNotificationPreferencesQuery();
+  const updateProfileMutation = useUpdateProfileMutation();
+  const updateMarketingEmailMutation = useUpdateMarketingEmailMutation();
   const billing = useNativeBilling(sessionQuery.data?.viewerId ?? null);
   const billingSummary = billing.billingSummaryQuery.data ?? null;
-  const tier = entitlementsQuery.data?.tier ?? 'anon';
+  const tier = getMobileViewerTier(entitlementsQuery.data?.tier ?? 'anon');
   const isAuthed = entitlementsQuery.data?.isAuthed ?? Boolean(accessToken);
-  const fullName = [profileQuery.data?.firstName, profileQuery.data?.lastName].filter(Boolean).join(' ').trim();
-  const email = profileQuery.data?.email ?? sessionQuery.data?.email ?? null;
+  const profile = profileQuery.data ?? null;
+  const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ').trim();
+  const email = profile?.email ?? sessionQuery.data?.email ?? null;
   const title = fullName ? fullName : isAuthed ? 'Your account' : 'Profile';
+  const emailVerified = Boolean(profile?.emailConfirmedAt);
+  const [editFirstName, setEditFirstName] = useState('');
+  const [editLastName, setEditLastName] = useState('');
+  const [editTimezone, setEditTimezone] = useState('America/New_York');
+  const [profileMessage, setProfileMessage] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [marketingEmailOptIn, setMarketingEmailOptIn] = useState<boolean | null>(null);
+  const [marketingMessage, setMarketingMessage] = useState<string | null>(null);
+  const [marketingError, setMarketingError] = useState<string | null>(null);
+  const [resendMessage, setResendMessage] = useState<string | null>(null);
+  const [resendError, setResendError] = useState<string | null>(null);
+  const [resendingEmail, setResendingEmail] = useState(false);
+  const [accountMessage, setAccountMessage] = useState<string | null>(null);
+  const showStoreManagementAction = Boolean(
+    billingSummary && billingSummary.isPaid && isStoreManagedBillingProvider(billingSummary.provider) && billingSummary.managementUrl
+  );
+  const showPurchaseAction = Boolean(billingSummary && !billingSummary.isPaid);
+  const showRestoreAction = Boolean(billing.isStoreReady && (showStoreManagementAction || showPurchaseAction));
+
+  useEffect(() => {
+    if (!profile) return;
+    setEditFirstName(profile.firstName || '');
+    setEditLastName(profile.lastName || '');
+    setEditTimezone(profile.timezone || 'America/New_York');
+  }, [profile]);
+
+  useEffect(() => {
+    if (!marketingEmailQuery.data) return;
+    setMarketingEmailOptIn(marketingEmailQuery.data.marketingEmailOptIn);
+  }, [marketingEmailQuery.data]);
+
+  const profileFirstName = String(profile?.firstName || '').trim();
+  const profileLastName = String(profile?.lastName || '').trim();
+  const profileTimezone = String(profile?.timezone || 'America/New_York').trim();
+  const nextFirstName = editFirstName.trim();
+  const nextLastName = editLastName.trim();
+  const nextTimezone = editTimezone.trim();
+  const hasBlankedExistingName =
+    (profileFirstName.length > 0 && nextFirstName.length === 0) || (profileLastName.length > 0 && nextLastName.length === 0);
+  const hasProfileChanges =
+    nextFirstName !== profileFirstName || nextLastName !== profileLastName || nextTimezone !== profileTimezone;
+  const canSaveProfile = Boolean(
+    isAuthed && nextTimezone && hasProfileChanges && !hasBlankedExistingName && !updateProfileMutation.isPending
+  );
+
+  async function saveProfile() {
+    if (!canSaveProfile) {
+      if (hasBlankedExistingName) {
+        setProfileError('First and last name cannot be cleared once set.');
+      }
+      return;
+    }
+
+    const payload: { firstName?: string; lastName?: string; timezone?: string } = {};
+    if (nextFirstName && nextFirstName !== profileFirstName) payload.firstName = nextFirstName;
+    if (nextLastName && nextLastName !== profileLastName) payload.lastName = nextLastName;
+    if (nextTimezone !== profileTimezone) payload.timezone = nextTimezone;
+
+    setProfileMessage(null);
+    setProfileError(null);
+    try {
+      const nextProfile = await updateProfileMutation.mutateAsync(payload);
+      setEditFirstName(nextProfile.firstName || '');
+      setEditLastName(nextProfile.lastName || '');
+      setEditTimezone(nextProfile.timezone || 'America/New_York');
+      setProfileMessage('Profile updated.');
+    } catch (error) {
+      setProfileError(error instanceof Error ? error.message : 'Unable to update profile.');
+    }
+  }
+
+  async function toggleMarketingEmail(next: boolean) {
+    if (!isAuthed) {
+      setMarketingError('Sign in to update marketing email preferences.');
+      return;
+    }
+
+    const previous = marketingEmailOptIn;
+    setMarketingEmailOptIn(next);
+    setMarketingMessage(null);
+    setMarketingError(null);
+    try {
+      const payload = await updateMarketingEmailMutation.mutateAsync(next);
+      setMarketingEmailOptIn(payload.marketingEmailOptIn);
+      setMarketingMessage(
+        payload.marketingEmailOptIn
+          ? 'Marketing emails enabled.'
+          : 'Marketing emails disabled. Essential account emails will still be sent.'
+      );
+    } catch (error) {
+      setMarketingEmailOptIn(previous);
+      setMarketingError(error instanceof Error ? error.message : 'Unable to update marketing email settings.');
+    }
+  }
+
+  async function resendVerificationEmail() {
+    if (!email) {
+      return;
+    }
+
+    setResendingEmail(true);
+    setResendMessage(null);
+    setResendError(null);
+    try {
+      await resendSignupVerification(email, callbackUrl);
+      setResendMessage(`Verification email resent to ${email}.`);
+    } catch (error) {
+      setResendError(error instanceof Error ? error.message : 'Unable to resend verification email.');
+    } finally {
+      setResendingEmail(false);
+    }
+  }
 
   return (
     <AppScreen testID="profile-screen">
@@ -32,8 +166,8 @@ export default function ProfileScreen() {
         title={title}
         description={
           isAuthed
-            ? 'Review your account details, membership status, and native billing state.'
-            : 'Sign in for filters, calendar access, basic mobile push alerts, and membership status on this device.'
+            ? 'Manage your identity, profile, privacy controls, integrations, and membership status natively.'
+            : 'Browse freely, then sign in when you want account management, restore purchases, or Premium.'
         }
       >
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -51,7 +185,7 @@ export default function ProfileScreen() {
           <CustomerShellMetric
             label="Access"
             value={formatTierLabel(tier)}
-            caption={entitlementsQuery.data?.isPaid ? 'Premium is active' : 'Free access'}
+            caption={entitlementsQuery.data?.isPaid ? 'Premium is active' : isAuthed ? 'Premium available' : 'Anon access'}
           />
           <CustomerShellMetric
             label="Billing"
@@ -66,65 +200,179 @@ export default function ProfileScreen() {
         </View>
       </CustomerShellPanel>
 
-      <ViewerTierCard tier={tier} showAction={!isAuthed || tier === 'free'} testID="profile-tier-card" />
-
-      {sessionQuery.isPending ? (
-        <CustomerShellPanel title="Loading account" description="Checking your current sign-in state." />
-      ) : sessionQuery.isError ? (
-        <CustomerShellPanel title="Account unavailable" description={sessionQuery.error.message} />
-      ) : (
-        <CustomerShellPanel testID="profile-viewer-session-section" title="Current viewer" description="The viewer identity currently active in this app session.">
-          <Text testID="profile-viewer-email" style={{ color: theme.foreground, fontSize: 18, fontWeight: '700' }}>
-            {email ?? 'Not signed in'}
-          </Text>
-          <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21, marginTop: 4 }}>
-            {isAuthed
-              ? 'Signed in and ready for filters, calendar access, notifications, and account billing state.'
-              : 'Browsing without an authenticated account session.'}
-          </Text>
-        </CustomerShellPanel>
-      )}
+      <ViewerTierCard tier={tier} isAuthed={isAuthed} showAction={tier !== 'premium'} testID="profile-tier-card" />
+      <AccountNotice message={accountMessage} tone="success" />
 
       {!isAuthed ? (
-        <CustomerShellPanel
-          testID="profile-entitlements-section"
-          title="Membership"
-          description="Free unlocks signed-in filters, calendar access, and basic mobile push alerts. Premium adds saved items, follows, browser-style integrations, and the fastest refresh."
-        >
-          <Text testID="profile-entitlements-tier" style={{ color: theme.foreground, fontSize: 16, fontWeight: '700' }}>
-            {formatTierLabel(tier)}
-          </Text>
-        </CustomerShellPanel>
+        <>
+          <CustomerShellPanel
+            testID="profile-entitlements-section"
+            title="Membership"
+            description="Mobile browsing, filters, the calendar, and basic reminders are available without paying. Premium adds follows, saved views, recurring feeds, and advanced alerts."
+          >
+            <Text testID="profile-entitlements-tier" style={{ color: theme.foreground, fontSize: 16, fontWeight: '700' }}>
+              {formatTierLabel(tier)}
+            </Text>
+          </CustomerShellPanel>
+
+          <CustomerShellPanel
+            title={billing.claim ? 'Claim Premium' : 'Premium'}
+            description={
+              billing.claim
+                ? 'Your store purchase is verified. Sign in to an existing account or create one now to claim Premium on this device.'
+                : 'Buy Premium first, then sign in or create an account to claim it on this device.'
+            }
+          >
+            <View style={{ gap: 10 }}>
+              {billing.actionMessage ? <Text style={{ color: theme.accent, fontSize: 14, lineHeight: 21 }}>{billing.actionMessage}</Text> : null}
+              {billing.actionError ? <Text style={{ color: '#ff9087', fontSize: 14, lineHeight: 21 }}>{billing.actionError}</Text> : null}
+              <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
+                {billing.claim ? 'Claiming Premium links the verified purchase to a T-Minus Zero account for ownership, recovery, and restore.' : buildBillingMessage('none', false, billing.isStoreReady)}
+              </Text>
+              {billing.claim ? (
+                <>
+                  <CustomerShellActionButton
+                    label="Sign in to claim Premium"
+                    onPress={() => {
+                      router.push(buildClaimAuthHref('/sign-in', billing.claim?.claimToken, billing.claim?.returnTo));
+                    }}
+                  />
+                  <CustomerShellActionButton
+                    label="Create account to claim Premium"
+                    variant="secondary"
+                    onPress={() => {
+                      router.push(buildClaimAuthHref('/sign-up', billing.claim?.claimToken, billing.claim?.returnTo));
+                    }}
+                  />
+                </>
+              ) : (
+                <>
+                  <CustomerShellActionButton
+                    label={billing.isProcessingPurchase ? 'Working…' : 'Unlock Premium'}
+                    onPress={() => {
+                      void billing.requestSubscription();
+                    }}
+                    disabled={billing.isProcessingPurchase || !billing.isStoreReady}
+                  />
+                  <CustomerShellActionButton
+                    label="Restore purchases"
+                    variant="secondary"
+                    onPress={() => {
+                      void billing.restorePurchases();
+                    }}
+                    disabled={billing.isProcessingPurchase || !billing.isStoreReady}
+                  />
+                  <CustomerShellActionButton
+                    label="Sign in"
+                    variant="secondary"
+                    onPress={() => {
+                      router.push('/sign-in');
+                    }}
+                  />
+                </>
+              )}
+            </View>
+          </CustomerShellPanel>
+        </>
       ) : profileQuery.isPending ? (
         <CustomerShellPanel title="Loading profile" description="Fetching your account details." />
       ) : profileQuery.isError ? (
         <CustomerShellPanel title="Profile unavailable" description={profileQuery.error.message} />
       ) : (
         <>
-          <CustomerShellPanel
-            testID="profile-data-section"
-            title="Profile details"
-            description="The account identity synced to this device."
-          >
+          <CustomerShellPanel testID="profile-data-section" title="Profile details" description="Your account identity synced to this device.">
             <View style={{ gap: 10 }}>
-              <DetailRow testID="profile-display-name" label="Name" value={fullName || 'Name not set'} />
-              <DetailRow testID="profile-email" label="Email" value={profileQuery.data.email} />
-              <DetailRow label="Timezone" value={profileQuery.data.timezone || 'Not set'} />
-              {profileQuery.data.role === 'admin' ? <DetailRow label="Role" value="Admin" /> : null}
+              <AccountDetailRow testID="profile-display-name" label="Name" value={fullName || 'Name not set'} />
+              <AccountDetailRow testID="profile-email" label="Email" value={profile?.email || '—'} />
+              <AccountDetailRow label="Email verified" value={emailVerified ? 'Yes' : 'No'} />
+              <AccountDetailRow label="Timezone" value={profile?.timezone || 'America/New_York'} />
+              <AccountDetailRow label="Phone" value={notificationPreferencesQuery.data?.smsPhone || '—'} />
             </View>
           </CustomerShellPanel>
 
-          <CustomerShellPanel
-            testID="profile-entitlements-section"
-            title="Membership"
-            description="Your current access tier, provider source, and renewal state."
-          >
+          <AccountNotice message={profileMessage} tone="success" />
+          <AccountNotice message={profileError} tone="error" />
+          <CustomerShellPanel title="Update profile" description="Edit the shared account fields used across supported surfaces.">
+            <View style={{ gap: 12 }}>
+              <AccountTextField label="First name" value={editFirstName} onChangeText={setEditFirstName} placeholder="First name" />
+              <AccountTextField label="Last name" value={editLastName} onChangeText={setEditLastName} placeholder="Last name" />
+              <AccountTextField
+                label="Timezone (IANA)"
+                value={editTimezone}
+                onChangeText={setEditTimezone}
+                placeholder="America/New_York"
+                autoCapitalize="none"
+              />
+              <CustomerShellActionButton
+                label={updateProfileMutation.isPending ? 'Saving…' : 'Save profile'}
+                onPress={() => {
+                  void saveProfile();
+                }}
+                disabled={!canSaveProfile}
+              />
+            </View>
+          </CustomerShellPanel>
+
+          {!emailVerified ? (
+            <>
+              <AccountNotice message={resendMessage} tone="success" />
+              <AccountNotice message={resendError} tone="error" />
+              <CustomerShellPanel title="Email verification" description="Verify your email to keep account recovery and account security flows healthy.">
+                <View style={{ gap: 10 }}>
+                  <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
+                    We sent a verification email to {email || 'your account email'}. Open the link on this device to finish verification.
+                  </Text>
+                  <CustomerShellActionButton
+                    label={resendingEmail ? 'Sending…' : 'Resend verification email'}
+                    onPress={() => {
+                      void resendVerificationEmail();
+                    }}
+                    disabled={resendingEmail || !email}
+                  />
+                </View>
+              </CustomerShellPanel>
+            </>
+          ) : null}
+
+          <AccountNotice message={marketingMessage} tone="success" />
+          <AccountNotice message={marketingError} tone="error" />
+          <CustomerShellPanel title="Communication preferences" description="Manage marketing email preferences and jump into alert or privacy settings.">
             <View style={{ gap: 10 }}>
-              <DetailRow testID="profile-entitlements-tier" label="Tier" value={formatTierLabel(tier)} />
-              <DetailRow label="Status" value={formatBillingStatus(entitlementsQuery.data?.status || 'unknown')} />
-              <DetailRow label="Source" value={formatBillingProvider(entitlementsQuery.data?.source || 'none')} />
+              <AccountDetailRow
+                label="Marketing emails"
+                value={marketingEmailOptIn == null ? 'Loading…' : marketingEmailOptIn ? 'Enabled' : 'Disabled'}
+              />
+              <CustomerShellActionButton
+                label={
+                  marketingEmailOptIn == null
+                    ? 'Loading…'
+                    : marketingEmailOptIn
+                      ? 'Disable marketing emails'
+                      : 'Enable marketing emails'
+                }
+                onPress={() => {
+                  if (marketingEmailOptIn == null) return;
+                  void toggleMarketingEmail(!marketingEmailOptIn);
+                }}
+                disabled={marketingEmailOptIn == null || updateMarketingEmailMutation.isPending}
+              />
+              <CustomerShellActionButton
+                label="Open alert settings"
+                variant="secondary"
+                onPress={() => {
+                  router.push('/preferences');
+                }}
+              />
+            </View>
+          </CustomerShellPanel>
+
+          <CustomerShellPanel testID="profile-entitlements-section" title="Membership" description="Your current access tier, source, and renewal state.">
+            <View style={{ gap: 10 }}>
+              <AccountDetailRow testID="profile-entitlements-tier" label="Tier" value={formatTierLabel(tier)} />
+              <AccountDetailRow label="Status" value={formatBillingStatus(entitlementsQuery.data?.status || 'unknown')} />
+              <AccountDetailRow label="Source" value={formatBillingProvider(entitlementsQuery.data?.source || 'none')} />
               {entitlementsQuery.data?.currentPeriodEnd ? (
-                <DetailRow label="Current period end" value={formatDate(entitlementsQuery.data.currentPeriodEnd)} />
+                <AccountDetailRow label="Current period end" value={formatDate(entitlementsQuery.data.currentPeriodEnd)} />
               ) : null}
             </View>
           </CustomerShellPanel>
@@ -140,23 +388,15 @@ export default function ProfileScreen() {
               description="Manage your current plan and purchase status on this device."
             >
               <View style={{ gap: 10 }}>
-                <DetailRow
+                <AccountDetailRow
                   testID="profile-billing-provider"
                   label="Provider"
-                  value={
-                    billingSummary.provider === 'none'
-                      ? 'No active Premium billing'
-                      : formatBillingProvider(billingSummary.provider)
-                  }
+                  value={billingSummary.provider === 'none' ? 'No active Premium billing' : formatBillingProvider(billingSummary.provider)}
                 />
-                <DetailRow testID="profile-billing-status" label="Status" value={formatBillingStatus(billingSummary.status)} />
-                <DetailRow
-                  testID="profile-billing-paid-access"
-                  label="Paid access"
-                  value={billingSummary.isPaid ? 'Yes' : 'No'}
-                />
+                <AccountDetailRow testID="profile-billing-status" label="Status" value={formatBillingStatus(billingSummary.status)} />
+                <AccountDetailRow testID="profile-billing-paid-access" label="Paid access" value={billingSummary.isPaid ? 'Yes' : 'No'} />
                 {billingSummary.currentPeriodEnd ? (
-                  <DetailRow label="Current period end" value={formatDate(billingSummary.currentPeriodEnd)} />
+                  <AccountDetailRow label="Current period end" value={formatDate(billingSummary.currentPeriodEnd)} />
                 ) : null}
                 {billingSummary.providerMessage ? (
                   <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>{billingSummary.providerMessage}</Text>
@@ -166,81 +406,63 @@ export default function ProfileScreen() {
               </View>
 
               <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
-                {billingSummary.provider === 'stripe' && billingSummary.isPaid
-                  ? 'This subscription is billed on web. Open the web account surface to manage Stripe billing.'
-                  : billing.isStoreReady
-                    ? 'Native billing is available on this device.'
-                    : 'Store billing is not available for this platform or current build configuration yet.'}
+                {buildBillingMessage(billingSummary.provider, billingSummary.isPaid, billing.isStoreReady)}
               </Text>
 
-              <CustomerShellActionButton
-                testID="profile-billing-primary-action"
-                label={
-                  billing.isProcessingPurchase
-                    ? 'Working…'
-                    : billingSummary.isPaid
-                      ? billingSummary.provider === 'stripe'
-                        ? 'Open web billing'
-                        : 'Manage subscription'
-                      : 'Unlock Premium'
-                }
-                onPress={() => {
-                  if (billingSummary.isPaid && billingSummary.managementUrl) {
-                    void billing.openManagementLink(billingSummary.managementUrl);
-                    return;
+              {showStoreManagementAction || showPurchaseAction ? (
+                <CustomerShellActionButton
+                  testID="profile-billing-primary-action"
+                  label={
+                    billing.isProcessingPurchase
+                      ? 'Working…'
+                      : showStoreManagementAction
+                        ? `Manage in ${formatManagementProviderLabel(billingSummary.provider)}`
+                        : 'Unlock Premium'
                   }
-                  void billing.requestSubscription();
-                }}
-                disabled={billing.isProcessingPurchase || (!billing.isStoreReady && !billingSummary.managementUrl)}
-              />
+                  onPress={() => {
+                    if (showStoreManagementAction && billingSummary.managementUrl) {
+                      void billing.openManagementLink(billingSummary.managementUrl);
+                      return;
+                    }
+                    void billing.requestSubscription();
+                  }}
+                  disabled={billing.isProcessingPurchase || (showStoreManagementAction ? !billingSummary.managementUrl : !billing.isStoreReady)}
+                />
+              ) : null}
 
-              <CustomerShellActionButton
-                testID="profile-billing-restore-action"
-                label="Restore purchases"
-                variant="secondary"
-                onPress={() => {
-                  void billing.restorePurchases();
-                }}
-                disabled={billing.isProcessingPurchase || !billing.isStoreReady}
-              />
+              {showRestoreAction ? (
+                <CustomerShellActionButton
+                  testID="profile-billing-restore-action"
+                  label="Restore purchases"
+                  variant="secondary"
+                  onPress={() => {
+                    void billing.restorePurchases();
+                  }}
+                  disabled={billing.isProcessingPurchase}
+                />
+              ) : null}
             </CustomerShellPanel>
           ) : null}
+
+          <MobileAccountDeletionPanel
+            billingSummary={billingSummary}
+            onDeleted={(message) => {
+              setAccountMessage(message);
+            }}
+          />
+
+          <CustomerShellPanel title="Account tools" description="Open the remaining customer account surfaces that now stay native on mobile.">
+            <View style={{ gap: 10 }}>
+              <CustomerShellActionButton label="Saved items" onPress={() => router.push('/saved')} />
+              <CustomerShellActionButton label="Integrations" variant="secondary" onPress={() => router.push('/account/integrations' as Href)} />
+              <CustomerShellActionButton label="Privacy choices" variant="secondary" onPress={() => router.push('/legal/privacy-choices' as Href)} />
+              <CustomerShellActionButton label="Privacy notice" variant="secondary" onPress={() => router.push('/legal/privacy' as Href)} />
+              <CustomerShellActionButton label="Terms of service" variant="secondary" onPress={() => router.push('/legal/terms' as Href)} />
+            </View>
+          </CustomerShellPanel>
         </>
       )}
     </AppScreen>
-  );
-}
-
-function DetailRow({
-  label,
-  value,
-  testID
-}: {
-  label: string;
-  value: string;
-  testID?: string;
-}) {
-  const { theme } = useMobileBootstrap();
-
-  return (
-    <View
-      testID={testID}
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 12,
-        borderRadius: 16,
-        borderWidth: 1,
-        borderColor: 'rgba(234, 240, 255, 0.08)',
-        backgroundColor: 'rgba(255, 255, 255, 0.02)',
-        paddingHorizontal: 14,
-        paddingVertical: 12
-      }}
-    >
-      <Text style={{ color: theme.muted, fontSize: 14, fontWeight: '700', flex: 1 }}>{label}</Text>
-      <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '600', flex: 1, textAlign: 'right' }}>{value}</Text>
-    </View>
   );
 }
 
@@ -257,14 +479,11 @@ function formatDate(value: string) {
   });
 }
 
-function formatTierLabel(tier: 'anon' | 'free' | 'premium') {
+function formatTierLabel(tier: 'anon' | 'premium') {
   if (tier === 'premium') {
     return 'Premium';
   }
-  if (tier === 'free') {
-    return 'Free account';
-  }
-  return 'Guest access';
+  return 'Anon';
 }
 
 function formatBillingProvider(value: string) {
@@ -273,4 +492,46 @@ function formatBillingProvider(value: string) {
 
 function formatBillingStatus(value: string) {
   return value.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function isStoreManagedBillingProvider(value: string) {
+  return value === 'apple_app_store' || value === 'google_play';
+}
+
+function formatManagementProviderLabel(value: string) {
+  if (value === 'apple_app_store') {
+    return 'App Store';
+  }
+  if (value === 'google_play') {
+    return 'Google Play';
+  }
+  return 'store';
+}
+
+function buildBillingMessage(provider: string, isPaid: boolean, isStoreReady: boolean) {
+  if (provider === 'stripe' && isPaid) {
+    return 'This subscription is billed on the web. Billing changes are not available inside the iOS or Android app.';
+  }
+  if (provider === 'apple_app_store' && isPaid) {
+    return 'Manage or cancel this subscription in the App Store.';
+  }
+  if (provider === 'google_play' && isPaid) {
+    return 'Manage or cancel this subscription in Google Play.';
+  }
+  if (isStoreReady) {
+    return 'Native billing is available on this device.';
+  }
+  return 'Store billing is not available for this platform or current build configuration yet.';
+}
+
+function buildClaimAuthHref(pathname: '/sign-in' | '/sign-up', claimToken: string | null | undefined, returnTo: string | null | undefined) {
+  const params = new URLSearchParams();
+  if (claimToken) {
+    params.set('claim_token', claimToken);
+  }
+  if (returnTo) {
+    params.set('return_to', returnTo);
+  }
+  params.set('intent', 'upgrade');
+  return `${pathname}?${params.toString()}` as Href;
 }

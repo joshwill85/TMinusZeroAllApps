@@ -1,8 +1,11 @@
 # Three-Platform Overhaul Plan
 
-Last updated: 2026-03-15
+Last updated: 2026-03-20
 
 This is the living master checklist for moving T-Minus Zero from a web-only product to a maintainable, high-performance web + iOS + Android product line.
+
+Related implementation plans:
+- `docs/2026-03-20-anon-premium-cutover-plan.md`
 
 ## Purpose
 
@@ -69,6 +72,22 @@ This is the living master checklist for moving T-Minus Zero from a web-only prod
 
 ## Current Slice Tracker
 
+- 2026-03-20: Anon and Premium cutover is in progress for `Web`, `iOS`, and `Android`.
+  - Source-of-truth plan: `docs/2026-03-20-anon-premium-cutover-plan.md`
+  - Scope: remove new free sign-up, keep signed-in non-premium users on anon product access, add purchase-first premium claim flows, and preserve read-only saved/integration inventory for signed-in non-premium accounts.
+  - Guardrails: no destructive auth or billing migration, no breaking `/api/v1` removal of `free` during the compatibility window, and keep tokenized premium delivery disabled for non-premium accounts.
+- 2026-03-20: External media housing is planned for `Web`, `iOS`, and `Android`.
+  - Source-of-truth plan: `docs/external-media-housing-plan-2026-03-20.md`
+  - Scope: remove NASA and SpaceX media click-through on web, add additive managed-media support, prefer hosted NASA still images, and keep native YouTube playback as a separate follow-up.
+  - Guardrails: no breaking `/api/v1` contract change, no automatic SpaceX website mirroring before rights clarification, and keep source attribution explicit across surfaces.
+- 2026-03-20: Gating alignment is in progress for `Web`, `iOS`, and `Android`.
+  - Source-of-truth plan: `docs/gating-alignment-plan-2026-03-20.md`
+  - Scope: open one-off calendar adds to all users, keep native membership UI on `anon|premium`, and keep launch-day email web-only by blocking bearer-auth native mutations.
+  - Guardrails: no breaking `/api/v1` contract change, no recurring calendar widening, and no launch-day email controls on native surfaces.
+- 2026-03-19: Low-IO launch refresh parity is in progress for `Web`, `iOS`, and `Android`.
+  - Source-of-truth plan: `docs/launch-refresh-low-io-plan-2026-03-19.md`
+  - Scope: shared `/api/v1` version checks for launch feed and launch detail, web feed/detail migration, and native feed/detail focus-gated refresh plus pull-to-refresh.
+  - Guardrails: keep ingest at `15s`, keep tier cadence as-is, avoid silent feed reordering, and only refetch full payloads after a version mismatch.
 - 2026-03-15: Native mobile password auth hardening is in progress for `iOS` and `Android` only.
   - Added shared `/api/v1/mobile-auth/*` guest routes, risk-session storage, and a hosted challenge page on web as a dependency surface.
   - Mobile password-entry flows are being migrated off direct Supabase password REST calls onto the shared route layer.
@@ -309,6 +328,8 @@ Rollback gate:
 
 ## Progress Log
 
+- 2026-03-20: Added `docs/2026-03-20-anon-premium-cutover-plan.md` to lock the three-platform anon-and-premium cutover around effective `anon/premium` entitlements, guest billing claims, Premium-claim-only account creation, legacy read-only saved/integration inventory, rollout order, and rollback notes before finishing the shared API, web, and mobile implementation.
+- 2026-03-19: Added `docs/launch-refresh-low-io-plan-2026-03-19.md` to lock the three-platform launch refresh rollout around additive `/api/v1` version contracts, low-IO feed/detail refresh checks, persistent feed refresh affordances, and focus-gated native refresh behavior before implementation across shared packages, web, and mobile.
 - 2026-03-07: Completed repo audit for web-to-mobile blockers and locked the first-pass architecture decisions.
 - 2026-03-07: Created pre-mobile Git backup refs and preserved a live Supabase schema dump.
 - 2026-03-07: Created `docs/three-platform-overhaul-plan.md` as the living master checklist.

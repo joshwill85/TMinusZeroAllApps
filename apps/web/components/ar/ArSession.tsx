@@ -101,6 +101,8 @@ type HeadingSource =
   | 'deviceorientation_relative'
   | 'unknown';
 type FovSource = 'xr' | 'preset' | 'saved' | 'inferred' | 'default' | 'unknown';
+type ZoomControlPath = 'native_camera' | 'track_constraints' | 'preset_fallback' | 'unsupported';
+type ProjectionSource = 'intrinsics_frame' | 'projection_matrix' | 'inferred_fov' | 'preset';
 type XrErrorBucket = 'not_available' | 'unsupported' | 'webgl' | 'permission' | 'session_error' | 'unknown';
 type FusionFallbackReason = 'disabled' | 'no_gyro' | 'no_gravity' | 'gravity_unreliable' | 'not_initialized';
 type TrajectoryConfidenceTier = 'A' | 'B' | 'C' | 'D';
@@ -145,6 +147,9 @@ const AUTO_ALIGNMENT_MIN_CONFIDENCE = 0.72;
 const AUTO_ALIGNMENT_MAX_YAW_BIAS_DEG = 12;
 const AUTO_ALIGNMENT_MAX_PITCH_BIAS_DEG = 8;
 const AUTO_ALIGNMENT_READY_SCORE = 6;
+const WEB_ZOOM_MIN_GLOBAL = 0.5;
+const WEB_ZOOM_MAX_GLOBAL = 3.0;
+const WEB_PINCH_ZOOM_STEP = 0.1;
 
 function roundedMetric(value: number | null) {
   if (value == null || !Number.isFinite(value)) return null;
@@ -219,6 +224,26 @@ function bucketDroppedFrameRatio(ratio: number) {
   if (ratio < 0.15) return '5..15';
   if (ratio < 0.3) return '15..30';
   return '30+';
+}
+
+function bucketZoomRatio(value: number | null, supported: boolean) {
+  if (!supported || value == null || !Number.isFinite(value) || value <= 0) return 'unsupported';
+  if (value < 0.75) return '0.5..0.75';
+  if (value < 1.0) return '0.75..1.0';
+  if (value < 1.5) return '1.0..1.5';
+  if (value < 2.0) return '1.5..2.0';
+  if (value < 2.5) return '2.0..2.5';
+  if (value < 3.0) return '2.5..3.0';
+  return '3.0+';
+}
+
+function bucketLatencyMs(value: number | null) {
+  if (value == null || !Number.isFinite(value) || value < 0) return 'unknown';
+  if (value < 16) return '<16ms';
+  if (value < 33) return '16..33ms';
+  if (value < 50) return '33..50ms';
+  if (value < 100) return '50..100ms';
+  return '100ms+';
 }
 
 function bucketTimeToLockMs(durationMs: number | null): TimeToLockBucket | undefined {
@@ -505,6 +530,15 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
   const [fovX, setFovX] = useState<number>(70);
   const [fovY, setFovY] = useState<number>(45);
   const [lensPreset, setLensPreset] = useState<'0.5x' | '1x' | '2x' | '3x' | 'custom'>('custom');
+  const [zoomTrayOpen, setZoomTrayOpen] = useState(false);
+  const [zoomSupported, setZoomSupported] = useState(false);
+  const [zoomRatio, setZoomRatio] = useState(1);
+  const [zoomRangeMin, setZoomRangeMin] = useState(1);
+  const [zoomRangeMax, setZoomRangeMax] = useState(1);
+  const [zoomControlPath, setZoomControlPath] = useState<ZoomControlPath>('unsupported');
+  const [zoomInputToApplyMs, setZoomInputToApplyMs] = useState<number | null>(null);
+  const [zoomApplyToProjectionSyncMs, setZoomApplyToProjectionSyncMs] = useState<number | null>(null);
+  const [projectionSource, setProjectionSource] = useState<ProjectionSource>('preset');
   const [corridorMode, setCorridorMode] = useState<'tight' | 'normal' | 'wide'>('tight');
   const [highContrast] = useState<boolean>(true);
   const [showCalibration, setShowCalibration] = useState(false);
@@ -558,6 +592,27 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
 	  const corridorModeDefaultedRef = useRef(false);
 	  const hasCalibratedRef = useRef(false);
 	  const fovAutoInferredRef = useRef(false);
+	  const zoomBaselineFovRef = useRef<{ fovXAt1x: number; fovYAt1x: number } | null>(null);
+	  const zoomApplyStateRef = useRef<{
+	    inFlight: boolean;
+	    queuedTarget: number | null;
+	    lastApplyAtMs: number;
+	    syncStartedAtMs: number | null;
+	  }>({
+	    inFlight: false,
+	    queuedTarget: null,
+	    lastApplyAtMs: 0,
+	    syncStartedAtMs: null
+	  });
+	  const pinchZoomRef = useRef<{
+	    active: boolean;
+	    startDistance: number;
+	    startZoom: number;
+	  }>({
+	    active: false,
+	    startDistance: 0,
+	    startZoom: 1
+	  });
 	  const yawCalIntervalRef = useRef<number | null>(null);
   const autoCalibrateArmedAtMsRef = useRef<number | null>(null);
   const autoCalibrateAttemptCountRef = useRef(0);
@@ -809,6 +864,12 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
     fovX: 70,
     fovY: 45,
     fovSource: 'unknown' as FovSource,
+    zoomSupported: false,
+    zoomRatio: 1,
+    zoomControlPath: 'unsupported' as ZoomControlPath,
+    zoomInputToApplyMs: null as number | null,
+    zoomApplyToProjectionSyncMs: null as number | null,
+    projectionSource: 'preset' as ProjectionSource,
     tier: 0 as 0 | 1 | 2 | 3,
     trajectoryVersion: undefined as string | undefined,
     durationSec: 0,
@@ -944,6 +1005,120 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
   const effectiveReducedEffects = reducedEffects || performancePolicy.reducedEffects;
   const effectiveShowMilestones = showMilestones && performancePolicy.milestoneDensity !== 'off';
   const shouldRunArLoop = xrActive || cameraActive;
+  const zoomRange = useMemo(() => {
+    const min = clamp(zoomRangeMin, WEB_ZOOM_MIN_GLOBAL, WEB_ZOOM_MAX_GLOBAL);
+    const max = clamp(zoomRangeMax, min, WEB_ZOOM_MAX_GLOBAL);
+    return { min, max };
+  }, [zoomRangeMax, zoomRangeMin]);
+  const quickZoomLevels = useMemo(
+    () => [0.5, 1, 2, 3].filter((candidate) => candidate >= zoomRange.min - 0.01 && candidate <= zoomRange.max + 0.01),
+    [zoomRange.max, zoomRange.min]
+  );
+  const clampZoomTarget = useCallback((value: number) => clamp(value, zoomRange.min, zoomRange.max), [zoomRange.max, zoomRange.min]);
+  const syncFovFromZoom = useCallback(
+    (effectiveZoom: number, source: ProjectionSource) => {
+      if (!(effectiveZoom > 0) || !Number.isFinite(effectiveZoom)) return;
+      const baseline =
+        zoomBaselineFovRef.current ?? {
+          fovXAt1x: clamp(fovX * effectiveZoom, 40, 120),
+          fovYAt1x: clamp(fovY * effectiveZoom, 30, 90)
+        };
+      if (zoomBaselineFovRef.current == null) {
+        zoomBaselineFovRef.current = baseline;
+      }
+      const nextFovX = clamp(baseline.fovXAt1x / effectiveZoom, 40, 120);
+      const nextFovY = clamp(baseline.fovYAt1x / effectiveZoom, 30, 90);
+      setProjectionSource(source);
+      if (Math.abs(nextFovX - fovX) > 0.2) setFovX(nextFovX);
+      if (Math.abs(nextFovY - fovY) > 0.2) setFovY(nextFovY);
+      setLensPreset('custom');
+      const syncStartedAtMs = zoomApplyStateRef.current.syncStartedAtMs;
+      if (syncStartedAtMs != null) {
+        const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        setZoomApplyToProjectionSyncMs(Math.max(0, now - syncStartedAtMs));
+        zoomApplyStateRef.current.syncStartedAtMs = null;
+      }
+    },
+    [fovX, fovY]
+  );
+  const applyZoomTarget = useCallback(
+    async (targetValue: number, source: 'pinch' | 'chip' | 'step') => {
+      const target = clampZoomTarget(targetValue);
+      if (!zoomSupported || xrActive) {
+        setZoomControlPath('preset_fallback');
+        setZoomRatio(target);
+        setZoomInputToApplyMs(0);
+        syncFovFromZoom(target, 'preset');
+        return;
+      }
+
+      const state = zoomApplyStateRef.current;
+      if (state.inFlight) {
+        state.queuedTarget = target;
+        return;
+      }
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      if (source === 'pinch' && now - state.lastApplyAtMs < 28) {
+        state.queuedTarget = target;
+        return;
+      }
+
+      const stream = streamRef.current;
+      const track = stream?.getVideoTracks?.()[0];
+      if (!track || typeof track.applyConstraints !== 'function') {
+        setZoomSupported(false);
+        setZoomControlPath('unsupported');
+        return;
+      }
+
+      state.inFlight = true;
+      state.lastApplyAtMs = now;
+      const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      try {
+        await track.applyConstraints({ advanced: [{ zoom: target }] as any });
+        const settings: any = typeof track.getSettings === 'function' ? track.getSettings() : null;
+        const effectiveZoomRaw = settings?.zoom;
+        const effectiveZoom =
+          typeof effectiveZoomRaw === 'number' && Number.isFinite(effectiveZoomRaw) ? clampZoomTarget(effectiveZoomRaw) : target;
+        const doneAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        setZoomRatio(effectiveZoom);
+        setZoomControlPath('track_constraints');
+        setZoomInputToApplyMs(Math.max(0, doneAt - startedAt));
+        state.syncStartedAtMs = doneAt;
+        syncFovFromZoom(effectiveZoom, 'inferred_fov');
+      } catch {
+        setZoomControlPath('preset_fallback');
+        setZoomRatio(target);
+        setZoomInputToApplyMs(null);
+        syncFovFromZoom(target, 'preset');
+      } finally {
+        state.inFlight = false;
+        if (state.queuedTarget != null) {
+          const queued = state.queuedTarget;
+          state.queuedTarget = null;
+          void applyZoomTarget(queued, 'pinch');
+        }
+      }
+    },
+    [clampZoomTarget, syncFovFromZoom, xrActive, zoomSupported]
+  );
+  const handleZoomStep = useCallback(
+    (delta: number) => {
+      void applyZoomTarget(zoomRatio + delta, 'step');
+    },
+    [applyZoomTarget, zoomRatio]
+  );
+  const handleZoomPreset = useCallback(
+    (value: number) => {
+      void applyZoomTarget(value, 'chip');
+    },
+    [applyZoomTarget]
+  );
+  const zoomProgressPercent = useMemo(() => {
+    if (!zoomSupported) return 0;
+    const denom = Math.max(0.0001, zoomRange.max - zoomRange.min);
+    return clamp(((zoomRatio - zoomRange.min) / denom) * 100, 0, 100);
+  }, [zoomRange.max, zoomRange.min, zoomRatio, zoomSupported]);
 
   useEffect(() => {
     performanceGovernorRef.current.tier = performanceTier;
@@ -1462,6 +1637,112 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
 	    };
 	  }, [cameraAttempt, xrActive]);
 
+  useEffect(() => {
+    if (!cameraActive || xrActive) {
+      setZoomSupported(false);
+      setZoomRangeMin(1);
+      setZoomRangeMax(1);
+      setZoomRatio(1);
+      setZoomControlPath('unsupported');
+      setZoomTrayOpen(false);
+      return;
+    }
+
+    const stream = streamRef.current;
+    const track = stream?.getVideoTracks?.()[0];
+    if (!track) {
+      setZoomSupported(false);
+      setZoomControlPath('unsupported');
+      return;
+    }
+
+    const settings: any = typeof track.getSettings === 'function' ? track.getSettings() : null;
+    const capabilities: any = typeof track.getCapabilities === 'function' ? track.getCapabilities() : null;
+    const minRaw = typeof capabilities?.zoom?.min === 'number' ? capabilities.zoom.min : null;
+    const maxRaw = typeof capabilities?.zoom?.max === 'number' ? capabilities.zoom.max : null;
+    const stepRaw = typeof capabilities?.zoom?.step === 'number' ? capabilities.zoom.step : null;
+    const currentRaw = typeof settings?.zoom === 'number' ? settings.zoom : 1;
+    if (minRaw == null || maxRaw == null || !(maxRaw > minRaw + 0.01)) {
+      setZoomSupported(false);
+      setZoomRangeMin(1);
+      setZoomRangeMax(1);
+      setZoomRatio(1);
+      setZoomControlPath('preset_fallback');
+      setProjectionSource('preset');
+      return;
+    }
+
+    const min = clamp(minRaw, WEB_ZOOM_MIN_GLOBAL, WEB_ZOOM_MAX_GLOBAL);
+    const max = clamp(maxRaw, min, WEB_ZOOM_MAX_GLOBAL);
+    const current = clamp(currentRaw, min, max);
+    const supportsZoom = max > min + Math.max(0.01, stepRaw ?? 0);
+    setZoomSupported(supportsZoom);
+    setZoomRangeMin(min);
+    setZoomRangeMax(max);
+    setZoomRatio(current);
+    setZoomControlPath(supportsZoom ? 'track_constraints' : 'preset_fallback');
+    setProjectionSource(supportsZoom ? 'inferred_fov' : 'preset');
+    zoomBaselineFovRef.current = {
+      fovXAt1x: clamp(fovX * current, 40, 120),
+      fovYAt1x: clamp(fovY * current, 30, 90)
+    };
+  }, [cameraActive, fovX, fovY, xrActive]);
+
+  useEffect(() => {
+    if (!cameraActive || xrActive) return;
+    const root = rootRef.current;
+    if (!root) return;
+    const isUiElement = (target: EventTarget | null) =>
+      target instanceof Element && target.closest('[data-ar-ui-control="1"]') != null;
+
+    const onTouchStart = (event: TouchEvent) => {
+      if (event.touches.length < 2) return;
+      if (isUiElement(event.target)) return;
+      const a = event.touches[0];
+      const b = event.touches[1];
+      const dx = a.clientX - b.clientX;
+      const dy = a.clientY - b.clientY;
+      const distance = Math.hypot(dx, dy);
+      if (!(distance > 0)) return;
+      pinchZoomRef.current.active = true;
+      pinchZoomRef.current.startDistance = distance;
+      pinchZoomRef.current.startZoom = zoomRatio;
+    };
+
+    const onTouchMove = (event: TouchEvent) => {
+      if (!pinchZoomRef.current.active) return;
+      if (event.touches.length < 2) return;
+      const a = event.touches[0];
+      const b = event.touches[1];
+      const dx = a.clientX - b.clientX;
+      const dy = a.clientY - b.clientY;
+      const distance = Math.hypot(dx, dy);
+      if (!(distance > 0)) return;
+      const scale = distance / Math.max(1, pinchZoomRef.current.startDistance);
+      const target = clampZoomTarget(pinchZoomRef.current.startZoom * scale);
+      void applyZoomTarget(target, 'pinch');
+      event.preventDefault();
+    };
+
+    const onTouchEnd = (event: TouchEvent) => {
+      if (event.touches.length >= 2) return;
+      pinchZoomRef.current.active = false;
+      pinchZoomRef.current.startDistance = 0;
+      pinchZoomRef.current.startZoom = zoomRatio;
+    };
+
+    root.addEventListener('touchstart', onTouchStart, { passive: true });
+    root.addEventListener('touchmove', onTouchMove, { passive: false });
+    root.addEventListener('touchend', onTouchEnd, { passive: true });
+    root.addEventListener('touchcancel', onTouchEnd, { passive: true });
+    return () => {
+      root.removeEventListener('touchstart', onTouchStart);
+      root.removeEventListener('touchmove', onTouchMove);
+      root.removeEventListener('touchend', onTouchEnd);
+      root.removeEventListener('touchcancel', onTouchEnd);
+    };
+  }, [applyZoomTarget, cameraActive, clampZoomTarget, xrActive, zoomRatio]);
+
 	  useEffect(() => {
 	    if (!cameraActive) return;
 	    if (!calibrationReady) return;
@@ -1543,7 +1824,14 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
 	    setFovX(inferredX);
 	    setFovY(inferredY);
 	    setLensPreset('custom');
-	  }, [cameraActive, calibrationReady, fovX, fovY, lensPreset]);
+      setProjectionSource('inferred_fov');
+      if (zoomRatio > 0) {
+        zoomBaselineFovRef.current = {
+          fovXAt1x: clamp(inferredX * zoomRatio, 40, 120),
+          fovYAt1x: clamp(inferredY * zoomRatio, 30, 90)
+        };
+      }
+	  }, [cameraActive, calibrationReady, fovX, fovY, lensPreset, zoomRatio]);
 
   useEffect(() => {
     if (!AR_DEBUG_CALIBRATION_STORAGE_ENABLED) {
@@ -2615,6 +2903,7 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
                 setFovX(nextFovX);
                 setFovY(nextFovY);
                 setLensPreset('custom');
+                setProjectionSource('projection_matrix');
               }
             }
           }
@@ -3920,6 +4209,12 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
             : fovLoadedFromStorageRef.current
               ? 'saved'
               : 'default';
+    telemetrySnapshotRef.current.zoomSupported = zoomSupported;
+    telemetrySnapshotRef.current.zoomRatio = zoomRatio;
+    telemetrySnapshotRef.current.zoomControlPath = zoomControlPath;
+    telemetrySnapshotRef.current.zoomInputToApplyMs = zoomInputToApplyMs;
+    telemetrySnapshotRef.current.zoomApplyToProjectionSyncMs = zoomApplyToProjectionSyncMs;
+    telemetrySnapshotRef.current.projectionSource = projectionSource;
     telemetrySnapshotRef.current.tier = (trajectory?.quality ?? 0) as 0 | 1 | 2 | 3;
     telemetrySnapshotRef.current.trajectoryVersion = trajectory?.version ?? undefined;
     telemetrySnapshotRef.current.durationSec = durationSec;
@@ -3948,6 +4243,7 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
     fovY,
     headingStatus,
     lensPreset,
+    projectionSource,
     motionPermission,
     motionStatus,
     overlayMode,
@@ -3964,6 +4260,11 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
     trajectory?.qualityState,
     trajectory?.version,
     trajectoryStepS,
+    zoomApplyToProjectionSyncMs,
+    zoomControlPath,
+    zoomInputToApplyMs,
+    zoomRatio,
+    zoomSupported,
     xrActive,
     xrError,
     xrSupport,
@@ -4014,7 +4315,8 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
     telemetryPost('start', {
       sessionId,
       launchId,
-	      startedAt: telemetryStartedAtRef.current,
+      runtimeFamily: 'web',
+		    startedAt: telemetryStartedAtRef.current,
 	      clientEnv: telemetryClientEnvRef.current ?? 'unknown',
         clientProfile: telemetryClientProfileRef.current ?? 'unknown',
 	      screenBucket: telemetryScreenBucketRef.current ?? 'unknown',
@@ -4065,6 +4367,12 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
               : fovLoadedFromStorageRef.current
                 ? 'saved'
                 : 'default',
+      zoomSupported,
+      zoomRatioBucket: bucketZoomRatio(zoomRatio, zoomSupported),
+      zoomControlPath,
+      zoomApplyLatencyBucket: bucketLatencyMs(zoomInputToApplyMs),
+      zoomProjectionSyncLatencyBucket: bucketLatencyMs(zoomApplyToProjectionSyncMs),
+      projectionSource,
       tier: (trajectory?.quality ?? 0) as 0 | 1 | 2 | 3,
       trajectoryVersion: trajectory?.version,
       durationS: durationSec,
@@ -4100,7 +4408,9 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
         trajectoryAuthorityTier: telemetrySnapshotRef.current.authorityTier,
         trajectoryQualityState: telemetrySnapshotRef.current.qualityState,
         renderTier,
-        droppedFrameBucket
+        droppedFrameBucket,
+        zoomControlPath,
+        zoomRatioBucket: bucketZoomRatio(zoomRatio, zoomSupported)
       })
     };
   }, [
@@ -4126,10 +4436,16 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
     trajectory?.quality,
     trajectory?.version,
     trajectoryStepS,
-	    lockOnTimeToLockBucket,
-	    xrError,
-	    xrSupport,
+    lockOnTimeToLockBucket,
+    xrError,
+    xrSupport,
     yawOffset,
+    zoomApplyToProjectionSyncMs,
+    zoomControlPath,
+    zoomInputToApplyMs,
+    zoomRatio,
+    zoomSupported,
+    projectionSource,
     corridorModeInitialized,
     snapshotLoopTiming
   ]);
@@ -4207,7 +4523,9 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
         trajectoryAuthorityTier: snapshot.authorityTier,
         trajectoryQualityState: snapshot.qualityState,
         renderTier,
-        droppedFrameBucket
+        droppedFrameBucket,
+        zoomControlPath: snapshot.zoomControlPath,
+        zoomRatioBucket: bucketZoomRatio(snapshot.zoomRatio, snapshot.zoomSupported)
       });
       const cadenceMs = deriveArTelemetryUpdateCadenceMs({
         cameraStatus: snapshot.cameraStatus,
@@ -4230,7 +4548,9 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
         trajectoryAuthorityTier: snapshot.authorityTier,
         trajectoryQualityState: snapshot.qualityState,
         renderTier,
-        droppedFrameBucket
+        droppedFrameBucket,
+        zoomControlPath: snapshot.zoomControlPath,
+        zoomRatioBucket: bucketZoomRatio(snapshot.zoomRatio, snapshot.zoomSupported)
       });
       if (
         !shouldSendArTelemetryUpdate({
@@ -4247,6 +4567,7 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
       telemetryPost('update', {
         sessionId,
         launchId,
+        runtimeFamily: 'web',
         startedAt,
         durationMs,
         clientEnv: telemetryClientEnvRef.current ?? 'unknown',
@@ -4294,6 +4615,12 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
         hfovBucket: bucketDegrees(snapshot.fovX, 10, 30, 140),
         vfovBucket: bucketDegrees(snapshot.fovY, 10, 20, 120),
         fovSource: snapshot.fovSource,
+        zoomSupported: snapshot.zoomSupported,
+        zoomRatioBucket: bucketZoomRatio(snapshot.zoomRatio, snapshot.zoomSupported),
+        zoomControlPath: snapshot.zoomControlPath,
+        zoomApplyLatencyBucket: bucketLatencyMs(snapshot.zoomInputToApplyMs),
+        zoomProjectionSyncLatencyBucket: bucketLatencyMs(snapshot.zoomApplyToProjectionSyncMs),
+        projectionSource: snapshot.projectionSource,
         tier: snapshot.tier,
         trajectoryVersion: snapshot.trajectoryVersion,
         durationS: snapshot.durationSec,
@@ -4385,6 +4712,7 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
       telemetryPostBeacon('end', {
         sessionId,
         launchId,
+        runtimeFamily: 'web',
         startedAt: startedAtIso,
         endedAt: endedAtIso,
 	        durationMs,
@@ -4433,6 +4761,12 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
         hfovBucket: bucketDegrees(snapshot.fovX, 10, 30, 140),
         vfovBucket: bucketDegrees(snapshot.fovY, 10, 20, 120),
         fovSource: snapshot.fovSource,
+        zoomSupported: snapshot.zoomSupported,
+        zoomRatioBucket: bucketZoomRatio(snapshot.zoomRatio, snapshot.zoomSupported),
+        zoomControlPath: snapshot.zoomControlPath,
+        zoomApplyLatencyBucket: bucketLatencyMs(snapshot.zoomInputToApplyMs),
+        zoomProjectionSyncLatencyBucket: bucketLatencyMs(snapshot.zoomApplyToProjectionSyncMs),
+        projectionSource: snapshot.projectionSource,
         tier: snapshot.tier,
         trajectoryVersion: snapshot.trajectoryVersion,
         durationS: snapshot.durationSec,
@@ -5512,6 +5846,66 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
       </div>
 
 	      <div className="absolute bottom-[calc(1rem+env(safe-area-inset-bottom))] left-[calc(1rem+env(safe-area-inset-left))] right-[calc(1rem+env(safe-area-inset-right))] flex flex-col gap-2 text-xs text-white/80">
+          {cameraActive && !xrActive && (
+            <div className="pointer-events-auto ml-auto flex max-w-[min(20rem,75vw)] flex-col items-end gap-2" data-ar-ui-control="1">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!zoomSupported) return;
+                  setZoomTrayOpen((prev) => !prev);
+                }}
+                className="rounded-full border border-white/20 bg-black/70 px-3 py-1.5 text-[11px] font-semibold text-white/90"
+              >
+                {zoomSupported ? `${zoomRatio.toFixed(2)}x` : 'Zoom unavailable'}
+              </button>
+              {zoomSupported && zoomTrayOpen && (
+                <div className="w-full rounded-xl border border-white/20 bg-black/80 p-3 text-[11px] text-white/85">
+                  <div className="flex items-center justify-between">
+                    <div className="text-[10px] uppercase tracking-[0.12em] text-white/60">Zoom</div>
+                    <div className="text-[11px] font-semibold text-white/90">{zoomRatio.toFixed(2)}x</div>
+                  </div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleZoomStep(-WEB_PINCH_ZOOM_STEP)}
+                      className="rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-[12px]"
+                    >
+                      −
+                    </button>
+                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/20">
+                      <div className="h-full rounded-full bg-cyan-300/90" style={{ width: `${zoomProgressPercent}%` }} />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleZoomStep(WEB_PINCH_ZOOM_STEP)}
+                      className="rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-[12px]"
+                    >
+                      +
+                    </button>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {quickZoomLevels.map((candidate) => (
+                      <button
+                        key={candidate}
+                        type="button"
+                        onClick={() => handleZoomPreset(candidate)}
+                        className={`rounded-full border px-2.5 py-1 ${
+                          Math.abs(zoomRatio - candidate) < 0.06
+                            ? 'border-cyan-300/40 bg-cyan-300/20 text-cyan-50'
+                            : 'border-white/20 bg-white/10 text-white/90'
+                        }`}
+                      >
+                        {candidate < 1 ? candidate.toFixed(1) : candidate.toFixed(0)}x
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-2 text-[10px] text-white/60">
+                    Pinch to zoom. Safe range {zoomRange.min.toFixed(2)}x to {zoomRange.max.toFixed(2)}x.
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         {sessionStatusView && (
           <div
             className={`pointer-events-auto rounded-xl border px-3 py-2 text-[11px] ${sessionStatusTone?.border ?? 'border-white/15'} ${sessionStatusTone?.bg ?? 'bg-black/55'}`}
@@ -5808,46 +6202,66 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
 	            </button>
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <span className="text-[10px] uppercase tracking-[0.12em] text-white/60">Lens presets</span>
-              <button
-                type="button"
-                onClick={() => {
-                  setFovX(110);
-                  setFovY(80);
-                  setLensPreset('0.5x');
-                }}
+	              <button
+	                type="button"
+	                onClick={() => {
+                    if (zoomSupported) {
+                      void applyZoomTarget(0.5, 'chip');
+                    } else {
+	                    setFovX(110);
+	                    setFovY(80);
+	                    setLensPreset('0.5x');
+                      setProjectionSource('preset');
+                    }
+	                }}
                 className="rounded border border-white/20 bg-white/10 px-2 py-1 text-[11px]"
               >
                 0.5×
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setFovX(70);
-                  setFovY(45);
-                  setLensPreset('1x');
-                }}
+	              <button
+	                type="button"
+	                onClick={() => {
+                    if (zoomSupported) {
+                      void applyZoomTarget(1, 'chip');
+                    } else {
+	                    setFovX(70);
+	                    setFovY(45);
+	                    setLensPreset('1x');
+                      setProjectionSource('preset');
+                    }
+	                }}
                 className="rounded border border-white/20 bg-white/10 px-2 py-1 text-[11px]"
               >
                 1×
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setFovX(50);
-                  setFovY(35);
-                  setLensPreset('2x');
-                }}
+	              <button
+	                type="button"
+	                onClick={() => {
+                    if (zoomSupported) {
+                      void applyZoomTarget(2, 'chip');
+                    } else {
+	                    setFovX(50);
+	                    setFovY(35);
+	                    setLensPreset('2x');
+                      setProjectionSource('preset');
+                    }
+	                }}
                 className="rounded border border-white/20 bg-white/10 px-2 py-1 text-[11px]"
               >
                 2×
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setFovX(40);
-                  setFovY(30);
-                  setLensPreset('3x');
-                }}
+	              <button
+	                type="button"
+	                onClick={() => {
+                    if (zoomSupported) {
+                      void applyZoomTarget(3, 'chip');
+                    } else {
+	                    setFovX(40);
+	                    setFovY(30);
+	                    setLensPreset('3x');
+                      setProjectionSource('preset');
+                    }
+	                }}
                 className="rounded border border-white/20 bg-white/10 px-2 py-1 text-[11px]"
               >
                 3×
@@ -5863,10 +6277,11 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
               max={120}
               step={1}
               value={fovX}
-              onChange={(event) => {
-                setFovX(Number(event.target.value));
-                setLensPreset('custom');
-              }}
+	              onChange={(event) => {
+	                setFovX(Number(event.target.value));
+	                setLensPreset('custom');
+                  setProjectionSource('preset');
+	              }}
               className="w-full"
             />
             <label className="mt-2 flex items-center justify-between gap-3">
@@ -5879,10 +6294,11 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
               max={90}
               step={1}
               value={fovY}
-              onChange={(event) => {
-                setFovY(Number(event.target.value));
-                setLensPreset('custom');
-              }}
+	              onChange={(event) => {
+	                setFovY(Number(event.target.value));
+	                setLensPreset('custom');
+                  setProjectionSource('preset');
+	              }}
               className="w-full"
             />
             {padBearing != null && heading != null && (

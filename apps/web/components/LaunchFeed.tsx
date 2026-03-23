@@ -1,7 +1,15 @@
 'use client';
 
 import { ApiClientError } from '@tminuszero/api-client';
-import { getNextAlignedRefreshMs, getTierRefreshSeconds, tierToMode, type ViewerTier } from '@tminuszero/domain';
+import {
+  buildPendingFeedRefreshMessage,
+  getNextAlignedRefreshMs,
+  getTierRefreshSeconds,
+  getVisibleFeedUpdatedAt,
+  shouldPrimeVersionRefresh,
+  tierToMode,
+  type ViewerTier
+} from '@tminuszero/domain';
 import { buildAuthHref, buildUpgradeHref } from '@tminuszero/navigation';
 import clsx from 'clsx';
 import Link from 'next/link';
@@ -21,7 +29,7 @@ import {
   useUpdateFilterPresetMutation,
   useViewerEntitlementsQuery,
   useWatchlistsQuery,
-  fetchLiveLaunchVersion,
+  fetchLaunchFeedVersion,
   getChangedLaunchesQueryOptions,
   getLaunchFeedPageQueryOptions,
   invalidateLaunchFeedQueries,
@@ -78,6 +86,13 @@ type ProgramTicker = {
   text: string;
   label: string;
   netMs: number;
+};
+
+type PendingFeedRefresh = {
+  version: string;
+  matchCount: number;
+  updatedAt: string | null;
+  summaries: string[];
 };
 
 function readCookieValue(name: string) {
@@ -245,6 +260,8 @@ export function LaunchFeed({
   const [recentExpanded, setRecentExpanded] = useState(false);
   const [recentFlipIndex, setRecentFlipIndex] = useState(0);
   const [notice, setNotice] = useState<{ message: string; tone: 'info' | 'warning' } | null>(null);
+  const [pendingRefresh, setPendingRefresh] = useState<PendingFeedRefresh | null>(null);
+  const [refreshApplying, setRefreshApplying] = useState(false);
   const [lastCheckedAtMs, setLastCheckedAtMs] = useState<number | null>(() => initialNowMsValue ?? null);
   const [nextRefreshAt, setNextRefreshAt] = useState<number | null>(null);
   const [nowMs, setNowMs] = useState(() => initialNowMsValue ?? Date.now());
@@ -286,11 +303,7 @@ export function LaunchFeed({
         : 'guest';
   const baseViewerTier = normalizeViewerTier(viewerEntitlementsQuery.data?.tier) ?? initialViewerTier ?? 'anon';
   const viewerTier: ViewerTier =
-    modeOverride === 'public'
-      ? authStatus === 'authed'
-        ? 'free'
-        : 'anon'
-      : baseViewerTier;
+    modeOverride === 'public' ? 'anon' : baseViewerTier;
   const isPaid =
     modeOverride == null
       ? (typeof viewerEntitlementsQuery.data?.isPaid === 'boolean'
@@ -305,7 +318,7 @@ export function LaunchFeed({
   const canManageFilterPresets = isAuthed && Boolean(viewerCapabilities?.canManageFilterPresets);
   const canUseBasicAlertRules = isAuthed && Boolean(viewerCapabilities?.canUseBasicAlertRules);
   const canUseBrowserLaunchAlerts = isAuthed && Boolean(viewerCapabilities?.canUseBrowserLaunchAlerts);
-  const canUseOneOffCalendar = isAuthed && Boolean(viewerCapabilities?.canUseOneOffCalendar);
+  const canUseOneOffCalendar = Boolean(viewerCapabilities?.canUseOneOffCalendar);
   const mode = useMemo(() => modeOverride ?? tierToMode(viewerTier), [modeOverride, viewerTier]);
   const arEligibleLaunchIdsQuery = useArEligibleLaunchIdsQuery({
     initialData: initialArEligibleLaunchIds
@@ -413,6 +426,9 @@ export function LaunchFeed({
       nextOffset,
       launchesLen: launches.length,
       changedLen: changed.length,
+      pendingRefreshVersion: pendingRefresh?.version ?? null,
+      pendingRefreshMatchCount: pendingRefresh?.matchCount ?? null,
+      refreshApplying,
       recentChangesLen: recentChanges.length,
       recentExpanded,
       recentFlipIndex,
@@ -608,7 +624,9 @@ export function LaunchFeed({
 
   useEffect(() => {
     lastSeenLiveVersionRef.current = null;
-  }, [viewerTier]);
+    setPendingRefresh(null);
+    setChanged([]);
+  }, [filters, launchFeedWatchlistDependency, mode, viewerTier]);
 
   useEffect(() => {
     setModeOverride(null);
@@ -682,7 +700,7 @@ export function LaunchFeed({
   useEffect(() => {
     if (!canUseSavedItems) {
       setMyLaunchesEnabled(false);
-      setFollowToggleBusy({});
+      setFollowToggleBusy((prev) => (Object.keys(prev).length === 0 ? prev : {}));
       didRequestMyWatchlistRef.current = false;
       return;
     }
@@ -694,7 +712,6 @@ export function LaunchFeed({
           {},
           {
             onError: (error) => {
-              didRequestMyWatchlistRef.current = false;
               setNotice({ tone: 'warning', message: error instanceof Error ? error.message : 'failed_to_create' });
             }
           }
@@ -914,10 +931,6 @@ export function LaunchFeed({
   }, [filters.region, queryClient, viewerTier]);
 
   useEffect(() => {
-    void fetchRecentChanges();
-  }, [fetchRecentChanges]);
-
-  useEffect(() => {
     setRecentFlipIndex(0);
   }, [recentChanges.length]);
 
@@ -930,7 +943,7 @@ export function LaunchFeed({
   }, [recentChanges.length, recentExpanded]);
 
   useEffect(() => {
-    if (viewerTier !== 'premium') {
+    if (launchFeedWatchlistDependency) {
       setNextRefreshAt(null);
       return;
     }
@@ -938,8 +951,119 @@ export function LaunchFeed({
     let timeout: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
 
+    const canCheckForUpdates = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return false;
+      }
+      if (typeof navigator !== 'undefined' && 'onLine' in navigator && navigator.onLine === false) {
+        return false;
+      }
+      return true;
+    };
+
+    const fetchPendingChangeSummaries = async () => {
+      if (latestRef.current.viewerTier !== 'premium') {
+        return [];
+      }
+      try {
+        const payload = await queryClient.fetchQuery(
+          getChangedLaunchesQueryOptions({
+            hours: 24,
+            region: latestRef.current.filters.region ?? 'us'
+          })
+        );
+        const results = Array.isArray(payload.results) ? payload.results : [];
+        setChanged(results);
+        return results
+          .slice(0, 2)
+          .map((item) => String(item.summary || item.name || '').trim())
+          .filter(Boolean);
+      } catch (error) {
+        console.error('pending refresh change summary error', error);
+        return [];
+      }
+    };
+
+    const evaluateVersionMismatch = async () => {
+      if (!canCheckForUpdates()) {
+        debugLog('refresh_paused_inactive');
+        return;
+      }
+      if (loading || loadingMore || refreshApplying) {
+        debugLog('refresh_tick_skipped_loading', { loading, loadingMore, refreshApplying });
+        return;
+      }
+
+      const snapshot = latestRef.current;
+      const versionFilters = snapshot.filters;
+      const versionRequest = {
+        scope: snapshot.mode,
+        range: versionFilters.range || '7d',
+        region: versionFilters.region ?? 'us',
+        location: versionFilters.location ?? null,
+        state: versionFilters.state ?? null,
+        pad: versionFilters.pad ?? null,
+        provider: versionFilters.provider ?? null,
+        status: versionFilters.status && versionFilters.status !== 'all' ? versionFilters.status : null
+      } as const;
+      debugLog('refresh_tick_version_check', versionRequest);
+
+      try {
+        const payload = await fetchLaunchFeedVersion(queryClient, versionRequest);
+        setLastCheckedAtMs(Date.now());
+        const nextVersion = typeof payload?.version === 'string' ? payload.version : null;
+        const visibleUpdatedAt = getVisibleFeedUpdatedAt(launches, snapshot.mode);
+        if (!nextVersion) {
+          return;
+        }
+        if (!lastSeenLiveVersionRef.current) {
+          lastSeenLiveVersionRef.current = nextVersion;
+          const shouldPrimePending = shouldPrimeVersionRefresh(payload.updatedAt, visibleUpdatedAt);
+          if (shouldPrimePending) {
+            const summaries = await fetchPendingChangeSummaries();
+            setPendingRefresh({
+              version: nextVersion,
+              matchCount: payload.matchCount,
+              updatedAt: payload.updatedAt,
+              summaries
+            });
+          }
+          return;
+        }
+        if (nextVersion === lastSeenLiveVersionRef.current) {
+          return;
+        }
+
+        lastSeenLiveVersionRef.current = nextVersion;
+        const summaries = await fetchPendingChangeSummaries();
+        setPendingRefresh({
+          version: nextVersion,
+          matchCount: payload.matchCount,
+          updatedAt: payload.updatedAt,
+          summaries
+        });
+      } catch (err) {
+        const status = err instanceof ApiClientError ? err.status : typeof (err as any)?.status === 'number' ? (err as any).status : null;
+        if (status === 401 || status === 402) {
+          debugLog('refresh_tick_version_unauthorized', { status });
+          await fetchPage({ offset: latestRef.current.pageOffset, replace: true, reason: 'scheduled_refresh_version_unauthorized' });
+          setPendingRefresh(null);
+          return;
+        }
+        console.error('feed refresh check error', err);
+      }
+    };
+
     const schedule = () => {
       if (cancelled) return;
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = null;
+      }
+      if (!canCheckForUpdates()) {
+        setNextRefreshAt(null);
+        return;
+      }
       const now = Date.now();
       const next = getNextAlignedRefreshMs(now, refreshIntervalMs);
       setNextRefreshAt(next);
@@ -955,61 +1079,55 @@ export function LaunchFeed({
       });
       timeout = setTimeout(async () => {
         if (cancelled) return;
-        if (!loading && !loadingMore) {
-          try {
-            const versionFilters = latestRef.current.filters;
-            const versionRequest = {
-              range: versionFilters.range || '7d',
-              region: versionFilters.region ?? 'us',
-              location: versionFilters.location ?? null,
-              state: versionFilters.state ?? null,
-              pad: versionFilters.pad ?? null,
-              provider: versionFilters.provider ?? null,
-              status: versionFilters.status && versionFilters.status !== 'all' ? versionFilters.status : null
-            };
-            debugLog('refresh_tick_premium_check', versionRequest);
-            const payload = await fetchLiveLaunchVersion(queryClient, versionRequest);
-            debugLog('refresh_tick_premium_version_payload', payload);
-            const nextVersion = typeof payload?.version === 'string' ? payload.version : null;
-            if (nextVersion) {
-              if (!lastSeenLiveVersionRef.current) {
-                lastSeenLiveVersionRef.current = nextVersion;
-                debugLog('refresh_tick_premium_version_baseline', { version: nextVersion });
-              } else if (nextVersion !== lastSeenLiveVersionRef.current) {
-                debugLog('refresh_tick_premium_version_changed', {
-                  prev: lastSeenLiveVersionRef.current,
-                  next: nextVersion
-                });
-                lastSeenLiveVersionRef.current = nextVersion;
-                await fetchPage({ offset: latestRef.current.pageOffset, replace: true, reason: 'scheduled_refresh_version_changed' });
-                await fetchRecentChanges();
-              } else {
-                debugLog('refresh_tick_premium_version_unchanged', { version: nextVersion });
-              }
-            }
-          } catch (err) {
-            const status = err instanceof ApiClientError ? err.status : typeof (err as any)?.status === 'number' ? (err as any).status : null;
-            if (status === 401 || status === 402) {
-              debugLog('refresh_tick_premium_version_unauthorized', { status });
-              await fetchPage({ offset: latestRef.current.pageOffset, replace: true, reason: 'scheduled_refresh_version_unauthorized' });
-              await fetchRecentChanges();
-            } else {
-              console.error('live refresh check error', err);
-            }
-          }
-        } else {
-          debugLog('refresh_tick_skipped_loading', { loading, loadingMore });
-        }
+        await evaluateVersionMismatch();
         schedule();
       }, delay);
     };
 
+    const resumeChecks = () => {
+      if (cancelled || !canCheckForUpdates()) return;
+      void evaluateVersionMismatch();
+      schedule();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        setNextRefreshAt(null);
+        if (timeout) {
+          clearTimeout(timeout);
+          timeout = null;
+        }
+        return;
+      }
+      resumeChecks();
+    };
+
+    const handleFocus = () => resumeChecks();
+    const handleOnline = () => resumeChecks();
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('online', handleOnline);
     schedule();
     return () => {
       cancelled = true;
       if (timeout) clearTimeout(timeout);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('online', handleOnline);
     };
-  }, [debugLog, fetchPage, fetchRecentChanges, loading, loadingMore, queryClient, refreshIntervalMs, setNextRefreshAt, viewerTier]);
+  }, [
+    debugLog,
+    fetchPage,
+    launchFeedWatchlistDependency,
+    launches,
+    loading,
+    loadingMore,
+    queryClient,
+    refreshApplying,
+    refreshIntervalMs,
+    viewerTier
+  ]);
 
   const nextArtemis = useMemo(() => findNextProgramLaunch(launches, nowMs, isArtemisLaunch), [launches, nowMs]);
   const nextStarship = useMemo(() => findNextProgramLaunch(launches, nowMs, isStarshipLaunch), [launches, nowMs]);
@@ -1132,25 +1250,24 @@ export function LaunchFeed({
       : null;
   const nonPremiumPriceLine = 'Premium is $3.99/mo • cancel anytime';
   const homeSignInHref = buildAuthHref('sign-in', { returnTo: '/' });
-  const homeSignUpHref = buildAuthHref('sign-up', { returnTo: '/' });
   const homeUpgradeHref = buildUpgradeHref({ returnTo: '/' });
   const showModeStatusCard = authStatus !== 'loading' && !query && !unlocksDismissed;
   const showAlertsNudge = false;
-  const modeStatusEyebrow = viewerTier === 'premium' ? 'Live mode' : viewerTier === 'free' ? 'Free account' : 'Browse mode';
+  const modeStatusEyebrow = viewerTier === 'premium' ? 'Live mode' : isAuthed ? 'Signed in' : 'Browse mode';
   const modeStatusTitle =
     viewerTier === 'premium'
       ? 'Live updates are active.'
-      : viewerTier === 'free'
-        ? 'Your signed-in feed has the faster free refresh.'
-        : 'Browse publicly, then sign in for the faster free tier.';
+      : isAuthed
+        ? 'You are signed in with anon access.'
+        : 'Browse publicly, then sign in when you want account ownership.';
   const modeStatusBody =
     viewerTier === 'premium'
       ? premiumFreshnessLine || 'Premium keeps the feed on live checks with the fastest refresh cadence.'
-      : viewerTier === 'free'
-        ? 'Filters, the launch calendar, one-off calendar adds, and basic mobile push alerts are included. Premium adds saved/default filters, follows, browser alerts, recurring feeds, and the live change log.'
-        : 'Create a free account to unlock filters, the launch calendar, one-off calendar adds, and faster refreshes across web, iOS, and Android.';
-  const modePrimaryHref = viewerTier === 'premium' ? '/account' : viewerTier === 'free' ? homeUpgradeHref : homeSignUpHref;
-  const modePrimaryLabel = viewerTier === 'premium' ? 'Open account' : viewerTier === 'free' ? 'See Premium' : 'Create free account';
+      : isAuthed
+        ? 'Signing in keeps account ownership, purchase restore, and billing access. Premium adds saved/default filters, follows, browser alerts, recurring feeds, and the live change log.'
+        : 'Browse launches, filters, and the launch calendar publicly. Upgrade when you want live data, saved items, and recurring integrations.';
+  const modePrimaryHref = viewerTier === 'premium' ? '/account' : homeUpgradeHref;
+  const modePrimaryLabel = viewerTier === 'premium' ? 'Open account' : 'See Premium';
 
   useEffect(() => {
     const id = setInterval(() => setNowMs(Date.now()), 10_000);
@@ -1187,6 +1304,35 @@ export function LaunchFeed({
     observer.observe(node);
     return () => observer.disconnect();
   }, [debugLog, fetchPage, hasMore, infiniteScrollArmed, launches.length, loading, loadingMore, nextOffset, pageOffset, query]);
+
+  const applyPendingRefresh = useCallback(async () => {
+    if (!pendingRefresh || refreshApplying) {
+      return;
+    }
+
+    setRefreshApplying(true);
+    try {
+      await fetchPage({ offset: latestRef.current.pageOffset, replace: true, reason: 'pending_refresh_apply' });
+      if (latestRef.current.viewerTier === 'premium') {
+        await fetchRecentChanges();
+      }
+      lastSeenLiveVersionRef.current = pendingRefresh.version;
+      setPendingRefresh(null);
+    } finally {
+      setRefreshApplying(false);
+    }
+  }, [fetchPage, fetchRecentChanges, pendingRefresh, refreshApplying]);
+
+  const pendingRefreshMessage = useMemo(() => {
+    if (!pendingRefresh) {
+      return null;
+    }
+    return buildPendingFeedRefreshMessage({
+      matchCount: pendingRefresh.matchCount,
+      visibleCount: launches.length,
+      canCompareCount: !hasMore && !query
+    });
+  }, [hasMore, launches.length, pendingRefresh, query]);
 
   const applyPreset = useCallback(
     (presetId: string) => {
@@ -1775,6 +1921,30 @@ export function LaunchFeed({
         </div>
       )}
 
+      {pendingRefresh && pendingRefreshMessage && (
+        <div className="flex items-start justify-between gap-4 rounded-2xl border border-[rgba(120,196,255,0.35)] bg-[linear-gradient(135deg,rgba(7,9,19,0.94),rgba(18,38,66,0.92))] p-4 text-sm shadow-[0_18px_40px_rgba(0,0,0,0.22)]">
+          <div className="min-w-0">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[rgba(162,209,255,0.88)]">
+              {viewerTier === 'premium' ? 'Live update ready' : 'Refresh ready'}
+            </div>
+            <div className="mt-1 text-base font-semibold text-white">{pendingRefreshMessage}</div>
+            <div className="mt-1 text-xs text-[rgba(214,228,255,0.8)]">
+              {pendingRefresh.summaries.length > 0
+                ? pendingRefresh.summaries.slice(0, 2).join(' • ')
+                : 'New feed data is available without interrupting your current view.'}
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btn shrink-0 rounded-lg px-3 py-2 text-xs"
+            onClick={() => void applyPendingRefresh()}
+            disabled={refreshApplying}
+          >
+            {refreshApplying ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
+      )}
+
       {showModeStatusCard && (
         <div className="rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1790,7 +1960,7 @@ export function LaunchFeed({
                   </Link>
                 </div>
               )}
-              {viewerTier === 'free' && <div className="mt-2 text-xs text-text3">{nonPremiumPriceLine}</div>}
+              {viewerTier !== 'premium' && <div className="mt-2 text-xs text-text3">{nonPremiumPriceLine}</div>}
             </div>
             <div className="flex items-center gap-3">
               <Link href={modePrimaryHref} className="btn rounded-lg px-3 py-2 text-xs">

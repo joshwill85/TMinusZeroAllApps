@@ -6,8 +6,7 @@ import { mobileColorTokens } from '@tminuszero/design-tokens';
 import { buildMobileRoute, readAuthIntent, readReturnTo, resolveMobileAuthRedirectPath } from '@tminuszero/navigation';
 import { recordMobileAuthContext } from '@/src/auth/authContext';
 import {
-  continueWithOAuthProvider,
-  getAvailableOAuthProviders,
+  attachPremiumClaimToSession,
   isSupabaseMobileAuthConfigured,
   signInWithPassword,
   signOut
@@ -29,10 +28,11 @@ export default function SignInScreen() {
     return_to?: string | string[];
     next?: string | string[];
     intent?: string | string[];
+    claim_token?: string | string[];
   }>();
   const { accessToken, persistSession, clearSession } = useMobileBootstrap();
   const { unregisterCurrentDevice } = useMobilePush();
-  const oauthProviders = getAvailableOAuthProviders();
+  const claimToken = readParam(params.claim_token);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [status, setStatus] = useState<{ tone: 'error' | 'success' | null; text: string }>({
@@ -77,6 +77,17 @@ export default function SignInScreen() {
         riskSessionId: result.riskSessionId
       }).catch(() => {});
       setPassword('');
+      if (claimToken) {
+        const attachResult = await attachPremiumClaimToSession(result.session.accessToken, claimToken);
+        router.replace(
+          resolveMobileAuthRedirectPath({
+            returnTo: attachResult.returnTo,
+            intent: 'upgrade',
+            fallback: redirectHref
+          }) as Href
+        );
+        return;
+      }
       router.replace(redirectHref as Href);
     } catch (error) {
       setStatus({
@@ -114,23 +125,29 @@ export default function SignInScreen() {
     }
   }
 
-  async function handleOAuthSignIn(provider: 'apple' | 'google') {
+  async function handleAttachPremium() {
+    if (!accessToken || !claimToken) {
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      const result = await continueWithOAuthProvider(provider);
-      await persistSession({
-        accessToken: result.session.accessToken,
-        refreshToken: result.session.refreshToken
+      const attachResult = await attachPremiumClaimToSession(accessToken, claimToken);
+      setStatus({
+        tone: 'success',
+        text: 'Premium attached to this account.'
       });
-      await recordMobileAuthContext(result.session.accessToken, {
-        provider: result.provider,
-        eventType: 'oauth_callback'
-      }).catch(() => {});
-      router.replace(redirectHref as Href);
+      router.replace(
+        resolveMobileAuthRedirectPath({
+          returnTo: attachResult.returnTo,
+          intent: 'upgrade',
+          fallback: redirectHref
+        }) as Href
+      );
     } catch (error) {
       setStatus({
         tone: 'error',
-        text: error instanceof Error ? error.message : 'Unable to continue with provider sign-in.'
+        text: error instanceof Error ? error.message : 'Unable to attach Premium.'
       });
     } finally {
       setIsSubmitting(false);
@@ -141,36 +158,30 @@ export default function SignInScreen() {
     <ScreenShell
       eyebrow="Account"
       title="Sign in"
-      subtitle="Use your T-Minus Zero account for signed-in filters, calendar access, and shared mobile push alerts on this device."
+      subtitle={
+        claimToken
+          ? 'Sign in to attach this verified Premium purchase to an existing account.'
+          : 'Use your T-Minus Zero account for account management, purchase restore, and Premium ownership on this device.'
+      }
     >
       {isSupabaseMobileAuthConfigured() ? (
         <Card title={accessToken ? 'Session actions' : 'Sign-in methods'}>
           {accessToken ? (
             <View style={styles.stack}>
-              <Text style={styles.body}>This device already has a stored bearer token.</Text>
+              <Text style={styles.body}>
+                {claimToken ? 'This device already has a stored bearer token. Attach the verified Premium purchase or sign out first.' : 'This device already has a stored bearer token.'}
+              </Text>
+              {claimToken ? (
+                <Pressable testID="sign-in-attach-claim" style={styles.button} onPress={() => void handleAttachPremium()} disabled={isSubmitting}>
+                  {isSubmitting ? <ActivityIndicator color={mobileColorTokens.background} /> : <Text style={styles.buttonLabel}>Attach Premium</Text>}
+                </Pressable>
+              ) : null}
               <Pressable testID="sign-out-submit" style={styles.button} onPress={() => void handleSignOut()} disabled={isSubmitting}>
                 {isSubmitting ? <ActivityIndicator color={mobileColorTokens.background} /> : <Text style={styles.buttonLabel}>Sign out</Text>}
               </Pressable>
             </View>
           ) : (
             <View style={styles.stack}>
-              {oauthProviders.length > 0 ? (
-                <>
-                  <Text style={styles.body}>Use the provider already configured for this device, or continue with email below.</Text>
-                  {oauthProviders.map((provider) => (
-                    <Pressable
-                      key={provider}
-                      testID={`sign-in-oauth-${provider}`}
-                      style={styles.secondaryButton}
-                      onPress={() => void handleOAuthSignIn(provider)}
-                      disabled={isSubmitting}
-                    >
-                      <Text style={styles.secondaryButtonLabel}>Continue with {formatProviderLabel(provider)}</Text>
-                    </Pressable>
-                  ))}
-                  <Text style={styles.divider}>or sign in with email</Text>
-                </>
-              ) : null}
               <TextInput
                 testID="sign-in-email"
                 value={email}
@@ -196,18 +207,11 @@ export default function SignInScreen() {
               <Pressable testID="sign-in-submit" style={styles.button} onPress={() => void handleSignIn()} disabled={isSubmitting}>
                 {isSubmitting ? <ActivityIndicator color={mobileColorTokens.background} /> : <Text style={styles.buttonLabel}>Sign in</Text>}
               </Pressable>
-              <View style={{ flexDirection: 'row', gap: 10 }}>
-                <Link href="/sign-up" asChild>
-                  <Pressable style={styles.secondaryButton}>
-                    <Text style={styles.secondaryButtonLabel}>Create account</Text>
-                  </Pressable>
-                </Link>
-                <Link href="/forgot-password" asChild>
-                  <Pressable style={styles.secondaryButton}>
-                    <Text style={styles.secondaryButtonLabel}>Forgot password</Text>
-                  </Pressable>
-                </Link>
-              </View>
+              <Link href="/forgot-password" asChild>
+                <Pressable style={styles.secondaryButton}>
+                  <Text style={styles.secondaryButtonLabel}>Forgot password</Text>
+                </Pressable>
+              </Link>
             </View>
           )}
         </Card>
@@ -221,6 +225,14 @@ export default function SignInScreen() {
         <Card title={status.tone === 'error' ? 'Auth error' : 'Auth status'}>
           <Text style={[styles.body, status.tone === 'error' ? styles.errorText : styles.successText]}>{status.text}</Text>
         </Card>
+      ) : null}
+
+      {claimToken ? (
+        <Link href={`/sign-up?claim_token=${encodeURIComponent(claimToken)}&return_to=${encodeURIComponent(readParam(params.return_to) || '/profile')}`} asChild>
+          <Pressable style={styles.secondaryButton}>
+            <Text style={styles.secondaryButtonLabel}>Need a new account? Create one to claim Premium</Text>
+          </Pressable>
+        </Link>
       ) : null}
 
       <Link href={buildMobileRoute('launchFeed') as Href} asChild>
@@ -275,14 +287,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700'
   },
-  divider: {
-    color: mobileColorTokens.muted,
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    textAlign: 'center',
-    textTransform: 'uppercase'
-  },
   body: {
     color: mobileColorTokens.muted,
     fontSize: 14,
@@ -295,7 +299,3 @@ const styles = StyleSheet.create({
     color: '#8de2b0'
   }
 });
-
-function formatProviderLabel(provider: 'apple' | 'google') {
-  return provider === 'apple' ? 'Apple' : 'Google';
-}

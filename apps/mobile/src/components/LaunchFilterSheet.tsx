@@ -50,7 +50,6 @@ type LaunchFilterSheetProps = {
   onSavePreset: (name: string) => Promise<void>;
   onSetDefaultPreset: () => Promise<void>;
   onOpenUpgrade: () => void;
-  onOpenSignIn: () => void;
 };
 
 const RANGE_LABELS: Record<NonNullable<LaunchFilterValue['range']>, string> = {
@@ -93,8 +92,7 @@ export function LaunchFilterSheet({
   onApplyPreset,
   onSavePreset,
   onSetDefaultPreset,
-  onOpenUpgrade,
-  onOpenSignIn
+  onOpenUpgrade
 }: LaunchFilterSheetProps) {
   const insets = useSafeAreaInsets();
   const { theme } = useMobileBootstrap();
@@ -262,13 +260,13 @@ export function LaunchFilterSheet({
           ) : !canUseLaunchFilters ? (
             <View style={{ gap: 16, paddingHorizontal: 20, paddingTop: 8, paddingBottom: insets.bottom + 24 }}>
               <ViewerTierCard
-                tier={isAuthed ? 'free' : 'anon'}
+                tier="anon"
+                isAuthed={isAuthed}
                 featureKey="launch_filters"
                 showBadge={isAuthed}
                 onPress={() => {
                   onClose();
-                  if (isAuthed) onOpenUpgrade();
-                  else onOpenSignIn();
+                  onOpenUpgrade();
                 }}
                 testID="launch-filters-tier-card"
               />
@@ -376,13 +374,13 @@ export function LaunchFilterSheet({
                   </>
                 ) : (
                   <ViewerTierCard
-                    tier={isAuthed ? 'free' : 'anon'}
+                    tier="anon"
+                    isAuthed={isAuthed}
                     featureKey="saved_items"
                     showBadge={isAuthed}
                     onPress={() => {
                       onClose();
-                      if (isAuthed) onOpenUpgrade();
-                      else onOpenSignIn();
+                      onOpenUpgrade();
                     }}
                   />
                 )}
