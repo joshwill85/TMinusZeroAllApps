@@ -1,0 +1,24 @@
+{
+  "name": "@tminuszero/launch-detail-ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tabs": "./src/tabs/index.ts",
+    "./hero": "./src/hero/index.ts",
+    "./sections/overview": "./src/sections/overview/index.ts",
+    "./sections/live": "./src/sections/live/index.ts",
+    "./sections/mission": "./src/sections/mission/index.ts",
+    "./sections/vehicle": "./src/sections/vehicle/index.ts",
+    "./sections/related": "./src/sections/related/index.ts",
+    "./primitives": "./src/primitives/index.ts"
+  },
+  "dependencies": {
+    "@tminuszero/contracts": "*",
+    "@tminuszero/design-tokens": "*"
+  },
+  "peerDependencies": {
+    "react": "^18.2.0"
+  }
+}
