@@ -100,20 +100,20 @@ export function SpaceXUsaspendingAwardsPanel({
                     </span>
                     {sourceUrl ? (
                       <a href={sourceUrl} target="_blank" rel="noreferrer" className="text-primary hover:text-primary/80">
-                        Source
+                        Source record
                       </a>
                     ) : null}
                     {storyPresentation?.state === 'exact' ? (
                       <span className="rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-success">
-                        Exact story
+                        In-house page
                       </span>
                     ) : storyPresentation?.state === 'lead' ? (
                       <span className="rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-warning">
-                        Related leads {storyPresentation.leadCount}
+                        Unmatched records {storyPresentation.leadCount}
                       </span>
                     ) : (
                       <span className="rounded-full border border-stroke px-2 py-0.5">
-                        Story pending
+                        Page pending
                       </span>
                     )}
                   </div>
@@ -164,12 +164,12 @@ export function SpaceXUsaspendingAwardsPanel({
                             ) : null}
                             {storyDetail.links.canonicalPath ? (
                               <a href={storyDetail.links.canonicalPath} className="text-primary hover:text-primary/80">
-                                Full story
+                                Open in-house page
                               </a>
                             ) : null}
                             {storyDetail.links.artemisStoryHref ? (
                               <a href={storyDetail.links.artemisStoryHref} className="text-primary hover:text-primary/80">
-                                Contract page
+                                Open contract page
                               </a>
                             ) : null}
                           </div>
@@ -178,11 +178,11 @@ export function SpaceXUsaspendingAwardsPanel({
                     </div>
                   ) : storyPresentation?.state === 'lead' ? (
                     <p className="mt-2 text-[11px] text-text3">
-                      {storyPresentation.leadCount} related SAM record{storyPresentation.leadCount === 1 ? '' : 's'} are being tracked separately until an exact story join lands.
+                      {storyPresentation.leadCount} related SAM record{storyPresentation.leadCount === 1 ? '' : 's'} are still waiting for a confident match to an in-house page.
                     </p>
                   ) : (
                     <p className="mt-2 text-[11px] text-text3">
-                      No exact contract story is attached yet.
+                      No in-house contract page is attached yet.
                     </p>
                   )}
                 </li>

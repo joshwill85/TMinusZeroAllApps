@@ -2,6 +2,7 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createSupabaseAdminClient } from '../_shared/supabase.ts';
 import { requireJobAuth } from '../_shared/jobAuth.ts';
 import { getSettings, readBooleanSetting, readNumberSetting } from '../_shared/settings.ts';
+import { upsertSatelliteIdentitiesIfChangedInChunks } from '../_shared/celestrakDb.ts';
 import {
   buildUrl,
   CELESTRAK_SUPGP_ENDPOINT,
@@ -168,7 +169,7 @@ async function ingestSupgpDataset({
   const satelliteRows = [...satellites.values()];
   const orbitRows = [...orbitElements.values()];
 
-  await upsertInChunks(supabase, 'satellites', satelliteRows, { onConflict: 'norad_cat_id', ignoreDuplicates: false });
+  await upsertSatelliteIdentitiesIfChangedInChunks(supabase, satelliteRows, DEFAULTS.upsertChunkSize);
   await upsertInChunks(supabase, 'orbit_elements', orbitRows, {
     onConflict: 'norad_cat_id,source,epoch',
     ignoreDuplicates: true

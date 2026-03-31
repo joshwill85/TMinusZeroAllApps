@@ -36,6 +36,13 @@ describe('mobile core shell', () => {
     await expect(element(by.id('search-screen'))).toBeVisible();
   });
 
+  it('opens the calendar tab and loads the anon calendar sections', async () => {
+    await element(by.id('tab-calendar')).tap();
+    await expect(element(by.id('calendar-screen'))).toBeVisible();
+    await waitFor(element(by.id('calendar-month-summary'))).toBeVisible().withTimeout(30000);
+    await waitFor(element(by.id('calendar-selected-day'))).toBeVisible().withTimeout(30000);
+  });
+
   it('opens launch detail via deep link routing', async () => {
     await device.launchApp({
       newInstance: true,

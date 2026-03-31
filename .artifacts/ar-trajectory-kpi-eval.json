@@ -1,11 +1,11 @@
 {
-  "generatedAt": "2026-03-05T21:07:26.726Z",
+  "generatedAt": "2026-03-26T19:51:30.601Z",
   "policyVersion": "ar_trajectory_kpi_policy_v1",
   "policyPath": "docs/specs/ar-trajectory-kpi-policy-v1.json",
   "exceptionsPath": "docs/specs/ar-trajectory-kpi-exceptions-v1.json",
   "currentReplayReportPath": ".artifacts/ar-trajectory-replay-bench.json",
   "baselineReplayReportPath": "scripts/fixtures/ar-trajectory-replay-baseline-v1.json",
-  "pass": true,
+  "pass": false,
   "checks": [
     {
       "id": "exceptions.policy_version_match",
@@ -120,10 +120,102 @@
       "threshold": "<= 0"
     },
     {
-      "id": "telemetry.window",
-      "label": "Telemetry checks",
-      "status": "skip",
-      "details": "Skipped by --skip-db."
+      "id": "telemetry.min_sampled_sessions",
+      "label": "Telemetry sampled sessions",
+      "status": "fail",
+      "value": 4,
+      "threshold": ">= 40"
+    },
+    {
+      "id": "telemetry.lock_attempt_rate",
+      "label": "Telemetry lock attempt rate",
+      "status": "fail",
+      "value": 0,
+      "threshold": ">= 0.75"
+    },
+    {
+      "id": "telemetry.lock_acquisition_rate",
+      "label": "Telemetry lock acquisition rate",
+      "status": "fail",
+      "value": null,
+      "threshold": ">= 0.65"
+    },
+    {
+      "id": "telemetry.lock_le5_rate",
+      "label": "Telemetry lock <=5s rate",
+      "status": "fail",
+      "value": null,
+      "threshold": ">= 0.6"
+    },
+    {
+      "id": "telemetry.lock_auto_mode_share",
+      "label": "Telemetry auto lock-on share",
+      "status": "pass",
+      "value": 1,
+      "threshold": ">= 0.95"
+    },
+    {
+      "id": "telemetry.lock_avg_loss_count",
+      "label": "Telemetry avg lock loss count",
+      "status": "fail",
+      "value": null,
+      "threshold": "<= 2"
+    },
+    {
+      "id": "telemetry.lock_stability_rate",
+      "label": "Telemetry lock stability rate",
+      "status": "fail",
+      "value": null,
+      "threshold": ">= 0.7"
+    },
+    {
+      "id": "telemetry.fallback_rate",
+      "label": "Telemetry fallback rate",
+      "status": "fail",
+      "value": 1,
+      "threshold": "<= 0.25"
+    },
+    {
+      "id": "telemetry.frame_budget_low_drop_rate",
+      "label": "Telemetry low-drop frame rate",
+      "status": "pass",
+      "value": 1,
+      "threshold": ">= 0.75"
+    },
+    {
+      "id": "telemetry.frame_budget_high_drop_rate",
+      "label": "Telemetry high-drop frame rate",
+      "status": "pass",
+      "value": 0,
+      "threshold": "<= 0.1"
+    },
+    {
+      "id": "telemetry.frame_budget_healthy_pose_rate",
+      "label": "Telemetry healthy pose update rate",
+      "status": "pass",
+      "value": 1,
+      "threshold": ">= 0.8"
+    },
+    {
+      "id": "telemetry.precision_trajectory_coverage_rate",
+      "label": "Telemetry trajectory coverage rate",
+      "status": "pass",
+      "value": 1,
+      "threshold": ">= 0.7"
+    },
+    {
+      "id": "telemetry.precision_sigma_good_rate",
+      "label": "Telemetry sigma<=1.0 good rate",
+      "status": "fail",
+      "value": 0,
+      "threshold": ">= 0.55"
+    },
+    {
+      "id": "telemetry.precision_contract_tier_ab_rate",
+      "label": "Telemetry contract tier A/B rate",
+      "status": "pass",
+      "value": 1,
+      "threshold": ">= 0.6"
     }
   ],
   "exceptionsApplied": [],
@@ -136,7 +228,25 @@
     "worstCaseP95Deg": 3.9676204290576598,
     "worstCaseAbsDriftDeg": 3.2705228389720684
   },
-  "telemetry": null,
+  "telemetry": {
+    "windowStart": "2026-03-12T19:51:30.118Z",
+    "sampledSessions": 4,
+    "sampleLimit": 5000,
+    "truncated": false,
+    "lockAttemptRate": 0,
+    "lockAcquisitionRate": null,
+    "lockLe5Rate": null,
+    "autoModeShare": 1,
+    "avgLockLossCount": null,
+    "lockStabilityRate": null,
+    "fallbackRate": 1,
+    "lowDropRate": 1,
+    "highDropRate": 0,
+    "healthyPoseRate": 1,
+    "trajectoryCoverageRate": 1,
+    "sigmaGoodRate": 0,
+    "contractTierABRate": 1
+  },
   "comparative": {
     "baselineReportPath": "scripts/fixtures/ar-trajectory-replay-baseline-v1.json",
     "currentReportPath": ".artifacts/ar-trajectory-replay-bench.json",

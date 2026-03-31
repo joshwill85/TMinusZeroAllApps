@@ -1,6 +1,9 @@
 import { createApiClient } from '@tminuszero/api-client';
 import { z } from 'zod';
 import {
+  adminAccessOverrideSchemaV1,
+  adminAccessOverrideUpdateSchemaV1,
+  basicFollowsSchemaV1,
   accountExportSchemaV1,
   alertRuleCreateSchemaV1,
   alertRuleEnvelopeSchemaV1,
@@ -35,9 +38,6 @@ import {
   pushDeviceRegistrationSchemaV1,
   pushDeviceRemovalSchemaV1,
   searchResponseSchemaV1,
-  smsVerificationCheckSchemaV1,
-  smsVerificationRequestSchemaV1,
-  smsVerificationStatusSchemaV1,
   successResponseSchemaV1,
   viewerSessionSchemaV1,
   rssFeedCreateSchemaV1,
@@ -63,23 +63,12 @@ import { buildStatusFilterOrClause, parseLaunchStatusFilter } from '@/lib/server
 import { fetchLaunchDetailEnrichment } from '@/lib/server/launchDetailEnrichment';
 import { loadMobileHubRollout } from '@/lib/server/mobileHubRollout';
 import {
-  hasLaunchDayEmailPreferenceInput,
   normalizeLaunchFilterValue,
   parseSiteSearchInput,
   parseSiteSearchTypesParam,
   type SearchResultType
 } from '@tminuszero/domain';
-import { loadSmsSystemEnabled } from '@/lib/server/smsSystem';
-import { parseUsPhone } from '@/lib/notifications/phone';
-import { buildSmsOptInConfirmationMessage } from '@/lib/notifications/smsProgram';
-import {
-  checkSmsVerification,
-  isTwilioSmsConfigured,
-  isTwilioVerifyConfigured,
-  sendSmsMessage,
-  startSmsVerification as startTwilioSmsVerification
-} from '@/lib/notifications/twilio';
-import { logSmsConsentEvent } from '@/lib/server/smsConsentEvents';
+import { NATIVE_MOBILE_PUSH_ONLY_ERROR } from '@/lib/notifications/pushOnly';
 import {
   createSupabaseAccessTokenClient,
   createSupabaseAdminClient,
@@ -88,6 +77,17 @@ import {
 } from '@/lib/server/supabaseServer';
 import { mapLiveLaunchRow, mapPublicCacheRow } from '@/lib/server/transformers';
 import { parseLaunchRegion, US_PAD_COUNTRY_CODES } from '@/lib/server/us';
+import {
+  buildRuleLabel,
+  clearUnifiedFollowIntent,
+  deactivatePushDestinations,
+  deleteUnifiedRuleByScope,
+  normalizeWatchScope,
+  removeChannelsFromUnifiedRule,
+  upsertUnifiedPushDestination,
+  upsertUnifiedRule,
+  type NotificationRuleScope
+} from '@/lib/server/notificationsV3';
 import type { ResolvedViewerSession } from '@/lib/server/viewerSession';
 import { isArtemisLaunch } from '@/lib/utils/launchArtemis';
 import { parseIsoDurationToMs } from '@/lib/utils/launchMilestones';
@@ -340,11 +340,28 @@ type AlertRuleRow = {
   } | null;
 };
 
+type BasicLaunchRow = {
+  id?: string | null;
+  name?: string | null;
+  net?: string | null;
+  hidden?: boolean | null;
+};
+
+type BasicLaunchFollowSummary = {
+  launchId: string;
+  launchName: string;
+  net: string | null;
+};
+
+function isMissingAdminAccessOverrideRelationCode(code: string | null | undefined) {
+  return code === '42P01' || code === 'PGRST205';
+}
+
 const SAVED_INTEGRATION_LIMIT = 10;
 
 const DEFAULT_NOTIFICATION_PREFERENCES = {
   pushEnabled: false,
-  emailEnabled: true,
+  emailEnabled: false,
   smsEnabled: false,
   launchDayEmailEnabled: false,
   launchDayEmailProviders: [] as string[],
@@ -354,7 +371,7 @@ const DEFAULT_NOTIFICATION_PREFERENCES = {
   quietEndLocal: null,
   smsVerified: false,
   smsPhone: null,
-  smsSystemEnabled: null
+  smsSystemEnabled: false
 };
 
 const DEFAULT_LAUNCH_NOTIFICATION_PREFERENCE = {
@@ -371,20 +388,45 @@ const DEFAULT_LAUNCH_NOTIFICATION_PREFERENCE = {
   }
 };
 
+function retiredNotificationPreferencesPayload() {
+  return notificationPreferencesSchemaV1.parse({
+    ...DEFAULT_NOTIFICATION_PREFERENCES
+  });
+}
+
+function retiredLaunchNotificationPreferencePayload(launchId: string, channel: 'sms' | 'push') {
+  return launchNotificationPreferenceEnvelopeSchemaV1.parse({
+    ...DEFAULT_LAUNCH_NOTIFICATION_PREFERENCE,
+    preference: {
+      ...DEFAULT_LAUNCH_NOTIFICATION_PREFERENCE.preference,
+      launchId,
+      channel
+    },
+    ...(channel === 'push'
+      ? {
+          pushStatus: {
+            enabled: false,
+            subscribed: false
+          }
+        }
+      : {
+          smsStatus: {
+            enabled: false,
+            verified: false,
+            systemEnabled: false
+          }
+        })
+  });
+}
+
+function throwRetiredLegacyNotifications() {
+  throw new MobileApiRouteError(410, NATIVE_MOBILE_PUSH_ONLY_ERROR);
+}
+
 const pushDeviceRemovalInputSchema = pushDeviceRemovalSchemaV1.pick({
   platform: true,
   installationId: true
 });
-
-const tMinusMinutesSchema = z.array(z.number().int()).max(2).transform((values) =>
-  Array.from(new Set(values)).sort((left, right) => left - right)
-);
-
-const localTimeSchema = z
-  .string()
-  .trim()
-  .regex(/^(\d{2}):(\d{2})(?::\d{2})?$/)
-  .transform((value) => value.slice(0, 5));
 
 const deleteAccountSchema = z.object({
   confirm: z.string().min(1)
@@ -458,6 +500,9 @@ function normalizeAlertRuleStateValue(value: string) {
 function formatFollowAlertLabel(ruleType: z.infer<typeof watchlistRuleTypeSchemaV1>, ruleValue: string) {
   if (ruleType === 'provider') return `Followed provider: ${ruleValue}`;
   if (ruleType === 'pad') return `Followed pad: ${ruleValue}`;
+  if (ruleType === 'rocket') return `Followed rocket: ${ruleValue}`;
+  if (ruleType === 'launch_site') return `Followed launch site: ${ruleValue}`;
+  if (ruleType === 'state') return `State launches: ${ruleValue}`;
   if (ruleType === 'tier') return `Followed tier: ${ruleValue}`;
   return `Followed launch: ${ruleValue}`;
 }
@@ -540,7 +585,7 @@ function mapCalendarFeedPayload(data: any) {
 type CalendarFeedSourceInput = {
   sourceKind?: 'all_launches' | 'preset' | 'follow';
   presetId?: string | null;
-  followRuleType?: 'launch' | 'pad' | 'provider' | 'tier' | null;
+  followRuleType?: z.infer<typeof watchlistRuleTypeSchemaV1> | null;
   followRuleValue?: string | null;
   filters?: Record<string, unknown>;
 };
@@ -548,7 +593,7 @@ type CalendarFeedSourceInput = {
 type CalendarFeedSourceRow = {
   source_kind?: string | null;
   source_preset_id?: string | null;
-  source_follow_rule_type?: 'launch' | 'pad' | 'provider' | 'tier' | null;
+  source_follow_rule_type?: z.infer<typeof watchlistRuleTypeSchemaV1> | null;
   source_follow_rule_value?: string | null;
   filters?: Record<string, unknown> | null;
 };
@@ -647,52 +692,6 @@ function mapEmbedWidgetPayload(data: any) {
   });
 }
 
-function buildManagedEventTypes(mode: 't_minus' | 'local_time', tMinusMinutes: number[], localTimes: string[]) {
-  if (mode === 't_minus') {
-    return tMinusMinutes.map((value) => `t_minus_${value}`);
-  }
-  return localTimes.map((value) => `local_time_${value.replace(':', '')}`);
-}
-
-function isManagedEventType(eventType: string) {
-  return eventType.startsWith('t_minus_') || eventType.startsWith('local_time_');
-}
-
-async function deleteManagedQueuedOutbox(
-  admin: ReturnType<typeof createSupabaseAdminClient>,
-  userId: string,
-  launchId: string,
-  channel: string,
-  desiredEventTypes: Set<string>
-) {
-  const nowIso = new Date().toISOString();
-  const { data, error } = await admin
-    .from('notifications_outbox')
-    .select('id, event_type')
-    .eq('user_id', userId)
-    .eq('launch_id', launchId)
-    .eq('channel', channel)
-    .eq('status', 'queued')
-    .gt('scheduled_for', nowIso);
-
-  if (error) {
-    console.warn('outbox lookup warning', error.message);
-    return;
-  }
-
-  const idsToDelete = (data || [])
-    .filter((row: any) => isManagedEventType(String(row.event_type || '')) && !desiredEventTypes.has(String(row.event_type || '')))
-    .map((row: any) => row.id)
-    .filter((id: any) => id != null);
-
-  if (!idsToDelete.length) return;
-
-  const deleteRes = await admin.from('notifications_outbox').delete().in('id', idsToDelete as any);
-  if (deleteRes.error) {
-    console.warn('outbox cleanup warning', deleteRes.error.message);
-  }
-}
-
 function parseUuidOrThrow(value: string, code: string) {
   const normalized = String(value || '').trim();
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized)) {
@@ -702,48 +701,21 @@ function parseUuidOrThrow(value: string, code: string) {
 }
 
 function normalizeWatchlistRule(
-  ruleType: 'launch' | 'pad' | 'provider' | 'tier',
+  ruleType: 'launch' | 'pad' | 'provider' | 'rocket' | 'launch_site' | 'state' | 'tier',
   ruleValue: string
-): { rule_type: 'launch' | 'pad' | 'provider' | 'tier'; rule_value: string } | null {
-  const trimmed = String(ruleValue || '').trim();
-  if (!trimmed) return null;
-
-  if (ruleType === 'launch') {
-    try {
-      return {
-        rule_type: 'launch',
-        rule_value: parseUuidOrThrow(trimmed, 'invalid_rule_value').toLowerCase()
-      };
-    } catch {
-      return null;
-    }
+): { rule_type: 'launch' | 'pad' | 'provider' | 'rocket' | 'launch_site' | 'state' | 'tier'; rule_value: string } | null {
+  const scope = normalizeWatchScope(ruleType, ruleValue);
+  if (!scope) return null;
+  if (scope.scopeKind === 'launch') return { rule_type: 'launch', rule_value: scope.launchId };
+  if (scope.scopeKind === 'pad') return { rule_type: 'pad', rule_value: scope.padKey };
+  if (scope.scopeKind === 'provider') return { rule_type: 'provider', rule_value: scope.provider };
+  if (scope.scopeKind === 'rocket') {
+    return { rule_type: 'rocket', rule_value: scope.rocketId ? `ll2:${scope.rocketId}` : scope.rocketLabel ?? scope.scopeKey };
   }
-
-  if (ruleType === 'pad') {
-    const lower = trimmed.toLowerCase();
-    if (lower.startsWith('ll2:')) {
-      const rest = trimmed.slice(4).trim();
-      if (!/^\d{1,10}$/.test(rest)) return null;
-      return { rule_type: 'pad', rule_value: `ll2:${String(Number(rest))}` };
-    }
-    if (lower.startsWith('code:')) {
-      const rest = trimmed.slice(5).trim();
-      if (!rest) return null;
-      return { rule_type: 'pad', rule_value: `code:${rest}` };
-    }
-    if (/^\d{1,10}$/.test(trimmed)) {
-      return { rule_type: 'pad', rule_value: `ll2:${String(Number(trimmed))}` };
-    }
-    return { rule_type: 'pad', rule_value: `code:${trimmed}` };
-  }
-
-  if (ruleType === 'tier') {
-    const normalized = trimmed.toLowerCase();
-    if (!['major', 'notable', 'routine'].includes(normalized)) return null;
-    return { rule_type: 'tier', rule_value: normalized };
-  }
-
-  return { rule_type: 'provider', rule_value: trimmed };
+  if (scope.scopeKind === 'launch_site') return { rule_type: 'launch_site', rule_value: scope.launchSite };
+  if (scope.scopeKind === 'state') return { rule_type: 'state', rule_value: scope.state };
+  if (scope.scopeKind === 'tier') return { rule_type: 'tier', rule_value: scope.tier };
+  return null;
 }
 
 function mapNotificationPreferencesPayload(data: any) {
@@ -2726,7 +2698,7 @@ async function requirePremiumNotificationAccess(session: ResolvedViewerSession) 
   if (!entitlement.isAuthed || !session.userId) {
     throw new MobileApiRouteError(401, 'unauthorized');
   }
-  if (!entitlement.isAdmin && !entitlement.isPaid) {
+  if (entitlement.tier !== 'premium') {
     throw new MobileApiRouteError(402, 'subscription_required');
   }
   return entitlement;
@@ -2772,42 +2744,25 @@ async function requirePremiumIntegrationsAccess(session: ResolvedViewerSession) 
   if (!entitlement.isAuthed || !session.userId) {
     throw new MobileApiRouteError(401, 'unauthorized');
   }
-  if (!entitlement.isPaid && !entitlement.isAdmin) {
+  if (entitlement.tier !== 'premium') {
     throw new MobileApiRouteError(402, 'payment_required');
   }
   return entitlement;
-}
-
-async function loadPushDestinationStatus(client: PrivilegedClient, userId: string) {
-  const [mobileRes, webRes] = await Promise.all([
-    client
-      .from('notification_push_devices')
-      .select('id, platform')
-      .eq('user_id', userId)
-      .eq('is_active', true)
-      .in('platform', ['ios', 'android']),
-    client.from('push_subscriptions').select('id').eq('user_id', userId).limit(1)
-  ]);
-
-  if (mobileRes.error) {
-    throw mobileRes.error;
-  }
-  if (webRes.error) {
-    throw webRes.error;
-  }
-
-  return {
-    hasMobile: Array.isArray(mobileRes.data) && mobileRes.data.length > 0,
-    hasWeb: Array.isArray(webRes.data) && webRes.data.length > 0
-  };
 }
 
 function assertAlertRuleCreationAccess(
   entitlement: Awaited<ReturnType<typeof requireAuthedEntitlement>>,
   kind: z.infer<typeof alertRuleCreateSchemaV1>['kind']
 ) {
-  if (kind === 'region_us' || kind === 'state') {
-    if (!entitlement.capabilities.canUseBasicAlertRules) {
+  if (kind === 'region_us') {
+    if (!entitlement.capabilities.canUseAllUsLaunchAlerts) {
+      throw new MobileApiRouteError(402, 'payment_required');
+    }
+    return;
+  }
+
+  if (kind === 'state') {
+    if (!entitlement.capabilities.canUseStateLaunchAlerts) {
       throw new MobileApiRouteError(402, 'payment_required');
     }
     return;
@@ -2816,6 +2771,112 @@ function assertAlertRuleCreationAccess(
   if (!entitlement.capabilities.canUseAdvancedAlertRules) {
     throw new MobileApiRouteError(402, 'payment_required');
   }
+}
+
+async function pruneBasicLaunchNotificationPreferences(
+  client: PrivilegedClient,
+  userId: string,
+  options: {
+    preferredLaunchId?: string | null;
+    nowMs?: number;
+  } = {}
+): Promise<{ activeLaunchFollow: BasicLaunchFollowSummary | null }> {
+  const { data: prefRows, error: prefError } = await client
+    .from('launch_notification_preferences')
+    .select('launch_id')
+    .eq('user_id', userId)
+    .eq('channel', 'push');
+
+  if (prefError) {
+    throw prefError;
+  }
+
+  const launchIds = Array.from(
+    new Set((prefRows ?? []).map((row: any) => String(row?.launch_id || '').trim()).filter(Boolean))
+  );
+  if (!launchIds.length) {
+    return { activeLaunchFollow: null };
+  }
+
+  const { data: launches, error: launchesError } = await client
+    .from('launches')
+    .select('id, name, net, hidden')
+    .in('id', launchIds);
+
+  if (launchesError) {
+    throw launchesError;
+  }
+
+  const nowMs = options.nowMs ?? Date.now();
+  const preferredLaunchId = String(options.preferredLaunchId || '').trim().toLowerCase() || null;
+  const launchById = new Map<string, BasicLaunchRow>();
+  ((launches ?? []) as BasicLaunchRow[]).forEach((row) => {
+    const launchId = String(row.id || '').trim().toLowerCase();
+    if (!launchId) return;
+    launchById.set(launchId, row);
+  });
+
+  const futureLaunches = launchIds
+    .map((launchId) => {
+      const launch = launchById.get(launchId.toLowerCase());
+      const net = String(launch?.net || '').trim() || null;
+      const netMs = net ? Date.parse(net) : Number.NaN;
+      return {
+        launchId: launchId.toLowerCase(),
+        launchName: String(launch?.name || '').trim() || 'Launch alert',
+        net,
+        hidden: launch?.hidden === true,
+        netMs
+      };
+    })
+    .filter((row) => !row.hidden && Number.isFinite(row.netMs) && row.netMs > nowMs)
+    .sort((left, right) => left.netMs - right.netMs);
+
+  const activeLaunch =
+    (preferredLaunchId ? futureLaunches.find((row) => row.launchId === preferredLaunchId) : null) ?? futureLaunches[0] ?? null;
+
+  const retainedLaunchId = activeLaunch?.launchId ?? null;
+  const launchIdsToDelete = launchIds.filter((launchId) => launchId.toLowerCase() !== retainedLaunchId);
+
+  if (launchIdsToDelete.length) {
+    const { error: deleteError } = await client
+      .from('launch_notification_preferences')
+      .delete()
+      .eq('user_id', userId)
+      .eq('channel', 'push')
+      .in('launch_id', launchIdsToDelete);
+
+    if (deleteError) {
+      throw deleteError;
+    }
+
+    await Promise.all(
+      launchIdsToDelete.map((launchId) =>
+        removeChannelsFromUnifiedRule(
+          client,
+          { ownerKind: 'user', userId },
+          {
+            scopeKind: 'launch',
+            scopeKey: launchId.toLowerCase(),
+            launchId: launchId.toLowerCase()
+          },
+          ['push']
+        )
+      )
+    );
+  }
+
+  if (!activeLaunch) {
+    return { activeLaunchFollow: null };
+  }
+
+  return {
+    activeLaunchFollow: {
+      launchId: activeLaunch.launchId,
+      launchName: activeLaunch.launchName,
+      net: activeLaunch.net
+    }
+  };
 }
 
 export async function recordAuthContextPayload(session: ResolvedViewerSession, request: Request) {
@@ -2990,9 +3051,12 @@ function buildViewerEntitlementEnvelope(entitlement: ViewerEntitlement) {
     status: entitlement.status,
     source: entitlement.source,
     isPaid: entitlement.isPaid,
+    billingIsPaid: entitlement.billingIsPaid,
     isAdmin: entitlement.isAdmin,
     isAuthed: entitlement.isAuthed,
     mode: entitlement.mode,
+    effectiveTierSource: entitlement.effectiveTierSource,
+    adminAccessOverride: entitlement.adminAccessOverride,
     refreshIntervalSeconds: entitlement.refreshIntervalSeconds,
     capabilities: entitlement.capabilities,
     limits: entitlement.limits,
@@ -3001,6 +3065,140 @@ function buildViewerEntitlementEnvelope(entitlement: ViewerEntitlement) {
     stripePriceId: entitlement.stripePriceId,
     reconciled: entitlement.reconciled,
     reconcileThrottled: entitlement.reconcileThrottled
+  });
+}
+
+function buildAdminAccessOverrideEnvelope({
+  entitlement,
+  adminAccessOverride,
+  updatedAt
+}: {
+  entitlement: ViewerEntitlement;
+  adminAccessOverride: 'anon' | 'premium' | null;
+  updatedAt: string | null;
+}) {
+  return adminAccessOverrideSchemaV1.parse({
+    adminAccessOverride,
+    effectiveTier: entitlement.tier,
+    effectiveTierSource: entitlement.effectiveTierSource,
+    isAdmin: entitlement.isAdmin,
+    billingIsPaid: entitlement.billingIsPaid,
+    updatedAt
+  });
+}
+
+async function requireAdminSelfServiceSession(session: ResolvedViewerSession) {
+  if (!session.userId) {
+    throw new MobileApiRouteError(401, 'unauthorized');
+  }
+
+  const { entitlement } = await getViewerEntitlement({ session, reconcileStripe: false });
+  if (!entitlement.isAdmin) {
+    throw new MobileApiRouteError(403, 'forbidden');
+  }
+
+  if (!isSupabaseAdminConfigured()) {
+    throw new MobileApiRouteError(503, 'supabase_admin_not_configured');
+  }
+
+  return {
+    entitlement,
+    admin: createSupabaseAdminClient()
+  };
+}
+
+async function loadAdminAccessOverrideState(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  userId: string
+): Promise<{ adminAccessOverride: 'anon' | 'premium' | null; updatedAt: string | null }> {
+  const { data, error } = await admin
+    .from('admin_access_overrides')
+    .select('effective_tier_override, updated_at')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (error) {
+    const code = typeof error.code === 'string' ? error.code : '';
+    if (code === 'PGRST116' || isMissingAdminAccessOverrideRelationCode(code)) {
+      return { adminAccessOverride: null, updatedAt: null };
+    }
+    throw error;
+  }
+
+  const override = String(data?.effective_tier_override || '').trim().toLowerCase();
+  return {
+    adminAccessOverride: override === 'anon' || override === 'premium' ? (override as 'anon' | 'premium') : null,
+    updatedAt: normalizeText(data?.updated_at)
+  };
+}
+
+export async function loadAdminAccessOverridePayload(session: ResolvedViewerSession) {
+  const { entitlement, admin } = await requireAdminSelfServiceSession(session);
+  const state = await loadAdminAccessOverrideState(admin, session.userId as string);
+  return buildAdminAccessOverrideEnvelope({
+    entitlement,
+    adminAccessOverride: state.adminAccessOverride,
+    updatedAt: state.updatedAt
+  });
+}
+
+export async function updateAdminAccessOverridePayload(session: ResolvedViewerSession, request: Request) {
+  const { admin } = await requireAdminSelfServiceSession(session);
+  const userId = session.userId as string;
+  const parsedBody = adminAccessOverrideUpdateSchemaV1.parse(await request.json().catch(() => undefined));
+  const nextOverride = parsedBody.adminAccessOverride;
+  const previous = await loadAdminAccessOverrideState(admin, userId);
+  const now = new Date().toISOString();
+
+  if (previous.adminAccessOverride !== nextOverride) {
+    if (nextOverride) {
+      const { error } = await admin.from('admin_access_overrides').upsert({
+        user_id: userId,
+        effective_tier_override: nextOverride,
+        updated_at: now,
+        updated_by: userId
+      });
+      if (error) {
+        const code = typeof error.code === 'string' ? error.code : '';
+        if (isMissingAdminAccessOverrideRelationCode(code)) {
+          throw new MobileApiRouteError(503, 'admin_access_override_not_configured');
+        }
+        throw error;
+      }
+    } else {
+      const { error } = await admin.from('admin_access_overrides').delete().eq('user_id', userId);
+      if (error) {
+        const code = typeof error.code === 'string' ? error.code : '';
+        if (isMissingAdminAccessOverrideRelationCode(code)) {
+          throw new MobileApiRouteError(503, 'admin_access_override_not_configured');
+        }
+        throw error;
+      }
+    }
+
+    const { error: eventError } = await admin.from('admin_access_override_events').insert({
+      user_id: userId,
+      updated_by: userId,
+      previous_override: previous.adminAccessOverride,
+      next_override: nextOverride,
+      created_at: now
+    });
+    if (eventError) {
+      const code = typeof eventError.code === 'string' ? eventError.code : '';
+      if (isMissingAdminAccessOverrideRelationCode(code)) {
+        console.warn('admin access override audit table missing; continuing without event log');
+      } else {
+      console.error('admin access override event log error', eventError);
+      }
+    }
+  }
+
+  const { entitlement } = await getViewerEntitlement({ session, reconcileStripe: false });
+  const state = await loadAdminAccessOverrideState(admin, userId);
+  return buildAdminAccessOverrideEnvelope({
+    entitlement,
+    adminAccessOverride: state.adminAccessOverride,
+    updatedAt: state.updatedAt
   });
 }
 
@@ -3019,7 +3217,7 @@ export async function loadLaunchDetailPayload(id: string, session: ResolvedViewe
   }
 
   const { entitlement } = await getViewerEntitlement({ session, reconcileStripe: false });
-  const wantsLiveDetail = entitlement.isAuthed && (entitlement.isAdmin || entitlement.tier === 'premium');
+  const wantsLiveDetail = entitlement.isAuthed && entitlement.tier === 'premium';
   const liveClient = wantsLiveDetail ? getPrivilegedClient(session) : null;
   const useLiveDetail = Boolean(liveClient);
   let sourceQuery;
@@ -3721,6 +3919,18 @@ export async function createWatchlistRulePayload(session: ResolvedViewerSession,
   }
 
   if (existing) {
+    const scope = normalizeWatchScope(normalizedRule.rule_type as any, normalizedRule.rule_value);
+    if (scope) {
+      await upsertUnifiedRule(client, {
+        ownerKind: 'user',
+        userId: session.userId,
+        intent: 'follow',
+        visibleInFollowing: true,
+        enabled: true,
+        channels: [],
+        scope
+      });
+    }
     return watchlistRuleEnvelopeSchemaV1.parse({
       rule: mapWatchlistRulePayload(existing),
       source: 'existing'
@@ -3756,6 +3966,19 @@ export async function createWatchlistRulePayload(session: ResolvedViewerSession,
     throw error;
   }
 
+  const scope = normalizeWatchScope(normalizedRule.rule_type as any, normalizedRule.rule_value);
+  if (scope) {
+    await upsertUnifiedRule(client, {
+      ownerKind: 'user',
+      userId: session.userId,
+      intent: 'follow',
+      visibleInFollowing: true,
+      enabled: true,
+      channels: [],
+      scope
+    });
+  }
+
   return watchlistRuleEnvelopeSchemaV1.parse({
     rule: mapWatchlistRulePayload(data),
     source: 'created'
@@ -3780,7 +4003,7 @@ export async function deleteWatchlistRulePayload(session: ResolvedViewerSession,
     .delete()
     .eq('id', normalizedRuleId)
     .eq('watchlist_id', normalizedWatchlistId)
-    .select('id')
+    .select('id, rule_type, rule_value')
     .maybeSingle();
 
   if (error) {
@@ -3788,6 +4011,14 @@ export async function deleteWatchlistRulePayload(session: ResolvedViewerSession,
   }
   if (!data) {
     throw new MobileApiRouteError(404, 'not_found');
+  }
+
+  const normalized = normalizeWatchScope(
+    data.rule_type as z.infer<typeof watchlistRuleTypeSchemaV1>,
+    String(data.rule_value || '')
+  );
+  if (normalized) {
+    await clearUnifiedFollowIntent(client, { ownerKind: 'user', userId: session.userId }, normalized);
   }
 
   return successResponseSchemaV1.parse({ ok: true });
@@ -4052,6 +4283,40 @@ export async function loadAlertRulesPayload(session: ResolvedViewerSession) {
   });
 }
 
+export async function loadBasicFollowsPayload(session: ResolvedViewerSession) {
+  if (!session.userId) {
+    return null;
+  }
+
+  const client = getPrivilegedClient(session);
+  if (!client) {
+    return null;
+  }
+
+  const entitlement = await requireAuthedEntitlement(session);
+  const [launchSummary, allUsRuleRes] = await Promise.all([
+    entitlement.tier === 'premium'
+      ? Promise.resolve({ activeLaunchFollow: null as BasicLaunchFollowSummary | null })
+      : pruneBasicLaunchNotificationPreferences(client, session.userId),
+    client
+      .from('notification_alert_rules')
+      .select('id')
+      .eq('user_id', session.userId)
+      .eq('kind', 'region_us')
+      .limit(1)
+  ]);
+
+  if (allUsRuleRes.error) {
+    throw allUsRuleRes.error;
+  }
+
+  return basicFollowsSchemaV1.parse({
+    singleLaunchFollowLimit: entitlement.limits.singleLaunchFollowLimit,
+    activeLaunchFollow: launchSummary.activeLaunchFollow,
+    allUsEnabled: Array.isArray(allUsRuleRes.data) && allUsRuleRes.data.length > 0
+  });
+}
+
 export async function createAlertRulePayload(session: ResolvedViewerSession, request: Request) {
   if (!session.userId) {
     return null;
@@ -4065,6 +4330,23 @@ export async function createAlertRulePayload(session: ResolvedViewerSession, req
   const entitlement = await requireAuthedEntitlement(session);
   const parsedBody = alertRuleCreateSchemaV1.parse(await request.json().catch(() => undefined));
   assertAlertRuleCreationAccess(entitlement, parsedBody.kind);
+  const prefsRes = await client
+    .from('notification_preferences')
+    .select('notify_t_minus_60, notify_t_minus_10, notify_status_change, notify_net_change')
+    .eq('user_id', session.userId)
+    .maybeSingle();
+  if (prefsRes.error) {
+    throw prefsRes.error;
+  }
+  const unifiedSettings = {
+    timezone: 'UTC',
+    prelaunchOffsetsMinutes: [
+      ...(prefsRes.data?.notify_t_minus_60 !== false ? [60] : []),
+      ...(prefsRes.data?.notify_t_minus_10 !== false ? [10] : [])
+    ],
+    statusChangeTypes: prefsRes.data?.notify_status_change ? (['any'] as string[]) : [],
+    notifyNetChanges: prefsRes.data?.notify_net_change === true
+  };
 
   const now = new Date().toISOString();
   const payload: Record<string, unknown> = {
@@ -4126,6 +4408,29 @@ export async function createAlertRulePayload(session: ResolvedViewerSession, req
     throw error;
   }
 
+  let scope: NotificationRuleScope | null = null;
+  if (parsedBody.kind === 'region_us') {
+    scope = { scopeKind: 'all_us', scopeKey: 'us' };
+  } else if (parsedBody.kind === 'state') {
+    scope = normalizeWatchScope('state', payload.state as string);
+  } else if (parsedBody.kind === 'filter_preset') {
+    scope = { scopeKind: 'preset', scopeKey: parsedBody.presetId.toLowerCase(), presetId: parsedBody.presetId };
+  } else {
+    scope = normalizeWatchScope(payload.follow_rule_type as any, payload.follow_rule_value as string);
+  }
+  if (scope) {
+    await upsertUnifiedRule(client, {
+      ownerKind: 'user',
+      userId: session.userId,
+      intent: 'notifications_only',
+      visibleInFollowing: false,
+      enabled: true,
+      channels: ['push'],
+      scope,
+      settings: unifiedSettings
+    });
+  }
+
   return alertRuleEnvelopeSchemaV1.parse({
     rule: mapAlertRulePayload(data as AlertRuleRow),
     source: 'created'
@@ -4149,7 +4454,7 @@ export async function deleteAlertRulePayload(session: ResolvedViewerSession, rul
     .delete()
     .eq('id', normalizedRuleId)
     .eq('user_id', session.userId)
-    .select('id')
+    .select('id, kind, state, filter_preset_id, follow_rule_type, follow_rule_value')
     .maybeSingle();
 
   if (error) {
@@ -4157,6 +4462,20 @@ export async function deleteAlertRulePayload(session: ResolvedViewerSession, rul
   }
   if (!data) {
     throw new MobileApiRouteError(404, 'not_found');
+  }
+
+  let scope: NotificationRuleScope | null = null;
+  if (data.kind === 'region_us') {
+    scope = { scopeKind: 'all_us', scopeKey: 'us' };
+  } else if (data.kind === 'state') {
+    scope = normalizeWatchScope('state', String(data.state || ''));
+  } else if (data.kind === 'filter_preset' && data.filter_preset_id) {
+    scope = { scopeKind: 'preset', scopeKey: String(data.filter_preset_id).toLowerCase(), presetId: String(data.filter_preset_id) };
+  } else if (data.kind === 'follow' && data.follow_rule_type && data.follow_rule_value) {
+    scope = normalizeWatchScope(data.follow_rule_type as any, String(data.follow_rule_value));
+  }
+  if (scope) {
+    await removeChannelsFromUnifiedRule(client, { ownerKind: 'user', userId: session.userId }, scope, ['push']);
   }
 
   return successResponseSchemaV1.parse({ ok: true });
@@ -4779,330 +5098,15 @@ export async function loadNotificationPreferencesPayload(session: ResolvedViewer
   if (!session.userId) {
     return null;
   }
-
-  const client = getPrivilegedClient(session);
-  if (!client) {
-    return null;
-  }
-
-  const [prefsRes, smsSystemEnabled] = await Promise.all([
-    client
-      .from('notification_preferences')
-      .select(
-        'push_enabled, email_enabled, sms_enabled, launch_day_email_enabled, launch_day_email_providers, launch_day_email_states, quiet_hours_enabled, quiet_start_local, quiet_end_local, sms_verified, sms_phone_e164'
-      )
-      .eq('user_id', session.userId)
-      .maybeSingle(),
-    loadSmsSystemEnabled()
-  ]);
-
-  if (prefsRes.error) {
-    throw prefsRes.error;
-  }
-
-  return mapNotificationPreferencesPayload({
-    ...(prefsRes.data ?? DEFAULT_NOTIFICATION_PREFERENCES),
-    sms_system_enabled: smsSystemEnabled
-  });
+  return retiredNotificationPreferencesPayload();
 }
 
 export async function updateNotificationPreferencesPayload(session: ResolvedViewerSession, request: Request) {
   if (!session.userId) {
     return null;
   }
-
-  const client = getPrivilegedClient(session);
-  if (!client) {
-    return null;
-  }
-
-  const parsedBody = notificationPreferencesUpdateSchemaV1.parse(await request.json().catch(() => undefined));
-  if (session.authMode === 'bearer' && hasLaunchDayEmailPreferenceInput(parsedBody)) {
-    throw new MobileApiRouteError(400, 'unsupported_on_mobile');
-  }
-  const wantsSms = parsedBody.smsEnabled === true;
-  const wantsLaunchDayEmail = parsedBody.launchDayEmailEnabled === true;
-  const wantsPush = parsedBody.pushEnabled === true;
-  if (wantsSms || wantsLaunchDayEmail) {
-    if (!isSupabaseAdminConfigured()) {
-      throw new MobileApiRouteError(501, 'billing_not_configured');
-    }
-    await requirePremiumNotificationAccess(session);
-  }
-  if (wantsPush) {
-    const entitlement = await requireAuthedEntitlement(session);
-    if (!entitlement.capabilities.canUseBasicAlertRules) {
-      throw new MobileApiRouteError(402, 'payment_required');
-    }
-  }
-
-  const { data: existing, error: existingError } = await client
-    .from('notification_preferences')
-    .select('sms_verified, sms_phone_e164, sms_enabled, sms_opt_in_at, sms_opt_out_at')
-    .eq('user_id', session.userId)
-    .maybeSingle();
-  if (existingError) {
-    throw existingError;
-  }
-
-  const providedPhone = existing?.sms_phone_e164 ?? null;
-  if (parsedBody.smsEnabled === true && !providedPhone) {
-    throw new MobileApiRouteError(400, 'phone_required');
-  }
-  if (parsedBody.smsEnabled === true && !existing?.sms_verified) {
-    throw new MobileApiRouteError(409, 'sms_not_verified');
-  }
-
-  const prevSmsEnabled = existing?.sms_enabled === true;
-  const nextSmsEnabled = parsedBody.smsEnabled;
-  const updatedAt = new Date().toISOString();
-  const prevOptInAt = existing?.sms_opt_in_at ?? null;
-  const shouldStampOptIn = nextSmsEnabled === true && !prevSmsEnabled;
-  const shouldStampOptOut = nextSmsEnabled === false && prevSmsEnabled;
-  const shouldClearOptOut = nextSmsEnabled === true;
-
-  if (shouldStampOptIn) {
-    const smsSystemEnabled = await loadSmsSystemEnabled();
-    if (!smsSystemEnabled) {
-      throw new MobileApiRouteError(503, 'sms_system_disabled');
-    }
-  }
-
-  if (shouldStampOptIn && parsedBody.smsConsent !== true) {
-    throw new MobileApiRouteError(400, 'sms_consent_required');
-  }
-
-  const payload = {
-    user_id: session.userId,
-    ...(parsedBody.pushEnabled !== undefined ? { push_enabled: parsedBody.pushEnabled } : {}),
-    ...(parsedBody.emailEnabled !== undefined ? { email_enabled: parsedBody.emailEnabled } : {}),
-    ...(parsedBody.smsEnabled !== undefined ? { sms_enabled: parsedBody.smsEnabled } : {}),
-    ...(parsedBody.launchDayEmailEnabled !== undefined ? { launch_day_email_enabled: parsedBody.launchDayEmailEnabled } : {}),
-    ...(parsedBody.launchDayEmailProviders !== undefined
-      ? { launch_day_email_providers: normalizeStringList(parsedBody.launchDayEmailProviders, 80) }
-      : {}),
-    ...(parsedBody.launchDayEmailStates !== undefined
-      ? { launch_day_email_states: normalizeStringList(parsedBody.launchDayEmailStates, 80) }
-      : {}),
-    ...(parsedBody.quietHoursEnabled !== undefined ? { quiet_hours_enabled: parsedBody.quietHoursEnabled } : {}),
-    ...(parsedBody.quietStartLocal !== undefined ? { quiet_start_local: parsedBody.quietStartLocal } : {}),
-    ...(parsedBody.quietEndLocal !== undefined ? { quiet_end_local: parsedBody.quietEndLocal } : {}),
-    ...(shouldStampOptIn ? { sms_opt_in_at: updatedAt } : {}),
-    ...(shouldStampOptOut ? { sms_opt_out_at: updatedAt } : {}),
-    ...(shouldClearOptOut ? { sms_opt_out_at: null } : {}),
-    updated_at: updatedAt
-  };
-
-  const { data, error } = await client
-    .from('notification_preferences')
-    .upsert(payload, { onConflict: 'user_id' })
-    .select(
-      'push_enabled, email_enabled, sms_enabled, launch_day_email_enabled, launch_day_email_providers, launch_day_email_states, quiet_hours_enabled, quiet_start_local, quiet_end_local, sms_verified, sms_phone_e164'
-    )
-    .single();
-
-  if (error) {
-    throw error;
-  }
-
-  if (shouldStampOptIn && providedPhone) {
-    await logSmsConsentEvent(client, {
-      userId: session.userId,
-      phoneE164: providedPhone,
-      action: 'web_opt_in',
-      request,
-      source: 'v1_notification_preferences'
-    });
-
-    if (isTwilioSmsConfigured()) {
-      try {
-        await sendSmsMessage(providedPhone, buildSmsOptInConfirmationMessage());
-      } catch (error: any) {
-        const code = typeof error?.code === 'number' ? error.code : null;
-        const message = String(error?.message || '');
-        const isOptedOut =
-          code === 21610 || message.toLowerCase().includes('has replied with stop') || message.toLowerCase().includes('opted out');
-        if (isOptedOut) {
-          const rollbackAt = new Date().toISOString();
-          await client
-            .from('notification_preferences')
-            .update({
-              sms_enabled: false,
-              sms_opt_in_at: prevOptInAt,
-              sms_opt_out_at: rollbackAt,
-              updated_at: rollbackAt
-            })
-            .eq('user_id', session.userId);
-          await logSmsConsentEvent(client, {
-            userId: session.userId,
-            phoneE164: providedPhone,
-            action: 'twilio_opt_out_error',
-            request,
-            source: 'v1_notification_preferences',
-            meta: { code, message }
-          });
-          throw new MobileApiRouteError(409, 'sms_reply_start_required');
-        }
-        console.warn('sms opt-in confirmation send warning', error);
-      }
-    }
-  }
-
-  if (shouldStampOptOut && providedPhone) {
-    await logSmsConsentEvent(client, {
-      userId: session.userId,
-      phoneE164: providedPhone,
-      action: 'web_opt_out',
-      request,
-      source: 'v1_notification_preferences'
-    });
-  }
-
-  const smsSystemEnabled = await loadSmsSystemEnabled();
-  return mapNotificationPreferencesPayload({
-    ...data,
-    sms_system_enabled: smsSystemEnabled
-  });
-}
-
-export async function startSmsVerificationPayload(session: ResolvedViewerSession, request: Request) {
-  if (!session.userId) {
-    return null;
-  }
-
-  const client = getPrivilegedClient(session);
-  if (!client) {
-    return null;
-  }
-
-  const smsSystemEnabled = await loadSmsSystemEnabled();
-  if (!smsSystemEnabled) {
-    throw new MobileApiRouteError(503, 'sms_system_disabled');
-  }
-  if (!isTwilioVerifyConfigured()) {
-    throw new MobileApiRouteError(501, 'twilio_verify_not_configured');
-  }
-  if (!isSupabaseAdminConfigured()) {
-    throw new MobileApiRouteError(501, 'billing_not_configured');
-  }
-
-  await requirePremiumNotificationAccess(session);
-
-  const parsedBody = smsVerificationRequestSchemaV1.parse(await request.json().catch(() => undefined));
-  if (parsedBody.smsConsent !== true) {
-    throw new MobileApiRouteError(400, 'sms_consent_required');
-  }
-
-  const phone = parseUsPhone(parsedBody.phone)?.e164 ?? null;
-  if (!phone) {
-    throw new MobileApiRouteError(400, 'invalid_phone');
-  }
-
-  try {
-    await startTwilioSmsVerification(phone);
-  } catch (error) {
-    console.error('sms verify send error', error);
-    throw new MobileApiRouteError(500, 'sms_verification_failed');
-  }
-
-  const updatedAt = new Date().toISOString();
-  const { error } = await client.from('notification_preferences').upsert(
-    {
-      user_id: session.userId,
-      sms_phone_e164: phone,
-      sms_verified: false,
-      sms_enabled: false,
-      sms_opt_in_at: null,
-      updated_at: updatedAt
-    },
-    { onConflict: 'user_id' }
-  );
-  if (error) {
-    throw error;
-  }
-
-  await logSmsConsentEvent(client, {
-    userId: session.userId,
-    phoneE164: phone,
-    action: 'verify_requested',
-    request,
-    source: 'v1_sms_verify'
-  });
-
-  return smsVerificationStatusSchemaV1.parse({
-    status: 'sent'
-  });
-}
-
-export async function completeSmsVerificationPayload(session: ResolvedViewerSession, request: Request) {
-  if (!session.userId) {
-    return null;
-  }
-
-  const client = getPrivilegedClient(session);
-  if (!client) {
-    return null;
-  }
-
-  const smsSystemEnabled = await loadSmsSystemEnabled();
-  if (!smsSystemEnabled) {
-    throw new MobileApiRouteError(503, 'sms_system_disabled');
-  }
-  if (!isTwilioVerifyConfigured()) {
-    throw new MobileApiRouteError(501, 'twilio_verify_not_configured');
-  }
-  if (!isSupabaseAdminConfigured()) {
-    throw new MobileApiRouteError(501, 'billing_not_configured');
-  }
-
-  await requirePremiumNotificationAccess(session);
-
-  const parsedBody = smsVerificationCheckSchemaV1.parse(await request.json().catch(() => undefined));
-  const phone = parseUsPhone(parsedBody.phone)?.e164 ?? null;
-  if (!phone) {
-    throw new MobileApiRouteError(400, 'invalid_phone');
-  }
-
-  try {
-    const result = await checkSmsVerification(phone, parsedBody.code);
-    if (result.status !== 'approved') {
-      throw new MobileApiRouteError(400, 'invalid_code');
-    }
-  } catch (error) {
-    if (error instanceof MobileApiRouteError) {
-      throw error;
-    }
-    console.error('sms verify check error', error);
-    throw new MobileApiRouteError(500, 'sms_verification_failed');
-  }
-
-  const updatedAt = new Date().toISOString();
-  const { error } = await client.from('notification_preferences').upsert(
-    {
-      user_id: session.userId,
-      sms_phone_e164: phone,
-      sms_verified: true,
-      sms_enabled: false,
-      sms_opt_in_at: null,
-      updated_at: updatedAt
-    },
-    { onConflict: 'user_id' }
-  );
-  if (error) {
-    throw error;
-  }
-
-  await logSmsConsentEvent(client, {
-    userId: session.userId,
-    phoneE164: phone,
-    action: 'verify_approved',
-    request,
-    source: 'v1_sms_verify_check'
-  });
-
-  return smsVerificationStatusSchemaV1.parse({
-    status: 'verified'
-  });
+  notificationPreferencesUpdateSchemaV1.parse(await request.json().catch(() => undefined));
+  throwRetiredLegacyNotifications();
 }
 
 export async function deleteAccountPayload(session: ResolvedViewerSession, request: Request) {
@@ -5177,90 +5181,7 @@ export async function loadLaunchNotificationPreferencePayload(
     return null;
   }
 
-  const client = getPrivilegedClient(session);
-  if (!client) {
-    return null;
-  }
-
-  const baseQuery = client
-    .from('launch_notification_preferences')
-    .select('mode, timezone, t_minus_minutes, local_times, notify_status_change, notify_net_change')
-    .eq('user_id', session.userId)
-    .eq('launch_id', parsedLaunch.launchId)
-    .eq('channel', channel)
-    .maybeSingle();
-
-  if (channel === 'push') {
-    const [launchRes, pushPrefsRes, destinationStatus, entitlement] = await Promise.all([
-      baseQuery,
-      client.from('notification_preferences').select('push_enabled').eq('user_id', session.userId).maybeSingle(),
-      loadPushDestinationStatus(client, session.userId),
-      requireAuthedEntitlement(session)
-    ]);
-
-    if (launchRes.error) {
-      throw launchRes.error;
-    }
-    if (pushPrefsRes.error) {
-      throw pushPrefsRes.error;
-    }
-
-    return launchNotificationPreferenceEnvelopeSchemaV1.parse({
-      enabled: Boolean(launchRes.data),
-      preference: {
-        launchId: parsedLaunch.launchId,
-        channel,
-        mode: launchRes.data?.mode === 'local_time' ? 'local_time' : 't_minus',
-        timezone: String(launchRes.data?.timezone || 'UTC'),
-        tMinusMinutes: Array.isArray(launchRes.data?.t_minus_minutes) ? launchRes.data.t_minus_minutes : [],
-        localTimes: Array.isArray(launchRes.data?.local_times) ? launchRes.data.local_times : [],
-        notifyStatusChange: normalizeBoolean(launchRes.data?.notify_status_change),
-        notifyNetChange: normalizeBoolean(launchRes.data?.notify_net_change)
-      },
-      pushStatus: {
-        enabled: normalizeBoolean(pushPrefsRes.data?.push_enabled),
-        subscribed: entitlement.capabilities.canUseBrowserLaunchAlerts
-          ? destinationStatus.hasMobile || destinationStatus.hasWeb
-          : destinationStatus.hasMobile
-      }
-    });
-  }
-
-  const [launchRes, smsPrefsRes, smsSystemEnabled] = await Promise.all([
-    baseQuery,
-    client
-      .from('notification_preferences')
-      .select('sms_enabled, sms_verified')
-      .eq('user_id', session.userId)
-      .maybeSingle(),
-    loadSmsSystemEnabled()
-  ]);
-
-  if (launchRes.error) {
-    throw launchRes.error;
-  }
-  if (smsPrefsRes.error) {
-    throw smsPrefsRes.error;
-  }
-
-  return launchNotificationPreferenceEnvelopeSchemaV1.parse({
-    enabled: Boolean(launchRes.data),
-    preference: {
-      launchId: parsedLaunch.launchId,
-      channel,
-      mode: launchRes.data?.mode === 'local_time' ? 'local_time' : 't_minus',
-      timezone: String(launchRes.data?.timezone || 'UTC'),
-      tMinusMinutes: Array.isArray(launchRes.data?.t_minus_minutes) ? launchRes.data.t_minus_minutes : [],
-      localTimes: Array.isArray(launchRes.data?.local_times) ? launchRes.data.local_times : [],
-      notifyStatusChange: normalizeBoolean(launchRes.data?.notify_status_change),
-      notifyNetChange: normalizeBoolean(launchRes.data?.notify_net_change)
-    },
-    smsStatus: {
-      enabled: normalizeBoolean(smsPrefsRes.data?.sms_enabled),
-      verified: normalizeBoolean(smsPrefsRes.data?.sms_verified),
-      systemEnabled: smsSystemEnabled
-    }
-  });
+  return retiredLaunchNotificationPreferencePayload(parsedLaunch.launchId, channel);
 }
 
 export async function updateLaunchNotificationPreferencePayload(
@@ -5281,117 +5202,9 @@ export async function updateLaunchNotificationPreferencePayload(
   if (!parsedLaunch) {
     throw new MobileApiRouteError(400, 'invalid_launch_id');
   }
-
-  const parsedBody = launchNotificationPreferenceUpdateSchemaV1.parse(await request.json().catch(() => undefined));
-  const channel = parsedBody.channel ?? 'push';
-  const allowedTMinus = new Set([5, 10, 15, 20, 30, 45, 60, 120]);
-  const requestedTMinus = tMinusMinutesSchema.parse(parsedBody.tMinusMinutes ?? []);
-  if (requestedTMinus.some((value) => !allowedTMinus.has(value))) {
-    throw new MobileApiRouteError(400, 'invalid_t_minus');
-  }
-
-  const localTimes = Array.from(new Set((parsedBody.localTimes ?? []).map((value) => localTimeSchema.parse(value)))).sort().slice(0, 2);
-  const payload = {
-    user_id: session.userId,
-    launch_id: parsedLaunch.launchId,
-    channel,
-    mode: parsedBody.mode,
-    timezone: (parsedBody.timezone || 'UTC').trim() || 'UTC',
-    t_minus_minutes: parsedBody.mode === 't_minus' ? requestedTMinus : [],
-    local_times: parsedBody.mode === 'local_time' ? localTimes : [],
-    notify_status_change: normalizeBoolean(parsedBody.notifyStatusChange),
-    notify_net_change: normalizeBoolean(parsedBody.notifyNetChange),
-    updated_at: new Date().toISOString()
-  };
-
-  const allOff =
-    payload.t_minus_minutes.length === 0 &&
-    payload.local_times.length === 0 &&
-    !payload.notify_status_change &&
-    !payload.notify_net_change;
-  const desiredEventTypes = new Set<string>(buildManagedEventTypes(payload.mode, payload.t_minus_minutes, payload.local_times));
-
-  if (allOff) {
-    const { error } = await client
-      .from('launch_notification_preferences')
-      .delete()
-      .eq('user_id', session.userId)
-      .eq('launch_id', parsedLaunch.launchId)
-      .eq('channel', channel);
-
-    if (error) {
-      throw error;
-    }
-
-    if (isSupabaseAdminConfigured()) {
-      await deleteManagedQueuedOutbox(createSupabaseAdminClient(), session.userId, parsedLaunch.launchId, channel, desiredEventTypes);
-    }
-
-    return loadLaunchNotificationPreferencePayload(session, parsedLaunch.launchId, channel);
-  }
-
-  if (channel === 'push') {
-    const entitlement = await requireAuthedEntitlement(session);
-    if (!entitlement.capabilities.canUseBasicAlertRules) {
-      throw new MobileApiRouteError(402, 'payment_required');
-    }
-
-    const [pushPrefsRes, destinationStatus] = await Promise.all([
-      client.from('notification_preferences').select('push_enabled').eq('user_id', session.userId).maybeSingle(),
-      loadPushDestinationStatus(client, session.userId)
-    ]);
-
-    if (pushPrefsRes.error) {
-      throw pushPrefsRes.error;
-    }
-    if (!pushPrefsRes.data?.push_enabled) {
-      throw new MobileApiRouteError(409, 'push_not_enabled');
-    }
-    const hasAllowedDestination = entitlement.capabilities.canUseBrowserLaunchAlerts
-      ? destinationStatus.hasMobile || destinationStatus.hasWeb
-      : destinationStatus.hasMobile;
-    if (!hasAllowedDestination) {
-      throw new MobileApiRouteError(409, 'push_not_subscribed');
-    }
-  } else {
-    await requirePremiumNotificationAccess(session);
-    const smsSystemEnabled = await loadSmsSystemEnabled();
-    if (!smsSystemEnabled) {
-      throw new MobileApiRouteError(503, 'sms_system_disabled');
-    }
-    if (!isSupabaseAdminConfigured()) {
-      throw new MobileApiRouteError(501, 'billing_not_configured');
-    }
-
-    const { data, error } = await client
-      .from('notification_preferences')
-      .select('sms_enabled, sms_verified')
-      .eq('user_id', session.userId)
-      .maybeSingle();
-    if (error) {
-      throw error;
-    }
-    if (!data?.sms_verified) {
-      throw new MobileApiRouteError(409, 'sms_not_verified');
-    }
-    if (!data?.sms_enabled) {
-      throw new MobileApiRouteError(409, 'sms_not_enabled');
-    }
-  }
-
-  const { error } = await client.from('launch_notification_preferences').upsert(payload, {
-    onConflict: 'user_id,launch_id,channel'
-  });
-
-  if (error) {
-    throw error;
-  }
-
-  if (isSupabaseAdminConfigured()) {
-    await deleteManagedQueuedOutbox(createSupabaseAdminClient(), session.userId, parsedLaunch.launchId, channel, desiredEventTypes);
-  }
-
-  return loadLaunchNotificationPreferencePayload(session, parsedLaunch.launchId, channel);
+  launchNotificationPreferenceUpdateSchemaV1.parse(await request.json().catch(() => undefined));
+  void client;
+  throwRetiredLegacyNotifications();
 }
 
 export async function registerPushDevicePayload(session: ResolvedViewerSession, request: Request) {
@@ -5405,38 +5218,30 @@ export async function registerPushDevicePayload(session: ResolvedViewerSession, 
   }
 
   const parsedBody = pushDeviceRegistrationSchemaV1.parse(await request.json().catch(() => undefined));
-  const registeredAt = new Date().toISOString();
-  const pushProvider = parsedBody.platform === 'web' ? 'webpush' : 'expo';
-
-  const { data, error } = await client
-    .from('notification_push_devices')
-    .upsert(
-      {
-        user_id: session.userId,
-        platform: parsedBody.platform,
-        installation_id: parsedBody.installationId,
-        token: parsedBody.token,
-        push_provider: pushProvider,
-        app_version: parsedBody.appVersion,
-        device_name: parsedBody.deviceName,
-        is_active: true,
-        disabled_at: null,
-        last_failure_reason: null,
-        last_registered_at: registeredAt,
-        updated_at: registeredAt
-      },
-      { onConflict: 'user_id,platform,installation_id' }
-    )
-    .select(
-      'platform, installation_id, token, push_provider, app_version, device_name, is_active, last_registered_at, last_sent_at, last_receipt_at, last_failure_reason, disabled_at, updated_at'
-    )
-    .maybeSingle();
-
-  if (error) {
-    throw error;
+  if (parsedBody.platform === 'web') {
+    throwRetiredLegacyNotifications();
   }
+  const registeredAt = new Date().toISOString();
+  const pushProvider = 'expo';
 
-  return mapPushDevicePayload(data, {
+  await upsertUnifiedPushDestination(
+    client,
+    { ownerKind: 'user', userId: session.userId, installationId: parsedBody.installationId },
+    {
+      platform: parsedBody.platform,
+      deliveryKind: 'mobile_push',
+      pushProvider,
+      destinationKey: `expo:${parsedBody.platform}:${parsedBody.installationId}`,
+      endpoint: null,
+      token: parsedBody.token,
+      appVersion: parsedBody.appVersion,
+      deviceName: parsedBody.deviceName,
+      isActive: true,
+      verified: true
+    }
+  );
+
+  return mapPushDevicePayload(null, {
     ...parsedBody,
     pushProvider,
     active: true,
@@ -5455,30 +5260,24 @@ export async function removePushDevicePayload(session: ResolvedViewerSession, re
   }
 
   const parsedBody = pushDeviceRemovalInputSchema.parse(await request.json().catch(() => undefined));
-  const removedAt = new Date().toISOString();
-  const { data, error } = await client
-    .from('notification_push_devices')
-    .update({
-      is_active: false,
-      disabled_at: removedAt,
-      last_failure_reason: 'device_removed',
-      updated_at: removedAt
-    })
-    .eq('user_id', session.userId)
-    .eq('platform', parsedBody.platform)
-    .eq('installation_id', parsedBody.installationId)
-    .eq('is_active', true)
-    .select('id')
-    .maybeSingle();
-
-  if (error) {
-    throw error;
+  if (parsedBody.platform === 'web') {
+    throwRetiredLegacyNotifications();
   }
+  const removedAt = new Date().toISOString();
+  await deactivatePushDestinations(
+    client,
+    { ownerKind: 'user', userId: session.userId, installationId: parsedBody.installationId },
+    {
+      installationId: parsedBody.installationId,
+      platform: parsedBody.platform,
+      reason: 'device_removed'
+    }
+  );
 
   return pushDeviceRemovalSchemaV1.parse({
     platform: parsedBody.platform,
     installationId: parsedBody.installationId,
-    removed: Boolean(data?.id),
+    removed: true,
     removedAt
   });
 }
@@ -5503,35 +5302,26 @@ export async function enqueuePushDeviceTestPayload(session: ResolvedViewerSessio
 
   const admin = createSupabaseAdminClient();
 
-  const prefs = await loadNotificationPreferencesPayload(session);
-  if (!prefs?.pushEnabled) {
-    throw new MobileApiRouteError(409, 'push_not_enabled');
-  }
-
-  const [deviceRes, webPushRes] = await Promise.all([
-    admin
-      .from('notification_push_devices')
-      .select('id')
-      .eq('user_id', session.userId)
-      .eq('is_active', true)
-      .in('platform', ['ios', 'android'])
-      .limit(1),
-    admin.from('push_subscriptions').select('id').eq('user_id', session.userId).limit(1)
-  ]);
+  const deviceRes = await admin
+    .from('notification_push_destinations_v3')
+    .select('id')
+    .eq('user_id', session.userId)
+    .eq('is_active', true)
+    .eq('delivery_kind', 'mobile_push')
+    .in('platform', ['ios', 'android'])
+    .limit(1);
 
   if (deviceRes.error) throw deviceRes.error;
-  if (webPushRes.error) throw webPushRes.error;
 
-  const hasAllowedDestination = entitlement.capabilities.canUseBrowserLaunchAlerts
-    ? Boolean(deviceRes.data?.length || webPushRes.data?.length)
-    : Boolean(deviceRes.data?.length);
-  if (!hasAllowedDestination) {
+  if (!deviceRes.data?.length) {
     throw new MobileApiRouteError(409, 'push_not_registered');
   }
 
   const queuedAt = new Date().toISOString();
-  const { error } = await admin.from('notifications_outbox').insert({
+  const { error } = await admin.from('mobile_push_outbox_v2').insert({
+    owner_kind: 'user',
     user_id: session.userId,
+    installation_id: null,
     launch_id: null,
     channel: 'push',
     event_type: 'test',

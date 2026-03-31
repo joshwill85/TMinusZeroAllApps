@@ -28,13 +28,16 @@ async function main() {
   const requestLog: LoggedRequest[] = [];
 
   const baseEntitlements = {
-    tier: 'free',
+    tier: 'anon',
     status: 'active',
     source: 'stripe',
     isPaid: false,
+    billingIsPaid: false,
     isAdmin: false,
     isAuthed: true,
     mode: 'public',
+    effectiveTierSource: 'free',
+    adminAccessOverride: null,
     refreshIntervalSeconds: 900,
     capabilities: {
       canUseSavedItems: false,
@@ -49,6 +52,9 @@ async function main() {
       canUseBasicAlertRules: true,
       canUseAdvancedAlertRules: false,
       canUseBrowserLaunchAlerts: false,
+      canUseSingleLaunchFollow: true,
+      canUseAllUsLaunchAlerts: true,
+      canUseStateLaunchAlerts: false,
       canUseRecurringCalendarFeeds: false,
       canUseRssFeeds: false,
       canUseEmbedWidgets: false,
@@ -60,7 +66,8 @@ async function main() {
       presetLimit: 0,
       filterPresetLimit: 0,
       watchlistLimit: 0,
-      watchlistRuleLimit: 0
+      watchlistRuleLimit: 0,
+      singleLaunchFollowLimit: 1
     },
     cancelAtPeriodEnd: false,
     currentPeriodEnd: null,
@@ -250,7 +257,7 @@ async function main() {
     },
     launchFeedVersion: {
       scope: 'public',
-      tier: 'free',
+      tier: 'anon',
       intervalSeconds: 900,
       matchCount: 1,
       updatedAt: '2026-03-08T11:59:00.000Z',
@@ -316,7 +323,7 @@ async function main() {
     launchDetailVersion: {
       launchId,
       scope: 'public',
-      tier: 'free',
+      tier: 'anon',
       intervalSeconds: 900,
       updatedAt: '2026-03-08T11:59:00.000Z',
       version: `${launchId}|public|2026-03-08T11:59:00.000Z`
@@ -327,6 +334,21 @@ async function main() {
       modelVersion: 'ios-baseline-1',
       quality: 0.74,
       qualityState: 'safe_corridor',
+      guidanceSemantics: 'constraint_backed',
+      recoverySemantics: 'none',
+      trackTopology: {
+        hasStageSplit: false,
+        hasUpperStageTrack: false,
+        hasBoosterTrack: false
+      },
+      sourceCoverage: {
+        orbitClass: 'official_numeric',
+        hazardPresent: false,
+        landingClass: 'none',
+        stageSeparationSource: 'provider_timeline',
+        supgpMode: 'none',
+        shipAssignmentPresent: false
+      },
       uncertaintyEnvelope: {
         sampleCount: 2,
         sigmaDegP50: 0.7,
@@ -421,7 +443,7 @@ async function main() {
     },
     notificationPreferences: {
       pushEnabled: false,
-      emailEnabled: true,
+      emailEnabled: false,
       smsEnabled: false,
       launchDayEmailEnabled: false,
       launchDayEmailProviders: [],
@@ -431,7 +453,7 @@ async function main() {
       quietEndLocal: null,
       smsVerified: false,
       smsPhone: null,
-      smsSystemEnabled: true
+      smsSystemEnabled: false
     },
     privacyPreferences: {
       optOutSaleShare: false,
@@ -573,7 +595,10 @@ async function main() {
           canManageFollows: true,
           canUseBasicAlertRules: true,
           canUseAdvancedAlertRules: true,
-          canUseBrowserLaunchAlerts: true,
+          canUseBrowserLaunchAlerts: false,
+          canUseSingleLaunchFollow: true,
+          canUseAllUsLaunchAlerts: true,
+          canUseStateLaunchAlerts: true,
           canUseLiveFeed: true,
           canUseChangeLog: true,
           canUseInstantAlerts: true,
@@ -588,15 +613,45 @@ async function main() {
           presetLimit: 25,
           filterPresetLimit: 25,
           watchlistLimit: 5,
-          watchlistRuleLimit: 200
+          watchlistRuleLimit: 200,
+          singleLaunchFollowLimit: 0
         }
       }
     },
-    smsVerificationSent: {
-      status: 'sent'
+    retiredLaunchNotificationPreferencePush: {
+      enabled: false,
+      preference: {
+        launchId,
+        channel: 'push',
+        mode: 't_minus',
+        timezone: 'UTC',
+        tMinusMinutes: [],
+        localTimes: [],
+        notifyStatusChange: false,
+        notifyNetChange: false
+      },
+      pushStatus: {
+        enabled: false,
+        subscribed: false
+      }
     },
-    smsVerificationVerified: {
-      status: 'verified'
+    retiredLaunchNotificationPreferenceSms: {
+      enabled: false,
+      preference: {
+        launchId,
+        channel: 'sms',
+        mode: 't_minus',
+        timezone: 'UTC',
+        tMinusMinutes: [],
+        localTimes: [],
+        notifyStatusChange: false,
+        notifyNetChange: false
+      },
+      smsStatus: {
+        enabled: false,
+        verified: false,
+        systemEnabled: false
+      }
     },
     watchlists: {
       watchlists: [
@@ -629,20 +684,20 @@ async function main() {
       ]
     },
     launchNotificationPreference: {
-      enabled: true,
+      enabled: false,
       preference: {
         launchId,
         channel: 'push',
         mode: 't_minus',
         timezone: 'UTC',
-        tMinusMinutes: [10, 30],
+        tMinusMinutes: [],
         localTimes: [],
-        notifyStatusChange: true,
-        notifyNetChange: true
+        notifyStatusChange: false,
+        notifyNetChange: false
       },
       pushStatus: {
-        enabled: true,
-        subscribed: true
+        enabled: false,
+        subscribed: false
       }
     },
     watchlistEnvelope: {
@@ -910,25 +965,44 @@ async function main() {
     } else if (url.pathname === '/api/v1/me/notification-preferences' && method === 'GET') {
       payload = payloads.notificationPreferences;
     } else if (url.pathname === '/api/v1/me/notification-preferences' && method === 'POST') {
-      payload = {
-        ...payloads.notificationPreferences,
-        ...(parseBody(init) as object | undefined)
-      };
+      status = 410;
+      payload = { error: 'native_mobile_push_only' };
     } else if (url.pathname === '/api/v1/me/notification-preferences/sms/verify' && method === 'POST') {
-      payload = payloads.smsVerificationSent;
+      status = 410;
+      payload = { error: 'native_mobile_push_only' };
     } else if (url.pathname === '/api/v1/me/notification-preferences/sms/verify/check' && method === 'POST') {
-      payload = payloads.smsVerificationVerified;
+      status = 410;
+      payload = { error: 'native_mobile_push_only' };
+    } else if (url.pathname === `/api/v1/me/launch-notifications/${launchId}` && method === 'POST') {
+      status = 410;
+      payload = { error: 'native_mobile_push_only' };
     } else if (url.pathname === `/api/v1/me/launch-notifications/${launchId}`) {
-      payload = payloads.launchNotificationPreference;
+      const channel = url.searchParams.get('channel') ?? 'push';
+      payload =
+        channel === 'sms'
+          ? payloads.retiredLaunchNotificationPreferenceSms
+          : payloads.retiredLaunchNotificationPreferencePush;
     } else if (
       url.pathname === '/api/v1/me/watchlists/22222222-2222-4222-8222-222222222222/rules/55555555-5555-4555-8555-555555555555' &&
       method === 'DELETE'
     ) {
       payload = payloads.success;
     } else if (url.pathname === '/api/v1/me/push-devices' && method === 'POST') {
-      payload = payloads.pushDevice;
+      const body = parseBody(init) as { platform?: string } | undefined;
+      if (body?.platform === 'web') {
+        status = 410;
+        payload = { error: 'native_mobile_push_only' };
+      } else {
+        payload = payloads.pushDevice;
+      }
     } else if (url.pathname === '/api/v1/me/push-devices' && method === 'DELETE') {
-      payload = payloads.pushDeviceRemoval;
+      const body = parseBody(init) as { platform?: string } | undefined;
+      if (body?.platform === 'web') {
+        status = 410;
+        payload = { error: 'native_mobile_push_only' };
+      } else {
+        payload = payloads.pushDeviceRemoval;
+      }
     } else if (url.pathname === '/api/v1/me/push-devices/test' && headers.get('Authorization') === 'Bearer bad-token') {
       status = 409;
       payload = { error: 'push_not_enabled' };
@@ -1451,13 +1525,18 @@ async function main() {
     assert.equal(request.body, undefined);
   }
 
-  await cookieClient.getNotificationPreferences();
+  const cookieNotificationPreferences = await cookieClient.getNotificationPreferences();
   expectCookie(popLastRequest(), '/api/v1/me/notification-preferences');
+  assert.deepEqual(cookieNotificationPreferences, payloads.notificationPreferences);
 
-  await bearerClient.getNotificationPreferences();
+  const bearerNotificationPreferences = await bearerClient.getNotificationPreferences();
   expectBearer(popLastRequest(), '/api/v1/me/notification-preferences');
+  assert.deepEqual(bearerNotificationPreferences, payloads.notificationPreferences);
 
-  await cookieClient.updateNotificationPreferences({ pushEnabled: true });
+  await assert.rejects(
+    () => cookieClient.updateNotificationPreferences({ pushEnabled: true }),
+    (error: unknown) => expectRetiredApiClientError(error)
+  );
   {
     const request = popLastRequest();
     expectCookie(request, '/api/v1/me/notification-preferences', 'POST');
@@ -1466,7 +1545,10 @@ async function main() {
     });
   }
 
-  await bearerClient.updateNotificationPreferences({ pushEnabled: true });
+  await assert.rejects(
+    () => bearerClient.updateNotificationPreferences({ pushEnabled: true }),
+    (error: unknown) => expectRetiredApiClientError(error)
+  );
   {
     const request = popLastRequest();
     expectBearer(request, '/api/v1/me/notification-preferences', 'POST');
@@ -1475,10 +1557,14 @@ async function main() {
     });
   }
 
-  await cookieClient.startSmsVerification({
-    phone: '(555) 555-5555',
-    smsConsent: true
-  });
+  await assert.rejects(
+    () =>
+      cookieClient.startSmsVerification({
+        phone: '(555) 555-5555',
+        smsConsent: true
+      }),
+    (error: unknown) => expectRetiredApiClientError(error)
+  );
   {
     const request = popLastRequest();
     expectCookie(request, '/api/v1/me/notification-preferences/sms/verify', 'POST');
@@ -1488,10 +1574,14 @@ async function main() {
     });
   }
 
-  await bearerClient.completeSmsVerification({
-    phone: '(555) 555-5555',
-    code: '123456'
-  });
+  await assert.rejects(
+    () =>
+      bearerClient.completeSmsVerification({
+        phone: '(555) 555-5555',
+        code: '123456'
+      }),
+    (error: unknown) => expectRetiredApiClientError(error)
+  );
   {
     const request = popLastRequest();
     expectBearer(request, '/api/v1/me/notification-preferences/sms/verify/check', 'POST');
@@ -1501,27 +1591,46 @@ async function main() {
     });
   }
 
-  await cookieClient.getLaunchNotificationPreference(launchId, 'push');
+  const retiredPushPreference = await cookieClient.getLaunchNotificationPreference(launchId, 'push');
   {
     const request = popLastRequest();
     expectCookie(request, `/api/v1/me/launch-notifications/${launchId}`);
     assert.match(request.search, /\bchannel=push\b/);
+    assert.equal(retiredPushPreference.enabled, false);
+    assert.equal(retiredPushPreference.preference.launchId, launchId);
+    assert.equal(retiredPushPreference.preference.channel, 'push');
+    assert.deepEqual(retiredPushPreference.pushStatus, {
+      enabled: false,
+      subscribed: false
+    });
   }
 
-  await bearerClient.getLaunchNotificationPreference(launchId, 'sms');
+  const retiredSmsPreference = await bearerClient.getLaunchNotificationPreference(launchId, 'sms');
   {
     const request = popLastRequest();
     expectBearer(request, `/api/v1/me/launch-notifications/${launchId}`);
     assert.match(request.search, /\bchannel=sms\b/);
+    assert.equal(retiredSmsPreference.enabled, false);
+    assert.equal(retiredSmsPreference.preference.launchId, launchId);
+    assert.equal(retiredSmsPreference.preference.channel, 'sms');
+    assert.deepEqual(retiredSmsPreference.smsStatus, {
+      enabled: false,
+      verified: false,
+      systemEnabled: false
+    });
   }
 
-  await cookieClient.updateLaunchNotificationPreference(launchId, {
-    channel: 'push',
-    mode: 't_minus',
-    tMinusMinutes: [10],
-    notifyStatusChange: true,
-    notifyNetChange: false
-  });
+  await assert.rejects(
+    () =>
+      cookieClient.updateLaunchNotificationPreference(launchId, {
+        channel: 'push',
+        mode: 't_minus',
+        tMinusMinutes: [10],
+        notifyStatusChange: true,
+        notifyNetChange: false
+      }),
+    (error: unknown) => expectRetiredApiClientError(error)
+  );
   {
     const request = popLastRequest();
     expectCookie(request, `/api/v1/me/launch-notifications/${launchId}`, 'POST');
@@ -1585,6 +1694,38 @@ async function main() {
     });
   }
 
+  await assert.rejects(
+    () =>
+      cookieClient.registerPushDevice({
+        ...pushRegistrationPayload,
+        platform: 'web',
+        pushProvider: 'webpush'
+      }),
+    (error: unknown) => expectRetiredApiClientError(error)
+  );
+  {
+    const request = popLastRequest();
+    expectCookie(request, '/api/v1/me/push-devices', 'POST');
+    assert.equal((request.body as { platform?: string }).platform, 'web');
+  }
+
+  await assert.rejects(
+    () =>
+      bearerClient.removePushDevice({
+        platform: 'web',
+        installationId: 'tmz-installation-web'
+      }),
+    (error: unknown) => expectRetiredApiClientError(error)
+  );
+  {
+    const request = popLastRequest();
+    expectBearer(request, '/api/v1/me/push-devices', 'DELETE');
+    assert.deepEqual(request.body, {
+      platform: 'web',
+      installationId: 'tmz-installation-web'
+    });
+  }
+
   await cookieClient.sendPushTest();
   expectCookie(popLastRequest(), '/api/v1/me/push-devices/test', 'POST');
 
@@ -1621,3 +1762,10 @@ async function main() {
 }
 
 await main();
+
+function expectRetiredApiClientError(error: unknown) {
+  assert.ok(error instanceof ApiClientError);
+  assert.equal(error.status, 410);
+  assert.equal(error.code, 'native_mobile_push_only');
+  return true;
+}

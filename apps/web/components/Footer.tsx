@@ -37,8 +37,8 @@ export function Footer() {
           <a className="hover:text-text1" href="/docs/faq">
             FAQ
           </a>
-          <a className="hover:text-text1" href="/docs/sms-opt-in">
-            SMS Opt-In
+          <a className="hover:text-text1" href="/preferences">
+            Notifications
           </a>
           <a className="hover:text-text1" href="/artemis">
             Artemis

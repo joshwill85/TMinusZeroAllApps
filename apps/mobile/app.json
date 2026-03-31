@@ -3,7 +3,7 @@
     "name": "T-Minus Zero",
     "slug": "tminuszero-mobile",
     "version": "1.0.0",
-    "icon": "./ios/TMinusZero/Images.xcassets/AppIcon.appiconset/App-Icon-1024x1024@1x.png",
+    "icon": "./assets/app-icon/icon-1024.png",
     "orientation": "default",
     "scheme": "tminuszero",
     "userInterfaceStyle": "automatic",
@@ -11,7 +11,9 @@
       "bundleIdentifier": "app.tminuszero.mobile",
       "supportsTablet": true,
       "deploymentTarget": "15.1",
+      "usesAppleSignIn": true,
       "infoPlist": {
+        "CFBundleAllowMixedLocalizations": true,
         "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to use the camera for premium AR trajectory guidance.",
         "NSMotionUsageDescription": "Allow $(PRODUCT_NAME) to access motion sensors for premium AR trajectory tracking.",
         "NSLocationWhenInUseUsageDescription": "Allow $(PRODUCT_NAME) to use your location to align premium AR trajectory guidance with the launch site."
@@ -19,10 +21,18 @@
     },
     "android": {
       "package": "app.tminuszero.mobile",
-      "permissions": ["CAMERA"]
+      "permissions": [
+        "CAMERA"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/app-icon/adaptive-icon-foreground.png",
+        "backgroundColor": "#05060A",
+        "monochromeImage": "./assets/app-icon/adaptive-icon-monochrome.png"
+      }
     },
     "plugins": [
       "expo-router",
+      "expo-apple-authentication",
       "expo-secure-store",
       "expo-notifications",
       [
@@ -33,11 +43,12 @@
           }
         }
       ],
+      "./plugins/withIosUserScriptSandboxDisabled",
       "expo-iap"
     ],
     "extra": {
       "eas": {
-        "projectId": ""
+        "projectId": "b60dbfe6-9f07-4387-8134-9e24ffbd1873"
       }
     },
     "experiments": {

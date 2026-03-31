@@ -193,8 +193,8 @@ export function InfoHubFallbackScreen({ testID }: { testID: string }) {
           <RouteListRow title="News" subtitle="Mission coverage and launch-linked articles." onPress={() => router.push('/news' as Href)} />
           <RouteListRow title="Contracts" subtitle="Canonical government contract intelligence." onPress={() => router.push('/contracts' as Href)} />
           <RouteListRow title="Satellites" subtitle="NORAD catalog and owner hubs." onPress={() => router.push('/satellites' as Href)} />
-          <RouteListRow title="Docs" subtitle="FAQ, roadmap, and SMS opt-in guidance." onPress={() => router.push('/docs' as Href)} />
-          <RouteListRow title="Legal" subtitle="Privacy, data, and SMS disclosures." onPress={() => router.push('/legal/privacy' as Href)} />
+          <RouteListRow title="Docs" subtitle="FAQ, roadmap, and notification guidance." onPress={() => router.push('/docs' as Href)} />
+          <RouteListRow title="Legal" subtitle="Privacy, data, and notification policy." onPress={() => router.push('/legal/privacy' as Href)} />
           <RouteListRow title="Jellyfish Effect" subtitle="Guide to rocket jellyfish viewing." onPress={() => router.push('/jellyfish-effect' as Href)} />
         </View>
       </CustomerShellPanel>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, Image, Pressable } from 'react-native';
+import { View, Text, Image } from 'react-native';
 import Animated, {
   type SharedValue,
   useAnimatedStyle,
@@ -8,6 +8,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import { ANIMATION_CONSTANTS } from '@tminuszero/launch-animations';
+import { HeroContentSurface, HeroImageProtection } from '@/src/components/launch/HeroProtection';
 
 type LaunchDetailHeroProps = {
   backgroundImage: string | null;
@@ -112,17 +113,7 @@ export function LaunchDetailHero({
         </Animated.View>
       )}
 
-      {/* Gradient Overlays */}
-      <View
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'linear-gradient(180deg, rgba(0,0,0,0.5) 0%, rgba(11,16,35,0.92) 100%)',
-        }}
-      />
+      <HeroImageProtection />
 
       {/* Content */}
       <Animated.View
@@ -130,6 +121,7 @@ export function LaunchDetailHero({
           {
             flex: 1,
             padding: 20,
+            paddingBottom: 24,
             justifyContent: 'space-between',
           },
           contentStyle,
@@ -219,94 +211,96 @@ export function LaunchDetailHero({
           )}
         </View>
 
-        {/* Middle: Launch Info */}
-        <View style={{ gap: 8 }}>
-          {provider && (
-            <Text
-              style={{
-                fontSize: 14,
-                fontWeight: '600',
-                color: theme.muted,
-                textTransform: 'uppercase',
-                letterSpacing: 1,
-              }}
-            >
-              {provider}
-            </Text>
-          )}
-          <Text
-            style={{
-              fontSize: 24,
-              fontWeight: '800',
-              color: theme.text,
-              lineHeight: 30,
-            }}
-          >
-            {launchName}
-          </Text>
-          {vehicle && (
-            <Text
-              style={{
-                fontSize: 16,
-                fontWeight: '600',
-                color: theme.accent,
-              }}
-            >
-              {vehicle}
-            </Text>
-          )}
-        </View>
-
-        {/* Bottom: Countdown & Location */}
-        <View style={{ gap: 12 }}>
-          {countdown && (
-            <View>
+        <HeroContentSurface style={{ gap: 16 }}>
+          {/* Middle: Launch Info */}
+          <View style={{ gap: 8 }}>
+            {provider && (
               <Text
                 style={{
-                  fontSize: 32,
-                  fontWeight: '800',
-                  color: theme.text,
-                  letterSpacing: -1,
+                  fontSize: 14,
+                  fontWeight: '600',
+                  color: theme.muted,
+                  textTransform: 'uppercase',
+                  letterSpacing: 1,
                 }}
               >
-                {countdown}
+                {provider}
               </Text>
-            </View>
-          )}
-          <View style={{ gap: 6 }}>
-            {netTime && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Text style={{ fontSize: 16 }}>🕐</Text>
-                <Text
-                  style={{
-                    fontSize: 14,
-                    fontWeight: '600',
-                    color: theme.muted,
-                  }}
-                >
-                  {netTime}
-                </Text>
-              </View>
             )}
-            {location && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Text style={{ fontSize: 16 }}>🌍</Text>
-                <Text
-                  style={{
-                    fontSize: 14,
-                    fontWeight: '600',
-                    color: theme.muted,
-                  }}
-                >
-                  {location}
-                </Text>
-              </View>
+            <Text
+              style={{
+                fontSize: 24,
+                fontWeight: '800',
+                color: theme.foreground,
+                lineHeight: 30,
+              }}
+            >
+              {launchName}
+            </Text>
+            {vehicle && (
+              <Text
+                style={{
+                  fontSize: 16,
+                  fontWeight: '600',
+                  color: theme.accent,
+                }}
+              >
+                {vehicle}
+              </Text>
             )}
           </View>
 
-          {/* Action Buttons */}
-          {actionButtons}
-        </View>
+          {/* Bottom: Countdown & Location */}
+          <View style={{ gap: 12 }}>
+            {countdown && (
+              <View>
+                <Text
+                  style={{
+                    fontSize: 32,
+                    fontWeight: '800',
+                    color: theme.foreground,
+                    letterSpacing: -1,
+                  }}
+                >
+                  {countdown}
+                </Text>
+              </View>
+            )}
+            <View style={{ gap: 6 }}>
+              {netTime && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={{ fontSize: 16 }}>🕐</Text>
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      fontWeight: '600',
+                      color: theme.muted,
+                    }}
+                  >
+                    {netTime}
+                  </Text>
+                </View>
+              )}
+              {location && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={{ fontSize: 16 }}>🌍</Text>
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      fontWeight: '600',
+                      color: theme.muted,
+                    }}
+                  >
+                    {location}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* Action Buttons */}
+            {actionButtons}
+          </View>
+        </HeroContentSurface>
       </Animated.View>
     </View>
   );

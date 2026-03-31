@@ -24,9 +24,9 @@ export async function generateMetadata({
   const siteUrl = getSiteUrl().replace(/\/$/, '');
   const canonical = '/blue-origin/contracts';
   const pageUrl = `${siteUrl}${canonical}`;
-  const title = `Blue Origin Contracts & Government Awards | ${BRAND_NAME}`;
+  const title = `Blue Origin Contracts & Awards | ${BRAND_NAME}`;
   const description =
-    'Blue Origin contracts and award intelligence with NASA and U.S. government records plus mission-level contract context.';
+    'Blue Origin contract pages with NASA and U.S. government awards, source records, and mission links.';
   const images = [
     {
       url: siteMeta.ogImage,
@@ -93,15 +93,15 @@ export default async function BlueOriginContractsPage({
       <ProgramHubBackLink program="blue-origin" />
 
       <header className="space-y-4">
-        <p className="text-xs uppercase tracking-[0.14em] text-text3">Contracts Intelligence</p>
+        <p className="text-xs uppercase tracking-[0.14em] text-text3">Contracts</p>
         <h1 className="text-3xl font-semibold text-text1">Blue Origin Contracts</h1>
         <p className="max-w-3xl text-sm text-text2">
-          Government and commercial contract records associated with Blue Origin program systems, including NASA and U.S. Space Force award milestones.
+          Internal contract pages for Blue Origin awards and related source records across NASA, national security, and commercial programs.
         </p>
         <div className="flex flex-wrap items-center gap-2 text-xs text-text3">
           <span className="rounded-full border border-stroke px-3 py-1">Contracts: {contracts.items.length}</span>
           <span className="rounded-full border border-stroke px-3 py-1">Showing: {visibleContracts.length}</span>
-          <span className="rounded-full border border-stroke px-3 py-1">Refresh cadence: Weekly chain</span>
+          <span className="rounded-full border border-stroke px-3 py-1">Updated weekly</span>
         </div>
       </header>
 
@@ -132,14 +132,14 @@ export default async function BlueOriginContractsPage({
                     {typeof contract.amount === 'number' ? <span>Amount: ${contract.amount.toLocaleString()}</span> : null}
                     {contract.sourceUrl ? (
                       <a href={contract.sourceUrl} target="_blank" rel="noreferrer" className="text-primary hover:text-primary/80">
-                        Source
+                        Source record
                       </a>
                     ) : null}
                     <Link
                       href={`/blue-origin/contracts/${buildBlueOriginContractSlug(contract.contractKey)}`}
                       className="text-primary hover:text-primary/80"
                     >
-                      Drilldown
+                      Open contract page
                     </Link>
                   </div>
                 </li>
@@ -192,7 +192,7 @@ export default async function BlueOriginContractsPage({
           SpaceX Contracts
         </Link>
         <Link href="/contracts" className="rounded-full border border-stroke px-3 py-1 uppercase tracking-[0.14em] hover:text-text1">
-          Canonical Contracts
+          All Contracts
         </Link>
         <Link href="/artemis/awardees" className="rounded-full border border-stroke px-3 py-1 uppercase tracking-[0.14em] hover:text-text1">
           Artemis Awardees

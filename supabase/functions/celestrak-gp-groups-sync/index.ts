@@ -3,6 +3,12 @@ import { createSupabaseAdminClient } from '../_shared/supabase.ts';
 import { requireJobAuth } from '../_shared/jobAuth.ts';
 import { getSettings, readBooleanSetting, readNumberSetting } from '../_shared/settings.ts';
 import {
+  planCelestrakDatasetSync,
+  upsertCelestrakDatasetsInChunks,
+  upsertSetting,
+  upsertSettingIfChanged
+} from '../_shared/celestrakDb.ts';
+import {
   CELESTRAK_CURRENT_GP_PAGE,
   DEFAULT_CELESTRAK_USER_AGENT,
   fetchTextWithRetries,
@@ -29,6 +35,10 @@ serve(async (req) => {
     groupsFound: 0,
     gpRowsInserted: 0,
     satcatRowsInserted: 0,
+    gpRowsUpdated: 0,
+    satcatRowsUpdated: 0,
+    gpRowsUnchanged: 0,
+    satcatRowsUnchanged: 0,
     gpRowsUpserted: 0,
     satcatRowsUpserted: 0
   };
@@ -74,54 +84,71 @@ serve(async (req) => {
       return jsonResponse({ ok: false, error: 'no_groups_parsed' }, 500);
     }
 
-    const { data: existing, error: existingError } = await supabase
-      .from('celestrak_datasets')
-      .select('dataset_key')
-      .in('dataset_type', ['gp', 'satcat']);
-    if (existingError) throw existingError;
-
-    const existingKeys = new Set((existing || []).map((row: any) => String(row.dataset_key)));
     const nowIso = new Date().toISOString();
 
-    const gpAll = groups.map((g) => ({
+    const gpRows = groups.map((g) => ({
       dataset_key: `gp:${g.code}`,
       dataset_type: 'gp',
       code: g.code,
       label: g.label,
-      query: { GROUP: g.code },
-      updated_at: nowIso
+      query: { GROUP: g.code }
     }));
 
-    const satcatAll = groups.map((g) => ({
+    const satcatRows = groups.map((g) => ({
       dataset_key: `satcat:${g.code}`,
       dataset_type: 'satcat',
       code: g.code,
       label: g.label,
-      query: { GROUP: g.code, ONORBIT: 1 },
-      updated_at: nowIso
+      query: { GROUP: g.code, ONORBIT: 1 }
     }));
 
-    const gpMissing = gpAll
-      .filter((row) => !existingKeys.has(row.dataset_key))
-      .map((row) => ({ ...row, enabled: true, min_interval_seconds: gpMinIntervalSeconds }));
-    const satcatMissing = satcatAll
-      .filter((row) => !existingKeys.has(row.dataset_key))
-      .map((row) => ({ ...row, enabled: true, min_interval_seconds: satcatMinIntervalSeconds }));
+    const desiredKeys = [...gpRows, ...satcatRows].map((row) => row.dataset_key);
+    const { data: existingRows, error: existingError } = await supabase
+      .from('celestrak_datasets')
+      .select('dataset_key, dataset_type, code, label, query, enabled, min_interval_seconds')
+      .in('dataset_key', desiredKeys);
+    if (existingError) throw existingError;
+
+    const gpPlan = planCelestrakDatasetSync({
+      desiredRows: gpRows,
+      existingRows: (existingRows as Array<Record<string, unknown>> | null) || [],
+      managedFields: ['code', 'label', 'query']
+    });
+    const satcatPlan = planCelestrakDatasetSync({
+      desiredRows: satcatRows,
+      existingRows: (existingRows as Array<Record<string, unknown>> | null) || [],
+      managedFields: ['code', 'label', 'query']
+    });
+
+    const gpMissing = gpPlan.rowsToInsert.map((row) => ({
+      ...row,
+      enabled: true,
+      min_interval_seconds: gpMinIntervalSeconds
+    }));
+    const satcatMissing = satcatPlan.rowsToInsert.map((row) => ({
+      ...row,
+      enabled: true,
+      min_interval_seconds: satcatMinIntervalSeconds
+    }));
+    const gpUpdates = gpPlan.rowsToUpdate.map(({ desired }) => desired);
+    const satcatUpdates = satcatPlan.rowsToUpdate.map(({ desired }) => desired);
 
     stats.gpRowsInserted = gpMissing.length;
     stats.satcatRowsInserted = satcatMissing.length;
+    stats.gpRowsUpdated = gpUpdates.length;
+    stats.satcatRowsUpdated = satcatUpdates.length;
+    stats.gpRowsUnchanged = gpPlan.unchangedCount;
+    stats.satcatRowsUnchanged = satcatPlan.unchangedCount;
+    stats.gpRowsUpserted = gpMissing.length + gpUpdates.length;
+    stats.satcatRowsUpserted = satcatMissing.length + satcatUpdates.length;
 
-    await upsertInChunks(supabase, 'celestrak_datasets', gpMissing, { ignoreDuplicates: true });
-    await upsertInChunks(supabase, 'celestrak_datasets', satcatMissing, { ignoreDuplicates: true });
-
-    stats.gpRowsUpserted = gpAll.length;
-    stats.satcatRowsUpserted = satcatAll.length;
-
-    await upsertInChunks(supabase, 'celestrak_datasets', gpAll, { ignoreDuplicates: false });
-    await upsertInChunks(supabase, 'celestrak_datasets', satcatAll, { ignoreDuplicates: false });
+    await upsertCelestrakDatasetsInChunks(supabase, gpMissing, nowIso);
+    await upsertCelestrakDatasetsInChunks(supabase, gpUpdates, nowIso);
+    await upsertCelestrakDatasetsInChunks(supabase, satcatMissing, nowIso);
+    await upsertCelestrakDatasetsInChunks(supabase, satcatUpdates, nowIso);
 
     await upsertSetting(supabase, 'celestrak_gp_groups_last_synced_at', nowIso);
-    await upsertSetting(supabase, 'celestrak_gp_groups_last_synced_count', groups.length);
+    await upsertSettingIfChanged(supabase, 'celestrak_gp_groups_last_synced_count', groups.length);
 
     await finishIngestionRun(supabase, runId, true, { ...stats, elapsedMs: Date.now() - startedAt });
     return jsonResponse({ ok: true, stats });
@@ -161,36 +188,6 @@ async function finishIngestionRun(
     .eq('id', runId);
   if (updateError) {
     console.warn('Failed to update ingestion_runs record', { runId, updateError: updateError.message });
-  }
-}
-
-async function upsertSetting(supabase: ReturnType<typeof createSupabaseAdminClient>, key: string, value: unknown) {
-  const { error } = await supabase
-    .from('system_settings')
-    .upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
-  if (error) throw error;
-}
-
-function chunkArray<T>(items: T[], size: number) {
-  if (size <= 0) return [items];
-  const chunks: T[][] = [];
-  for (let i = 0; i < items.length; i += size) {
-    chunks.push(items.slice(i, i + size));
-  }
-  return chunks;
-}
-
-async function upsertInChunks(
-  supabase: ReturnType<typeof createSupabaseAdminClient>,
-  table: string,
-  rows: any[],
-  { ignoreDuplicates }: { ignoreDuplicates: boolean }
-) {
-  if (!rows.length) return;
-  const chunks = chunkArray(rows, 250);
-  for (const chunk of chunks) {
-    const { error } = await supabase.from(table).upsert(chunk, { onConflict: 'dataset_key', ignoreDuplicates });
-    if (error) throw error;
   }
 }
 

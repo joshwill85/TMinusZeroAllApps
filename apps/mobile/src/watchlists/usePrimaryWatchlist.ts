@@ -18,7 +18,7 @@ type UsePrimaryWatchlistOptions = {
   ruleLimit?: number | null;
 };
 
-type ToggleRuleKind = 'launch' | 'provider' | 'pad';
+type ToggleRuleKind = 'launch' | 'provider' | 'pad' | 'rocket' | 'launch_site' | 'state';
 
 type ToggleRuleResult = {
   notice: WatchlistActionNotice;
@@ -40,13 +40,24 @@ type PrimaryWatchlistState = {
   launchRuleIdsByLaunchId: Record<string, string>;
   providerRuleIdsByValue: Record<string, string>;
   padRuleIdsByValue: Record<string, string>;
+  rocketRuleIdsByValue: Record<string, string>;
+  launchSiteRuleIdsByValue: Record<string, string>;
+  stateRuleIdsByValue: Record<string, string>;
   isLaunchTracked: (launchId: string | null | undefined) => boolean;
   isProviderTracked: (provider: string | null | undefined) => boolean;
   isPadTracked: (ruleValue: string | null | undefined) => boolean;
+  isRocketTracked: (ruleValue: string | null | undefined) => boolean;
+  isLaunchSiteTracked: (ruleValue: string | null | undefined) => boolean;
+  isStateTracked: (ruleValue: string | null | undefined) => boolean;
+  isTracked: (kind: ToggleRuleKind, ruleValue: string | null | undefined) => boolean;
   ensurePrimaryWatchlist: () => Promise<string | null>;
   toggleLaunch: (launchId: string) => Promise<ToggleRuleResult | null>;
   toggleProvider: (provider: string) => Promise<ToggleRuleResult | null>;
   togglePad: (ruleValue: string) => Promise<ToggleRuleResult | null>;
+  toggleRocket: (ruleValue: string, label?: string) => Promise<ToggleRuleResult | null>;
+  toggleLaunchSite: (ruleValue: string, label?: string) => Promise<ToggleRuleResult | null>;
+  toggleState: (ruleValue: string, label?: string) => Promise<ToggleRuleResult | null>;
+  toggleRule: (args: { kind: ToggleRuleKind; ruleValue: string; label: string }) => Promise<ToggleRuleResult | null>;
 };
 
 export function buildPadRuleValue({
@@ -68,6 +79,36 @@ export function buildPadRuleValue({
   return `code:${normalizedShortCode}`;
 }
 
+export function buildRocketRuleValue({
+  ll2RocketConfigId,
+  rocketName,
+  vehicle
+}: {
+  ll2RocketConfigId?: number | null;
+  rocketName?: string | null;
+  vehicle?: string | null;
+}) {
+  if (typeof ll2RocketConfigId === 'number' && Number.isFinite(ll2RocketConfigId) && ll2RocketConfigId > 0) {
+    return `ll2:${String(Math.trunc(ll2RocketConfigId))}`;
+  }
+
+  const label = String(rocketName || vehicle || '').trim();
+  return label || null;
+}
+
+export function buildLaunchSiteRuleValue(value: string | null | undefined) {
+  const normalized = String(value || '').trim();
+  return normalized && normalized.toLowerCase() !== 'unknown' ? normalized : null;
+}
+
+export function buildStateRuleValue(value: string | null | undefined) {
+  const normalized = String(value || '').trim().toUpperCase();
+  if (!normalized || normalized === 'NA' || normalized === 'N/A' || normalized === 'UNKNOWN') {
+    return null;
+  }
+  return normalized;
+}
+
 export function formatPadRuleLabel(value: string) {
   const normalized = String(value || '').trim();
   if (!normalized) {
@@ -83,12 +124,37 @@ export function formatPadRuleLabel(value: string) {
   return normalized;
 }
 
+export function formatRocketRuleLabel(value: string) {
+  const normalized = String(value || '').trim();
+  if (!normalized) {
+    return 'Rocket';
+  }
+  return normalized.startsWith('ll2:') ? `Rocket ${normalized.slice(4)}` : normalized;
+}
+
+export function formatLaunchSiteRuleLabel(value: string) {
+  return String(value || '').trim() || 'Launch site';
+}
+
+export function formatStateRuleLabel(value: string) {
+  return String(value || '').trim().toUpperCase() || 'State';
+}
+
 export function formatWatchlistRuleLabel(rule: Pick<WatchlistRuleV1, 'ruleType' | 'ruleValue'>) {
   if (rule.ruleType === 'provider') {
     return String(rule.ruleValue || 'Provider').trim() || 'Provider';
   }
   if (rule.ruleType === 'pad') {
     return formatPadRuleLabel(rule.ruleValue);
+  }
+  if (rule.ruleType === 'rocket') {
+    return formatRocketRuleLabel(rule.ruleValue);
+  }
+  if (rule.ruleType === 'launch_site') {
+    return formatLaunchSiteRuleLabel(rule.ruleValue);
+  }
+  if (rule.ruleType === 'state') {
+    return formatStateRuleLabel(rule.ruleValue);
   }
   if (rule.ruleType === 'tier') {
     const normalizedTier = String(rule.ruleValue || '').trim();
@@ -105,6 +171,15 @@ export function formatWatchlistRuleCaption(rule: Pick<WatchlistRuleV1, 'ruleType
   }
   if (rule.ruleType === 'pad') {
     return 'Pad follow';
+  }
+  if (rule.ruleType === 'rocket') {
+    return 'Rocket follow';
+  }
+  if (rule.ruleType === 'launch_site') {
+    return 'Launch site follow';
+  }
+  if (rule.ruleType === 'state') {
+    return 'State launches';
   }
   if (rule.ruleType === 'tier') {
     return 'Tier follow';
@@ -142,6 +217,9 @@ function buildWatchlistRuleMaps(watchlist: WatchlistV1 | null) {
   const launchRuleIdsByLaunchId: Record<string, string> = {};
   const providerRuleIdsByValue: Record<string, string> = {};
   const padRuleIdsByValue: Record<string, string> = {};
+  const rocketRuleIdsByValue: Record<string, string> = {};
+  const launchSiteRuleIdsByValue: Record<string, string> = {};
+  const stateRuleIdsByValue: Record<string, string> = {};
 
   for (const rule of watchlist?.rules ?? []) {
     const normalizedValue = String(rule.ruleValue || '').trim();
@@ -159,13 +237,28 @@ function buildWatchlistRuleMaps(watchlist: WatchlistV1 | null) {
     }
     if (rule.ruleType === 'pad') {
       padRuleIdsByValue[normalizedValue.toLowerCase()] = rule.id;
+      continue;
+    }
+    if (rule.ruleType === 'rocket') {
+      rocketRuleIdsByValue[normalizedValue.toLowerCase()] = rule.id;
+      continue;
+    }
+    if (rule.ruleType === 'launch_site') {
+      launchSiteRuleIdsByValue[normalizedValue.toLowerCase()] = rule.id;
+      continue;
+    }
+    if (rule.ruleType === 'state') {
+      stateRuleIdsByValue[normalizedValue.toLowerCase()] = rule.id;
     }
   }
 
   return {
     launchRuleIdsByLaunchId,
     providerRuleIdsByValue,
-    padRuleIdsByValue
+    padRuleIdsByValue,
+    rocketRuleIdsByValue,
+    launchSiteRuleIdsByValue,
+    stateRuleIdsByValue
   };
 }
 
@@ -283,7 +376,13 @@ export function usePrimaryWatchlist({
           ? ruleMaps.launchRuleIdsByLaunchId[normalizedRuleValue] ?? null
           : kind === 'provider'
             ? ruleMaps.providerRuleIdsByValue[normalizedRuleValue.toLowerCase()] ?? null
-            : ruleMaps.padRuleIdsByValue[normalizedRuleValue.toLowerCase()] ?? null;
+            : kind === 'pad'
+              ? ruleMaps.padRuleIdsByValue[normalizedRuleValue.toLowerCase()] ?? null
+              : kind === 'rocket'
+                ? ruleMaps.rocketRuleIdsByValue[normalizedRuleValue.toLowerCase()] ?? null
+                : kind === 'launch_site'
+                  ? ruleMaps.launchSiteRuleIdsByValue[normalizedRuleValue.toLowerCase()] ?? null
+                  : ruleMaps.stateRuleIdsByValue[normalizedRuleValue.toLowerCase()] ?? null;
 
       setBusyKeys((current) => ({ ...current, [busyKey]: true }));
       setLastError(null);
@@ -351,6 +450,9 @@ export function usePrimaryWatchlist({
     launchRuleIdsByLaunchId: ruleMaps.launchRuleIdsByLaunchId,
     providerRuleIdsByValue: ruleMaps.providerRuleIdsByValue,
     padRuleIdsByValue: ruleMaps.padRuleIdsByValue,
+    rocketRuleIdsByValue: ruleMaps.rocketRuleIdsByValue,
+    launchSiteRuleIdsByValue: ruleMaps.launchSiteRuleIdsByValue,
+    stateRuleIdsByValue: ruleMaps.stateRuleIdsByValue,
     isLaunchTracked: (launchId) => {
       const normalizedLaunchId = String(launchId || '').trim();
       return Boolean(normalizedLaunchId && ruleMaps.launchRuleIdsByLaunchId[normalizedLaunchId]);
@@ -363,7 +465,33 @@ export function usePrimaryWatchlist({
       const normalizedRuleValue = String(ruleValue || '').trim().toLowerCase();
       return Boolean(normalizedRuleValue && ruleMaps.padRuleIdsByValue[normalizedRuleValue]);
     },
+    isRocketTracked: (ruleValue) => {
+      const normalizedRuleValue = String(ruleValue || '').trim().toLowerCase();
+      return Boolean(normalizedRuleValue && ruleMaps.rocketRuleIdsByValue[normalizedRuleValue]);
+    },
+    isLaunchSiteTracked: (ruleValue) => {
+      const normalizedRuleValue = String(ruleValue || '').trim().toLowerCase();
+      return Boolean(normalizedRuleValue && ruleMaps.launchSiteRuleIdsByValue[normalizedRuleValue]);
+    },
+    isStateTracked: (ruleValue) => {
+      const normalizedRuleValue = String(ruleValue || '').trim().toLowerCase();
+      return Boolean(normalizedRuleValue && ruleMaps.stateRuleIdsByValue[normalizedRuleValue]);
+    },
+    isTracked: (kind, ruleValue) => {
+      if (kind === 'launch') {
+        const normalizedLaunchId = String(ruleValue || '').trim();
+        return Boolean(normalizedLaunchId && ruleMaps.launchRuleIdsByLaunchId[normalizedLaunchId]);
+      }
+      const normalizedRuleValue = String(ruleValue || '').trim().toLowerCase();
+      if (!normalizedRuleValue) return false;
+      if (kind === 'provider') return Boolean(ruleMaps.providerRuleIdsByValue[normalizedRuleValue]);
+      if (kind === 'pad') return Boolean(ruleMaps.padRuleIdsByValue[normalizedRuleValue]);
+      if (kind === 'rocket') return Boolean(ruleMaps.rocketRuleIdsByValue[normalizedRuleValue]);
+      if (kind === 'launch_site') return Boolean(ruleMaps.launchSiteRuleIdsByValue[normalizedRuleValue]);
+      return Boolean(ruleMaps.stateRuleIdsByValue[normalizedRuleValue]);
+    },
     ensurePrimaryWatchlist,
+    toggleRule,
     toggleLaunch: (launchId) =>
       toggleRule({
         kind: 'launch',
@@ -381,6 +509,24 @@ export function usePrimaryWatchlist({
         kind: 'pad',
         ruleValue,
         label: formatPadRuleLabel(ruleValue)
+      }),
+    toggleRocket: (ruleValue, label) =>
+      toggleRule({
+        kind: 'rocket',
+        ruleValue,
+        label: String(label || ruleValue || 'Rocket').trim() || 'Rocket'
+      }),
+    toggleLaunchSite: (ruleValue, label) =>
+      toggleRule({
+        kind: 'launch_site',
+        ruleValue,
+        label: String(label || ruleValue || 'Launch site').trim() || 'Launch site'
+      }),
+    toggleState: (ruleValue, label) =>
+      toggleRule({
+        kind: 'state',
+        ruleValue,
+        label: String(label || ruleValue || 'State').trim().toUpperCase() || 'State'
       })
   };
 }

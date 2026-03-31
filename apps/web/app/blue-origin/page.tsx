@@ -157,9 +157,9 @@ export async function generateMetadata(): Promise<Metadata> {
   const siteUrl = getSiteUrl().replace(/\/$/, '');
   const canonical = '/blue-origin';
   const pageUrl = `${siteUrl}${canonical}`;
-  const title = `Blue Origin Program Dashboard, Missions, Flights, Crew & Payloads | ${BRAND_NAME}`;
+  const title = `Blue Origin Program Hub, Missions, Flights, Crew & Payloads | ${BRAND_NAME}`;
   const description =
-    'Comprehensive Blue Origin program coverage with New Shepard and New Glenn flight tracking, timeline evidence, crew, payloads, contracts, and official media links.';
+    'Blue Origin program hub with New Shepard and New Glenn flight tracking, crew and payload pages, internal contract coverage, and official media links.';
 
   return {
     title,
@@ -667,7 +667,7 @@ export default async function BlueOriginProgramPage() {
             '@type': 'CollectionPage',
             name: 'Blue Origin Program',
             description:
-              'Blue Origin program dossier for mission systems, manifest records, and procurement signals.',
+              'Blue Origin program hub for flights, manifests, hardware, contracts, and source-backed updates.',
             dateModified: program.lastUpdated || program.generatedAt
           }
         ]}
@@ -682,21 +682,19 @@ export default async function BlueOriginProgramPage() {
         <BlueOriginJumpRail counts={navCounts} variant="mobile" />
 
         <header className="space-y-4">
-          <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-text3">
-            Dossier // 01-BO-PRG
-          </p>
+          <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-text3">Program Hub</p>
           <h1 className="text-4xl font-bold tracking-tight text-text1">
             Blue Origin Program
           </h1>
           <p className="max-w-3xl text-[15px] leading-relaxed text-text2">
-            A high-density technical record of Blue Origin&apos;s orbital and
-            suborbital operations. Merging flight manifest data with Sam.gov
-            procurement signals and verified engineering milestones.
+            Blue Origin flight, mission, and contract coverage with tracked
+            manifests, hardware pages, source-backed timeline updates, and
+            internal contract pages.
           </p>
           <div className="flex flex-wrap gap-4 pt-2">
             <div className="flex flex-col border-l border-stroke pl-4">
               <span className="text-[9px] font-bold uppercase tracking-widest text-text3">
-                Last Signal
+                Last Updated
               </span>
               <BlueOriginLocalTime
                 value={lastUpdated}
@@ -706,7 +704,7 @@ export default async function BlueOriginProgramPage() {
             </div>
             <div className="flex flex-col border-l border-stroke pl-4">
               <span className="text-[9px] font-bold uppercase tracking-widest text-text3">
-                High-Confidence Events
+                Verified Events
               </span>
               <span className="text-xs font-semibold text-text1">
                 {formatPercent(highConfidenceTimelineRate)}
@@ -732,7 +730,7 @@ export default async function BlueOriginProgramPage() {
               Flights
             </Link>
             <Link href="/blue-origin/missions/new-shepard" className="rounded-full border border-stroke px-2 py-1 transition hover:text-text1">
-              New Shepard Hub
+              New Shepard
             </Link>
           </div>
         </header>
@@ -876,10 +874,10 @@ export default async function BlueOriginProgramPage() {
         <section id="procurement" className="scroll-mt-24 space-y-8">
           <div className="border-b border-stroke pb-4">
             <h2 className="text-2xl font-bold text-text1">
-              03 Procurement Records
+              03 Contracts and Records
             </h2>
             <p className="mt-1 text-sm text-text3 italic">
-              Linked SAM.gov contract awards, SAM.gov opportunities, and USASpending financial records.
+              Internal contract pages with linked SAM.gov and USASpending source records.
             </p>
           </div>
           <BlueOriginProcurementLedger
@@ -889,21 +887,21 @@ export default async function BlueOriginProgramPage() {
             initialHasMore={auditTrailPage.hasMore}
           />
           <ProgramContractDiscoveryList
-            title="Related procurement leads"
-            subtitle="Relevant Blue Origin awards and notices that are in scope for the hub but still awaiting an exact story join."
+            title="Unmatched source records"
+            subtitle="Relevant Blue Origin awards and notices that are still waiting for a confident match to an internal contract page."
             items={discoveryPage.items}
-            emptyMessage="Relevant SAM.gov leads will appear here when records are in scope for Blue Origin but not yet safely attached to an exact contract story."
+            emptyMessage="Source records will appear here when they are in scope for Blue Origin but are not yet matched to an internal contract page."
           />
         </section>
 
         <section id="timeline" className="scroll-mt-24 space-y-8">
           <div className="border-b border-stroke pb-4">
             <h2 className="text-2xl font-bold text-text1">
-              04 Intelligence Signal
+              04 Timeline and Updates
             </h2>
             <p className="mt-1 text-sm text-text3 italic">
-              Unified stream of technical milestones and official social
-              intelligence.
+              Source-backed mission milestones and official posts in one
+              stream.
             </p>
           </div>
           <BlueOriginSignalLog
@@ -915,9 +913,9 @@ export default async function BlueOriginProgramPage() {
 
         <section id="media" className="scroll-mt-24 space-y-8">
           <div className="border-b border-stroke pb-4">
-            <h2 className="text-2xl font-bold text-text1">05 Media Evidence</h2>
+            <h2 className="text-2xl font-bold text-text1">05 Media Archive</h2>
             <p className="mt-1 text-sm text-text3 italic">
-              Tracked image and video archive supporting program evidence.
+              Tracked image and video archive for Blue Origin coverage.
             </p>
           </div>
           <BlueOriginMediaArchive items={mediaItems} />
@@ -925,7 +923,7 @@ export default async function BlueOriginProgramPage() {
 
         <footer className="mt-16 border-t border-stroke pt-8">
           <p className="text-center text-[10px] font-bold uppercase tracking-[0.3em] text-text3">
-            End of Record // {BRAND_NAME} Blue Origin Program Dossier
+            {BRAND_NAME} Blue Origin Program
           </p>
         </footer>
         {diagnosticsPayload ? (

@@ -140,21 +140,21 @@ export function ArtemisProgramWorkbenchDesktop({
     () => [
       {
         id: 'quick' as const,
-        label: 'Quick',
-        description: 'Fast signal overview',
+        label: 'Overview',
+        description: 'Program summary',
         badge: `${programSnapshot.upcoming.length}`
       },
       {
         id: 'explorer' as const,
-        label: 'Explorer',
-        description: activeMission ? activeMission.label : 'Mission timeline view',
+        label: 'Missions',
+        description: activeMission ? activeMission.label : 'Mission-by-mission view',
         badge: activeMission ? `${activeMission.snapshot.upcoming.length}` : '0',
         disabled: missions.length === 0
       },
       {
         id: 'technical' as const,
-        label: 'Technical',
-        description: 'Deep evidence and supersession',
+        label: 'Changes',
+        description: 'Detailed source and change history',
         badge: String((timelineEvents || []).length)
       }
     ],

@@ -18,8 +18,7 @@ export type ViewerFeatureKey =
   | 'rss_feeds'
   | 'embed_widgets'
   | 'ar_trajectory'
-  | 'enhanced_forecast'
-  | 'launch_day_email';
+  | 'enhanced_forecast';
 
 export type ViewerTierCard = {
   tier: ViewerTier;
@@ -43,17 +42,10 @@ export type ViewerFeatureManifestEntry = {
 export const viewerTierCardManifest: Record<ViewerTier, ViewerTierCard> = {
   anon: {
     tier: 'anon',
-    badgeLabel: 'Anon',
-    title: 'Mobile browsing is open by default',
-    description: 'Browse launches, use filters, and open the calendar on mobile by default. Premium unlocks follows, saved views, recurring calendar feeds, and advanced notifications.',
-    ctaLabel: 'View Premium',
-    ctaTarget: 'upgrade'
-  },
-  free: {
-    tier: 'free',
-    badgeLabel: 'Legacy',
-    title: 'Legacy account state',
-    description: 'This legacy tier no longer unlocks product access. Keep your account for ownership and recovery, then upgrade to Premium for the launch toolkit.',
+    badgeLabel: 'Public',
+    title: 'Browse on mobile without an account',
+    description:
+      'Browse launches, use filters, and open the calendar without an account. Premium unlocks follows, saved views, recurring calendar feeds, and advanced notifications.',
     ctaLabel: 'View Premium',
     ctaTarget: 'upgrade'
   },
@@ -184,21 +176,11 @@ export const viewerFeatureManifest: Record<ViewerFeatureKey, ViewerFeatureManife
     blockedDescription: 'Upgrade for deeper forecast and operational launch context.',
     ctaLabel: 'Upgrade',
     ctaTarget: 'upgrade'
-  },
-  launch_day_email: {
-    key: 'launch_day_email',
-    title: 'Launch-day email',
-    minimumTier: 'premium',
-    blockedTitle: 'Premium unlocks launch-day email',
-    blockedDescription: 'Upgrade to configure launch-day email delivery and premium account notifications.',
-    ctaLabel: 'Upgrade',
-    ctaTarget: 'upgrade'
   }
 };
 
 const viewerTierRank: Record<ViewerTier, number> = {
   anon: 0,
-  free: 0,
   premium: 1
 };
 
@@ -227,9 +209,10 @@ export function getMobileViewerTierCard(tier: ViewerTier, context: ViewerAccessC
 
   return {
     ...viewerTierCardManifest.anon,
-    title: 'Premium is available on this account',
+    badgeLabel: 'Signed in',
+    title: 'You are signed in without Premium',
     description:
-      'You are signed in. Premium unlocks follows, saved views, default filters, recurring calendar feeds, and advanced notifications on iPhone and Android.',
+      'Your account is active. Upgrade to unlock follows, saved views, default filters, recurring calendar feeds, and advanced notifications on iPhone and Android.',
     ctaLabel: 'View Premium',
     ctaTarget: 'upgrade' as const
   };
@@ -262,5 +245,5 @@ export function getViewerTierSummary(tier: ViewerTier) {
 }
 
 function normalizeViewerTierForDisplay(tier: ViewerTier): ViewerTier {
-  return tier === 'free' ? 'anon' : tier;
+  return tier;
 }

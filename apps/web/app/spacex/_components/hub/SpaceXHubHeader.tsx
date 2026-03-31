@@ -21,10 +21,10 @@ export function SpaceXHubHeader({
 }) {
   return (
     <header className="space-y-4">
-      <p className="text-xs uppercase tracking-[0.14em] text-text3">Program Dashboard</p>
+      <p className="text-xs uppercase tracking-[0.14em] text-text3">Program Hub</p>
       <h1 className="text-3xl font-semibold text-text1">SpaceX Program</h1>
       <p className="max-w-4xl text-sm text-text2">
-        SpaceX systems dashboard for Starship, Falcon, and Dragon with mission pages, structured flight records, contract intelligence, and investor-oriented proxy signals.
+        SpaceX mission, flight, recovery, and contract coverage for Starship, Falcon, and Dragon with internal detail pages and source-linked records.
       </p>
       <div className="flex flex-wrap items-center gap-2 text-xs text-text3">
         <span className="rounded-full border border-stroke px-3 py-1">Last updated: {lastUpdated}</span>
@@ -37,7 +37,7 @@ export function SpaceXHubHeader({
         <span className="rounded-full border border-stroke px-3 py-1">
           Drone-ship coverage: {droneShipCoveragePercent.toFixed(1)}%
         </span>
-        <span className="rounded-full border border-stroke px-3 py-1">USASpending rows: {usaspendingRows}</span>
+        <span className="rounded-full border border-stroke px-3 py-1">USASpending records: {usaspendingRows}</span>
       </div>
     </header>
   );

@@ -1,6 +1,7 @@
 export const CELESTRAK_BASE = 'https://celestrak.org';
 
 export const CELESTRAK_CURRENT_GP_PAGE = `${CELESTRAK_BASE}/NORAD/elements/`;
+export const CELESTRAK_CURRENT_SUPGP_PAGE = `${CELESTRAK_BASE}/NORAD/elements/supplemental/`;
 export const CELESTRAK_GP_ENDPOINT = `${CELESTRAK_BASE}/NORAD/elements/gp.php`;
 export const CELESTRAK_SUPGP_ENDPOINT = `${CELESTRAK_BASE}/NORAD/elements/supplemental/sup-gp.php`;
 export const CELESTRAK_SATCAT_ENDPOINT = `${CELESTRAK_BASE}/satcat/records.php`;
@@ -112,10 +113,145 @@ export function parseCurrentGpGroups(html: string) {
   return [...out.entries()].map(([code, label]) => ({ code, label }));
 }
 
+export type CelestrakSupgpDataset = {
+  file: string;
+  label: string;
+  category: 'family_feed' | 'launch_file';
+  launchAt: string | null;
+  deployAt: string | null;
+  launchWindowStartAt: string | null;
+  launchWindowEndAt: string | null;
+};
+
+export function parseCurrentSupgpDatasets(html: string): CelestrakSupgpDataset[] {
+  const cellRe = /<td[^>]*class\s*=\s*["']?center["']?[^>]*>([\s\S]*?)<\/td>/gi;
+  const byFile = new Map<string, CelestrakSupgpDataset>();
+
+  for (const cellMatch of html.matchAll(cellRe)) {
+    const cellHtml = cellMatch[1] ?? '';
+    if (!/sup-gp\.php\?FILE=/i.test(cellHtml)) continue;
+
+    const fileMatches = [...cellHtml.matchAll(/sup-gp\.php\?FILE=([^&"#]+)&/gi)];
+    if (!fileMatches.length) continue;
+
+    const firstFileIndex = fileMatches[0]?.index ?? 0;
+    const cellBaseLabel = normalizeGroupLabel(cellHtml.slice(0, firstFileIndex));
+
+    for (let index = 0; index < fileMatches.length; index += 1) {
+      const fileMatch = fileMatches[index];
+      const rawFile = fileMatch[1] ? decodeURIComponent(fileMatch[1]).trim() : '';
+      if (!rawFile) continue;
+
+      const segmentStart = fileMatch.index ?? 0;
+      const segmentEnd = fileMatches[index + 1]?.index ?? cellHtml.length;
+      const segmentPrefix = normalizeGroupLabel(cellHtml.slice(Math.max(0, segmentStart - 220), segmentStart));
+      const segmentText = normalizeGroupLabel(cellHtml.slice(segmentStart, segmentEnd));
+      const backupMatch = segmentPrefix.match(/Backup Launch Opportunity #(\d+)/i) ?? segmentText.match(/Backup Launch Opportunity #(\d+)/i);
+      const category = classifySupgpCategory(rawFile, cellBaseLabel, segmentPrefix, segmentText);
+      const entry: CelestrakSupgpDataset = {
+        file: rawFile,
+        label: deriveSupgpLabel({
+          file: rawFile,
+          category,
+          cellBaseLabel,
+          segmentPrefix,
+          backupIndex: backupMatch?.[1] ?? null
+        }),
+        category,
+        launchAt: extractSupgpTimestamp(segmentText, 'Launch'),
+        deployAt: extractSupgpTimestamp(segmentText, 'Deploy'),
+        launchWindowStartAt: extractSupgpWindow(segmentText)?.start ?? null,
+        launchWindowEndAt: extractSupgpWindow(segmentText)?.end ?? null
+      };
+
+      const previous = byFile.get(rawFile);
+      if (!previous || scoreSupgpDataset(entry) >= scoreSupgpDataset(previous)) {
+        byFile.set(rawFile, entry);
+      }
+    }
+  }
+
+  return [...byFile.values()].sort((left, right) => left.file.localeCompare(right.file));
+}
+
 function normalizeGroupLabel(labelHtml: string) {
   const stripped = stripTags(labelHtml);
   const decoded = decodeHtmlEntities(stripped);
   return decoded.replace(/\\s+/g, ' ').trim();
+}
+
+function classifySupgpCategory(file: string, cellBaseLabel: string, segmentPrefix: string, segmentText: string): 'family_feed' | 'launch_file' {
+  const raw = `${file} ${cellBaseLabel} ${segmentPrefix} ${segmentText}`.toLowerCase();
+  if (raw.includes('pre-launch') || raw.includes('backup launch opportunity')) return 'launch_file';
+  if (/starlink-g\d+-\d+/.test(raw) || /transporter-\d+/.test(raw) || /bandwagon-\d+/.test(raw)) return 'launch_file';
+  if (/(^|[-_])(b\d+|g\d+-\d+|\d{1,2})([-_]|$)/.test(file.toLowerCase())) return 'launch_file';
+  return 'family_feed';
+}
+
+function deriveSupgpLabel({
+  file,
+  category,
+  cellBaseLabel,
+  segmentPrefix,
+  backupIndex
+}: {
+  file: string;
+  category: 'family_feed' | 'launch_file';
+  cellBaseLabel: string;
+  segmentPrefix: string;
+  backupIndex: string | null;
+}) {
+  if (backupIndex) {
+    const base = cellBaseLabel.replace(/\\s+pre-launch$/i, '').trim() || humanizeSupgpFile(file).replace(/\\s+Backup\\s+#\\d+$/i, '').trim();
+    return `${base} Backup #${backupIndex}`;
+  }
+
+  if (segmentPrefix && !/^backup launch opportunity/i.test(segmentPrefix)) {
+    return segmentPrefix;
+  }
+
+  if (cellBaseLabel) return cellBaseLabel;
+  if (category === 'family_feed') return humanizeSupgpFile(file);
+  return `${humanizeSupgpFile(file)} Pre-Launch`;
+}
+
+function extractSupgpTimestamp(text: string, label: 'Launch' | 'Deploy') {
+  const match = text.match(new RegExp(`${label}:\\s*(\\d{4}-\\d{2}-\\d{2})\\s+(\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?)\\s*UTC`, 'i'));
+  if (!match) return null;
+  return toUtcIso(match[1], match[2]);
+}
+
+function extractSupgpWindow(text: string) {
+  const match = text.match(
+    /Launch window:\s*(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?)\s*UTC\s+to\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?)\s*UTC/i
+  );
+  if (!match) return null;
+  return {
+    start: toUtcIso(match[1], match[2]),
+    end: toUtcIso(match[3], match[4])
+  };
+}
+
+function toUtcIso(datePart: string, timePart: string) {
+  const normalizedTime = timePart.includes('.') ? timePart : `${timePart}.000`;
+  return `${datePart}T${normalizedTime}Z`;
+}
+
+function humanizeSupgpFile(file: string) {
+  return file
+    .replace(/[-_]+/g, ' ')
+    .replace(/\\b([a-z])/g, (match) => match.toUpperCase())
+    .replace(/\\bG(\\d+)\\s+(\\d+)\\b/g, 'G$1-$2')
+    .replace(/\\bB(\\d+)\\b/g, 'B$1')
+    .trim();
+}
+
+function scoreSupgpDataset(dataset: CelestrakSupgpDataset) {
+  let score = dataset.category === 'launch_file' ? 4 : 2;
+  if (dataset.launchAt) score += 2;
+  if (dataset.launchWindowEndAt) score += 1;
+  if (dataset.deployAt) score += 1;
+  return score;
 }
 
 function stripTags(text: string) {

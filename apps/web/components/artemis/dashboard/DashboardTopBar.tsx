@@ -8,23 +8,23 @@ import { MissionControlStatChip } from './MissionControlStatChip';
 const VIEW_COPY: Record<ArtemisDashboardView, { label: string; detail: string }> = {
   overview: {
     label: 'Overview',
-    detail: 'Executive pulse with launch readiness, timeline highlights, and confidence-ranked intelligence.'
+    detail: 'Program summary with launch readiness, recent milestones, and key updates.'
   },
   timeline: {
     label: 'Timeline',
-    detail: 'Deep temporal exploration across program milestones, evidence trails, and mission context.'
+    detail: 'Mission-by-mission timeline with dated milestones, linked sources, and launch context.'
   },
   intel: {
-    label: 'Intelligence',
-    detail: 'Authority-ranked stream of articles, imagery, social signals, and structured program data.'
+    label: 'Updates',
+    detail: 'Source-linked articles, imagery, posts, and structured data updates.'
   },
   budget: {
     label: 'Budget',
-    detail: 'Transparent view of budget lines, enacted totals, and procurement awards tied to Artemis.'
+    detail: 'Budget lines, award totals, and contract pages tied to Artemis.'
   },
   missions: {
     label: 'Missions',
-    detail: 'Direct routing to mission hubs with campaign progress across Artemis I through VII.'
+    detail: 'Direct links to Artemis mission pages from Artemis I through Artemis VII.'
   }
 };
 
@@ -43,7 +43,7 @@ export function DashboardTopBar({
   return (
     <header className="rounded-3xl border border-stroke bg-[rgba(7,10,22,0.86)] px-5 py-5 shadow-surface backdrop-blur-xl">
       <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.2em] text-text4">
-        <span>Mission Control</span>
+        <span>Artemis Program</span>
         <span className="hidden sm:inline">/</span>
         <span className="text-text3">{copy.label}</span>
       </div>
@@ -59,7 +59,7 @@ export function DashboardTopBar({
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <MissionControlStatChip label={`Last updated: ${lastUpdatedLabel}`} />
-        <MissionControlStatChip label="Data: SSR timeline + authority-ranked content" tone="info" />
+        <MissionControlStatChip label="Data: server-rendered timeline + linked sources" tone="info" />
         <Link
           href="/artemis/awardees"
           className={clsx(

@@ -3,14 +3,14 @@ import { BRAND_NAME } from '@/lib/brand';
 
 export const metadata: Metadata = {
   title: `Roadmap | ${BRAND_NAME}`,
-  description: `Planned phases for ${BRAND_NAME}: data plumbing, notifications, billing, and ops.`,
+  description: `Planned phases for ${BRAND_NAME}: data plumbing, native push, billing, and ops.`,
   alternates: { canonical: '/docs/roadmap' }
 };
 
 const phases = [
   { title: 'Phase 0 - Foundations', status: 'Done', detail: 'Scaffold Next.js app, theming, mock data, legal pages.' },
-  { title: 'Phase 1 - Data plumbing', status: 'Planned', detail: 'Supabase schema, LL2 ingestion with rate limiting, public cache derivation.' },
-  { title: 'Phase 2 - Notifications + Billing', status: 'Planned', detail: 'Stripe entitlements, SMS guardrails, quiet hours.' },
+  { title: 'Phase 1 - Data plumbing', status: 'Done', detail: 'Supabase schema, LL2 ingestion with rate limiting, public cache derivation.' },
+  { title: 'Phase 2 - Native push', status: 'In progress', detail: 'Keep push alerts aligned across mobile clients and shared APIs.' },
   { title: 'Phase 3 - Admin + Ops', status: 'Planned', detail: 'Admin UI, system settings management, logs/outbox views.' }
 ];
 

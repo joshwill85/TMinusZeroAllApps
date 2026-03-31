@@ -15,6 +15,7 @@ import clsx from 'clsx';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
+import { sharedQueryKeys } from '@tminuszero/query';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   applyGuestViewerState,
@@ -23,6 +24,7 @@ import {
   useCreateWatchlistRuleMutation,
   useDeleteWatchlistRuleMutation,
   useArEligibleLaunchIdsQuery,
+  useBasicFollowsQuery,
   useFeedFilterOptionsQuery,
   useFilterPresetsQuery,
   useViewerSessionQuery,
@@ -117,7 +119,7 @@ function getPageFromSearchParams(searchParams: SearchParamsLike) {
 }
 
 function normalizeViewerTier(value: unknown): ViewerTier | null {
-  if (value === 'anon' || value === 'free' || value === 'premium') return value;
+  if (value === 'anon' || value === 'premium') return value;
   return null;
 }
 
@@ -282,6 +284,7 @@ export function LaunchFeed({
   const lastRouterReplaceRef = useRef<{ url: string; at: number } | null>(null);
   const viewerSessionQuery = useViewerSessionQuery();
   const viewerEntitlementsQuery = useViewerEntitlementsQuery();
+  const basicFollowsQuery = useBasicFollowsQuery();
   const filterPresetsQuery = useFilterPresetsQuery();
   const watchlistsQuery = useWatchlistsQuery();
   const createFilterPresetMutation = useCreateFilterPresetMutation();
@@ -317,8 +320,11 @@ export function LaunchFeed({
   const canUseSavedItems = isAuthed && Boolean(viewerCapabilities?.canUseSavedItems);
   const canManageFilterPresets = isAuthed && Boolean(viewerCapabilities?.canManageFilterPresets);
   const canUseBasicAlertRules = isAuthed && Boolean(viewerCapabilities?.canUseBasicAlertRules);
-  const canUseBrowserLaunchAlerts = isAuthed && Boolean(viewerCapabilities?.canUseBrowserLaunchAlerts);
-  const canUseOneOffCalendar = Boolean(viewerCapabilities?.canUseOneOffCalendar);
+  const singleLaunchFollowLimit = Math.max(1, viewerEntitlementsQuery.data?.limits.singleLaunchFollowLimit ?? 1);
+  const activeBasicLaunchFollow = basicFollowsQuery.data?.activeLaunchFollow ?? null;
+  const basicFollowCapacityLabel = !canUseSavedItems
+    ? `${activeBasicLaunchFollow ? 1 : 0}/${singleLaunchFollowLimit}`
+    : undefined;
   const mode = useMemo(() => modeOverride ?? tierToMode(viewerTier), [modeOverride, viewerTier]);
   const arEligibleLaunchIdsQuery = useArEligibleLaunchIdsQuery({
     initialData: initialArEligibleLaunchIds
@@ -405,6 +411,9 @@ export function LaunchFeed({
   const myLaunchRulesByLaunchId = useMemo(() => extractLaunchRuleMap(selectedWatchlist?.rules), [selectedWatchlist?.rules]);
   const myProviderRulesByProvider = useMemo(() => extractProviderRuleMap(selectedWatchlist?.rules), [selectedWatchlist?.rules]);
   const myPadRulesByValue = useMemo(() => extractPadRuleMap(selectedWatchlist?.rules), [selectedWatchlist?.rules]);
+  const myRocketRulesByValue = useMemo(() => extractRuleMap(selectedWatchlist?.rules, 'rocket'), [selectedWatchlist?.rules]);
+  const myLaunchSiteRulesByValue = useMemo(() => extractRuleMap(selectedWatchlist?.rules, 'launch_site'), [selectedWatchlist?.rules]);
+  const myStateRulesByValue = useMemo(() => extractRuleMap(selectedWatchlist?.rules, 'state'), [selectedWatchlist?.rules]);
   const refreshIntervalSeconds = getTierRefreshSeconds(viewerTier);
   const refreshIntervalMs = refreshIntervalSeconds * 1000;
   const recentChanges = useMemo(() => changed.slice(0, 6), [changed]);
@@ -1225,7 +1234,10 @@ export function LaunchFeed({
   const followRuleCount =
     Object.keys(myLaunchRulesByLaunchId).length +
     Object.keys(myProviderRulesByProvider).length +
-    Object.keys(myPadRulesByValue).length;
+    Object.keys(myPadRulesByValue).length +
+    Object.keys(myRocketRulesByValue).length +
+    Object.keys(myLaunchSiteRulesByValue).length +
+    Object.keys(myStateRulesByValue).length;
   const hasAnyFollowRules = followRuleCount > 0;
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -1258,7 +1270,7 @@ export function LaunchFeed({
     viewerTier === 'premium'
       ? 'Live updates are active.'
       : isAuthed
-        ? 'You are signed in with anon access.'
+        ? 'You are signed in without Premium.'
         : 'Browse publicly, then sign in when you want account ownership.';
   const modeStatusBody =
     viewerTier === 'premium'
@@ -1436,7 +1448,11 @@ export function LaunchFeed({
   );
 
   const createWatchlistRule = useCallback(
-    (watchlistId: string, ruleType: 'launch' | 'pad' | 'provider' | 'tier', ruleValue: string) =>
+    (
+      watchlistId: string,
+      ruleType: 'launch' | 'pad' | 'provider' | 'rocket' | 'launch_site' | 'state' | 'tier',
+      ruleValue: string
+    ) =>
       createWatchlistRuleMutation.mutateAsync({
         watchlistId,
         payload: {
@@ -1796,10 +1812,231 @@ export function LaunchFeed({
     ]
   );
 
+  const toggleFollowRule = useCallback(
+    async (ruleType: 'rocket' | 'launch_site' | 'state', ruleValue: string, label: string) => {
+      const normalized = String(ruleValue || '').trim();
+      if (!normalized) return;
+      if (!canUseSavedItems) return;
+      if (!myWatchlistId) {
+        setNotice({ tone: 'warning', message: 'My Launches is still loading.' });
+        return;
+      }
+
+      const busyKey = `${ruleType}:${normalized.toLowerCase()}`;
+      if (followToggleBusy[busyKey]) return;
+      setFollowToggleBusy((prev) => ({ ...prev, [busyKey]: true }));
+
+      const ruleMap =
+        ruleType === 'rocket'
+          ? myRocketRulesByValue
+          : ruleType === 'launch_site'
+            ? myLaunchSiteRulesByValue
+            : myStateRulesByValue;
+      const existingRuleId = ruleMap[normalized.toLowerCase()] || null;
+
+      try {
+        if (existingRuleId) {
+          await deleteWatchlistRule(myWatchlistId, existingRuleId);
+          invalidateLaunchFeedQueries(queryClient);
+          pushToast({ message: `Unfollowed ${label}.`, tone: 'info' });
+          return;
+        }
+
+        const payload = await createWatchlistRule(myWatchlistId, ruleType, normalized);
+        const ruleId = payload.rule?.id ? String(payload.rule.id) : null;
+        if (ruleId) {
+          invalidateLaunchFeedQueries(queryClient);
+          pushToast({
+            message: `Following ${label}.`,
+            tone: 'success',
+            onUndo: async () => {
+              const watchlistId = latestRef.current.myWatchlistId;
+              if (!watchlistId) return;
+              try {
+                await deleteWatchlistRule(watchlistId, ruleId);
+              } catch (error) {
+                setNotice({ tone: 'warning', message: buildWatchlistRuleErrorMessage(error, 'Follow') });
+              }
+            }
+          });
+        }
+      } catch (err) {
+        console.error('follow toggle error', err);
+        setNotice({ tone: 'warning', message: buildWatchlistRuleErrorMessage(err, 'Follow') });
+      } finally {
+        setFollowToggleBusy((prev) => ({ ...prev, [busyKey]: false }));
+      }
+    },
+    [
+      canUseSavedItems,
+      createWatchlistRule,
+      deleteWatchlistRule,
+      followToggleBusy,
+      myLaunchSiteRulesByValue,
+      myRocketRulesByValue,
+      myStateRulesByValue,
+      myWatchlistId,
+      pushToast,
+      queryClient
+    ]
+  );
+
+  const toggleBasicLaunchFollow = useCallback(
+    async (launch: Launch) => {
+      void launch;
+      setNotice({
+        tone: 'info',
+        message: 'Launch alerts are managed in the native iOS or Android app. Open Notifications for the current setup.'
+      });
+      router.push('/me/preferences');
+    },
+    [router]
+  );
+
   const renderLaunchCard = useCallback(
     (launch: Launch, { isNext }: { isNext: boolean }) => {
       const providerKey = String(launch.provider || '').trim();
       const padRuleValue = buildPadRuleValue(launch);
+      const rocketRuleValue = buildRocketRuleValue(launch);
+      const launchSiteRuleValue = buildLaunchSiteRuleValue(launch);
+      const stateRuleValue = buildStateRuleValue(launch);
+      const currentBasicLaunchActive = activeBasicLaunchFollow?.launchId === launch.id.toLowerCase();
+      const basicLaunchDescription = currentBasicLaunchActive
+        ? 'This launch is already tracked on your account. Manage it in the native iOS or Android app.'
+        : 'Manage launch push reminders for this launch in the native iOS or Android app.';
+      const basicFollowOptions = [
+        {
+          key: 'launch',
+          label: 'This launch',
+          description: basicLaunchDescription,
+          active: currentBasicLaunchActive,
+          disabled: false,
+          locked: false,
+          onPress: () => {
+            void toggleBasicLaunchFollow(launch);
+          }
+        },
+        {
+          key: 'provider',
+          label: 'This provider',
+          description: 'Premium adds recurring provider follows.',
+          active: false,
+          disabled: false,
+          locked: true,
+          onPress: () => openUpsell('Follow')
+        },
+        {
+          key: 'rocket',
+          label: 'This rocket',
+          description: 'Premium adds recurring rocket follows.',
+          active: false,
+          disabled: false,
+          locked: true,
+          onPress: () => openUpsell('Follow')
+        },
+        {
+          key: 'pad',
+          label: 'This pad',
+          description: 'Premium adds recurring pad follows.',
+          active: false,
+          disabled: false,
+          locked: true,
+          onPress: () => openUpsell('Follow')
+        },
+        {
+          key: 'launch_site',
+          label: 'This launch site',
+          description: 'Premium adds recurring launch-site follows.',
+          active: false,
+          disabled: false,
+          locked: true,
+          onPress: () => openUpsell('Follow')
+        },
+        {
+          key: 'state',
+          label: 'This state',
+          description: 'Premium adds state-wide launch alerts.',
+          active: false,
+          disabled: false,
+          locked: true,
+          onPress: () => openUpsell('Follow')
+        }
+      ];
+      const premiumFollowOptions = [
+        {
+          key: 'launch',
+          label: 'This launch',
+          description: 'Keep this exact launch in Following.',
+          active: Boolean(myLaunchRulesByLaunchId[launch.id]),
+          disabled: Boolean(watchToggleBusy[launch.id]) || !myWatchlistId || watchlistsLoading || Boolean(watchlistsError),
+          locked: false,
+          onPress: () => {
+            void toggleWatchLaunch(launch.id);
+          }
+        },
+        {
+          key: 'rocket',
+          label: 'This rocket',
+          description: rocketRuleValue ? `All launches for ${formatRocketRuleLabel(rocketRuleValue)}.` : 'Rocket follow unavailable.',
+          active: Boolean(rocketRuleValue && myRocketRulesByValue[rocketRuleValue]),
+          disabled: !rocketRuleValue,
+          locked: false,
+          onPress: () => {
+            if (!rocketRuleValue) return;
+            void toggleFollowRule('rocket', rocketRuleValue, formatRocketRuleLabel(rocketRuleValue));
+          }
+        },
+        {
+          key: 'provider',
+          label: 'This provider',
+          description: providerKey ? `All launches from ${providerKey}.` : 'Provider follow unavailable.',
+          active: providerKey ? Boolean(myProviderRulesByProvider[providerKey]) : false,
+          disabled: !providerKey,
+          locked: false,
+          onPress: () => {
+            if (!providerKey) return;
+            void toggleFollowProvider(providerKey);
+          }
+        },
+        {
+          key: 'pad',
+          label: 'This pad',
+          description: padRuleValue ? `Launches from ${formatPadRuleLabel(padRuleValue)}.` : 'Pad follow unavailable.',
+          active: padRuleValue ? Boolean(myPadRulesByValue[padRuleValue]) : false,
+          disabled: !padRuleValue,
+          locked: false,
+          onPress: () => {
+            if (!padRuleValue) return;
+            void toggleFollowPad(padRuleValue);
+          }
+        },
+        {
+          key: 'launch_site',
+          label: 'This launch site',
+          description: launchSiteRuleValue ? `Launches from ${launchSiteRuleValue}.` : 'Launch-site follow unavailable.',
+          active: launchSiteRuleValue ? Boolean(myLaunchSiteRulesByValue[launchSiteRuleValue]) : false,
+          disabled: !launchSiteRuleValue,
+          locked: false,
+          onPress: () => {
+            if (!launchSiteRuleValue) return;
+            void toggleFollowRule('launch_site', launchSiteRuleValue, launchSiteRuleValue);
+          }
+        },
+        {
+          key: 'state',
+          label: 'This state',
+          description: stateRuleValue ? `Launches in ${stateRuleValue.toUpperCase()}.` : 'State follow unavailable.',
+          active: stateRuleValue ? Boolean(myStateRulesByValue[stateRuleValue]) : false,
+          disabled: !stateRuleValue,
+          locked: false,
+          onPress: () => {
+            if (!stateRuleValue) return;
+            void toggleFollowRule('state', stateRuleValue, stateRuleValue.toUpperCase());
+          }
+        }
+      ];
+      const followOptions = canUseSavedItems ? premiumFollowOptions : basicFollowOptions;
+      const activeFollowCount = followOptions.filter((option) => option.active).length;
       return (
         <LaunchCard
           launch={launch}
@@ -1808,66 +2045,41 @@ export function LaunchFeed({
           isAuthed={isAuthed}
           isPaid={isPaid}
           canUseBasicAlertRules={canUseBasicAlertRules}
-          canUseBrowserLaunchAlerts={canUseBrowserLaunchAlerts}
-          canUseOneOffCalendar={canUseOneOffCalendar}
           isArEligible={arEligibleLaunchIdSet.has(launch.id)}
           onOpenUpsell={openUpsell}
           blockThirdPartyEmbeds={blockThirdPartyEmbeds}
           initialNowMs={initialNowMs}
-          isWatched={Boolean(myLaunchRulesByLaunchId[launch.id])}
-          watchDisabled={
-            Boolean(watchToggleBusy[launch.id]) ||
-            viewerTier === 'anon' ||
-            !myWatchlistId ||
-            watchlistsLoading ||
-            Boolean(watchlistsError)
-          }
-          onToggleWatch={canUseSavedItems ? toggleWatchLaunch : undefined}
-          isProviderFollowed={providerKey ? Boolean(myProviderRulesByProvider[providerKey]) : false}
-          providerFollowDisabled={
-            !providerKey ||
-            viewerTier === 'anon' ||
-            !myWatchlistId ||
-            watchlistsLoading ||
-            Boolean(watchlistsError) ||
-            Boolean(followToggleBusy[`provider:${providerKey}`])
-          }
-          onToggleFollowProvider={canUseSavedItems ? toggleFollowProvider : undefined}
-          padFollowValue={padRuleValue}
-          isPadFollowed={padRuleValue ? Boolean(myPadRulesByValue[padRuleValue]) : false}
-          padFollowDisabled={
-            !padRuleValue ||
-            viewerTier === 'anon' ||
-            !myWatchlistId ||
-            watchlistsLoading ||
-            Boolean(watchlistsError) ||
-            Boolean(followToggleBusy[`pad:${padRuleValue}`])
-          }
-          onToggleFollowPad={canUseSavedItems ? toggleFollowPad : undefined}
+          followMenuLabel={activeFollowCount > 0 ? 'Following' : 'Follow'}
+          followMenuCapacityLabel={canUseSavedItems ? undefined : basicFollowCapacityLabel}
+          followMenuOptions={followOptions}
         />
       );
     },
     [
+      activeBasicLaunchFollow,
       arEligibleLaunchIdSet,
+      basicFollowCapacityLabel,
       blockThirdPartyEmbeds,
-      canUseSavedItems,
       canUseBasicAlertRules,
-      canUseBrowserLaunchAlerts,
-      canUseOneOffCalendar,
-      followToggleBusy,
+      canUseSavedItems,
       initialNowMs,
       isAuthed,
       isPaid,
       myLaunchRulesByLaunchId,
+      myLaunchSiteRulesByValue,
       myPadRulesByValue,
       myProviderRulesByProvider,
+      myRocketRulesByValue,
+      myStateRulesByValue,
       myWatchlistId,
       openUpsell,
+      router,
       showAlertsNudge,
+      toggleBasicLaunchFollow,
       toggleFollowPad,
       toggleFollowProvider,
+      toggleFollowRule,
       toggleWatchLaunch,
-      viewerTier,
       watchToggleBusy,
       watchlistsError,
       watchlistsLoading
@@ -2495,6 +2707,22 @@ function extractPadRuleMap(rules: unknown) {
   return map;
 }
 
+function extractRuleMap(rules: unknown, ruleType: string) {
+  const rows = Array.isArray(rules) ? rules : [];
+  const map: Record<string, string> = {};
+
+  for (const row of rows) {
+    const type = String((row as any)?.rule_type || (row as any)?.ruleType || '').trim().toLowerCase();
+    if (type !== ruleType) continue;
+    const value = String((row as any)?.rule_value || (row as any)?.ruleValue || '').trim().toLowerCase();
+    const ruleId = String((row as any)?.id || '').trim();
+    if (!value || !ruleId) continue;
+    map[value] = ruleId;
+  }
+
+  return map;
+}
+
 function buildPadRuleValue(launch: Launch) {
   const ll2 = launch.ll2PadId;
   if (typeof ll2 === 'number' && Number.isFinite(ll2) && ll2 > 0) {
@@ -2503,6 +2731,31 @@ function buildPadRuleValue(launch: Launch) {
   const code = String(launch.pad?.shortCode || '').trim();
   if (!code || code === 'Pad') return null;
   return `code:${code}`;
+}
+
+function buildRocketRuleValue(launch: Launch) {
+  if (typeof launch.ll2RocketConfigId === 'number' && Number.isFinite(launch.ll2RocketConfigId) && launch.ll2RocketConfigId > 0) {
+    return `ll2:${String(Math.trunc(launch.ll2RocketConfigId))}`;
+  }
+  const label = String(launch.rocket?.fullName || launch.vehicle || '').trim();
+  return label ? label.toLowerCase() : null;
+}
+
+function formatRocketRuleLabel(value: string) {
+  const raw = String(value || '').trim();
+  if (!raw) return 'Rocket';
+  return raw.toLowerCase().startsWith('ll2:') ? `Rocket ${raw.slice(4)}` : raw;
+}
+
+function buildLaunchSiteRuleValue(launch: Launch) {
+  const value = String(launch.pad?.locationName || launch.pad?.name || '').trim();
+  return value ? value.toLowerCase() : null;
+}
+
+function buildStateRuleValue(launch: Launch) {
+  const value = String(launch.pad?.state || '').trim().toLowerCase();
+  if (!value || value === 'na' || value === 'n/a' || value === 'unknown') return null;
+  return value;
 }
 
 function formatPadRuleLabel(value: string) {

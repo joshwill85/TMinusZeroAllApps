@@ -23,7 +23,7 @@ const feedFilterOptionsSchema = z.object({
 });
 
 const liveLaunchVersionSchema = z.object({
-  tier: z.enum(['anon', 'free', 'premium']),
+  tier: z.enum(['anon', 'premium']),
   intervalSeconds: z.number().int().nonnegative(),
   matchCount: z.number().int().nonnegative(),
   latestUpdateId: z.number().int().nullable(),
@@ -123,7 +123,7 @@ export async function getLegacyLaunchFeed(request: LaunchFeedRequest): Promise<L
       freshness: z.string().nullable().optional(),
       intervalMinutes: z.number().int().nonnegative().nullable().optional(),
       intervalSeconds: z.number().int().nonnegative().nullable().optional(),
-      tier: z.enum(['anon', 'free', 'premium']).optional()
+      tier: z.enum(['anon', 'premium']).optional()
     })
   );
 

@@ -1,6 +1,8 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  AdminAccessOverrideUpdateV1,
+  AdminAccessOverrideV1,
   AlertRuleCreateV1,
   AlertRuleEnvelopeV1,
   AlertRulesV1,
@@ -28,8 +30,6 @@ import type {
   LaunchFeedV1,
   LaunchFeedVersionRequest,
   LaunchFilterOptionsRequest,
-  LaunchNotificationPreferenceEnvelopeV1,
-  LaunchNotificationPreferenceUpdateV1,
   MobilePushGuestContextV1,
   MobilePushLaunchPreferenceEnvelopeV1,
   MobilePushRuleEnvelopeV1,
@@ -38,8 +38,6 @@ import type {
   MobilePushTestRequestV1,
   MarketingEmailUpdateV1,
   MarketingEmailV1,
-  NotificationPreferencesV1,
-  NotificationPreferencesUpdateV1,
   PrivacyPreferencesUpdateV1,
   PrivacyPreferencesV1,
   ProfileUpdateV1,
@@ -48,8 +46,6 @@ import type {
   RssFeedEnvelopeV1,
   RssFeedsV1,
   RssFeedUpdateV1,
-  SmsVerificationCheckV1,
-  SmsVerificationRequestV1,
   SpaceXMissionFilterRequest,
   SpaceXMissionKeyV1,
   WatchlistCreateV1,
@@ -60,6 +56,7 @@ import type {
   WatchlistsV1
 } from '@tminuszero/api-client';
 import {
+  adminAccessOverrideQueryOptions,
   alertRulesQueryOptions,
   billingCatalogQueryOptions,
   billingSummaryQueryOptions,
@@ -88,7 +85,6 @@ import {
   launchFilterOptionsQueryOptions,
   launchDetailQueryOptions,
   launchTrajectoryQueryOptions,
-  launchNotificationPreferenceQueryOptions,
   marketingEmailQueryOptions,
   mobilePushLaunchPreferenceQueryOptions,
   mobilePushRulesQueryOptions,
@@ -285,12 +281,6 @@ function mergeMobilePushRuleEnvelope(
   };
 }
 
-async function invalidateLaunchNotificationPreferenceQueries(queryClient: QueryClient) {
-  await queryClient.invalidateQueries({
-    predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] === 'launch-notification-preference'
-  });
-}
-
 async function invalidateMobilePushLaunchPreferenceQueries(queryClient: QueryClient) {
   await queryClient.invalidateQueries({
     predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] === 'mobile-push-launch-preference'
@@ -322,6 +312,18 @@ export function useViewerEntitlementsQuery() {
   return useQuery({
     ...viewerEntitlementsQueryOptions(() => client.getViewerEntitlements()),
     enabled: isAuthHydrated,
+  });
+}
+
+export function useAdminAccessOverrideQuery(options?: { enabled?: boolean }) {
+  const client = useMobileApiClient();
+  const { isAuthHydrated } = useMobileBootstrap();
+  const sessionQuery = useViewerSessionQuery();
+  const isAdmin = sessionQuery.data?.role === 'admin';
+
+  return useQuery({
+    ...adminAccessOverrideQueryOptions(() => client.getAdminAccessOverride()),
+    enabled: isAuthHydrated && (options?.enabled ?? true) && Boolean(sessionQuery.data?.viewerId) && isAdmin
   });
 }
 
@@ -960,6 +962,34 @@ export function useUpdateMarketingEmailMutation() {
   });
 }
 
+export function useUpdateAdminAccessOverrideMutation() {
+  const client = useMobileApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: AdminAccessOverrideUpdateV1) => client.updateAdminAccessOverride(payload),
+    onSuccess: async (payload: AdminAccessOverrideV1) => {
+      queryClient.setQueryData(sharedQueryKeys.adminAccessOverride, payload);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: sharedQueryKeys.adminAccessOverride }),
+        queryClient.invalidateQueries({ queryKey: sharedQueryKeys.entitlements }),
+        queryClient.invalidateQueries({ queryKey: sharedQueryKeys.basicFollows }),
+        queryClient.invalidateQueries({ queryKey: sharedQueryKeys.watchlists }),
+        queryClient.invalidateQueries({ queryKey: sharedQueryKeys.filterPresets }),
+        queryClient.invalidateQueries({ queryKey: sharedQueryKeys.alertRules }),
+        queryClient.invalidateQueries({ queryKey: sharedQueryKeys.calendarFeeds }),
+        queryClient.invalidateQueries({ queryKey: sharedQueryKeys.rssFeeds }),
+        queryClient.invalidateQueries({ queryKey: sharedQueryKeys.embedWidgets }),
+        queryClient.invalidateQueries({ queryKey: sharedQueryKeys.notificationPreferences }),
+        queryClient.invalidateQueries({ queryKey: sharedQueryKeys.launchFeed }),
+        queryClient.invalidateQueries({ queryKey: ['launch-detail'] }),
+        queryClient.invalidateQueries({ queryKey: ['launch-feed-version'] }),
+        queryClient.invalidateQueries({ queryKey: ['launch-detail-version'] })
+      ]);
+    }
+  });
+}
+
 export function useDeleteAccountMutation() {
   const client = useMobileApiClient();
   const queryClient = useQueryClient();
@@ -970,6 +1000,7 @@ export function useDeleteAccountMutation() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: sharedQueryKeys.viewerSession }),
         queryClient.invalidateQueries({ queryKey: sharedQueryKeys.entitlements }),
+        queryClient.invalidateQueries({ queryKey: sharedQueryKeys.adminAccessOverride }),
         queryClient.invalidateQueries({ queryKey: sharedQueryKeys.profile }),
         queryClient.invalidateQueries({ queryKey: sharedQueryKeys.privacyPreferences }),
         queryClient.invalidateQueries({ queryKey: sharedQueryKeys.accountExport }),
@@ -1190,55 +1221,7 @@ export function useNotificationPreferencesQuery() {
 
   return useQuery({
     ...notificationPreferencesQueryOptions(() => client.getNotificationPreferences()),
-    enabled: isAuthHydrated && Boolean(accessToken),
-  });
-}
-
-export function useUpdateNotificationPreferencesMutation() {
-  const client = useMobileApiClient();
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (payload: NotificationPreferencesUpdateV1) => client.updateNotificationPreferences(payload),
-    onSuccess: async (payload) => {
-      queryClient.setQueryData<NotificationPreferencesV1>(sharedQueryKeys.notificationPreferences, payload);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: sharedQueryKeys.notificationPreferences }),
-        invalidateLaunchNotificationPreferenceQueries(queryClient)
-      ]);
-    }
-  });
-}
-
-export function useLaunchNotificationPreferenceQuery(launchId: string | null, channel: 'sms' | 'push' = 'push') {
-  const client = useMobileApiClient();
-  const { accessToken, isAuthHydrated } = useMobileBootstrap();
-
-  return useQuery({
-    ...launchNotificationPreferenceQueryOptions(launchId || 'missing', channel, () =>
-      client.getLaunchNotificationPreference(String(launchId), channel)
-    ),
-    enabled: isAuthHydrated && Boolean(accessToken) && Boolean(launchId)
-  });
-}
-
-export function useUpdateLaunchNotificationPreferenceMutation() {
-  const client = useMobileApiClient();
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({ launchId, payload }: { launchId: string; payload: LaunchNotificationPreferenceUpdateV1 }) =>
-      client.updateLaunchNotificationPreference(launchId, payload),
-    onSuccess: async (payload, variables) => {
-      const channel = payload.preference.channel ?? variables.payload.channel ?? 'push';
-      queryClient.setQueryData<LaunchNotificationPreferenceEnvelopeV1>(
-        sharedQueryKeys.launchNotificationPreference(variables.launchId, channel),
-        payload
-      );
-      await queryClient.invalidateQueries({
-        queryKey: sharedQueryKeys.launchNotificationPreference(variables.launchId, channel)
-      });
-    }
+    enabled: isAuthHydrated && Boolean(accessToken)
   });
 }
 
@@ -1350,36 +1333,6 @@ export function useSendMobilePushTestMutation() {
 
   return useMutation({
     mutationFn: (payload: MobilePushTestRequestV1) => client.sendMobilePushTest(payload)
-  });
-}
-
-export function useStartSmsVerificationMutation() {
-  const client = useMobileApiClient();
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (payload: SmsVerificationRequestV1) => client.startSmsVerification(payload),
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: sharedQueryKeys.notificationPreferences }),
-        invalidateLaunchNotificationPreferenceQueries(queryClient)
-      ]);
-    }
-  });
-}
-
-export function useCompleteSmsVerificationMutation() {
-  const client = useMobileApiClient();
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (payload: SmsVerificationCheckV1) => client.completeSmsVerification(payload),
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: sharedQueryKeys.notificationPreferences }),
-        invalidateLaunchNotificationPreferenceQueries(queryClient)
-      ]);
-    }
   });
 }
 

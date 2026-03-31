@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'expo-router';
+import { useRouter, useSegments } from 'expo-router';
 import type { Href } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
-import { ApiClientError, type LaunchFeedV1 } from '@tminuszero/api-client';
-import { AppState, Image, Modal, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { ApiClientError, type LaunchFeedRequest, type LaunchFeedV1 } from '@tminuszero/api-client';
+import { AppState, FlatList, Image, InteractionManager, Pressable, RefreshControl, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   DEFAULT_LAUNCH_FILTERS,
@@ -27,29 +27,44 @@ import {
   useCreateWatchlistMutation,
   useCreateWatchlistRuleMutation,
   useCreateFilterPresetMutation,
+  useDeleteMobilePushRuleMutation,
   useDeleteWatchlistRuleMutation,
   fetchLaunchFeedVersion,
   useFilterPresetsQuery,
   useLaunchFeedQuery,
   useLaunchFilterOptionsQuery,
+  useMobilePushRulesQuery,
+  useUpsertMobilePushLaunchPreferenceMutation,
   useUpdateFilterPresetMutation,
   useViewerEntitlementsQuery,
   useViewerSessionQuery,
   useWatchlistsQuery
 } from '@/src/api/queries';
-import { AppScreen } from '@/src/components/AppScreen';
-import { EmptyStateCard, ErrorStateCard, LoadingStateCard } from '@/src/components/SectionCard';
+import { EmptyStateCard, ErrorStateCard } from '@/src/components/SectionCard';
 import { useApiClient } from '@/src/api/client';
 import { LaunchAlertsPanel } from '@/src/components/LaunchAlertsPanel';
-import { LaunchCalendarSheet } from '@/src/components/LaunchCalendarSheet';
+import { LaunchFollowSheet, type LaunchFollowSheetOption } from '@/src/components/LaunchFollowSheet';
 import { LaunchFilterSheet } from '@/src/components/LaunchFilterSheet';
+import { WebParityLaunchCard, WebParityLaunchCardSkeleton } from '@/src/components/WebParityLaunchCard';
+import { MOBILE_DOCK_BOTTOM_OFFSET, MOBILE_DOCK_CONTENT_GAP, MOBILE_DOCK_HEIGHT, shouldShowCustomerDock } from '@/src/components/mobileShell';
+import type { FeedLaunchCardData } from '@/src/feed/feedCardData';
+import { toFeedLaunchCardData } from '@/src/feed/feedCardData';
+import { readPublicFeedSnapshot, writePublicFeedSnapshot } from '@/src/feed/feedSnapshotStorage';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import { useMobileToast } from '@/src/providers/MobileToastProvider';
 import { useMobilePush } from '@/src/providers/MobilePushProvider';
-import { WebParityLaunchCard } from '@/src/components/WebParityLaunchCard';
 import { getProgramHubEntryOrCoreHref } from '@/src/features/programHubs/rollout';
-import type { LaunchCalendarLaunch } from '@/src/calendar/launchCalendar';
-import { buildPadRuleValue, formatPadRuleLabel, resolvePrimaryWatchlist } from '@/src/watchlists/usePrimaryWatchlist';
+import {
+  buildLaunchSiteRuleValue,
+  buildPadRuleValue,
+  buildRocketRuleValue,
+  buildStateRuleValue,
+  formatLaunchSiteRuleLabel,
+  formatPadRuleLabel,
+  formatRocketRuleLabel,
+  formatStateRuleLabel,
+  resolvePrimaryWatchlist
+} from '@/src/watchlists/usePrimaryWatchlist';
 import artemisProgramLogo from '../../assets/program-logos/artemis-nasa-official.png';
 import spacexProgramLogo from '../../assets/program-logos/spacex-official.png';
 import blueOriginProgramLogo from '../../assets/program-logos/blueorigin-official.png';
@@ -62,6 +77,7 @@ type PendingFeedRefresh = {
 
 export default function FeedScreen() {
   const router = useRouter();
+  const segments = useSegments();
   const queryClient = useQueryClient();
   const isFocused = useIsFocused();
   const insets = useSafeAreaInsets();
@@ -76,6 +92,10 @@ export default function FeedScreen() {
   const createWatchlistMutation = useCreateWatchlistMutation();
   const createWatchlistRuleMutation = useCreateWatchlistRuleMutation();
   const deleteWatchlistRuleMutation = useDeleteWatchlistRuleMutation();
+  const mobilePushContext = installationId ? { installationId, deviceSecret } : null;
+  const mobilePushRulesQuery = useMobilePushRulesQuery(mobilePushContext, { enabled: Boolean(mobilePushContext?.installationId) });
+  const upsertLaunchNotificationMutation = useUpsertMobilePushLaunchPreferenceMutation();
+  const deleteMobilePushRuleMutation = useDeleteMobilePushRuleMutation();
   const createFilterPresetMutation = useCreateFilterPresetMutation();
   const updateFilterPresetMutation = useUpdateFilterPresetMutation();
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -88,14 +108,19 @@ export default function FeedScreen() {
   const [pendingRefresh, setPendingRefresh] = useState<PendingFeedRefresh | null>(null);
   const [refreshApplying, setRefreshApplying] = useState(false);
   const [appStateStatus, setAppStateStatus] = useState(AppState.currentState);
-  const [calendarSheetLaunch, setCalendarSheetLaunch] = useState<LaunchCalendarLaunch | null>(null);
-  const [alertsLaunch, setAlertsLaunch] = useState<LaunchFeedV1['launches'][number] | null>(null);
+  const [followLaunch, setFollowLaunch] = useState<FeedLaunchCardData | null>(null);
+  const [cachedLaunches, setCachedLaunches] = useState<FeedLaunchCardData[]>([]);
+  const [snapshotHydrated, setSnapshotHydrated] = useState(false);
+  const [deferredMediaReady, setDeferredMediaReady] = useState(false);
   const didApplyInitialDefaultPresetRef = useRef(false);
   const lastSeenVersionRef = useRef<string | null>(null);
   const canUseLaunchFilters = entitlementsQuery.data?.capabilities.canUseLaunchFilters ?? false;
   const canManageFilterPresets = entitlementsQuery.data?.capabilities.canManageFilterPresets ?? false;
   const canUseSavedItems = entitlementsQuery.data?.capabilities.canUseSavedItems ?? false;
+  const canUseSingleLaunchFollow = entitlementsQuery.data?.capabilities.canUseSingleLaunchFollow ?? false;
+  const canUseAllUsLaunchAlerts = entitlementsQuery.data?.capabilities.canUseAllUsLaunchAlerts ?? false;
   const watchlistRuleLimit = entitlementsQuery.data?.limits.watchlistRuleLimit ?? null;
+  const singleLaunchFollowLimit = Math.max(1, entitlementsQuery.data?.limits.singleLaunchFollowLimit ?? 1);
   const refreshIntervalMs = (entitlementsQuery.data?.refreshIntervalSeconds ?? 7200) * 1000;
   const feedScope = entitlementsQuery.data?.mode === 'live' ? 'live' : 'public';
   const isAuthed = entitlementsQuery.data?.isAuthed ?? Boolean(accessToken);
@@ -137,6 +162,60 @@ export default function FeedScreen() {
       ),
     [primaryWatchlist?.rules]
   );
+  const rocketRuleIdsByValue = useMemo(
+    () =>
+      Object.fromEntries(
+        (primaryWatchlist?.rules ?? [])
+          .filter((rule) => rule.ruleType === 'rocket' && rule.id)
+          .map((rule) => [String(rule.ruleValue || '').trim().toLowerCase(), rule.id])
+      ),
+    [primaryWatchlist?.rules]
+  );
+  const launchSiteRuleIdsByValue = useMemo(
+    () =>
+      Object.fromEntries(
+        (primaryWatchlist?.rules ?? [])
+          .filter((rule) => rule.ruleType === 'launch_site' && rule.id)
+          .map((rule) => [String(rule.ruleValue || '').trim().toLowerCase(), rule.id])
+      ),
+    [primaryWatchlist?.rules]
+  );
+  const stateRuleIdsByValue = useMemo(
+    () =>
+      Object.fromEntries(
+        (primaryWatchlist?.rules ?? [])
+          .filter((rule) => rule.ruleType === 'state' && rule.id)
+          .map((rule) => [String(rule.ruleValue || '').trim().toLowerCase(), rule.id])
+      ),
+    [primaryWatchlist?.rules]
+  );
+  const feedRequest = useMemo<LaunchFeedRequest>(
+    () => ({
+      scope: isFollowingFeed ? 'watchlist' : feedScope,
+      watchlistId: isFollowingFeed ? primaryWatchlistId : null,
+      range: filters.range ?? DEFAULT_LAUNCH_FILTERS.range,
+      region: filters.region ?? DEFAULT_LAUNCH_FILTERS.region,
+      location: filters.location ?? null,
+      state: filters.state ?? null,
+      pad: filters.pad ?? null,
+      provider: filters.provider ?? null,
+      sort: filters.sort ?? DEFAULT_LAUNCH_FILTERS.sort,
+      status: filters.status && filters.status !== 'all' ? filters.status : null
+    }),
+    [
+      feedScope,
+      filters.location,
+      filters.pad,
+      filters.provider,
+      filters.range,
+      filters.region,
+      filters.sort,
+      filters.state,
+      filters.status,
+      isFollowingFeed,
+      primaryWatchlistId
+    ]
+  );
   const filterOptionsQuery = useLaunchFilterOptionsQuery(
     {
       mode: feedScope,
@@ -148,7 +227,7 @@ export default function FeedScreen() {
       provider: filters.provider ?? null,
       status: filters.status && filters.status !== 'all' ? filters.status : null
     },
-    { enabled: canUseLaunchFilters }
+    { enabled: canUseLaunchFilters && filtersOpen }
   );
   const filterOptions = useMemo<LaunchFilterOptions>(
     () =>
@@ -179,25 +258,42 @@ export default function FeedScreen() {
   );
   const activeFilterCount = countActiveLaunchFilters(filters);
   const showsInternationalLaunches = (filters.region ?? DEFAULT_LAUNCH_FILTERS.region) !== 'us';
-  const launchFeedQuery = useLaunchFeedQuery(
-    {
-      scope: isFollowingFeed ? 'watchlist' : feedScope,
-      watchlistId: isFollowingFeed ? primaryWatchlistId : null,
-      range: filters.range ?? DEFAULT_LAUNCH_FILTERS.range,
-      region: filters.region ?? DEFAULT_LAUNCH_FILTERS.region,
-      location: filters.location ?? null,
-      state: filters.state ?? null,
-      pad: filters.pad ?? null,
-      provider: filters.provider ?? null,
-      sort: filters.sort ?? DEFAULT_LAUNCH_FILTERS.sort,
-      status: filters.status && filters.status !== 'all' ? filters.status : null
-    },
-    {
-      staleTimeMs: refreshIntervalMs
-    }
+  const launchFeedQuery = useLaunchFeedQuery(feedRequest, {
+    staleTimeMs: refreshIntervalMs
+  });
+  const launches = useMemo(() => launchFeedQuery.data?.pages.flatMap((page) => page.launches) ?? [], [launchFeedQuery.data?.pages]);
+  const shouldHydratePublicSnapshot = feedRequest.scope === 'public';
+  const feedSnapshotKey = useMemo(
+    () =>
+      JSON.stringify({
+        scope: feedRequest.scope,
+        range: feedRequest.range ?? DEFAULT_LAUNCH_FILTERS.range,
+        region: feedRequest.region ?? DEFAULT_LAUNCH_FILTERS.region,
+        location: feedRequest.location ?? null,
+        state: feedRequest.state ?? null,
+        pad: feedRequest.pad ?? null,
+        provider: feedRequest.provider ?? null,
+        sort: feedRequest.sort ?? DEFAULT_LAUNCH_FILTERS.sort,
+        status: feedRequest.status ?? null
+      }),
+    [
+      feedRequest.location,
+      feedRequest.pad,
+      feedRequest.provider,
+      feedRequest.range,
+      feedRequest.region,
+      feedRequest.scope,
+      feedRequest.sort,
+      feedRequest.state,
+      feedRequest.status
+    ]
   );
-  const launches = launchFeedQuery.data?.pages.flatMap((page) => page.launches) ?? [];
-  const nextLaunch = launches[0] ?? null;
+  const hasResolvedLiveFeed = launchFeedQuery.isSuccess || launchFeedQuery.isError;
+  const renderedLaunches = useMemo<FeedLaunchCardData[]>(
+    () => (launches.length > 0 ? launches.map((launch) => toFeedLaunchCardData(launch)) : !hasResolvedLiveFeed && cachedLaunches.length > 0 ? cachedLaunches : []),
+    [cachedLaunches, hasResolvedLiveFeed, launches]
+  );
+  const nextLaunch = renderedLaunches[0] ?? null;
   const activePreset = presetList.find((preset) => preset.id === activePresetId) ?? null;
   const activeFilterLabels = useMemo(() => {
     const labels: string[] = [];
@@ -240,15 +336,19 @@ export default function FeedScreen() {
     }
     return buildPendingFeedRefreshMessage({
       matchCount: pendingRefresh.matchCount,
-      visibleCount: launches.length,
+      visibleCount: renderedLaunches.length,
       canCompareCount: !launchFeedQuery.hasNextPage
     });
-  }, [launchFeedQuery.hasNextPage, launches.length, pendingRefresh]);
+  }, [launchFeedQuery.hasNextPage, pendingRefresh, renderedLaunches.length]);
   const canAutoRefreshFeed = canAutoRefreshActiveSurface({
     isFocused,
     appStateStatus,
     blocked: isFollowingFeed
   });
+  const showDock = shouldShowCustomerDock(segments);
+  const contentBottomPadding = showDock
+    ? insets.bottom + MOBILE_DOCK_HEIGHT + MOBILE_DOCK_BOTTOM_OFFSET + MOBILE_DOCK_CONTENT_GAP
+    : Math.max(insets.bottom + 24, 40);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
@@ -374,6 +474,61 @@ export default function FeedScreen() {
       return changed ? next : current;
     });
   }, [canUseLaunchFilters, filterOptions, filterOptionsQuery.data]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!shouldHydratePublicSnapshot) {
+      setCachedLaunches([]);
+      setSnapshotHydrated(true);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setSnapshotHydrated(false);
+    void readPublicFeedSnapshot(feedSnapshotKey)
+      .then((snapshot) => {
+        if (cancelled) {
+          return;
+        }
+        setCachedLaunches(snapshot ?? []);
+        setSnapshotHydrated(true);
+      })
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
+        setCachedLaunches([]);
+        setSnapshotHydrated(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [feedSnapshotKey, shouldHydratePublicSnapshot]);
+
+  useEffect(() => {
+    if (!shouldHydratePublicSnapshot || launches.length === 0) {
+      return;
+    }
+
+    void writePublicFeedSnapshot(
+      feedSnapshotKey,
+      launches.map((launch) => toFeedLaunchCardData(launch))
+    );
+  }, [feedSnapshotKey, launches, shouldHydratePublicSnapshot]);
+
+  useEffect(() => {
+    setDeferredMediaReady(false);
+    const task = InteractionManager.runAfterInteractions(() => {
+      setDeferredMediaReady(true);
+    });
+
+    return () => {
+      task.cancel();
+    };
+  }, [feedSnapshotKey]);
 
   useEffect(() => {
     if (!canAutoRefreshFeed || launchFeedQuery.isPending) {
@@ -551,14 +706,6 @@ export default function FeedScreen() {
 
   function openPremiumGate() {
     router.push('/profile');
-  }
-
-  function openLaunchCalendar(launch: LaunchFeedV1['launches'][number]) {
-    setCalendarSheetLaunch(toLaunchCalendarLaunch(launch));
-  }
-
-  function openLaunchAlerts(launch: LaunchFeedV1['launches'][number]) {
-    setAlertsLaunch(launch);
   }
 
   function openLaunchAr(launchId: string) {
@@ -770,19 +917,318 @@ export default function FeedScreen() {
     }
   }
 
-  return (
-    <AppScreen
-      testID="feed-screen"
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshApplying}
-          onRefresh={() => {
-            void applyFeedRefresh();
-          }}
-          tintColor={theme.accent}
-        />
+  async function toggleScopedFollow(ruleType: 'rocket' | 'launch_site' | 'state', ruleValue: string, label: string) {
+    const normalizedRuleValue = String(ruleValue || '').trim();
+    if (!normalizedRuleValue) {
+      return;
+    }
+
+    const busyKey = `${ruleType}:${normalizedRuleValue.toLowerCase()}`;
+    if (followBusy[busyKey]) {
+      return;
+    }
+
+    setFollowBusy((current) => ({ ...current, [busyKey]: true }));
+    try {
+      const watchlistId = await ensurePrimaryWatchlistId();
+      if (!watchlistId) {
+        return;
       }
-    >
+
+      const existingRuleId =
+        ruleType === 'rocket'
+          ? rocketRuleIdsByValue[normalizedRuleValue.toLowerCase()] ?? null
+          : ruleType === 'launch_site'
+            ? launchSiteRuleIdsByValue[normalizedRuleValue.toLowerCase()] ?? null
+            : stateRuleIdsByValue[normalizedRuleValue.toLowerCase()] ?? null;
+      if (existingRuleId) {
+        await deleteWatchlistRuleMutation.mutateAsync({
+          watchlistId,
+          ruleId: existingRuleId
+        });
+        setNotice({ tone: 'info', message: `Unfollowed ${label}.` });
+        return;
+      }
+
+      const payload = await createWatchlistRuleMutation.mutateAsync({
+        watchlistId,
+        payload: {
+          ruleType,
+          ruleValue: normalizedRuleValue
+        }
+      });
+      showFollowUndoToast({
+        message: `Following ${label}.`,
+        watchlistId,
+        ruleId: payload.rule.id ?? null,
+        busyKey,
+        undoNotice: `Unfollowed ${label}.`
+      });
+    } catch (error) {
+      setNotice({
+        tone: 'warning',
+        message: buildWatchlistRuleErrorMessage(error, 'Follow', watchlistRuleLimit)
+      });
+    } finally {
+      setFollowBusy((current) => ({ ...current, [busyKey]: false }));
+    }
+  }
+
+  const mobilePushRules = mobilePushRulesQuery.data?.rules ?? [];
+  const basicActiveLaunchRule = !canUseSavedItems ? mobilePushRules.find((rule) => rule.scopeKind === 'launch') ?? null : null;
+  const selectedLaunchNotificationRule =
+    mobilePushRules.find((rule) => rule.scopeKind === 'launch' && rule.launchId === followLaunch?.id) ?? null;
+  const selectedStateRuleValue = buildStateRuleValue(followLaunch?.pad.state);
+  const selectedRocketRuleValue = buildRocketRuleValue({
+    ll2RocketConfigId: followLaunch?.ll2RocketConfigId,
+    rocketName: followLaunch?.rocket?.fullName,
+    vehicle: followLaunch?.vehicle
+  });
+  const selectedLaunchSiteRuleValue = buildLaunchSiteRuleValue(followLaunch?.pad.locationName || followLaunch?.pad.name);
+  const selectedPadRuleValue = followLaunch
+    ? buildPadRuleValue({
+        ll2PadId: followLaunch.ll2PadId,
+        padShortCode: followLaunch.pad.shortCode
+      })
+    : null;
+  const selectedBasicLaunchActive = Boolean(followLaunch && basicActiveLaunchRule?.launchId === followLaunch.id);
+  const selectedBasicLaunchSlotOccupiedElsewhere = Boolean(followLaunch && basicActiveLaunchRule && !selectedBasicLaunchActive);
+  const basicFollowCapacityLabel = canUseSavedItems ? undefined : `${basicActiveLaunchRule ? 1 : 0}/${singleLaunchFollowLimit}`;
+  const followSheetOptions: LaunchFollowSheetOption[] = followLaunch
+    ? canUseSavedItems
+      ? [
+          {
+            key: 'launch',
+            label: 'This launch',
+            description: 'Keep this launch in Following.',
+            icon: 'launch',
+            active: Boolean(watchlistRuleIdsByLaunchId[followLaunch.id]),
+            disabled: Boolean(followBusy[`launch:${followLaunch.id.toLowerCase()}`]) || watchlistsLoading || Boolean(watchlistsError),
+            locked: false,
+            onPress: () => {
+              setFollowLaunch(null);
+              void toggleLaunchWatch(followLaunch.id);
+            }
+          },
+          {
+            key: 'rocket',
+            label: 'This rocket',
+            description: `All launches for ${formatRocketRuleLabel(selectedRocketRuleValue || followLaunch.vehicle)}.`,
+            icon: 'rocket',
+            active: Boolean(selectedRocketRuleValue && rocketRuleIdsByValue[selectedRocketRuleValue.toLowerCase()]),
+            disabled: !selectedRocketRuleValue,
+            locked: false,
+            onPress: () => {
+              if (!selectedRocketRuleValue) return;
+              setFollowLaunch(null);
+              void toggleScopedFollow('rocket', selectedRocketRuleValue, formatRocketRuleLabel(selectedRocketRuleValue));
+            }
+          },
+          {
+            key: 'provider',
+            label: 'This provider',
+            description: `All launches from ${followLaunch.provider}.`,
+            icon: 'provider',
+            active: Boolean(providerRuleIdsByValue[String(followLaunch.provider || '').trim().toLowerCase()]),
+            disabled: !String(followLaunch.provider || '').trim(),
+            locked: false,
+            onPress: () => {
+              setFollowLaunch(null);
+              void toggleProviderFollow(followLaunch.provider);
+            }
+          },
+          {
+            key: 'pad',
+            label: 'This pad',
+            description: `Launches from ${formatPadRuleLabel(selectedPadRuleValue || followLaunch.pad.shortCode || followLaunch.pad.name || 'this pad')}.`,
+            icon: 'pad',
+            active: Boolean(selectedPadRuleValue && padRuleIdsByValue[selectedPadRuleValue.toLowerCase()]),
+            disabled: !selectedPadRuleValue,
+            locked: false,
+            onPress: () => {
+              if (!selectedPadRuleValue) return;
+              setFollowLaunch(null);
+              void togglePadFollow(selectedPadRuleValue);
+            }
+          },
+          {
+            key: 'launch_site',
+            label: 'This launch site',
+            description: `Launches from ${formatLaunchSiteRuleLabel(selectedLaunchSiteRuleValue || followLaunch.pad.locationName || followLaunch.pad.name)}.`,
+            icon: 'launch_site',
+            active: Boolean(selectedLaunchSiteRuleValue && launchSiteRuleIdsByValue[selectedLaunchSiteRuleValue.toLowerCase()]),
+            disabled: !selectedLaunchSiteRuleValue,
+            locked: false,
+            onPress: () => {
+              if (!selectedLaunchSiteRuleValue) return;
+              setFollowLaunch(null);
+              void toggleScopedFollow('launch_site', selectedLaunchSiteRuleValue, formatLaunchSiteRuleLabel(selectedLaunchSiteRuleValue));
+            }
+          },
+          {
+            key: 'state',
+            label: 'This state',
+            description: selectedStateRuleValue ? `Launches in ${formatStateRuleLabel(selectedStateRuleValue)}.` : 'State follow unavailable.',
+            icon: 'state',
+            active: Boolean(selectedStateRuleValue && stateRuleIdsByValue[selectedStateRuleValue.toLowerCase()]),
+            disabled: !selectedStateRuleValue,
+            locked: false,
+            onPress: () => {
+              if (!selectedStateRuleValue) return;
+              setFollowLaunch(null);
+              void toggleScopedFollow('state', selectedStateRuleValue, formatStateRuleLabel(selectedStateRuleValue));
+            }
+          }
+        ]
+      : [
+          {
+            key: 'launch_notifications',
+            label: 'This launch',
+            description:
+              !installationId || !deviceSecret || !isPushRegistered
+                ? 'Enable push on this device in Preferences first.'
+                : !canUseSingleLaunchFollow
+                  ? 'Launch follow is unavailable on this account.'
+                  : selectedBasicLaunchSlotOccupiedElsewhere
+                    ? `Your free launch slot is in use by ${basicActiveLaunchRule?.label || 'another launch'}. Unfollow it or wait until it launches.`
+                    : selectedBasicLaunchActive
+                      ? 'This launch is using your free follow slot. Unfollow it to free up the slot.'
+                      : 'Use your free slot for push reminders on this launch.',
+            icon: 'launch',
+            active: selectedBasicLaunchActive,
+            disabled:
+              upsertLaunchNotificationMutation.isPending ||
+              deleteMobilePushRuleMutation.isPending ||
+              !canUseSingleLaunchFollow ||
+              selectedBasicLaunchSlotOccupiedElsewhere,
+            locked: false,
+            onPress: async () => {
+              setFollowLaunch(null);
+              if (!installationId || !deviceSecret || !isPushRegistered) {
+                router.push('/preferences');
+                return;
+              }
+              if (!canUseSingleLaunchFollow) {
+                openPremiumGate();
+                return;
+              }
+              if (!selectedBasicLaunchActive && selectedBasicLaunchSlotOccupiedElsewhere) {
+                setNotice({
+                  tone: 'warning',
+                  message: basicActiveLaunchRule?.label
+                    ? `Your free launch slot is in use by ${basicActiveLaunchRule.label}. Unfollow it or wait until it launches.`
+                    : 'Your free launch slot is already in use.'
+                });
+                return;
+              }
+              try {
+                if (selectedLaunchNotificationRule) {
+                  await deleteMobilePushRuleMutation.mutateAsync({
+                    ruleId: selectedLaunchNotificationRule.id,
+                    context: { installationId, deviceSecret }
+                  });
+                  setNotice({ tone: 'info', message: 'Launch notifications turned off.' });
+                  return;
+                }
+                await upsertLaunchNotificationMutation.mutateAsync({
+                  launchId: followLaunch.id,
+                  payload: {
+                    installationId,
+                    deviceSecret,
+                    scopeKind: 'launch',
+                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+                    prelaunchOffsetsMinutes: [10, 60],
+                    dailyDigestLocalTime: null,
+                    statusChangeTypes: [],
+                    notifyNetChanges: false
+                  }
+                });
+                setNotice({ tone: 'info', message: 'Launch notifications turned on.' });
+              } catch (error) {
+                if (error instanceof ApiClientError && error.code === 'limit_reached') {
+                  setNotice({
+                    tone: 'warning',
+                    message: basicActiveLaunchRule?.label
+                      ? `Your free launch slot is in use by ${basicActiveLaunchRule.label}. Unfollow it or wait until it launches.`
+                      : 'Your free launch slot is already in use.'
+                  });
+                  return;
+                }
+                setNotice({ tone: 'warning', message: error instanceof Error ? error.message : 'Unable to update notifications.' });
+              }
+            }
+          },
+          {
+            key: 'state_locked',
+            label: 'This state',
+            description: 'Premium adds state-wide launch alerts.',
+            icon: 'state',
+            active: false,
+            disabled: false,
+            locked: true,
+            onPress: () => {
+              setFollowLaunch(null);
+              openPremiumGate();
+            }
+          },
+          {
+            key: 'provider_locked',
+            label: 'This provider',
+            description: 'Premium adds recurring provider follows.',
+            icon: 'provider',
+            active: false,
+            disabled: false,
+            locked: true,
+            onPress: () => {
+              setFollowLaunch(null);
+              openPremiumGate();
+            }
+          },
+          {
+            key: 'rocket_locked',
+            label: 'This rocket',
+            description: 'Premium adds recurring rocket follows.',
+            icon: 'rocket',
+            active: false,
+            disabled: false,
+            locked: true,
+            onPress: () => {
+              setFollowLaunch(null);
+              openPremiumGate();
+            }
+          },
+          {
+            key: 'pad_locked',
+            label: 'This pad',
+            description: 'Premium adds recurring pad follows.',
+            icon: 'pad',
+            active: false,
+            disabled: false,
+            locked: true,
+            onPress: () => {
+              setFollowLaunch(null);
+              openPremiumGate();
+            }
+          },
+          {
+            key: 'launch_site_locked',
+            label: 'This launch site',
+            description: 'Premium adds recurring launch-site follows.',
+            icon: 'launch_site',
+            active: false,
+            disabled: false,
+            locked: true,
+            onPress: () => {
+              setFollowLaunch(null);
+              openPremiumGate();
+            }
+          }
+        ]
+    : [];
+  const showFeedSkeletons = !snapshotHydrated || (launchFeedQuery.isPending && cachedLaunches.length === 0);
+  const showCachedFeedWarning = launchFeedQuery.isError && launches.length === 0 && cachedLaunches.length > 0;
+  const listHeader = (
+    <View style={{ gap: 16, paddingBottom: 16 }}>
       <View
         style={{
           marginTop: Math.max(insets.top - 10, 8),
@@ -897,6 +1343,23 @@ export default function FeedScreen() {
         >
           <Text style={{ color: notice.tone === 'warning' ? theme.foreground : theme.accent, fontSize: 14, lineHeight: 20 }}>
             {notice.message}
+          </Text>
+        </View>
+      ) : null}
+
+      {showCachedFeedWarning ? (
+        <View
+          style={{
+            borderRadius: 18,
+            borderWidth: 1,
+            borderColor: 'rgba(123, 204, 255, 0.28)',
+            backgroundColor: 'rgba(14, 30, 56, 0.72)',
+            paddingHorizontal: 16,
+            paddingVertical: 12
+          }}
+        >
+          <Text style={{ color: 'rgba(179, 225, 255, 0.95)', fontSize: 14, lineHeight: 20 }}>
+            Showing saved launches while the latest feed refresh is unavailable.
           </Text>
         </View>
       ) : null}
@@ -1037,214 +1500,180 @@ export default function FeedScreen() {
           </View>
         </View>
       ) : null}
+    </View>
+  );
 
-      {launchFeedQuery.isPending ? (
-        <LoadingStateCard title="Loading launches" body="Fetching the latest upcoming missions." />
-      ) : launchFeedQuery.isError ? (
-        <ErrorStateCard title="Feed unavailable" body={launchFeedQuery.error.message} />
-      ) : launches.length === 0 ? (
-        <EmptyStateCard title="No upcoming launches right now" body={`We could not find any scheduled launches. Data source: ${baseUrl}.`} />
-      ) : (
-        <View testID="feed-launches-section" style={{ gap: 14 }}>
-          {launches.map((launch, index) => {
-            const providerKey = String(launch.provider || '').trim().toLowerCase();
-            const padRuleValue = buildPadRuleValue({
-              ll2PadId: launch.ll2PadId,
-              padShortCode: launch.pad.shortCode
-            });
-            const normalizedPadRuleValue = String(padRuleValue || '').trim().toLowerCase();
+  return (
+    <View testID="feed-screen" style={{ flex: 1, backgroundColor: theme.background }}>
+      <FlatList
+        data={renderedLaunches}
+        keyExtractor={(launch) => launch.id}
+        renderItem={({ item, index }) => {
+          const providerKey = String(item.provider || '').trim().toLowerCase();
+          const rocketRuleValue = buildRocketRuleValue({
+            ll2RocketConfigId: item.ll2RocketConfigId,
+            rocketName: item.rocket?.fullName,
+            vehicle: item.vehicle
+          });
+          const padRuleValue = buildPadRuleValue({
+            ll2PadId: item.ll2PadId,
+            padShortCode: item.pad.shortCode
+          });
+          const launchSiteRuleValue = buildLaunchSiteRuleValue(item.pad.locationName || item.pad.name);
+          const stateRuleValue = buildStateRuleValue(item.pad.state);
+          const normalizedPadRuleValue = String(padRuleValue || '').trim().toLowerCase();
+          const normalizedRocketRuleValue = String(rocketRuleValue || '').trim().toLowerCase();
+          const normalizedLaunchSiteRuleValue = String(launchSiteRuleValue || '').trim().toLowerCase();
+          const normalizedStateRuleValue = String(stateRuleValue || '').trim().toLowerCase();
+          const launchNotificationActive = Boolean(basicActiveLaunchRule && basicActiveLaunchRule.launchId === item.id);
+          const followCount = canUseSavedItems
+            ? Number(Boolean(watchlistRuleIdsByLaunchId[item.id])) +
+              Number(Boolean(normalizedRocketRuleValue && rocketRuleIdsByValue[normalizedRocketRuleValue])) +
+              Number(Boolean(providerRuleIdsByValue[providerKey])) +
+              Number(Boolean(normalizedPadRuleValue && padRuleIdsByValue[normalizedPadRuleValue])) +
+              Number(Boolean(normalizedLaunchSiteRuleValue && launchSiteRuleIdsByValue[normalizedLaunchSiteRuleValue])) +
+              Number(Boolean(normalizedStateRuleValue && stateRuleIdsByValue[normalizedStateRuleValue]))
+            : Number(launchNotificationActive);
+          const notificationsActive = launchNotificationActive;
 
-            return (
-              <WebParityLaunchCard
-                key={launch.id}
-                launch={launch}
-                isNext={index === 0 || launch.id === nextLaunch?.id}
-                testID={index === 0 ? 'feed-launch-first' : index === 1 ? 'feed-launch-second' : `feed-launch-${launch.id}`}
-                onOpenDetails={() => {
-                  void prefetchLaunchDetail(queryClient, client, launch.id);
-                  router.push(buildLaunchHref(launch.id) as Href);
-                }}
-                onOpenProvider={
-                  launch.provider
-                    ? () => {
-                        router.push(buildSearchHref(launch.provider) as Href);
-                      }
-                    : undefined
+          return (
+            <WebParityLaunchCard
+              launch={item}
+              isNext={index === 0 || item.id === nextLaunch?.id}
+              showDeferredMedia={deferredMediaReady}
+              testID={index === 0 ? 'feed-launch-first' : index === 1 ? 'feed-launch-second' : `feed-launch-${item.id}`}
+              onOpenDetails={() => {
+                if (launches.length > 0) {
+                  void prefetchLaunchDetail(queryClient, client, item.id);
                 }
-                onOpenPad={() => {
-                  const padQuery = launch.pad.locationName || launch.pad.name || launch.pad.shortCode;
-                  if (!padQuery) return;
-                  router.push(buildSearchHref(padQuery) as Href);
-                }}
-                onOpenCalendar={() => {
-                  openLaunchCalendar(launch);
-                }}
-                onOpenAlerts={() => {
-                  openLaunchAlerts(launch);
-                }}
-                onOpenAr={() => {
-                  openLaunchAr(launch.id);
-                }}
-                isWatched={Boolean(watchlistRuleIdsByLaunchId[launch.id])}
-                watchDisabled={
-                  watchlistsLoading ||
-                  Boolean(watchlistsError) ||
-                  Boolean(followBusy[`launch:${launch.id.toLowerCase()}`])
-                }
-                onToggleWatch={() => {
-                  if (!canUseSavedItems) {
-                    openPremiumGate();
-                    return;
-                  }
-                  void toggleLaunchWatch(launch.id);
-                }}
-                isProviderFollowed={Boolean(providerRuleIdsByValue[providerKey])}
-                providerFollowDisabled={
-                  !providerKey ||
-                  watchlistsLoading ||
-                  Boolean(watchlistsError) ||
-                  Boolean(followBusy[`provider:${providerKey}`])
-                }
-                onToggleFollowProvider={
-                  providerKey
-                    ? () => {
-                        if (!canUseSavedItems) {
-                          openPremiumGate();
-                          return;
-                        }
-                        void toggleProviderFollow(launch.provider);
-                      }
-                    : undefined
-                }
-                isPadFollowed={Boolean(normalizedPadRuleValue && padRuleIdsByValue[normalizedPadRuleValue])}
-                padFollowDisabled={
-                  !padRuleValue ||
-                  watchlistsLoading ||
-                  Boolean(watchlistsError) ||
-                  Boolean(followBusy[`pad:${normalizedPadRuleValue}`])
-                }
-                onToggleFollowPad={
-                  padRuleValue
-                    ? () => {
-                        if (!canUseSavedItems) {
-                          openPremiumGate();
-                          return;
-                        }
-                        void togglePadFollow(padRuleValue);
-                      }
-                    : undefined
-                }
-              />
-            );
-          })}
-          {launchFeedQuery.hasNextPage ? (
-            <Pressable
-              testID="feed-load-more"
-              onPress={() => {
-                void launchFeedQuery.fetchNextPage();
+                router.push(buildLaunchHref(item.id) as Href);
               }}
-              disabled={launchFeedQuery.isFetchingNextPage}
-              style={({ pressed }) => ({
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: theme.stroke,
-                backgroundColor: pressed ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.03)',
-                paddingHorizontal: 18,
-                paddingVertical: 14,
-                opacity: launchFeedQuery.isFetchingNextPage ? 0.7 : 1
-              })}
-            >
-              <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>
-                {launchFeedQuery.isFetchingNextPage ? 'Loading…' : 'Load more launches'}
-              </Text>
-            </Pressable>
-          ) : null}
-        </View>
-      )}
-
-      <LaunchCalendarSheet launch={calendarSheetLaunch} open={calendarSheetLaunch != null} onClose={() => setCalendarSheetLaunch(null)} />
-
-      <Modal
-        visible={alertsLaunch != null}
-        transparent
-        animationType="fade"
-        statusBarTranslucent
-        presentationStyle="overFullScreen"
-        onRequestClose={() => {
-          setAlertsLaunch(null);
+              onOpenProvider={
+                item.provider
+                  ? () => {
+                      router.push(buildSearchHref(item.provider) as Href);
+                    }
+                  : undefined
+              }
+              onOpenPad={() => {
+                const padQuery = item.pad.locationName || item.pad.name || item.pad.shortCode;
+                if (!padQuery) return;
+                router.push(buildSearchHref(padQuery) as Href);
+              }}
+              onOpenAr={() => {
+                openLaunchAr(item.id);
+              }}
+              followMenuLabel={followCount > 0 ? 'Following' : 'Follow'}
+              followMenuCount={canUseSavedItems ? followCount : 0}
+              followMenuCapacityLabel={canUseSavedItems ? undefined : basicFollowCapacityLabel}
+              followMenuActive={followCount > 0}
+              followMenuDisabled={false}
+              notificationsActive={notificationsActive}
+              onOpenFollowMenu={() => {
+                setFollowLaunch(item);
+              }}
+            />
+          );
         }}
-      >
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0, 0, 0, 0.42)' }}>
-          <Pressable
-            onPress={() => {
-              setAlertsLaunch(null);
-            }}
-            style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }}
-          />
-          <View
-            style={{
-              maxHeight: '84%',
-              borderTopLeftRadius: 28,
-              borderTopRightRadius: 28,
-              borderTopWidth: 1,
-              borderColor: theme.stroke,
-              backgroundColor: theme.background,
-              paddingHorizontal: 20,
-              paddingTop: 14,
-              paddingBottom: 28,
-              gap: 14
-            }}
-          >
-            <View style={{ alignItems: 'center' }}>
-              <View
-                style={{
-                  width: 44,
-                  height: 4,
-                  borderRadius: 999,
-                  backgroundColor: 'rgba(255, 255, 255, 0.18)'
-                }}
-              />
+        initialNumToRender={3}
+        maxToRenderPerBatch={3}
+        windowSize={5}
+        removeClippedSubviews
+        style={{ flex: 1 }}
+        contentContainerStyle={{
+          paddingHorizontal: 20,
+          paddingTop: 20,
+          paddingBottom: contentBottomPadding
+        }}
+        ItemSeparatorComponent={() => <View style={{ height: 14 }} />}
+        ListHeaderComponent={listHeader}
+        ListEmptyComponent={
+          showFeedSkeletons ? (
+            <View style={{ gap: 14 }}>
+              <WebParityLaunchCardSkeleton testID="feed-launch-skeleton-1" />
+              <WebParityLaunchCardSkeleton testID="feed-launch-skeleton-2" />
+              <WebParityLaunchCardSkeleton testID="feed-launch-skeleton-3" />
             </View>
-            <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase' }}>
-                  Launch alerts
-                </Text>
-                <Text style={{ color: theme.foreground, fontSize: 21, fontWeight: '800', marginTop: 6 }}>{alertsLaunch?.name ?? 'Launch alerts'}</Text>
-              </View>
+          ) : launchFeedQuery.isError ? (
+            <ErrorStateCard title="Feed unavailable" body={launchFeedQuery.error.message} />
+          ) : (
+            <EmptyStateCard title="No upcoming launches right now" body={`We could not find any scheduled launches. Data source: ${baseUrl}.`} />
+          )
+        }
+        ListFooterComponent={
+          launches.length > 0 && launchFeedQuery.hasNextPage ? (
+            <View style={{ paddingTop: 14 }}>
               <Pressable
+                testID="feed-load-more"
                 onPress={() => {
-                  setAlertsLaunch(null);
+                  void launchFeedQuery.fetchNextPage();
                 }}
-                hitSlop={8}
+                disabled={launchFeedQuery.isFetchingNextPage}
+                style={({ pressed }) => ({
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: theme.stroke,
+                  backgroundColor: pressed ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.03)',
+                  paddingHorizontal: 18,
+                  paddingVertical: 14,
+                  opacity: launchFeedQuery.isFetchingNextPage ? 0.7 : 1
+                })}
               >
-                <Text style={{ color: theme.accent, fontSize: 13, fontWeight: '700' }}>Close</Text>
+                <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>
+                  {launchFeedQuery.isFetchingNextPage ? 'Loading…' : 'Load more launches'}
+                </Text>
               </Pressable>
             </View>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 12 }}>
-              {alertsLaunch ? (
-                <LaunchAlertsPanel
-                  launchId={alertsLaunch.id}
-                  installationId={installationId}
-                  deviceSecret={deviceSecret}
-                  isPremium={entitlementsQuery.data?.isPaid === true}
-                  isPushRegistered={isPushRegistered}
-                  onOpenUpgrade={() => {
-                    setAlertsLaunch(null);
-                    openPremiumGate();
-                  }}
-                  onOpenPreferences={() => {
-                    setAlertsLaunch(null);
-                    router.push('/preferences');
-                  }}
-                />
-              ) : null}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+          ) : null
+        }
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshApplying}
+            onRefresh={() => {
+              void applyFeedRefresh();
+            }}
+            tintColor={theme.accent}
+          />
+        }
+      />
+
+      <LaunchFollowSheet
+        launchName={followLaunch?.name ?? null}
+        open={followLaunch != null}
+        options={followSheetOptions}
+        activeCount={followSheetOptions.filter((option) => option.active).length}
+        capacityLabel={basicFollowCapacityLabel}
+        notificationsActive={Boolean(selectedLaunchNotificationRule)}
+        notificationsContent={
+          followLaunch ? (
+            <LaunchAlertsPanel
+              launchId={followLaunch.id}
+              installationId={installationId}
+              deviceSecret={deviceSecret}
+              isPremium={entitlementsQuery.data?.isPaid === true}
+              isPushRegistered={isPushRegistered}
+              onOpenUpgrade={() => {
+                setFollowLaunch(null);
+                openPremiumGate();
+              }}
+              onOpenPreferences={() => {
+                setFollowLaunch(null);
+                router.push('/preferences');
+              }}
+            />
+          ) : null
+        }
+        message={
+          canUseSavedItems
+            ? 'Following keeps matching launches in your saved list and related notifications can be tuned from Preferences.'
+            : canUseAllUsLaunchAlerts
+              ? 'Free keeps one launch reminder slot on this device. Manage All U.S. launches from Preferences. Premium adds synced follows across broader scopes.'
+              : 'Free keeps one launch reminder slot on this device. Premium adds synced follows across broader scopes.'
+        }
+        onClose={() => setFollowLaunch(null)}
+      />
 
       <LaunchFilterSheet
         visible={filtersOpen}
@@ -1282,7 +1711,7 @@ export default function FeedScreen() {
           openPremiumGate();
         }}
       />
-    </AppScreen>
+    </View>
   );
 }
 
@@ -1316,22 +1745,6 @@ function ModeButton({
       <Text style={{ color: active ? theme.background : theme.foreground, fontSize: 12, fontWeight: '700' }}>{label}</Text>
     </Pressable>
   );
-}
-
-function toLaunchCalendarLaunch(launch: LaunchFeedV1['launches'][number]): LaunchCalendarLaunch {
-  return {
-    id: launch.id,
-    name: launch.name,
-    provider: launch.provider,
-    vehicle: launch.vehicle,
-    net: launch.net,
-    netPrecision: launch.netPrecision,
-    windowEnd: launch.windowEnd ?? null,
-    pad: {
-      name: launch.pad?.name ?? launch.pad?.locationName ?? 'Launch pad',
-      state: launch.pad?.state ?? null
-    }
-  };
 }
 
 function buildWatchlistRuleErrorMessage(error: unknown, label: string, ruleLimit: number | null) {

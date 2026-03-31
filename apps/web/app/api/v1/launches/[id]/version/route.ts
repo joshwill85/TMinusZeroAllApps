@@ -35,7 +35,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
       if (!viewer.isAuthed) {
         return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
       }
-      if (!viewer.isAdmin && viewer.tier !== 'premium') {
+      if (viewer.tier !== 'premium') {
         return NextResponse.json({ error: 'payment_required' }, { status: 402 });
       }
     }

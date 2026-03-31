@@ -13,7 +13,8 @@ export default function AboutPage() {
       <p className="text-xs uppercase tracking-[0.1em] text-text3">About</p>
       <h1 className="text-3xl font-semibold text-text1">Why T-Minus Zero?</h1>
       <p className="mt-3 text-sm text-text2">
-        Built for launch fans and operators who want a fast, trustworthy signal on whether a launch is still happening. Public access stays simple and fast, while Premium members get live freshness and alerts. Admin controls keep rate limits and SMS costs sane.
+        Built for launch fans and operators who want a fast, trustworthy signal on what is happening across launches and related reference data. The native mobile app is now the place for push
+        alerts and device-level notification management.
       </p>
     </div>
   );

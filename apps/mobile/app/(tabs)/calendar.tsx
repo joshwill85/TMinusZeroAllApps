@@ -67,7 +67,7 @@ export default function CalendarScreen() {
       from: monthBounds.from.toISOString(),
       to: monthBounds.to.toISOString(),
       sort: 'soonest',
-      region: 'us',
+      region: 'all',
       limit: 1000
     },
     {
@@ -80,11 +80,34 @@ export default function CalendarScreen() {
   const groupedLaunches = useMemo(() => groupItemsByLocalDate(launches, (launch) => launch.net), [launches]);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [calendarSheetLaunch, setCalendarSheetLaunch] = useState<LaunchCalendarLaunch | null>(null);
+  const [didInitializeSelection, setDidInitializeSelection] = useState(false);
+
+  const launchDayCount = groupedLaunches.size;
+  const nextLaunch = launches[0] ?? null;
+  const hasMonthLaunches = launches.length > 0;
 
   useEffect(() => {
-    const todayKey = toLocalDateKey(new Date());
-    setSelectedDay(todayKey && todayKey.startsWith(monthKey) ? todayKey : `${monthKey}-01`);
+    setSelectedDay(null);
+    setDidInitializeSelection(false);
   }, [monthKey]);
+
+  useEffect(() => {
+    if (didInitializeSelection || calendarQuery.isPending || calendarQuery.isError) {
+      return;
+    }
+
+    const todayKey = toLocalDateKey(new Date());
+    const todayInMonth = todayKey && todayKey.startsWith(monthKey) ? todayKey : null;
+    const firstLaunchDay = [...groupedLaunches.keys()].sort()[0] ?? null;
+    const initialSelectedDay =
+      (todayInMonth && groupedLaunches.has(todayInMonth) ? todayInMonth : null) ||
+      firstLaunchDay ||
+      todayInMonth ||
+      `${monthKey}-01`;
+
+    setSelectedDay(initialSelectedDay);
+    setDidInitializeSelection(true);
+  }, [calendarQuery.isError, calendarQuery.isPending, didInitializeSelection, groupedLaunches, monthKey]);
 
   const selectedLaunches = selectedDay ? groupedLaunches.get(selectedDay) ?? [] : [];
   const calendarFeeds = useMemo(() => calendarFeedsQuery.data?.feeds ?? [], [calendarFeedsQuery.data?.feeds]);
@@ -246,6 +269,26 @@ export default function CalendarScreen() {
               />
             </View>
 
+            <SectionCard
+              testID="calendar-month-summary"
+              title="Month summary"
+              description={
+                hasMonthLaunches
+                  ? `${launches.length} launch${launches.length === 1 ? '' : 'es'} across ${launchDayCount} active day${launchDayCount === 1 ? '' : 's'}.`
+                  : 'No launches are currently scheduled for this month.'
+              }
+            >
+              {nextLaunch ? (
+                <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
+                  Next launch: {nextLaunch.name} on {formatLaunchTiming(nextLaunch.net, nextLaunch.netPrecision)}.
+                </Text>
+              ) : (
+                <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
+                  Check another month to browse the next scheduled missions.
+                </Text>
+              )}
+            </SectionCard>
+
             <SectionCard title="Month view" description="Tap any day to read that date’s schedule.">
               <View style={{ gap: 8 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
@@ -305,10 +348,17 @@ export default function CalendarScreen() {
             </SectionCard>
 
             <SectionCard
+              testID="calendar-selected-day"
               title={selectedDay ? formatSelectedDay(selectedDay) : 'Selected day'}
-              description={`${selectedLaunches.length} launch${selectedLaunches.length === 1 ? '' : 'es'} scheduled.`}
+              description={
+                hasMonthLaunches
+                  ? `${selectedLaunches.length} launch${selectedLaunches.length === 1 ? '' : 'es'} scheduled.`
+                  : 'No launches are currently scheduled this month.'
+              }
             >
-              {selectedLaunches.length === 0 ? (
+              {!hasMonthLaunches ? (
+                <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>No launches scheduled this month.</Text>
+              ) : selectedLaunches.length === 0 ? (
                 <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>No launches on this date.</Text>
               ) : (
                 <View style={{ gap: 12 }}>

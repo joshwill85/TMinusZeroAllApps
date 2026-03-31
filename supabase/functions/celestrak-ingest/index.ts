@@ -72,15 +72,14 @@ serve(async (req) => {
       'celestrak_gp_max_datasets_per_run',
       'celestrak_satcat_job_enabled',
       'celestrak_satcat_max_datasets_per_run',
-      'celestrak_supgp_job_enabled',
-      'celestrak_supgp_max_datasets_per_run',
       'celestrak_intdes_job_enabled',
       'celestrak_intdes_max_designators_per_run'
     ]);
 
     const gpEnabled = readBooleanSetting(settings.celestrak_gp_job_enabled, true);
     const satcatEnabled = readBooleanSetting(settings.celestrak_satcat_job_enabled, true);
-    const supgpEnabled = readBooleanSetting(settings.celestrak_supgp_job_enabled, false);
+    // SupGP is now owned by the dedicated celestrak-supgp-sync + celestrak-supgp-ingest job pair.
+    const supgpEnabled = false;
     const intdesEnabled = readBooleanSetting(settings.celestrak_intdes_job_enabled, true);
 
     const gpMax = clampInt(
@@ -90,11 +89,6 @@ serve(async (req) => {
     );
     const satcatMax = clampInt(
       readNumberSetting(settings.celestrak_satcat_max_datasets_per_run, DEFAULTS.satcatMaxDatasetsPerRun),
-      1,
-      25
-    );
-    const supgpMax = clampInt(
-      readNumberSetting(settings.celestrak_supgp_max_datasets_per_run, DEFAULTS.supgpMaxDatasetsPerRun),
       1,
       25
     );

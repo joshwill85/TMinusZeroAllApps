@@ -117,13 +117,11 @@ Goal: make Premium value obvious without degrading the Free experience (no popup
 
 ---
 
-## Compliance / privacy notes (Twilio + Terms/Privacy safe‑mode)
+## Compliance / privacy notes
 
 - These front‑page surfaces use `localStorage` only for UX state (collapse/dismiss TTL) and do not introduce new data collection.
-- New upsell copy avoids explicitly marketing SMS until A2P/10DLC approval is in place; existing SMS flows remain unchanged.
-- No changes required to `legal/*` pages from these UI-only prompts, but if marketing ever promotes SMS directly, re‑review:
-  - `docs/sms-a2p-checklist.md`
-  - `docs/twilio-a2p-10dlc-verification-playbook.md`
+- Launch notifications are native mobile push only. Keep front-page copy aligned with the push-only legal and account language.
+- No changes required to `legal/*` pages from these UI-only prompts unless notification policy changes again.
 
 ## Quick QA checklist (manual)
 
@@ -131,4 +129,3 @@ Goal: make Premium value obvious without degrading the Free experience (no popup
 - As **free** on `/`: confirm unlocks card, why-premium card behavior, recently-changed teaser, locked controls, alerts nudge.
 - As **premium** on `/`: confirm no upgrade prompts, live mode text, and premium-only controls are enabled.
 - Confirm new upsell surfaces do **not** say “SMS/text” and do **not** mention the enhanced forecast provider name.
-

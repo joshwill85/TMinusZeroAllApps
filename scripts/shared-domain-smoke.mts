@@ -252,9 +252,21 @@ assert.ok(contract, 'trajectory contract should build');
 assert.equal(contract?.qualityState, 'precision');
 assert.equal(contract?.authorityTier, 'partner_feed');
 assert.equal(contract?.tracks.length, 1);
+assert.equal(contract?.guidanceSemantics, 'constraint_backed');
+assert.deepEqual(contract?.trackTopology, {
+  hasStageSplit: false,
+  hasUpperStageTrack: false,
+  hasBoosterTrack: false
+});
 
 const publicV2 = buildTrajectoryPublicV2Response(trajectoryRow);
 assert.ok(publicV2, 'trajectory public v2 payload should build');
+assert.equal(publicV2?.guidanceSemantics, 'constraint_backed');
+assert.deepEqual(publicV2?.trackTopology, {
+  hasStageSplit: false,
+  hasUpperStageTrack: false,
+  hasBoosterTrack: false
+});
 trajectoryPublicV2ResponseSchemaV1.parse(publicV2);
 
 console.log('shared-domain-smoke: ok');

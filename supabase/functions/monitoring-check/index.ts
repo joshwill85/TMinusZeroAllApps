@@ -22,6 +22,8 @@ const JOB_THRESHOLDS_MINUTES: Record<string, number> = {
   trajectory_templates_generate: 1560,
 
   celestrak_gp_groups_sync: 2160,
+  celestrak_supgp_sync: 90,
+  celestrak_supgp_ingest: 90,
   celestrak_ingest: 420,
   celestrak_retention_cleanup: 2160
 };
@@ -40,6 +42,8 @@ const JOB_ENABLED_SETTING_KEYS: Record<string, string> = {
   trajectory_templates_generate: 'trajectory_templates_job_enabled',
 
   celestrak_gp_groups_sync: 'celestrak_gp_groups_sync_enabled',
+  celestrak_supgp_sync: 'celestrak_supgp_sync_enabled',
+  celestrak_supgp_ingest: 'celestrak_supgp_job_enabled',
   celestrak_ingest: 'celestrak_ingest_job_enabled',
   celestrak_retention_cleanup: 'celestrak_retention_cleanup_enabled'
 };

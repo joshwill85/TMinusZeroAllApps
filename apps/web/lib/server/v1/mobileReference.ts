@@ -117,26 +117,26 @@ const CONTENT_PAGES: ContentPageDefinition[] = [
     slug: 'docs/sms-opt-in',
     aliases: ['docs/sms-opt-in', 'legal/sms'],
     eyebrow: 'Docs',
-    title: 'SMS Opt-In',
-    description: 'The SMS program disclosure and operational terms for launch alerts.',
+    title: 'Notifications',
+    description: 'Native push notification guidance and operational notes for launch alerts.',
     lastUpdated: '2026-03-20',
     actions: [
-      { label: 'Terms', href: '/legal/terms#sms-alerts' },
+      { label: 'Preferences', href: '/preferences' },
       { label: 'Privacy', href: '/legal/privacy' },
-      { label: 'Preferences', href: '/preferences' }
+      { label: 'Terms', href: '/legal/terms' }
     ],
     sections: [
       {
         title: 'Program description',
-        body: `${BRAND_NAME} sends recurring automated SMS notifications about launch alerts you select.`
+        body: `${BRAND_NAME} delivers launch alerts through native push notifications on iOS and Android.`
       },
       {
-        title: 'Opt in',
-        body: 'Users opt in by entering a phone number, completing verification, and enabling SMS alerts after accepting the disclosure.'
+        title: 'Setup',
+        body: 'Users open notification settings, register a device, and enable the launch alert scopes they want.'
       },
       {
         title: 'Help and support',
-        body: `Reply HELP or contact ${SUPPORT_EMAIL} if you need help with the SMS program.`
+        body: `Contact ${SUPPORT_EMAIL} if you need help with the notification setup.`
       }
     ]
   },
@@ -209,7 +209,7 @@ const CONTENT_PAGES: ContentPageDefinition[] = [
     sections: [
       {
         title: 'What we collect',
-        body: 'Account details, notification preferences, billing state, usage data, and optional SMS or email settings.'
+        body: 'Account details, notification preferences, billing state, usage data, and optional marketing email settings.'
       },
       {
         title: 'How we use it',
@@ -249,7 +249,7 @@ const CONTENT_PAGES: ContentPageDefinition[] = [
     aliases: ['legal/terms', 'terms'],
     eyebrow: 'Legal',
     title: 'Terms of Service',
-    description: 'The service terms, subscription terms, and SMS program terms.',
+    description: 'The service terms, subscription terms, and notification guidance.',
     lastUpdated: '2026-01-30',
     actions: [
       { label: 'Privacy', href: '/legal/privacy' },
@@ -266,8 +266,8 @@ const CONTENT_PAGES: ContentPageDefinition[] = [
         body: 'Premium features renew automatically until canceled through the appropriate billing flow.'
       },
       {
-        title: 'SMS alerts',
-        body: 'SMS alerts are optional, require consent, and can be disabled at any time.'
+        title: 'Push alerts',
+        body: 'Push alerts are optional, require device registration, and can be disabled at any time.'
       }
     ]
   }
@@ -291,7 +291,7 @@ export function loadInfoHubPayload() {
       { title: 'Data & Attribution', description: 'Review public sources and attribution notes.', href: '/legal/data', badge: 'Legal' },
       { title: 'Privacy', description: 'Read how data is collected and used.', href: '/legal/privacy', badge: 'Legal' },
       { title: 'Privacy Choices', description: 'Manage opt-outs, export, and delete flows.', href: '/legal/privacy-choices', badge: 'Legal' },
-      { title: 'Terms', description: 'Review the service terms and SMS disclosure.', href: '/legal/terms', badge: 'Legal' }
+      { title: 'Terms', description: 'Review the service terms and push notification guidance.', href: '/legal/terms', badge: 'Legal' }
     ]
   });
 }

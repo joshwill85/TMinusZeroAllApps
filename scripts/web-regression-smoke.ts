@@ -84,13 +84,16 @@ async function verifyQueryReuse() {
   await queryClient.fetchQuery(
     viewerEntitlementsQueryOptions(
       count('viewerEntitlements', {
-        tier: 'free',
+        tier: 'anon',
         status: 'active',
         source: 'stripe',
         isPaid: false,
+        billingIsPaid: false,
         isAdmin: false,
         isAuthed: true,
         mode: 'public',
+        effectiveTierSource: 'free',
+        adminAccessOverride: null,
         refreshIntervalSeconds: 900,
         capabilities: {
           canUseSavedItems: false,
@@ -105,6 +108,9 @@ async function verifyQueryReuse() {
           canUseBasicAlertRules: true,
           canUseAdvancedAlertRules: false,
           canUseBrowserLaunchAlerts: false,
+          canUseSingleLaunchFollow: true,
+          canUseAllUsLaunchAlerts: true,
+          canUseStateLaunchAlerts: false,
           canUseRecurringCalendarFeeds: false,
           canUseRssFeeds: false,
           canUseEmbedWidgets: false,
@@ -116,7 +122,8 @@ async function verifyQueryReuse() {
           presetLimit: 0,
           filterPresetLimit: 0,
           watchlistLimit: 0,
-          watchlistRuleLimit: 0
+          watchlistRuleLimit: 0,
+          singleLaunchFollowLimit: 1
         },
         cancelAtPeriodEnd: false,
         currentPeriodEnd: null,
@@ -129,13 +136,16 @@ async function verifyQueryReuse() {
   await queryClient.fetchQuery(
     viewerEntitlementsQueryOptions(
       count('viewerEntitlements', {
-        tier: 'free',
+        tier: 'anon',
         status: 'active',
         source: 'stripe',
         isPaid: false,
+        billingIsPaid: false,
         isAdmin: false,
         isAuthed: true,
         mode: 'public',
+        effectiveTierSource: 'free',
+        adminAccessOverride: null,
         refreshIntervalSeconds: 900,
         capabilities: {
           canUseSavedItems: false,
@@ -150,6 +160,9 @@ async function verifyQueryReuse() {
           canUseBasicAlertRules: true,
           canUseAdvancedAlertRules: false,
           canUseBrowserLaunchAlerts: false,
+          canUseSingleLaunchFollow: true,
+          canUseAllUsLaunchAlerts: true,
+          canUseStateLaunchAlerts: false,
           canUseRecurringCalendarFeeds: false,
           canUseRssFeeds: false,
           canUseEmbedWidgets: false,
@@ -161,7 +174,8 @@ async function verifyQueryReuse() {
           presetLimit: 0,
           filterPresetLimit: 0,
           watchlistLimit: 0,
-          watchlistRuleLimit: 0
+          watchlistRuleLimit: 0,
+          singleLaunchFollowLimit: 1
         },
         cancelAtPeriodEnd: false,
         currentPeriodEnd: null,
@@ -204,8 +218,8 @@ async function verifyQueryReuse() {
     queryClient.fetchQuery(
       notificationPreferencesQueryOptions(
         count('notificationPreferences', {
-          pushEnabled: true,
-          emailEnabled: true,
+          pushEnabled: false,
+          emailEnabled: false,
           smsEnabled: false,
           launchDayEmailEnabled: false,
           launchDayEmailProviders: [],
@@ -215,7 +229,7 @@ async function verifyQueryReuse() {
           quietEndLocal: null,
           smsVerified: false,
           smsPhone: null,
-          smsSystemEnabled: true
+          smsSystemEnabled: false
         })
       )
     ),

@@ -1,12 +1,15 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocalSearchParams, useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { mobileColorTokens } from '@tminuszero/design-tokens';
 import { buildMobileRoute, readAuthIntent, readReturnTo, resolveMobileAuthRedirectPath } from '@tminuszero/navigation';
+import { isNativeAppleSignInAvailable } from '@/src/auth/appleAuth';
 import { recordMobileAuthContext } from '@/src/auth/authContext';
 import {
   attachPremiumClaimToSession,
+  continueWithAppleSignIn,
   isSupabaseMobileAuthConfigured,
   signInWithPassword,
   signOut
@@ -33,6 +36,7 @@ export default function SignInScreen() {
   const { accessToken, persistSession, clearSession } = useMobileBootstrap();
   const { unregisterCurrentDevice } = useMobilePush();
   const claimToken = readParam(params.claim_token);
+  const [appleSignInAvailable, setAppleSignInAvailable] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [status, setStatus] = useState<{ tone: 'error' | 'success' | null; text: string }>({
@@ -56,6 +60,26 @@ export default function SignInScreen() {
       fallback: buildMobileRoute('profile')
     });
   }, [params.intent, params.next, params.return_to]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void isNativeAppleSignInAvailable()
+      .then((available) => {
+        if (!cancelled) {
+          setAppleSignInAvailable(available);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAppleSignInAvailable(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handleSignIn() {
     const normalizedEmail = email.trim();
@@ -93,6 +117,49 @@ export default function SignInScreen() {
       setStatus({
         tone: 'error',
         text: error instanceof Error ? error.message : 'Unable to sign in.'
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleAppleSignIn() {
+    if (isSubmitting) {
+      return;
+    }
+
+    if (!appleSignInAvailable) {
+      setStatus({ tone: 'error', text: 'Sign in with Apple is not available in this build.' });
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const result = await continueWithAppleSignIn();
+      await persistSession({
+        accessToken: result.session.accessToken,
+        refreshToken: result.session.refreshToken
+      });
+      await recordMobileAuthContext(result.session.accessToken, {
+        provider: result.provider,
+        eventType: 'oauth_callback'
+      }).catch(() => {});
+      if (claimToken) {
+        const attachResult = await attachPremiumClaimToSession(result.session.accessToken, claimToken);
+        router.replace(
+          resolveMobileAuthRedirectPath({
+            returnTo: attachResult.returnTo,
+            intent: 'upgrade',
+            fallback: redirectHref
+          }) as Href
+        );
+        return;
+      }
+      router.replace(redirectHref as Href);
+    } catch (error) {
+      setStatus({
+        tone: 'error',
+        text: error instanceof Error ? error.message : 'Unable to sign in with Apple.'
       });
     } finally {
       setIsSubmitting(false);
@@ -182,6 +249,25 @@ export default function SignInScreen() {
             </View>
           ) : (
             <View style={styles.stack}>
+              {appleSignInAvailable ? (
+                <>
+                  {isSubmitting ? (
+                    <View style={styles.appleButtonLoading}>
+                      <ActivityIndicator color="#05060A" />
+                    </View>
+                  ) : (
+                    <AppleAuthentication.AppleAuthenticationButton
+                      testID="sign-in-apple"
+                      buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+                      buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
+                      cornerRadius={24}
+                      style={styles.appleButton}
+                      onPress={() => void handleAppleSignIn()}
+                    />
+                  )}
+                  <Text style={styles.oauthDivider}>or continue with email</Text>
+                </>
+              ) : null}
               <TextInput
                 testID="sign-in-email"
                 value={email}
@@ -266,6 +352,18 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     backgroundColor: mobileColorTokens.accent
   },
+  appleButton: {
+    width: '100%',
+    height: 50
+  },
+  appleButtonLoading: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 24,
+    width: '100%',
+    height: 50,
+    backgroundColor: '#f5f5f7'
+  },
   secondaryButton: {
     flex: 1,
     alignItems: 'center',
@@ -286,6 +384,12 @@ const styles = StyleSheet.create({
     color: mobileColorTokens.foreground,
     fontSize: 14,
     fontWeight: '700'
+  },
+  oauthDivider: {
+    color: mobileColorTokens.muted,
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center'
   },
   body: {
     color: mobileColorTokens.muted,

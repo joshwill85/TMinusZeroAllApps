@@ -1,5 +1,5 @@
 import { ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, Platform } from 'react-native';
+import { AppState, InteractionManager, Platform } from 'react-native';
 import * as Application from 'expo-application';
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
@@ -156,7 +156,7 @@ export function MobilePushProvider({ children }: MobilePushProviderProps) {
       }
 
       const token = await resolvePushRegistrationToken(getExpoProjectId());
-      const isPremium = entitlementsQuery.data?.isPaid === true || entitlementsQuery.data?.isAdmin === true;
+      const isPremium = entitlementsQuery.data?.tier === 'premium';
       const ownerKey = isPremium ? `user:${viewerSessionQuery.data?.viewerId ?? 'authed'}` : `guest:${installationId}`;
       if (!force && lastSyncedOwnerKeyRef.current === ownerKey && lastSyncedTokenRef.current === token) {
         setIsRegistered(true);
@@ -192,8 +192,7 @@ export function MobilePushProvider({ children }: MobilePushProviderProps) {
     },
     [
       client,
-      entitlementsQuery.data?.isAdmin,
-      entitlementsQuery.data?.isPaid,
+      entitlementsQuery.data?.tier,
       installationId,
       isAuthHydrated,
       queryClient,
@@ -297,15 +296,40 @@ export function MobilePushProvider({ children }: MobilePushProviderProps) {
       return;
     }
 
-    setIsSyncing(true);
-    void syncCurrentDevice(false)
-      .catch((error) => {
-        setLastError(describePushError(error));
-      })
-      .finally(() => {
-        setIsSyncing(false);
-      });
-  }, [entitlementsQuery.data?.isAdmin, entitlementsQuery.data?.isPaid, installationId, isAuthHydrated, syncCurrentDevice]);
+    let cancelled = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+
+    const task = InteractionManager.runAfterInteractions(() => {
+      timeout = setTimeout(() => {
+        if (cancelled) {
+          return;
+        }
+
+        setIsSyncing(true);
+        void syncCurrentDevice(false)
+          .catch((error) => {
+            if (cancelled) {
+              return;
+            }
+            setLastError(describePushError(error));
+          })
+          .finally(() => {
+            if (cancelled) {
+              return;
+            }
+            setIsSyncing(false);
+          });
+      }, 1200);
+    });
+
+    return () => {
+      cancelled = true;
+      task.cancel();
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+    };
+  }, [entitlementsQuery.data?.tier, installationId, isAuthHydrated, syncCurrentDevice]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {

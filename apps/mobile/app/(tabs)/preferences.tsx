@@ -53,7 +53,12 @@ export default function PreferencesScreen() {
     disablePushAlerts,
     sendTestPush
   } = useMobilePush();
-  const isPremium = entitlementsQuery.data?.isPaid === true || entitlementsQuery.data?.isAdmin === true;
+  const isAuthed = entitlementsQuery.data?.isAuthed ?? false;
+  const isPremium = entitlementsQuery.data?.tier === 'premium';
+  const canUseAllUsLaunchAlerts = entitlementsQuery.data?.capabilities.canUseAllUsLaunchAlerts ?? false;
+  const canUseStateLaunchAlerts = entitlementsQuery.data?.capabilities.canUseStateLaunchAlerts ?? false;
+  const canUseSingleLaunchFollow = entitlementsQuery.data?.capabilities.canUseSingleLaunchFollow ?? false;
+  const accessLabel = isPremium ? 'Premium' : isAuthed ? 'Signed in' : 'Public';
   const context = installationId ? { installationId, deviceSecret } : null;
   const rulesQuery = useMobilePushRulesQuery(context, {
     enabled: Boolean(installationId)
@@ -110,17 +115,21 @@ export default function PreferencesScreen() {
         description="Manage this device’s push registration and the mobile alert rules that should deliver to it."
       >
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-          <CustomerShellBadge label={isPremium ? 'Premium' : 'Anon'} tone={isPremium ? 'accent' : 'default'} />
+          <CustomerShellBadge label={accessLabel} tone={isPremium ? 'accent' : 'default'} />
           <CustomerShellBadge label={formatPermissionLabel(permissionStatus)} tone={permissionStatus === 'granted' ? 'success' : 'warning'} />
         </View>
       </CustomerShellHero>
 
       <CustomerShellPanel
         title="Notification overview"
-        description="Mobile notifications are push-only. Signing in keeps device setup and stored rules attached to your account. Premium unlocks mobile alert creation, edits, extra reminder windows, daily digests, and change alerts."
+        description="Mobile notifications are push-only. Free includes one launch follow slot from launch detail plus `All U.S.` alerts here. Premium adds state alerts, saved follows, extra reminder windows, daily digests, and change alerts."
       >
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-          <CustomerShellMetric label="Plan" value={isPremium ? 'Premium' : 'Anon'} caption={isPremium ? 'Mobile alerts enabled' : 'Upgrade to manage mobile alerts'} />
+          <CustomerShellMetric
+            label="Access"
+            value={accessLabel}
+            caption={isPremium ? 'All mobile alert scopes enabled' : canUseSingleLaunchFollow || canUseAllUsLaunchAlerts ? 'Free launch slot + All U.S.' : 'Limited mobile alerts'}
+          />
           <CustomerShellMetric label="Push" value={isPushEnabled ? 'On' : 'Off'} caption={isRegistered ? 'This device is registered' : 'Device registration pending'} />
           <CustomerShellMetric label="Rules" value={String(scopeRules.length)} caption={launchRuleCount ? `${launchRuleCount} launch-specific alert${launchRuleCount === 1 ? '' : 's'} on launch detail` : 'No broad rules yet'} />
         </View>
@@ -171,13 +180,9 @@ export default function PreferencesScreen() {
         />
 
         <CustomerShellActionButton
-          label={isPremium ? 'Send push test' : 'Send push test (Premium)'}
+          label="Send push test"
           variant="secondary"
           onPress={() => {
-            if (!isPremium) {
-              openPremiumGate();
-              return;
-            }
             setNotice(null);
             void sendTestPush()
               .then(() => {
@@ -215,7 +220,7 @@ export default function PreferencesScreen() {
 
       <CustomerShellPanel
         title="Alert rules"
-        description="Premium can watch all U.S. launches, specific states, launch-detail reminders, saved presets, and follows. Signed-in anon can review stored rules, but editing and delivery stay Premium-only."
+        description="Free/basic can manage `All U.S.` launches here, and the single-launch free slot is handled from launch detail. State rules, saved presets, follows, digests, and change alerts stay Premium-only."
       >
         {!installationId ? (
           <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>Preparing mobile push rules…</Text>
@@ -229,18 +234,18 @@ export default function PreferencesScreen() {
                 <RuleEditorCard
                   rule={allUsRule}
                   isPremium={isPremium}
-                  readOnly={!isPremium}
+                  readOnly={!canUseAllUsLaunchAlerts}
                   busy={upsertRuleMutation.isPending || deleteRuleMutation.isPending}
                   onOpenUpgrade={openPremiumGate}
                   onSave={(payload) => {
                     void saveRule(payload);
                   }}
                   onDelete={() => {
-                    void removeRule(allUsRule.id);
+                    void removeRule(allUsRule);
                   }}
                 />
               ) : (
-                isPremium ? (
+                canUseAllUsLaunchAlerts ? (
                   <AddRuleChip
                     label="Add All U.S. launches"
                     disabled={!isRegistered || upsertRuleMutation.isPending}
@@ -265,14 +270,14 @@ export default function PreferencesScreen() {
                       key={rule.id}
                       rule={rule}
                       isPremium={isPremium}
-                      readOnly={!isPremium}
+                      readOnly={!canUseStateLaunchAlerts}
                       busy={upsertRuleMutation.isPending || deleteRuleMutation.isPending}
                       onOpenUpgrade={openPremiumGate}
                       onSave={(payload) => {
                         void saveRule(payload);
                       }}
                       onDelete={() => {
-                        void removeRule(rule.id);
+                        void removeRule(rule);
                       }}
                     />
                   ))}
@@ -282,7 +287,7 @@ export default function PreferencesScreen() {
               )}
               {filterOptionsQuery.isPending ? (
                 <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>Loading state options…</Text>
-              ) : isPremium ? (
+              ) : canUseStateLaunchAlerts ? (
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                   {availableStates.map((state) => (
                     <AddRuleChip
@@ -330,7 +335,7 @@ export default function PreferencesScreen() {
                   void saveRule(payload);
                 }}
                 onDelete={() => {
-                  void removeRule(allLaunchesRule.id);
+                  void removeRule(allLaunchesRule);
                 }}
               />
             ) : (
@@ -389,7 +394,7 @@ export default function PreferencesScreen() {
                   void saveRule(payload);
                 }}
                 onDelete={() => {
-                  void removeRule(rule.id);
+                  void removeRule(rule);
                 }}
               />
             ))}
@@ -437,7 +442,7 @@ export default function PreferencesScreen() {
                   void saveRule(payload);
                 }}
                 onDelete={() => {
-                  void removeRule(rule.id);
+                  void removeRule(rule);
                 }}
               />
             ))}
@@ -471,7 +476,16 @@ export default function PreferencesScreen() {
       | { scopeKind: 'follow'; followRuleType: WatchlistRuleV1['ruleType']; followRuleValue: string }
   ) {
     if (!installationId) return;
-    if (!isPremium) {
+    if (scope.scopeKind === 'all_us' && !canUseAllUsLaunchAlerts) {
+      setNotice({ tone: 'warning', message: 'All U.S. alerts are unavailable on this device.' });
+      return;
+    }
+    if (scope.scopeKind === 'state' && !canUseStateLaunchAlerts) {
+      openPremiumGate();
+      setNotice({ tone: 'warning', message: 'Upgrade to Premium to add state-based mobile alert rules.' });
+      return;
+    }
+    if (scope.scopeKind !== 'all_us' && scope.scopeKind !== 'state' && !isPremium) {
       openPremiumGate();
       setNotice({ tone: 'warning', message: 'Upgrade to Premium to add mobile alert rules.' });
       return;
@@ -492,7 +506,16 @@ export default function PreferencesScreen() {
   }
 
   async function saveRule(payload: MobilePushRuleUpsertV1) {
-    if (!isPremium) {
+    if (payload.scopeKind === 'all_us' && !canUseAllUsLaunchAlerts) {
+      setNotice({ tone: 'warning', message: 'All U.S. alerts are unavailable on this device.' });
+      return;
+    }
+    if (payload.scopeKind === 'state' && !canUseStateLaunchAlerts) {
+      openPremiumGate();
+      setNotice({ tone: 'warning', message: 'Upgrade to Premium to edit state-based mobile alert rules.' });
+      return;
+    }
+    if (payload.scopeKind !== 'all_us' && payload.scopeKind !== 'state' && !isPremium) {
       openPremiumGate();
       setNotice({ tone: 'warning', message: 'Upgrade to Premium to edit mobile alert rules.' });
       return;
@@ -509,9 +532,18 @@ export default function PreferencesScreen() {
     }
   }
 
-  async function removeRule(ruleId: string) {
+  async function removeRule(rule: NonLaunchMobilePushRuleV1) {
     if (!context) return;
-    if (!isPremium) {
+    if (rule.scopeKind === 'all_us' && !canUseAllUsLaunchAlerts) {
+      setNotice({ tone: 'warning', message: 'All U.S. alerts are unavailable on this device.' });
+      return;
+    }
+    if (rule.scopeKind === 'state' && !canUseStateLaunchAlerts) {
+      openPremiumGate();
+      setNotice({ tone: 'warning', message: 'Upgrade to Premium to remove state-based mobile alert rules.' });
+      return;
+    }
+    if (rule.scopeKind !== 'all_us' && rule.scopeKind !== 'state' && !isPremium) {
       openPremiumGate();
       setNotice({ tone: 'warning', message: 'Upgrade to Premium to remove mobile alert rules.' });
       return;
@@ -519,7 +551,7 @@ export default function PreferencesScreen() {
     setNotice(null);
     try {
       await deleteRuleMutation.mutateAsync({
-        ruleId,
+        ruleId: rule.id,
         context
       });
       setNotice({ tone: 'info', message: 'Removed mobile push rule.' });
@@ -558,7 +590,7 @@ function RuleEditorCard({
   );
   const [notifyNetChanges, setNotifyNetChanges] = useState(rule.settings.notifyNetChanges === true);
   const offsetOptions = readOnly || isPremium ? PREMIUM_OFFSET_OPTIONS : BASIC_OFFSET_OPTIONS;
-  const maxOffsets = readOnly || isPremium ? 3 : 1;
+  const maxOffsets = readOnly || isPremium ? 3 : 2;
   const canUseDailyDigest = isPremium || Boolean(rule.settings.dailyDigestLocalTime);
 
   return (
@@ -594,16 +626,16 @@ function RuleEditorCard({
           {offsetOptions.map((value) => {
             const active = offsets.includes(value);
             return (
-                  <AddRuleChip
-                    key={value}
-                    label={value >= 1440 ? '1 day' : value >= 60 ? `${Math.round(value / 60)} hr` : `${value} min`}
-                    active={active}
-                    disabled={busy || readOnly}
-                    onPress={() => {
-                      if (readOnly) return;
-                      if (active) {
-                        setOffsets((current) => current.filter((entry) => entry !== value));
-                        return;
+              <AddRuleChip
+                key={value}
+                label={value >= 1440 ? '1 day' : value >= 60 ? `${Math.round(value / 60)} hr` : `${value} min`}
+                active={active}
+                disabled={busy || readOnly}
+                onPress={() => {
+                  if (readOnly) return;
+                  if (active) {
+                    setOffsets((current) => current.filter((entry) => entry !== value));
+                    return;
                   }
                   if (offsets.length >= maxOffsets) {
                     return;
@@ -622,16 +654,16 @@ function RuleEditorCard({
           {STATUS_OPTIONS.map((option) => {
             const active = statusChangeTypes.includes(option.key);
             return (
-                <AddRuleChip
-                  key={option.key}
-                  label={option.label}
-                  active={active}
-                  disabled={busy || readOnly || !isPremium}
-                  onPress={() => {
-                    if (readOnly || !isPremium) {
-                      onOpenUpgrade();
-                      return;
-                    }
+              <AddRuleChip
+                key={option.key}
+                label={option.label}
+                active={active}
+                disabled={busy || readOnly || !isPremium}
+                onPress={() => {
+                  if (readOnly || !isPremium) {
+                    onOpenUpgrade();
+                    return;
+                  }
                   if (option.key === 'any') {
                     setStatusChangeTypes((current) => (current.includes('any') ? [] : ['any']));
                     return;

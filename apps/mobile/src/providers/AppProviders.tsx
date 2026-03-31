@@ -41,7 +41,6 @@ function isAuthScopedQueryKey(queryKey: readonly unknown[]) {
     root === sharedQueryKeys.rssFeeds[0] ||
     root === sharedQueryKeys.embedWidgets[0] ||
     root === sharedQueryKeys.notificationPreferences[0] ||
-    root === 'launch-notification-preference' ||
     root === 'push-device' ||
     root === 'mobile-push-rules' ||
     root === 'mobile-push-launch-preference'

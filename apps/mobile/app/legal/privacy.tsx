@@ -6,7 +6,7 @@ export default function PrivacyNoticeScreen() {
       testID="legal-privacy-screen"
       eyebrow="Legal"
       title="Privacy Notice"
-      description="How T-Minus Zero collects, uses, and discloses account, notification, billing, and diagnostics data."
+      description="How T-Minus Zero collects, uses, and discloses account, push, billing, and diagnostics data."
       lastUpdated="Jan 20, 2026"
       actions={[
         { label: 'Privacy choices', href: '/legal/privacy-choices' },
@@ -15,10 +15,10 @@ export default function PrivacyNoticeScreen() {
       sections={[
         {
           title: 'What we collect',
-          body: 'We collect the information needed to run launch tracking, account, billing, notification, and support features.',
+          body: 'We collect the information needed to run launch tracking, account, billing, push, and support features.',
           bullets: [
             'Account data such as name, email, timezone, and authentication identifiers.',
-            'Notification data such as phone number, opt-in state, quiet hours, launch alert settings, and verification state.',
+            'Push registration data such as platform, installation ID, push token, app version, and device name.',
             'Billing state such as subscription status and processor identifiers. Payment card details stay with the payment processor.',
             'Operational data such as IP address, device/app details, usage diagnostics, and limited feature telemetry.'
           ]
@@ -40,7 +40,7 @@ export default function PrivacyNoticeScreen() {
             'Authentication and database infrastructure.',
             'Hosting, content delivery, and security services.',
             'Subscription billing and payment processing.',
-            'Email and SMS delivery providers.'
+            'Email and push infrastructure.'
           ]
         },
         {

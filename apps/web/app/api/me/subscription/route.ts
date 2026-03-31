@@ -14,10 +14,13 @@ export async function GET(request: Request) {
   return NextResponse.json({
     status: entitlement.status,
     isPaid: entitlement.isPaid,
+    billingIsPaid: entitlement.billingIsPaid,
     isAdmin: entitlement.isAdmin,
     isAuthed: entitlement.isAuthed,
     tier: entitlement.tier,
     mode: entitlement.mode,
+    effectiveTierSource: entitlement.effectiveTierSource,
+    adminAccessOverride: entitlement.adminAccessOverride,
     refreshIntervalSeconds: entitlement.refreshIntervalSeconds,
     capabilities: entitlement.capabilities,
     limits: entitlement.limits,

@@ -83,6 +83,7 @@ type SourceFreshnessSnapshot = {
 type LaunchSite = 'cape' | 'vandenberg' | 'starbase' | 'unknown';
 type MissionClass = 'SSO_POLAR' | 'GTO_GEO' | 'ISS_CREW' | 'LEO_GENERIC' | 'UNKNOWN';
 type TrajectoryQualityLabel = 'pad_only' | 'landing_constrained' | 'estimate_corridor';
+type SupgpMode = 'none' | 'family_feed' | 'launch_file';
 
 type LaunchRow = {
   launch_id: string;
@@ -208,6 +209,24 @@ type TrajectoryProduct = {
   tracks?: unknown;
   milestoneSummary?: Record<string, unknown>;
   trackSummary?: Record<string, unknown>;
+};
+
+type TrajectoryTrackKind = 'core_up' | 'upper_stage_up' | 'booster_down';
+
+type TrajectoryTrackSample = {
+  tPlusSec: number;
+  ecef: [number, number, number];
+  sigmaDeg?: number;
+  covariance?: { along_track: number; cross_track: number };
+  uncertainty?: {
+    sigmaDeg?: number;
+    covariance?: { along_track: number; cross_track: number };
+  };
+};
+
+type TrajectoryTrack = {
+  trackKind: TrajectoryTrackKind;
+  samples: TrajectoryTrackSample[];
 };
 
 const TRAJECTORY_ENVELOPE_IDS = {
@@ -1335,7 +1354,13 @@ serve(async (req: Request) => {
       }
 
       const applyEvents = (targetProduct: TrajectoryProduct) => {
-        const trackWindows = buildTrajectoryMilestoneTrackWindows([{ trackKind: 'core_up', samples: targetProduct.samples }]);
+        const tracks = buildProductTracks({
+          product: targetProduct,
+          milestones: resolvedMilestones,
+          landing: landingPick ?? null
+        });
+        targetProduct.tracks = tracks;
+        const trackWindows = buildTrajectoryMilestoneTrackWindows(tracks);
         const projectedMilestones = applyTrajectoryMilestoneProjection({
           milestones: resolvedMilestones,
           trackWindows
@@ -1608,7 +1633,9 @@ function evaluateSourceContract({
   const targetOrbitConstraints = allConstraints.filter((constraint) => constraint.constraint_type === 'target_orbit');
   const hasMissionNumericOrbit = targetOrbitConstraints.some((constraint) => hasTargetOrbitNumerics(constraint) && !isDerivedConstraint(constraint));
   const hasSupgpConstraint = targetOrbitConstraints.some((constraint) => isSupgpConstraint(constraint));
+  const supgpMode = classifySupgpMode(targetOrbitConstraints);
   const hasLicensedTrajectoryFeed = targetOrbitConstraints.some((constraint) => isLicensedTrajectoryConstraint(constraint));
+  const landingSummary = buildLandingSummary(allConstraints);
   const landingPrecisionCorroborated =
     hasLandingDirectional && (hasOrbitDirectional || hasHazardDirectional || hasMissionNumericOrbit || hasSupgpConstraint || hasLicensedTrajectoryFeed);
 
@@ -1720,14 +1747,15 @@ function evaluateSourceContract({
     landingPrecisionCorroborated,
     hasMissionNumericOrbit,
     hasSupgpConstraint,
-    hasHazardDirectional
+    hasHazardDirectional,
+    supgpMode
   });
 
   return {
     confidenceTier,
     status,
     sourceSufficiency: {
-      contractVersion: 'source_contract_v2_3',
+      contractVersion: 'source_contract_v2_4',
       sourceFreshness,
       qualityLabel,
       sourceSummary,
@@ -1744,11 +1772,13 @@ function evaluateSourceContract({
         hasHazardDirectional,
         hasMissionNumericOrbit,
         hasSupgpConstraint,
+        supgpMode,
         hasLicensedTrajectoryFeed,
         nonDerivedDirectionalCount,
         highConfidenceDirectional,
         usedConstraintCount: uniqueUsedConstraints.length
       },
+      landingSummary,
       ...(isSpaceX
         ? {
             spaceX: {
@@ -1809,6 +1839,233 @@ function buildDowngradedContractEval(contract: SourceContractEval): SourceContra
   };
 }
 
+function toTrackSample(sample: TrajectoryProduct['samples'][number]): TrajectoryTrackSample {
+  return {
+    tPlusSec: sample.tPlusSec,
+    ecef: sample.ecef,
+    sigmaDeg: sample.sigmaDeg,
+    covariance: sample.covariance,
+    uncertainty: sample.uncertainty
+  };
+}
+
+function dedupeTrackSamples(samples: TrajectoryTrackSample[]): TrajectoryTrackSample[] {
+  const byTime = new Map<number, TrajectoryTrackSample>();
+  for (const sample of [...samples].sort((left, right) => left.tPlusSec - right.tPlusSec)) {
+    byTime.set(sample.tPlusSec, sample);
+  }
+  return [...byTime.values()].sort((left, right) => left.tPlusSec - right.tPlusSec);
+}
+
+function inferSampleStepSeconds(samples: TrajectoryProduct['samples']): number {
+  for (let index = 1; index < samples.length; index += 1) {
+    const delta = Math.round(samples[index].tPlusSec - samples[index - 1].tPlusSec);
+    if (Number.isFinite(delta) && delta > 0) return delta;
+  }
+  return 10;
+}
+
+function interpolateNumeric(left: number, right: number, ratio: number) {
+  return left + (right - left) * ratio;
+}
+
+function interpolateProductSample(
+  samples: TrajectoryProduct['samples'],
+  targetTPlusSec: number
+): TrajectoryProduct['samples'][number] | null {
+  if (!samples.length || !Number.isFinite(targetTPlusSec)) return null;
+  const exact = samples.find((sample) => sample.tPlusSec === targetTPlusSec);
+  if (exact) return exact;
+
+  let lower: TrajectoryProduct['samples'][number] | null = null;
+  let upper: TrajectoryProduct['samples'][number] | null = null;
+
+  for (const sample of samples) {
+    if (sample.tPlusSec < targetTPlusSec) lower = sample;
+    if (sample.tPlusSec > targetTPlusSec) {
+      upper = sample;
+      break;
+    }
+  }
+
+  if (!lower || !upper) return null;
+  const span = upper.tPlusSec - lower.tPlusSec;
+  if (!Number.isFinite(span) || span <= 0) return null;
+  const ratio = (targetTPlusSec - lower.tPlusSec) / span;
+  const lowerSigma = typeof lower.sigmaDeg === 'number' ? lower.sigmaDeg : lower.uncertainty?.sigmaDeg ?? 0;
+  const upperSigma = typeof upper.sigmaDeg === 'number' ? upper.sigmaDeg : upper.uncertainty?.sigmaDeg ?? lowerSigma;
+
+  return {
+    tPlusSec: targetTPlusSec,
+    ecef: [
+      interpolateNumeric(lower.ecef[0], upper.ecef[0], ratio),
+      interpolateNumeric(lower.ecef[1], upper.ecef[1], ratio),
+      interpolateNumeric(lower.ecef[2], upper.ecef[2], ratio)
+    ],
+    latDeg: interpolateNumeric(lower.latDeg, upper.latDeg, ratio),
+    lonDeg: interpolateNumeric(lower.lonDeg, upper.lonDeg, ratio),
+    altM: interpolateNumeric(lower.altM, upper.altM, ratio),
+    downrangeM: interpolateNumeric(lower.downrangeM, upper.downrangeM, ratio),
+    azimuthDeg: interpolateNumeric(lower.azimuthDeg, upper.azimuthDeg, ratio),
+    sigmaDeg: interpolateNumeric(lowerSigma, upperSigma, ratio),
+    covariance: {
+      along_track: interpolateNumeric(lower.covariance?.along_track ?? lowerSigma, upper.covariance?.along_track ?? upperSigma, ratio),
+      cross_track: interpolateNumeric(lower.covariance?.cross_track ?? lowerSigma, upper.covariance?.cross_track ?? upperSigma, ratio)
+    },
+    uncertainty: {
+      sigmaDeg: interpolateNumeric(lower.uncertainty?.sigmaDeg ?? lowerSigma, upper.uncertainty?.sigmaDeg ?? upperSigma, ratio),
+      covariance: {
+        along_track: interpolateNumeric(
+          lower.uncertainty?.covariance?.along_track ?? lower.covariance?.along_track ?? lowerSigma,
+          upper.uncertainty?.covariance?.along_track ?? upper.covariance?.along_track ?? upperSigma,
+          ratio
+        ),
+        cross_track: interpolateNumeric(
+          lower.uncertainty?.covariance?.cross_track ?? lower.covariance?.cross_track ?? lowerSigma,
+          upper.uncertainty?.covariance?.cross_track ?? upper.covariance?.cross_track ?? upperSigma,
+          ratio
+        )
+      }
+    }
+  };
+}
+
+function findPositiveMilestoneTime(
+  milestones: TrajectoryMilestoneDraft[],
+  predicate: (milestone: TrajectoryMilestoneDraft) => boolean
+): number | null {
+  const milestone = milestones.find(
+    (entry) => predicate(entry) && typeof entry.tPlusSec === 'number' && Number.isFinite(entry.tPlusSec) && entry.tPlusSec >= 0
+  );
+  return milestone?.tPlusSec ?? null;
+}
+
+function buildBoosterReturnTrack({
+  samples,
+  milestones,
+  landing
+}: {
+  samples: TrajectoryProduct['samples'];
+  milestones: TrajectoryMilestoneDraft[];
+  landing: LandingConstraintEvaluation | null;
+}): TrajectoryTrack | null {
+  if (!landing?.canUseDirection || landing.role !== 'booster' || landing.lat == null || landing.lon == null) return null;
+
+  const stageSeparationTPlusSec = findPositiveMilestoneTime(
+    milestones,
+    (milestone) => milestone.key === 'STAGESEP' || milestone.phase === 'upper_stage'
+  );
+  const landingTPlusSec = findPositiveMilestoneTime(
+    milestones,
+    (milestone) => milestone.key === 'LANDING' || milestone.phase === 'landing'
+  );
+  if (stageSeparationTPlusSec == null || landingTPlusSec == null || landingTPlusSec <= stageSeparationTPlusSec + 30) return null;
+
+  const stageSample = interpolateProductSample(samples, stageSeparationTPlusSec);
+  if (!stageSample) return null;
+
+  const startLat = stageSample.latDeg;
+  const startLon = stageSample.lonDeg;
+  const startAlt = Math.max(stageSample.altM, 0);
+  const totalDistanceM = haversineKm(startLat, startLon, landing.lat, landing.lon) * 1000;
+  if (!Number.isFinite(totalDistanceM) || totalDistanceM <= 0) return null;
+
+  const stepS = inferSampleStepSeconds(samples);
+  const azDeg = bearingDeg(startLat, startLon, landing.lat, landing.lon);
+  const sigmaStart = clamp(stageSample.uncertainty?.sigmaDeg ?? stageSample.sigmaDeg ?? landing.directionSigmaDeg, 8, 24);
+  const trackSamples: TrajectoryTrackSample[] = [];
+
+  for (let t = stageSeparationTPlusSec; t <= landingTPlusSec; t += stepS) {
+    const u = clamp((t - stageSeparationTPlusSec) / Math.max(landingTPlusSec - stageSeparationTPlusSec, 1), 0, 1);
+    const pos = directWgs84({
+      lat1Deg: startLat,
+      lon1Deg: startLon,
+      azDeg,
+      distM: totalDistanceM * u
+    });
+    const altitudeDecay = startAlt * Math.pow(Math.max(0, 1 - u), 0.92);
+    const flare = startAlt * 0.08 * Math.sin(Math.PI * u);
+    const altM = Math.max(0, altitudeDecay + flare);
+    const sigmaDeg = clamp(sigmaStart + 4 * u, sigmaStart, 24);
+    const alongTrack = clamp((stageSample.covariance?.along_track ?? sigmaStart) * (1 + u * 0.25), 0, 90);
+    const crossTrack = clamp((stageSample.covariance?.cross_track ?? sigmaStart) * (1 + u * 0.35), 0, 90);
+    trackSamples.push({
+      tPlusSec: t,
+      ecef: ecefFromLatLon(pos.latDeg, pos.lonDeg, altM),
+      sigmaDeg,
+      covariance: { along_track: alongTrack, cross_track: crossTrack },
+      uncertainty: {
+        sigmaDeg,
+        covariance: { along_track: alongTrack, cross_track: crossTrack }
+      }
+    });
+  }
+
+  if (trackSamples.at(-1)?.tPlusSec !== landingTPlusSec) {
+    trackSamples.push({
+      tPlusSec: landingTPlusSec,
+      ecef: ecefFromLatLon(landing.lat, landing.lon, 0),
+      sigmaDeg: clamp(sigmaStart + 4, sigmaStart, 24),
+      covariance: { along_track: clamp(stageSample.covariance?.along_track ?? sigmaStart, 0, 90), cross_track: clamp(stageSample.covariance?.cross_track ?? sigmaStart, 0, 90) },
+      uncertainty: {
+        sigmaDeg: clamp(sigmaStart + 4, sigmaStart, 24),
+        covariance: {
+          along_track: clamp(stageSample.covariance?.along_track ?? sigmaStart, 0, 90),
+          cross_track: clamp(stageSample.covariance?.cross_track ?? sigmaStart, 0, 90)
+        }
+      }
+    });
+  }
+
+  const deduped = dedupeTrackSamples(trackSamples);
+  return deduped.length >= 2 ? { trackKind: 'booster_down', samples: deduped } : null;
+}
+
+function buildProductTracks({
+  product,
+  milestones,
+  landing
+}: {
+  product: TrajectoryProduct;
+  milestones: TrajectoryMilestoneDraft[];
+  landing: LandingConstraintEvaluation | null;
+}): TrajectoryTrack[] {
+  if (Array.isArray(product.tracks) && product.tracks.length) {
+    return product.tracks as TrajectoryTrack[];
+  }
+
+  const baseSamples = Array.isArray(product.samples) ? product.samples : [];
+  if (!baseSamples.length) return [];
+
+  const stageSeparationTPlusSec = findPositiveMilestoneTime(
+    milestones,
+    (milestone) => milestone.key === 'STAGESEP' || milestone.phase === 'upper_stage'
+  );
+  const stageSample = stageSeparationTPlusSec != null ? interpolateProductSample(baseSamples, stageSeparationTPlusSec) : null;
+  const upperSamples =
+    stageSeparationTPlusSec != null && stageSample
+      ? dedupeTrackSamples([toTrackSample(stageSample), ...baseSamples.filter((sample) => sample.tPlusSec > stageSeparationTPlusSec).map(toTrackSample)])
+      : [];
+  const canSplitStage = upperSamples.length >= 2;
+
+  const coreSamples = canSplitStage
+    ? dedupeTrackSamples([
+        ...baseSamples.filter((sample) => sample.tPlusSec < (stageSeparationTPlusSec as number)).map(toTrackSample),
+        toTrackSample(stageSample as TrajectoryProduct['samples'][number])
+      ])
+    : baseSamples.map(toTrackSample);
+
+  const tracks: TrajectoryTrack[] = [{ trackKind: 'core_up', samples: coreSamples }];
+  if (canSplitStage) {
+    tracks.push({ trackKind: 'upper_stage_up', samples: upperSamples });
+  }
+
+  const boosterTrack = buildBoosterReturnTrack({ samples: baseSamples, milestones, landing });
+  if (boosterTrack) tracks.push(boosterTrack);
+
+  return tracks;
+}
+
 function attachProductMetadata({
   product,
   contract,
@@ -1823,12 +2080,19 @@ function attachProductMetadata({
   downgraded: boolean;
 }): TrajectoryProduct {
   const sourceRefIds = dedupeConstraintUsage(usedConstraints).map((constraint) => buildDeterministicSourceRefId(constraint));
-  const coreTrack = {
-    trackKind: 'core_up',
-    samples: product.samples
-  };
-  const tracks = [coreTrack];
-  const trackWindows = buildTrajectoryMilestoneTrackWindows(tracks);
+  const tracks = Array.isArray(product.tracks)
+    ? (product.tracks as TrajectoryTrack[]).filter((track) => Array.isArray(track.samples) && track.samples.length > 0)
+    : [];
+  const normalizedTracks =
+    tracks.length > 0
+      ? tracks
+      : [
+          {
+            trackKind: 'core_up' as const,
+            samples: product.samples.map((sample) => toTrackSample(sample))
+          }
+        ];
+  const trackWindows = buildTrajectoryMilestoneTrackWindows(normalizedTracks);
   const projectedMilestones = applyTrajectoryMilestoneProjection({
     milestones,
     trackWindows
@@ -1850,7 +2114,7 @@ function attachProductMetadata({
     },
     milestones: projectedMilestones.milestones,
     milestoneSummary: projectedMilestones.summary,
-    tracks,
+    tracks: normalizedTracks,
     trackSummary: {
       quality: product.quality,
       qualityLabel: product.qualityLabel,
@@ -1859,7 +2123,12 @@ function attachProductMetadata({
       precisionClaim: product.quality > 0 && contract.confidenceTier !== 'D',
       sourceCount: sourceRefIds.length,
       sourceRefIds,
-      trackCount: tracks.length,
+      trackCount: normalizedTracks.length,
+      hasStageSplit:
+        normalizedTracks.some((track) => track.trackKind === 'core_up') &&
+        normalizedTracks.some((track) => track.trackKind === 'upper_stage_up'),
+      hasUpperStageTrack: normalizedTracks.some((track) => track.trackKind === 'upper_stage_up'),
+      hasBoosterTrack: normalizedTracks.some((track) => track.trackKind === 'booster_down'),
       downgraded
     }
   };
@@ -2373,6 +2642,76 @@ function minimumTierForQualityLabel(qualityLabel: string): TrajectoryConfidenceT
   return 'D';
 }
 
+function extractSupgpGroup(constraint: ConstraintRow) {
+  const sourceId = String(constraint.source_id || '').trim().toLowerCase();
+  const match = sourceId.match(/^supgp:([^:]+)(?::|$)/);
+  if (match?.[1]) return match[1];
+  const dataGroup = typeof constraint?.data?.group === 'string' ? String(constraint.data.group).trim().toLowerCase() : '';
+  return dataGroup;
+}
+
+function isSupgpLaunchFileGroup(group: string) {
+  if (!group) return false;
+  return /starlink-g\d+-\d+/.test(group) || /transporter-\d+/.test(group) || /bandwagon-\d+/.test(group) || /(^|[-_])b\d+([:_-]|$)/.test(group);
+}
+
+function classifySupgpMode(constraints: ConstraintRow[]): SupgpMode {
+  const supgpConstraints = constraints.filter((constraint) => isSupgpConstraint(constraint));
+  if (!supgpConstraints.length) return 'none';
+  return supgpConstraints.some((constraint) => isSupgpLaunchFileGroup(extractSupgpGroup(constraint))) ? 'launch_file' : 'family_feed';
+}
+
+function buildLandingSummary(constraints: ConstraintRow[]) {
+  const landingConstraints = constraints.filter((constraint) => constraint.constraint_type === 'landing');
+  const landingHintConstraints = constraints.filter((constraint) => constraint.constraint_type === 'landing_hint');
+
+  let hasCoordinates = false;
+  let hasDirectional = false;
+  let hasDownrangeOnly = false;
+  let hasTextOnlyHint = false;
+  let shipAssignmentPresent = false;
+
+  for (const constraint of landingConstraints) {
+    const landingLocation = constraint?.data?.landing_location;
+    const lat = typeof landingLocation?.latitude === 'number' ? landingLocation.latitude : NaN;
+    const lon = typeof landingLocation?.longitude === 'number' ? landingLocation.longitude : NaN;
+    const downrangeKm =
+      typeof constraint?.data?.downrange_distance_km === 'number' && Number.isFinite(constraint.data.downrange_distance_km)
+        ? constraint.data.downrange_distance_km
+        : null;
+    const kind = classifyLandingDirectionKind(constraint?.data?.landing_type);
+    const locationName = typeof landingLocation?.name === 'string' ? landingLocation.name.toLowerCase() : '';
+
+    if (Number.isFinite(lat) && Number.isFinite(lon)) {
+      hasCoordinates = true;
+      hasDirectional = true;
+    } else if (downrangeKm != null && downrangeKm > 0) {
+      hasDownrangeOnly = true;
+    }
+
+    if (kind === 'drone_ship' || locationName.includes('drone') || locationName.includes('ship') || locationName.includes('asds')) {
+      shipAssignmentPresent = true;
+    }
+  }
+
+  for (const constraint of landingHintConstraints) {
+    const returnSite = typeof constraint?.data?.returnSite === 'string' ? constraint.data.returnSite.toLowerCase() : '';
+    const returnDateTime = typeof constraint?.data?.returnDateTime === 'string' ? constraint.data.returnDateTime : '';
+    if (returnSite || returnDateTime) hasTextOnlyHint = true;
+    if (returnSite.includes('drone') || returnSite.includes('ship') || returnSite.includes('asds') || returnSite.includes('barge')) {
+      shipAssignmentPresent = true;
+    }
+  }
+
+  return {
+    hasCoordinates,
+    hasDirectional,
+    hasDownrangeOnly,
+    hasTextOnlyHint,
+    shipAssignmentPresent
+  };
+}
+
 function buildSourceSummary({
   qualityLabel,
   hasLicensedTrajectoryFeed,
@@ -2381,7 +2720,8 @@ function buildSourceSummary({
   landingPrecisionCorroborated,
   hasMissionNumericOrbit,
   hasSupgpConstraint,
-  hasHazardDirectional
+  hasHazardDirectional,
+  supgpMode
 }: {
   qualityLabel: string;
   hasLicensedTrajectoryFeed: boolean;
@@ -2391,6 +2731,7 @@ function buildSourceSummary({
   hasMissionNumericOrbit: boolean;
   hasSupgpConstraint: boolean;
   hasHazardDirectional: boolean;
+  supgpMode: SupgpMode;
 }) {
   if (hasLicensedTrajectoryFeed) {
     return {
@@ -2410,10 +2751,16 @@ function buildSourceSummary({
       label: 'Constraint-backed (official numeric)'
     };
   }
+  if (hasSupgpConstraint && supgpMode === 'launch_file') {
+    return {
+      code: 'supgp_launch_file',
+      label: 'CelesTrak launch file'
+    };
+  }
   if (hasSupgpConstraint) {
     return {
-      code: 'constraint_backed',
-      label: 'Constraint-backed (SupGP)'
+      code: 'supgp_family_feed',
+      label: 'CelesTrak family feed'
     };
   }
   if (hasHazardDirectional) {
@@ -3208,7 +3555,7 @@ function classifyMission({
     return 'SSO_POLAR';
   }
   if (hasAny(orbit, ['gto', 'geo', 'geostationary'])) return 'GTO_GEO';
-  if (hasAny(mission, ['iss', 'crew', 'dragon', 'crs']) || (hasAny(vehicle, ['falcon 9']) && hasAny(mission, ['starlink']))) {
+  if (hasAny(mission, ['iss', 'crew', 'dragon', 'crs'])) {
     return 'ISS_CREW';
   }
   if (hasAny(orbit, ['leo', 'low earth'])) return 'LEO_GENERIC';

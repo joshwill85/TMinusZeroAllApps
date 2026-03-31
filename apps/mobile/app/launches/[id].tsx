@@ -3,6 +3,7 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
+import { ApiClientError } from '@tminuszero/api-client';
 import { AppState, Image, Linking, Platform, Pressable, RefreshControl, ScrollView, Share as NativeShare, Text, View, type LayoutChangeEvent } from 'react-native';
 import { runOnJS, useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -17,17 +18,36 @@ import {
 } from '@tminuszero/domain';
 import { normalizeNativeMobileCustomerHref, toProviderSlug } from '@tminuszero/navigation';
 import { useApiClient } from '@/src/api/client';
-import { fetchLaunchDetailVersion, useLaunchDetailQuery, useViewerEntitlementsQuery } from '@/src/api/queries';
+import {
+  fetchLaunchDetailVersion,
+  useDeleteMobilePushRuleMutation,
+  useLaunchDetailQuery,
+  useMobilePushRulesQuery,
+  useUpsertMobilePushLaunchPreferenceMutation,
+  useViewerEntitlementsQuery
+} from '@/src/api/queries';
 import { AppScreen } from '@/src/components/AppScreen';
 import { LaunchAlertsPanel } from '@/src/components/LaunchAlertsPanel';
 import { LaunchCalendarSheet } from '@/src/components/LaunchCalendarSheet';
+import { LaunchFollowSheet } from '@/src/components/LaunchFollowSheet';
 import { EmptyStateCard, ErrorStateCard, LoadingStateCard, SectionCard } from '@/src/components/SectionCard';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import { useMobilePush } from '@/src/providers/MobilePushProvider';
 import { useMobileToast } from '@/src/providers/MobileToastProvider';
 import { formatTimestamp, formatSearchResultLabel } from '@/src/utils/format';
 import type { LaunchCalendarLaunch } from '@/src/calendar/launchCalendar';
-import { buildWatchlistRuleErrorMessage, buildPadRuleValue, formatPadRuleLabel, usePrimaryWatchlist } from '@/src/watchlists/usePrimaryWatchlist';
+import {
+  buildLaunchSiteRuleValue,
+  buildPadRuleValue,
+  buildRocketRuleValue,
+  buildStateRuleValue,
+  buildWatchlistRuleErrorMessage,
+  formatLaunchSiteRuleLabel,
+  formatPadRuleLabel,
+  formatRocketRuleLabel,
+  formatStateRuleLabel,
+  usePrimaryWatchlist
+} from '@/src/watchlists/usePrimaryWatchlist';
 import { ParallaxHero, StaticHero } from '@/src/components/launch/ParallaxHero';
 import { InteractiveStatTiles, type StatTile } from '@/src/components/launch/InteractiveStatTiles';
 import { LiveBadge } from '@/src/components/launch/LiveDataPulse';
@@ -58,6 +78,15 @@ export default function LaunchDetailScreen() {
   const insets = useSafeAreaInsets();
   const { theme } = useMobileBootstrap();
   const { showToast } = useMobileToast();
+
+  const handleBackToFeed = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+
+    router.replace('/feed' as Href);
+  }, [router]);
   const { installationId, deviceSecret, isRegistered } = useMobilePush();
   const { client } = useApiClient();
   const params = useLocalSearchParams<{ id?: string | string[] }>();
@@ -70,11 +99,19 @@ export default function LaunchDetailScreen() {
   const arTrajectory = detail?.arTrajectory ?? null;
   const canUseArTrajectory = entitlementsQuery.data?.capabilities.canUseArTrajectory ?? false;
   const canUseSavedItems = entitlementsQuery.data?.capabilities.canUseSavedItems ?? false;
-  const isPremium = entitlementsQuery.data?.isPaid === true || entitlementsQuery.data?.isAdmin === true;
+  const canUseSingleLaunchFollow = entitlementsQuery.data?.capabilities.canUseSingleLaunchFollow ?? false;
+  const canUseAllUsLaunchAlerts = entitlementsQuery.data?.capabilities.canUseAllUsLaunchAlerts ?? false;
+  const isPremium = entitlementsQuery.data?.tier === 'premium';
   const isAuthed = entitlementsQuery.data?.isAuthed ?? false;
+  const singleLaunchFollowLimit = Math.max(1, entitlementsQuery.data?.limits.singleLaunchFollowLimit ?? 1);
   const refreshIntervalMs = (entitlementsQuery.data?.refreshIntervalSeconds ?? 7200) * 1000;
   const detailVersionScope = entitlementsQuery.data?.mode === 'live' ? 'live' : 'public';
+  const mobilePushContext = installationId ? { installationId, deviceSecret } : null;
+  const mobilePushRulesQuery = useMobilePushRulesQuery(mobilePushContext, { enabled: Boolean(mobilePushContext?.installationId) });
+  const upsertLaunchNotificationMutation = useUpsertMobilePushLaunchPreferenceMutation();
+  const deleteMobilePushRuleMutation = useDeleteMobilePushRuleMutation();
   const [calendarLaunch, setCalendarLaunch] = useState<LaunchCalendarLaunch | null>(null);
+  const [followSheetOpen, setFollowSheetOpen] = useState(false);
   const [savedStatus, setSavedStatus] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
   const [sectionOffsets, setSectionOffsets] = useState<Record<string, number>>({});
   const [activeSection, setActiveSection] = useState<string | null>('mission-control');
@@ -151,6 +188,7 @@ export default function LaunchDetailScreen() {
   });
 
   let content: JSX.Element;
+  let followSheetNode: ReactNode = null;
   let overlayNavigation: JSX.Element | null = null;
 
   useEffect(() => {
@@ -303,14 +341,17 @@ export default function LaunchDetailScreen() {
         host: item.host ?? null,
         kind: item.kind ?? null
       })) ?? buildWatchLinks(launch);
-    const externalLinks: ExternalLinkView[] =
+    const externalLinks = normalizePlatformExternalLinks(
       resourcesModule?.externalLinks?.map((item) => ({
         url: item.url,
         label: item.label,
         meta: item.meta || 'External link',
         host: item.host ?? null,
         kind: item.kind ?? null
-      })) ?? buildExternalLinks(launch);
+      })) ?? buildExternalLinks(launch),
+      launch,
+      Platform.OS
+    );
     const watchUrl = watchLinks[0]?.url ?? getPrimaryWatchUrl(launch);
     const resourceUrl = resourcesModule?.missionResources?.[0]?.url ?? externalLinks[0]?.url ?? getPrimaryResourceUrl(launch);
     const primaryWatchLink = watchLinks[0] ?? null;
@@ -325,6 +366,13 @@ export default function LaunchDetailScreen() {
       ll2PadId: launchRecord.ll2PadId,
       padShortCode: launchRecord.pad.shortCode
     });
+    const rocketRuleValue = buildRocketRuleValue({
+      ll2RocketConfigId: launch.ll2RocketConfigId,
+      rocketName: launch.rocket?.fullName || launch.rocketName,
+      vehicle: launch.vehicle
+    });
+    const launchSiteRuleValue = buildLaunchSiteRuleValue(launch.padLocation || launch.pad.locationName || launch.pad.name);
+    const stateRuleValue = buildStateRuleValue(launch.pad.state);
     const launchBusyKey = `launch:${launchRecord.id.toLowerCase()}`;
     const providerBusyKey = `provider:${String(launchRecord.provider || '').trim().toLowerCase()}`;
     const padBusyKey = `pad:${String(padRuleValue || '').trim().toLowerCase()}`;
@@ -368,6 +416,16 @@ export default function LaunchDetailScreen() {
     const openPremiumGate = () => {
       router.push('/profile');
     };
+    const closeFollowSheet = () => {
+      setFollowSheetOpen(false);
+    };
+
+    const mobilePushRules = mobilePushRulesQuery.data?.rules ?? [];
+    const basicActiveLaunchRule = !canUseSavedItems ? mobilePushRules.find((rule) => rule.scopeKind === 'launch') ?? null : null;
+    const currentBasicLaunchActive = basicActiveLaunchRule?.launchId === launchRecord.id;
+    const basicLaunchSlotOccupiedElsewhere = Boolean(basicActiveLaunchRule && !currentBasicLaunchActive);
+    const basicFollowCapacityLabel = canUseSavedItems ? undefined : `${basicActiveLaunchRule ? 1 : 0}/${singleLaunchFollowLimit}`;
+    const launchNotificationRule = currentBasicLaunchActive ? basicActiveLaunchRule : null;
 
     const showFollowToast = ({
       message,
@@ -391,6 +449,69 @@ export default function LaunchDetailScreen() {
           }
         }
       });
+    };
+
+    const handleToggleBasicLaunchNotification = async () => {
+      if (!canUseSingleLaunchFollow) {
+        openPremiumGate();
+        return;
+      }
+      if (!installationId || !deviceSecret || !isRegistered) {
+        router.push('/preferences');
+        return;
+      }
+      if (!currentBasicLaunchActive && basicLaunchSlotOccupiedElsewhere) {
+        setSavedStatus({
+          tone: 'error',
+          text: basicActiveLaunchRule?.label
+            ? `Your free launch slot is in use by ${basicActiveLaunchRule.label}. Unfollow it or wait until it launches.`
+            : 'Your free launch slot is already in use.'
+        });
+        return;
+      }
+
+      try {
+        if (launchNotificationRule) {
+          await deleteMobilePushRuleMutation.mutateAsync({
+            ruleId: launchNotificationRule.id,
+            context: {
+              installationId,
+              deviceSecret
+            }
+          });
+          setSavedStatus({ tone: 'success', text: 'Launch notifications turned off.' });
+          return;
+        }
+
+        await upsertLaunchNotificationMutation.mutateAsync({
+          launchId: launchRecord.id,
+          payload: {
+            installationId,
+            deviceSecret,
+            scopeKind: 'launch',
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+            prelaunchOffsetsMinutes: [10, 60],
+            dailyDigestLocalTime: null,
+            statusChangeTypes: [],
+            notifyNetChanges: false
+          }
+        });
+        setSavedStatus({ tone: 'success', text: 'Launch notifications turned on.' });
+      } catch (error) {
+        if (error instanceof ApiClientError && error.code === 'limit_reached') {
+          setSavedStatus({
+            tone: 'error',
+            text: basicActiveLaunchRule?.label
+              ? `Your free launch slot is in use by ${basicActiveLaunchRule.label}. Unfollow it or wait until it launches.`
+              : 'Your free launch slot is already in use.'
+          });
+          return;
+        }
+        setSavedStatus({
+          tone: 'error',
+          text: error instanceof Error ? error.message : 'Unable to update launch notifications.'
+        });
+      }
     };
 
     const handleToggleSavedLaunch = async () => {
@@ -480,6 +601,238 @@ export default function LaunchDetailScreen() {
         });
       }
     };
+
+    const handleTogglePremiumFollow = async (
+      kind: 'rocket' | 'launch_site' | 'state',
+      ruleValue: string | null,
+      label: string
+    ) => {
+      const normalizedRuleValue = String(ruleValue || '').trim();
+      if (!normalizedRuleValue) {
+        return;
+      }
+      if (!canUseSavedItems) {
+        openPremiumGate();
+        return;
+      }
+
+      try {
+        const result = await watchlistState.toggleRule({
+          kind,
+          ruleValue: normalizedRuleValue,
+          label
+        });
+        if (result) {
+          if (result.action === 'added') {
+            showFollowToast({
+              message: result.notice.message,
+              undo: async () => {
+                await watchlistState.toggleRule({
+                  kind,
+                  ruleValue: normalizedRuleValue,
+                  label
+                });
+                setSavedStatus({ tone: 'success', text: `Unfollowed ${label}.` });
+              }
+            });
+          } else {
+            setSavedStatus({ tone: 'success', text: result.notice.message });
+          }
+        }
+      } catch (error) {
+        setSavedStatus({
+          tone: 'error',
+          text: buildWatchlistRuleErrorMessage(error, 'Follow', entitlementsQuery.data?.limits.watchlistRuleLimit ?? null)
+        });
+      }
+    };
+
+    const followOptions = canUseSavedItems
+      ? [
+          {
+            key: 'launch',
+            label: 'This launch',
+            description: 'Keep this exact launch in Following.',
+            active: watchlistState.isLaunchTracked(launchRecord.id),
+            disabled: watchlistState.isLoading || Boolean(watchlistState.busyKeys[launchBusyKey]),
+            locked: false,
+            onPress: () => {
+              closeFollowSheet();
+              void handleToggleSavedLaunch();
+            }
+          },
+          {
+            key: 'rocket',
+            label: 'This rocket',
+            description: `All launches for ${formatRocketRuleLabel(rocketRuleValue || launchInfoRocketLabel)}.`,
+            active: watchlistState.isRocketTracked(rocketRuleValue),
+            disabled: !rocketRuleValue,
+            locked: false,
+            onPress: () => {
+              closeFollowSheet();
+              void handleTogglePremiumFollow('rocket', rocketRuleValue, formatRocketRuleLabel(rocketRuleValue || launchInfoRocketLabel));
+            }
+          },
+          {
+            key: 'provider',
+            label: 'This provider',
+            description: `All launches from ${launchRecord.provider}.`,
+            active: watchlistState.isProviderTracked(launch.provider),
+            disabled:
+              watchlistState.isLoading ||
+              !String(launch.provider || '').trim() ||
+              Boolean(watchlistState.busyKeys[providerBusyKey]),
+            locked: false,
+            onPress: () => {
+              closeFollowSheet();
+              void handleToggleProviderFollow();
+            }
+          },
+          {
+            key: 'pad',
+            label: 'This pad',
+            description: `Launches from ${formatPadRuleLabel(padRuleValue || launch.pad.shortCode || launch.pad.name || 'this pad')}.`,
+            active: watchlistState.isPadTracked(padRuleValue),
+            disabled: !padRuleValue || watchlistState.isLoading || Boolean(watchlistState.busyKeys[padBusyKey]),
+            locked: false,
+            onPress: () => {
+              closeFollowSheet();
+              void handleTogglePadFollow();
+            }
+          },
+          {
+            key: 'launch_site',
+            label: 'This launch site',
+            description: `Launches from ${formatLaunchSiteRuleLabel(launchSiteRuleValue || launchInfoLocationLabel)}.`,
+            active: watchlistState.isLaunchSiteTracked(launchSiteRuleValue),
+            disabled: !launchSiteRuleValue,
+            locked: false,
+            onPress: () => {
+              closeFollowSheet();
+              void handleTogglePremiumFollow('launch_site', launchSiteRuleValue, formatLaunchSiteRuleLabel(launchSiteRuleValue || launchInfoLocationLabel));
+            }
+          },
+          {
+            key: 'state',
+            label: 'This state',
+            description: `Launches in ${formatStateRuleLabel(stateRuleValue || launch.pad.state)}.`,
+            active: watchlistState.isStateTracked(stateRuleValue),
+            disabled: !stateRuleValue,
+            locked: false,
+            onPress: () => {
+              closeFollowSheet();
+              void handleTogglePremiumFollow('state', stateRuleValue, formatStateRuleLabel(stateRuleValue || launch.pad.state));
+            }
+          }
+        ]
+      : [
+          {
+            key: 'launch_notifications',
+            label: 'This launch',
+            description:
+              !installationId || !deviceSecret || !isRegistered
+                ? 'Enable push on this device in Preferences first.'
+                : !canUseSingleLaunchFollow
+                  ? 'Launch follow is unavailable on this account.'
+                  : basicLaunchSlotOccupiedElsewhere
+                    ? `Your free launch slot is in use by ${basicActiveLaunchRule?.label || 'another launch'}. Unfollow it or wait until it launches.`
+                    : currentBasicLaunchActive
+                      ? 'This launch is using your free follow slot. Unfollow it to free up the slot.'
+                      : 'Use your free slot for push reminders on this launch.',
+            active: currentBasicLaunchActive,
+            disabled:
+              upsertLaunchNotificationMutation.isPending ||
+              deleteMobilePushRuleMutation.isPending ||
+              !canUseSingleLaunchFollow ||
+              basicLaunchSlotOccupiedElsewhere,
+            locked: false,
+            onPress: () => {
+              closeFollowSheet();
+              void handleToggleBasicLaunchNotification();
+            }
+          },
+          {
+            key: 'state_locked',
+            label: 'This state',
+            description: 'Premium adds state-wide launch alerts.',
+            active: false,
+            disabled: false,
+            locked: true,
+            onPress: () => {
+              closeFollowSheet();
+              openPremiumGate();
+            }
+          },
+          {
+            key: 'provider_locked',
+            label: 'This provider',
+            description: 'Premium adds recurring provider follows.',
+            active: false,
+            disabled: false,
+            locked: true,
+            onPress: () => {
+              closeFollowSheet();
+              openPremiumGate();
+            }
+          },
+          {
+            key: 'rocket_locked',
+            label: 'This rocket',
+            description: 'Premium adds recurring rocket follows.',
+            active: false,
+            disabled: false,
+            locked: true,
+            onPress: () => {
+              closeFollowSheet();
+              openPremiumGate();
+            }
+          },
+          {
+            key: 'pad_locked',
+            label: 'This pad',
+            description: 'Premium adds recurring pad follows.',
+            active: false,
+            disabled: false,
+            locked: true,
+            onPress: () => {
+              closeFollowSheet();
+              openPremiumGate();
+            }
+          },
+          {
+            key: 'launch_site_locked',
+            label: 'This launch site',
+            description: 'Premium adds recurring launch-site follows.',
+            active: false,
+            disabled: false,
+            locked: true,
+            onPress: () => {
+              closeFollowSheet();
+              openPremiumGate();
+            }
+          }
+        ];
+    const activeFollowCount = followOptions.filter((option) => option.active).length;
+    const followButtonLabel = activeFollowCount > 0 ? 'Following' : 'Follow';
+
+    followSheetNode = (
+      <LaunchFollowSheet
+        launchName={title}
+        open={followSheetOpen}
+        options={followOptions}
+        activeCount={activeFollowCount}
+        capacityLabel={basicFollowCapacityLabel}
+        notificationsActive={Boolean(launchNotificationRule)}
+        message={
+          canUseSavedItems
+            ? 'Following keeps matching launches in your saved list and related notifications can be tuned from Preferences.'
+            : canUseAllUsLaunchAlerts
+              ? 'Free keeps one launch reminder slot on this device. Manage All U.S. launches from Preferences. Premium adds synced follows across broader scopes.'
+              : 'Free keeps one launch reminder slot on this device. Premium adds synced follows across broader scopes.'
+        }
+        onClose={() => setFollowSheetOpen(false)}
+      />
+    );
 
     const statTiles: StatTile[] = [
       {
@@ -598,7 +951,7 @@ export default function LaunchDetailScreen() {
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <View style={{ flex: 1, alignItems: 'flex-start' }}>
-                <Pressable onPress={() => router.back()} hitSlop={8}>
+                <Pressable onPress={handleBackToFeed} hitSlop={8}>
                   <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Back to feed</Text>
                 </Pressable>
               </View>
@@ -842,43 +1195,20 @@ export default function LaunchDetailScreen() {
             <View style={{ gap: 10 }}>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                 <DetailFollowChip
-                  label={watchlistState.isLaunchTracked(launch.id) ? 'Following launch' : 'Follow launch'}
-                  active={watchlistState.isLaunchTracked(launch.id)}
-                  disabled={watchlistState.isLoading || Boolean(watchlistState.busyKeys[launchBusyKey])}
+                  label={followButtonLabel}
+                  active={activeFollowCount > 0}
+                  detail={basicFollowCapacityLabel}
+                  disabled={false}
                   onPress={() => {
-                    void handleToggleSavedLaunch();
+                    setFollowSheetOpen(true);
                   }}
                 />
-                <DetailFollowChip
-                  label={watchlistState.isProviderTracked(launch.provider) ? 'Following provider' : 'Follow provider'}
-                  active={watchlistState.isProviderTracked(launch.provider)}
-                  disabled={
-                    watchlistState.isLoading ||
-                    !String(launch.provider || '').trim() ||
-                    Boolean(watchlistState.busyKeys[providerBusyKey])
-                  }
-                  onPress={() => {
-                    void handleToggleProviderFollow();
-                  }}
-                />
-                {padRuleValue ? (
-                  <DetailFollowChip
-                    label={
-                      watchlistState.isPadTracked(padRuleValue)
-                        ? `Following ${formatPadRuleLabel(padRuleValue)}`
-                        : `Follow ${formatPadRuleLabel(padRuleValue)}`
-                    }
-                    active={watchlistState.isPadTracked(padRuleValue)}
-                    disabled={watchlistState.isLoading || Boolean(watchlistState.busyKeys[padBusyKey])}
-                    onPress={() => {
-                      void handleTogglePadFollow();
-                    }}
-                  />
-                ) : null}
               </View>
               {!canUseSavedItems ? (
                 <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>
-                  Following, My Launches, and the Following feed are Premium on mobile.
+                  {canUseAllUsLaunchAlerts
+                    ? 'Without Premium, you can use one launch reminder slot on this device and manage All U.S. launches from Preferences. Premium adds saved follows and broader follow scopes.'
+                    : 'Without Premium, you can use one launch reminder slot on this device. Premium adds saved follows and broader follow scopes.'}
                 </Text>
               ) : savedStatus ? (
                 <Text style={{ color: savedStatus.tone === 'error' ? '#ff9087' : theme.accent, fontSize: 13, lineHeight: 19 }}>
@@ -1950,6 +2280,7 @@ export default function LaunchDetailScreen() {
         {content}
       </AppScreen>
       {overlayNavigation}
+      {followSheetNode}
       <LaunchCalendarSheet launch={calendarLaunch} open={calendarLaunch != null} onClose={() => setCalendarLaunch(null)} />
     </>
   );
@@ -1991,11 +2322,13 @@ function ActionButton({
 function DetailFollowChip({
   label,
   active,
+  detail,
   disabled = false,
   onPress
 }: {
   label: string;
   active: boolean;
+  detail?: string;
   disabled?: boolean;
   onPress: () => void;
 }) {
@@ -2006,6 +2339,9 @@ function DetailFollowChip({
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => ({
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
         borderRadius: 999,
         borderWidth: 1,
         borderColor: active ? theme.accent : theme.stroke,
@@ -2016,6 +2352,18 @@ function DetailFollowChip({
       })}
     >
       <Text style={{ color: active ? theme.accent : theme.foreground, fontSize: 11, fontWeight: '700' }}>{label}</Text>
+      {detail ? (
+        <View
+          style={{
+            borderRadius: 999,
+            backgroundColor: active ? 'rgba(34, 211, 238, 0.18)' : 'rgba(255, 255, 255, 0.08)',
+            paddingHorizontal: 7,
+            paddingVertical: 3
+          }}
+        >
+          <Text style={{ color: active ? theme.accent : theme.foreground, fontSize: 10, fontWeight: '800' }}>{detail}</Text>
+        </View>
+      ) : null}
     </Pressable>
   );
 }
@@ -2488,6 +2836,75 @@ function buildExternalLinks(launch: RichLaunchSummary): ExternalLinkView[] {
   addItem(launch.flightclubUrl, 'Flight Club', 'Trajectory');
 
   return items;
+}
+
+function normalizePlatformExternalLinks(externalLinks: ExternalLinkView[], launch: RichLaunchSummary, platformOs: string): ExternalLinkView[] {
+  if (platformOs !== 'ios') {
+    return externalLinks;
+  }
+
+  const appleMapsUrl = buildAppleMapsSatelliteUrl({
+    latitude: launch.pad.latitude,
+    longitude: launch.pad.longitude,
+    label: launch.pad.shortCode || launch.pad.name || launch.name || 'Launch pad'
+  });
+  if (!appleMapsUrl) {
+    return externalLinks;
+  }
+
+  return externalLinks.map((item) => {
+    if (!isLaunchPadMapLink(item)) {
+      return item;
+    }
+    return {
+      ...item,
+      url: appleMapsUrl,
+      host: formatUrlHost(appleMapsUrl)
+    };
+  });
+}
+
+function buildAppleMapsSatelliteUrl({
+  latitude,
+  longitude,
+  label
+}: {
+  latitude: number | null | undefined;
+  longitude: number | null | undefined;
+  label: string | null | undefined;
+}) {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return null;
+  }
+
+  const params = new URLSearchParams({
+    ll: `${latitude},${longitude}`,
+    t: 'k'
+  });
+  const normalizedLabel = normalizeTextValue(label);
+  if (normalizedLabel) {
+    params.set('q', normalizedLabel);
+  }
+  return `https://maps.apple.com/?${params.toString()}`;
+}
+
+function isLaunchPadMapLink(item: ExternalLinkView) {
+  if (normalizeTextValue(item.kind)?.toLowerCase() === 'map') {
+    return true;
+  }
+
+  const normalizedUrl = normalizeUrlString(item.url);
+  if (!normalizedUrl) {
+    return false;
+  }
+
+  try {
+    const url = new URL(normalizedUrl);
+    const host = url.hostname.replace(/^www\./, '').toLowerCase();
+    return (host === 'google.com' || host.endsWith('.google.com')) && url.pathname.toLowerCase().startsWith('/maps/');
+  } catch {
+    return false;
+  }
 }
 
 function buildUnknownEntityTitle(value: unknown, fallback: string) {

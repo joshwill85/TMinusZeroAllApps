@@ -4,30 +4,22 @@ import { useEffect, useId, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
-import { buildAuthCallbackHref, buildAuthHref, buildPreferencesHref, buildProfileHref, buildUpgradeHref } from '@tminuszero/navigation';
+import { buildAuthCallbackHref, buildAuthHref, buildPreferencesHref, buildProfileHref } from '@tminuszero/navigation';
 import { BillingPanel } from '@/components/BillingPanel';
 import { TipJarRecurringPanel } from '@/components/TipJarRecurringPanel';
 import {
   applyGuestViewerState,
+  useAdminAccessOverrideQuery,
   useDeleteAccountMutation,
-  useLaunchDayEmailFilterOptionsQuery,
   useMarketingEmailQuery,
-  useNotificationPreferencesQuery,
   useProfileQuery,
+  useUpdateAdminAccessOverrideMutation,
   useUpdateMarketingEmailMutation,
-  useUpdateNotificationPreferencesMutation,
   useUpdateProfileMutation,
   useViewerEntitlementsQuery,
   useViewerSessionQuery
 } from '@/lib/api/queries';
 import { getBrowserClient } from '@/lib/api/supabase';
-import { formatUsPhoneForDisplay } from '@/lib/notifications/phone';
-
-type LaunchDaySnapshot = {
-  enabled: boolean;
-  providers: string[];
-  states: string[];
-};
 
 export default function AccountPage() {
   const searchParams = useSearchParams();
@@ -36,17 +28,13 @@ export default function AccountPage() {
   const entitlementsQuery = useViewerEntitlementsQuery();
   const profileQuery = useProfileQuery();
   const marketingEmailQuery = useMarketingEmailQuery();
-  const notificationPreferencesQuery = useNotificationPreferencesQuery();
-  const filterOptionsQuery = useLaunchDayEmailFilterOptionsQuery({
-    enabled: Boolean(viewerSessionQuery.data?.viewerId)
-  });
+  const adminAccessOverrideQuery = useAdminAccessOverrideQuery();
   const updateProfileMutation = useUpdateProfileMutation();
+  const updateAdminAccessOverrideMutation = useUpdateAdminAccessOverrideMutation();
   const updateMarketingEmailMutation = useUpdateMarketingEmailMutation();
-  const updateNotificationPreferencesMutation = useUpdateNotificationPreferencesMutation();
   const deleteAccountMutation = useDeleteAccountMutation();
 
   const marketingLabelId = useId();
-  const launchDayEmailLabelId = useId();
 
   const status: 'loading' | 'authed' | 'guest' = viewerSessionQuery.isPending
     ? 'loading'
@@ -56,14 +44,6 @@ export default function AccountPage() {
 
   const profile = profileQuery.data ?? null;
   const isPaid = entitlementsQuery.data?.isPaid ?? false;
-  const smsStatus = notificationPreferencesQuery.data
-    ? {
-        sms_enabled: notificationPreferencesQuery.data.smsEnabled,
-        sms_verified: notificationPreferencesQuery.data.smsVerified,
-        sms_phone_e164: notificationPreferencesQuery.data.smsPhone
-      }
-    : null;
-
   const [editFirstName, setEditFirstName] = useState('');
   const [editLastName, setEditLastName] = useState('');
   const [editTimezone, setEditTimezone] = useState('America/New_York');
@@ -74,13 +54,6 @@ export default function AccountPage() {
   const [marketingMessage, setMarketingMessage] = useState<string | null>(null);
   const [marketingError, setMarketingError] = useState<string | null>(null);
 
-  const [launchDayEmailEnabled, setLaunchDayEmailEnabled] = useState(false);
-  const [launchDayEmailProviders, setLaunchDayEmailProviders] = useState<string[]>([]);
-  const [launchDayEmailStates, setLaunchDayEmailStates] = useState<string[]>([]);
-  const [launchDayEmailLoaded, setLaunchDayEmailLoaded] = useState<LaunchDaySnapshot | null>(null);
-  const [launchDayEmailMessage, setLaunchDayEmailMessage] = useState<string | null>(null);
-  const [launchDayEmailError, setLaunchDayEmailError] = useState<string | null>(null);
-
   const [resendingEmail, setResendingEmail] = useState(false);
   const [resendEmailMessage, setResendEmailMessage] = useState<string | null>(null);
   const [resendEmailError, setResendEmailError] = useState<string | null>(null);
@@ -88,6 +61,8 @@ export default function AccountPage() {
   const [deleteConfirm, setDeleteConfirm] = useState('');
   const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [adminAccessMessage, setAdminAccessMessage] = useState<string | null>(null);
+  const [adminAccessError, setAdminAccessError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!profile) return;
@@ -105,31 +80,16 @@ export default function AccountPage() {
     setMarketingEmailOptIn(marketingEmailQuery.data.marketingEmailOptIn);
   }, [marketingEmailQuery.data, status]);
 
-  useEffect(() => {
-    if (!notificationPreferencesQuery.data) return;
-    const snapshot = {
-      enabled: notificationPreferencesQuery.data.launchDayEmailEnabled,
-      providers: notificationPreferencesQuery.data.launchDayEmailProviders,
-      states: notificationPreferencesQuery.data.launchDayEmailStates
-    };
-    setLaunchDayEmailEnabled(snapshot.enabled);
-    setLaunchDayEmailProviders(snapshot.providers);
-    setLaunchDayEmailStates(snapshot.states);
-    setLaunchDayEmailLoaded(snapshot);
-  }, [notificationPreferencesQuery.data]);
-
   const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ');
-  const smsOptInLabel = smsStatus ? (smsStatus.sms_enabled ? 'On' : 'Off') : '—';
-  const smsVerifiedLabel = smsStatus ? (smsStatus.sms_verified ? 'Yes' : 'No') : '—';
   const emailPremiumLocked = isPaid !== true;
   const emailVerified = Boolean(profile?.emailConfirmedAt);
+  const isAdminViewer = viewerSessionQuery.data?.role === 'admin';
+  const adminAccessOverride = adminAccessOverrideQuery.data?.adminAccessOverride ?? entitlementsQuery.data?.adminAccessOverride ?? null;
+  const effectiveTier = entitlementsQuery.data?.tier ?? 'anon';
+  const effectiveTierSource = entitlementsQuery.data?.effectiveTierSource ?? 'guest';
+  const billingIsPaid = entitlementsQuery.data?.billingIsPaid === true;
   const premiumStatus = searchParams.get('premium');
   const showPremiumWelcome = premiumStatus === 'welcome' && isPaid === true;
-  const launchDayEmailDirty = launchDayEmailLoaded
-    ? launchDayEmailLoaded.enabled !== launchDayEmailEnabled ||
-      stableKey(launchDayEmailLoaded.providers) !== stableKey(launchDayEmailProviders) ||
-      stableKey(launchDayEmailLoaded.states) !== stableKey(launchDayEmailStates)
-    : false;
   const profileFirstName = String(profile?.firstName || '').trim();
   const profileLastName = String(profile?.lastName || '').trim();
   const profileTimezone = String(profile?.timezone || 'America/New_York').trim();
@@ -242,48 +202,17 @@ export default function AccountPage() {
     }
   }
 
-  async function saveLaunchDayEmailPrefs(overrides?: { enabled?: boolean; providers?: string[]; states?: string[] }) {
-    if (status !== 'authed') return;
-    const nextEnabled = overrides?.enabled ?? launchDayEmailEnabled;
-    const nextProviders = overrides?.providers ?? launchDayEmailProviders;
-    const nextStates = overrides?.states ?? launchDayEmailStates;
-
-    setLaunchDayEmailMessage(null);
-    setLaunchDayEmailError(null);
+  async function updateAdminAccessOverride(next: 'anon' | 'premium' | null) {
+    setAdminAccessMessage(null);
+    setAdminAccessError(null);
     try {
-      const prefs = await updateNotificationPreferencesMutation.mutateAsync({
-        launchDayEmailEnabled: nextEnabled,
-        launchDayEmailProviders: nextProviders,
-        launchDayEmailStates: nextStates
-      });
-      const snapshot = {
-        enabled: prefs.launchDayEmailEnabled,
-        providers: prefs.launchDayEmailProviders,
-        states: prefs.launchDayEmailStates
-      };
-      setLaunchDayEmailEnabled(snapshot.enabled);
-      setLaunchDayEmailProviders(snapshot.providers);
-      setLaunchDayEmailStates(snapshot.states);
-      setLaunchDayEmailLoaded(snapshot);
-      setLaunchDayEmailMessage('Saved.');
+      await updateAdminAccessOverrideMutation.mutateAsync({ adminAccessOverride: next });
+      setAdminAccessMessage(
+        next === null ? 'Default admin access restored.' : next === 'premium' ? 'Admin premium test mode is active.' : 'Admin free test mode is active.'
+      );
     } catch (error: unknown) {
-      const code = getErrorCode(error);
-      if (code === 'subscription_required') {
-        setLaunchDayEmailError('Premium required. Upgrade to enable launch-day emails.');
-        return;
-      }
-      setLaunchDayEmailError(getErrorMessage(error, 'Failed to save'));
+      setAdminAccessError(getErrorMessage(error, 'Unable to update admin access.'));
     }
-  }
-
-  function toggleSelected(value: string, list: string[], setList: (next: string[]) => void) {
-    const normalized = String(value || '').trim();
-    if (!normalized) return;
-    setList(
-      list.includes(normalized)
-        ? list.filter((entry) => entry !== normalized)
-        : [...list, normalized].sort((left, right) => left.localeCompare(right))
-    );
   }
 
   async function deleteAccount() {
@@ -340,7 +269,7 @@ export default function AccountPage() {
               <div className="mt-1 text-base font-semibold text-text1">Everything is unlocked. Start with three setup steps.</div>
               <div className="mt-3 grid gap-2 sm:grid-cols-3">
                 <Link className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1 hover:border-primary" href={buildPreferencesHref()}>
-                  Enable browser alerts
+                  Open notification settings
                 </Link>
                 <Link className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1 hover:border-primary" href="/account/saved">
                   Build My Launches
@@ -366,10 +295,6 @@ export default function AccountPage() {
             <div className="flex items-center justify-between">
               <span className="text-text3">Email verified</span>
               <span className={emailVerified ? 'text-success' : 'text-warning'}>{emailVerified ? 'Yes' : 'No'}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-text3">Phone</span>
-              <span className="text-text1">{smsStatus?.sms_phone_e164 ? formatUsPhoneForDisplay(smsStatus.sms_phone_e164) : '—'}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-text3">Timezone</span>
@@ -461,6 +386,55 @@ export default function AccountPage() {
             <div className="md:col-span-2">
               <BillingPanel />
             </div>
+            {isAdminViewer && (
+              <div className="md:col-span-2 rounded-2xl border border-primary/20 bg-[rgba(34,211,238,0.06)] p-4 text-sm text-text2">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="text-xs uppercase tracking-[0.1em] text-text3">Admin access testing</div>
+                    <div className="mt-1 text-base font-semibold text-text1">Switch this admin account between free and premium</div>
+                    <div className="mt-1 text-xs text-text3">
+                      This changes customer access across web, iPhone, and Android. Billing and admin tools stay unchanged.
+                    </div>
+                  </div>
+                  <span className="rounded-full border border-primary/30 px-3 py-1 text-xs text-primary">
+                    {effectiveTier === 'premium' ? 'Premium access' : 'Free access'}
+                  </span>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <AdminAccessButton
+                    label="Use default"
+                    active={adminAccessOverride === null}
+                    disabled={adminAccessOverrideQuery.isPending || updateAdminAccessOverrideMutation.isPending}
+                    onClick={() => void updateAdminAccessOverride(null)}
+                  />
+                  <AdminAccessButton
+                    label="Free"
+                    active={adminAccessOverride === 'anon'}
+                    disabled={adminAccessOverrideQuery.isPending || updateAdminAccessOverrideMutation.isPending}
+                    onClick={() => void updateAdminAccessOverride('anon')}
+                  />
+                  <AdminAccessButton
+                    label="Premium"
+                    active={adminAccessOverride === 'premium'}
+                    disabled={adminAccessOverrideQuery.isPending || updateAdminAccessOverrideMutation.isPending}
+                    onClick={() => void updateAdminAccessOverride('premium')}
+                  />
+                </div>
+                <div className="mt-3 grid gap-2 text-xs text-text3 sm:grid-cols-3">
+                  <div>
+                    <span className="text-text3">Current access:</span> <span className="text-text2">{effectiveTier === 'premium' ? 'Premium' : 'Free'}</span>
+                  </div>
+                  <div>
+                    <span className="text-text3">Source:</span> <span className="text-text2">{formatEffectiveTierSource(effectiveTierSource)}</span>
+                  </div>
+                  <div>
+                    <span className="text-text3">Real billing:</span> <span className="text-text2">{billingIsPaid ? 'Active' : 'Inactive'}</span>
+                  </div>
+                </div>
+                {adminAccessMessage && <div className="mt-2 text-xs text-success">{adminAccessMessage}</div>}
+                {adminAccessError && <div className="mt-2 text-xs text-warning">{adminAccessError}</div>}
+              </div>
+            )}
             <div className="md:col-span-2">
               <TipJarRecurringPanel />
             </div>
@@ -491,157 +465,13 @@ export default function AccountPage() {
               </div>
             </div>
             <div className="md:col-span-2 rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="text-xs uppercase tracking-[0.1em] text-text3">Email alerts</div>
-                  <div id={launchDayEmailLabelId} className="text-base font-semibold text-text1">
-                    Launch-day email (8:00 AM local time)
-                  </div>
-                  <div className="mt-1 text-xs text-text3">
-                    Sends at 8:00 AM in <span className="text-text2">{profile?.timezone || 'America/New_York'}</span>.
-                  </div>
-                </div>
-                <ToggleButton
-                  checked={launchDayEmailEnabled}
-                  disabled={emailPremiumLocked || updateNotificationPreferencesMutation.isPending}
-                  onChange={(next) => {
-                    setLaunchDayEmailEnabled(next);
-                    void saveLaunchDayEmailPrefs({ enabled: next });
-                  }}
-                  labelledBy={launchDayEmailLabelId}
-                />
-              </div>
-
-              {emailPremiumLocked && (
-                <div className="mt-3 rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-2 text-xs text-text3">
-                  Premium required.{' '}
-                  <Link className="text-primary hover:underline" href={buildUpgradeHref({ returnTo: buildProfileHref() })}>
-                    Upgrade to Premium
-                  </Link>{' '}
-                  to enable launch-day emails.
-                </div>
-              )}
-
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <div className={emailPremiumLocked ? 'opacity-60' : ''}>
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-xs uppercase tracking-[0.1em] text-text3">Providers</div>
-                    <button
-                      type="button"
-                      className="text-xs text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-60"
-                      onClick={() => setLaunchDayEmailProviders([])}
-                      disabled={emailPremiumLocked}
-                    >
-                      Clear (All)
-                    </button>
-                  </div>
-                  <div className="mt-2 max-h-44 overflow-y-auto rounded-lg border border-stroke bg-surface-0 p-2">
-                    {filterOptionsQuery.isPending && <div className="text-xs text-text3">Loading…</div>}
-                    {filterOptionsQuery.error && <div className="text-xs text-warning">Unable to load filters.</div>}
-                    {!filterOptionsQuery.isPending &&
-                      !filterOptionsQuery.error &&
-                      (filterOptionsQuery.data?.providers?.length ? (
-                        <div className="space-y-1">
-                          {filterOptionsQuery.data.providers.map((provider) => (
-                            <label
-                              key={provider}
-                              className="flex items-center gap-2 rounded-md px-1 py-1 text-sm text-text2 hover:bg-[rgba(255,255,255,0.03)]"
-                            >
-                              <input
-                                type="checkbox"
-                                className="h-4 w-4 rounded border-stroke bg-surface-0"
-                                checked={launchDayEmailProviders.includes(provider)}
-                                onChange={() => toggleSelected(provider, launchDayEmailProviders, setLaunchDayEmailProviders)}
-                                disabled={emailPremiumLocked}
-                              />
-                              <span className="min-w-0 flex-1 truncate">{provider}</span>
-                            </label>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="text-xs text-text3">No providers available.</div>
-                      ))}
-                  </div>
-                  <div className="mt-1 text-xs text-text3">
-                    {launchDayEmailProviders.length ? `${launchDayEmailProviders.length} selected` : 'All providers'}
-                  </div>
-                </div>
-
-                <div className={emailPremiumLocked ? 'opacity-60' : ''}>
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-xs uppercase tracking-[0.1em] text-text3">Locations</div>
-                    <button
-                      type="button"
-                      className="text-xs text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-60"
-                      onClick={() => setLaunchDayEmailStates([])}
-                      disabled={emailPremiumLocked}
-                    >
-                      Clear (All)
-                    </button>
-                  </div>
-                  <div className="mt-2 max-h-44 overflow-y-auto rounded-lg border border-stroke bg-surface-0 p-2">
-                    {filterOptionsQuery.isPending && <div className="text-xs text-text3">Loading…</div>}
-                    {filterOptionsQuery.error && <div className="text-xs text-warning">Unable to load filters.</div>}
-                    {!filterOptionsQuery.isPending &&
-                      !filterOptionsQuery.error &&
-                      (filterOptionsQuery.data?.states?.length ? (
-                        <div className="space-y-1">
-                          {filterOptionsQuery.data.states.map((state) => (
-                            <label
-                              key={state}
-                              className="flex items-center gap-2 rounded-md px-1 py-1 text-sm text-text2 hover:bg-[rgba(255,255,255,0.03)]"
-                            >
-                              <input
-                                type="checkbox"
-                                className="h-4 w-4 rounded border-stroke bg-surface-0"
-                                checked={launchDayEmailStates.includes(state)}
-                                onChange={() => toggleSelected(state, launchDayEmailStates, setLaunchDayEmailStates)}
-                                disabled={emailPremiumLocked}
-                              />
-                              <span className="min-w-0 flex-1 truncate">{state}</span>
-                            </label>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="text-xs text-text3">No locations available.</div>
-                      ))}
-                  </div>
-                  <div className="mt-1 text-xs text-text3">
-                    {launchDayEmailStates.length ? `${launchDayEmailStates.length} selected` : 'All locations'}
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-3 flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  className="btn rounded-lg px-4 py-2 text-xs"
-                  onClick={() => void saveLaunchDayEmailPrefs()}
-                  disabled={emailPremiumLocked || updateNotificationPreferencesMutation.isPending || !launchDayEmailDirty}
-                >
-                  {updateNotificationPreferencesMutation.isPending ? 'Saving…' : launchDayEmailDirty ? 'Save changes' : 'Saved'}
-                </button>
-                <div className="text-xs text-text3">We only email on days with matching launches.</div>
-              </div>
-              {launchDayEmailMessage && <div className="mt-2 text-xs text-success">{launchDayEmailMessage}</div>}
-              {launchDayEmailError && <div className="mt-2 text-xs text-warning">{launchDayEmailError}</div>}
-            </div>
-            <div className="rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
-              <div className="text-xs uppercase tracking-[0.1em] text-text3">SMS status</div>
-              <div className="mt-3 flex items-center justify-between">
-                <span className="text-text3">SMS opt-in</span>
-                <span className="text-text1">{smsOptInLabel}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-text3">Phone verified</span>
-                <span className="text-text1">{smsVerifiedLabel}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-text3">Phone</span>
-                <span className="text-text1">{smsStatus?.sms_phone_e164 ? formatUsPhoneForDisplay(smsStatus.sms_phone_e164) : '—'}</span>
-              </div>
-              <Link className="mt-2 inline-flex text-xs text-primary hover:underline" href={buildPreferencesHref()}>
-                Manage notifications
+              <div className="text-xs uppercase tracking-[0.1em] text-text3">Notifications</div>
+              <div className="mt-1 text-base font-semibold text-text1">Push alerts live in the mobile app</div>
+              <p className="mt-2 text-text3">
+                Web no longer manages legacy notification subscriptions. Open the native app to manage alert rules and device registration.
+              </p>
+              <Link className="mt-3 inline-flex text-xs text-primary hover:underline" href={buildPreferencesHref()}>
+                Open native notification settings
               </Link>
             </div>
             <div className="rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
@@ -729,10 +559,47 @@ function ToggleButton({
   );
 }
 
+function AdminAccessButton({
+  label,
+  active,
+  disabled,
+  onClick
+}: {
+  label: string;
+  active: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`rounded-full border px-3 py-2 text-xs font-semibold transition ${
+        active
+          ? 'border-primary bg-[rgba(34,211,238,0.16)] text-primary'
+          : 'border-stroke bg-surface-0 text-text2 hover:border-primary/40'
+      } ${disabled ? 'cursor-not-allowed opacity-60' : ''}`}
+      onClick={() => {
+        if (!disabled) onClick();
+      }}
+      disabled={disabled}
+    >
+      {label}
+    </button>
+  );
+}
+
 function formatDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(date);
+}
+
+function formatEffectiveTierSource(value: string) {
+  if (value === 'admin_override') return 'Manual override';
+  if (value === 'admin') return 'Admin default';
+  if (value === 'subscription') return 'Paid subscription';
+  if (value === 'free') return 'Signed in without Premium';
+  return 'Guest';
 }
 
 function stableKey(values: string[]) {

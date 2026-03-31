@@ -94,9 +94,9 @@ export async function generateMetadata({
   const siteUrl = getSiteUrl().replace(/\/$/, '');
   const canonical = '/artemis';
   const pageUrl = `${siteUrl}${canonical}`;
-  const title = `Artemis Mission Control Dashboard & Launch Schedule | ${BRAND_NAME}`;
+  const title = `Artemis Program Hub, Timeline & Launch Schedule | ${BRAND_NAME}`;
   const description =
-    'Artemis mission control dashboard with timeline exploration, intelligence, budget context, awardee detail pages, and mission routing across Artemis I through Artemis VII.';
+    'Artemis program hub with mission timelines, launch schedule coverage, budget context, awardee pages, and internal contract records across Artemis I through Artemis VII.';
   const images = [
     {
       url: siteMeta.ogImage,
@@ -278,9 +278,9 @@ export default async function ArtemisWorkbenchPage({
     '@type': 'CollectionPage',
     '@id': pageUrl,
     url: pageUrl,
-    name: 'Artemis mission control dashboard',
+    name: 'Artemis program hub',
     description:
-      'Artemis mission control dashboard with timeline exploration, intelligence, budget transparency, awardee discovery, and mission route hubs.',
+      'Artemis program hub with mission timelines, budget context, awardee pages, and internal contract records.',
     dateModified: snapshot.lastUpdated || snapshot.generatedAt
   };
 
@@ -332,9 +332,9 @@ export default async function ArtemisWorkbenchPage({
       <JsonLd data={[breadcrumbJsonLd, collectionPageJsonLd, missionWorkbenchJsonLd, faqJsonLd, ...(itemListJsonLd ? [itemListJsonLd] : [])]} />
 
       <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
-        <h2 className="text-lg font-semibold text-text1">Artemis Search Hubs</h2>
+        <h2 className="text-lg font-semibold text-text1">Artemis Pages</h2>
         <p className="mt-1 text-sm text-text2">
-          Use mission hubs for timeline coverage and the awardee index for recipient-level procurement context.
+          Use mission pages for timeline coverage, awardee pages for recipients, and contract pages for in-house procurement detail.
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-text3">
           <Link

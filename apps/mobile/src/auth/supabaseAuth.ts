@@ -11,7 +11,11 @@ import {
   type MobileAuthPasswordSignUpResponseV1,
   type MobileAuthRiskDecisionV1
 } from '@tminuszero/api-client';
-import { captureAppleAuthRevocationPlaceholder, isMobileAppleAuthEnabled } from '@/src/auth/appleAuth';
+import {
+  captureAppleAuthRevocationPlaceholder,
+  isMobileAppleAuthEnabled,
+  requestNativeAppleSignIn
+} from '@/src/auth/appleAuth';
 import { getApiBaseUrl, getSupabaseAnonKey, getSupabaseUrl } from '@/src/config/api';
 import { collectMobileAuthAttestation } from '@/src/auth/attestation';
 import { getMobileAuthPlatform } from '@/src/auth/authContext';
@@ -375,6 +379,39 @@ async function setAuthSession(accessToken: string, refreshToken: string) {
   return parseSupabaseSession(data.session);
 }
 
+export async function continueWithAppleSignIn(): Promise<CompleteMobileAuthResult> {
+  if (!isMobileAppleAuthEnabled()) {
+    throw new Error('Sign in with Apple is not enabled for this build.');
+  }
+
+  const nativeCredential = await requestNativeAppleSignIn();
+  const supabase = getMobileSupabaseClient();
+  const { data, error } = await supabase.auth.signInWithIdToken({
+    provider: 'apple',
+    token: nativeCredential.identityToken,
+    nonce: nativeCredential.nonce
+  });
+
+  if (error) {
+    throw error;
+  }
+  if (!data.session) {
+    throw new Error('Supabase auth callback did not return a session.');
+  }
+
+  const completed: CompleteMobileAuthResult = {
+    provider: 'apple',
+    session: parseSupabaseSession(data.session)
+  };
+
+  await captureAppleAuthRevocationPlaceholder({
+    userId: completed.session.userId,
+    email: completed.session.email
+  }).catch(() => undefined);
+
+  return completed;
+}
+
 function parseAccessTokenExpiry(accessToken: string, expiresIn: number | null) {
   const payload = accessToken.split('.')[1];
   const atobImpl = typeof globalThis.atob === 'function' ? globalThis.atob.bind(globalThis) : null;
@@ -424,7 +461,11 @@ export function isSupabaseMobileAuthConfigured() {
 }
 
 export function getAvailableOAuthProviders(): MobileOAuthProvider[] {
-  return [];
+  const providers: MobileOAuthProvider[] = [];
+  if (isMobileAppleAuthEnabled()) {
+    providers.push('apple');
+  }
+  return providers;
 }
 
 export async function completeMobileAuthCallbackUrl(callbackUrl: string): Promise<CompleteMobileAuthResult> {
@@ -469,6 +510,9 @@ export async function continueWithOAuthProvider(provider: MobileOAuthProvider): 
   if (provider === 'apple' && !isMobileAppleAuthEnabled()) {
     throw new Error('Sign in with Apple is not enabled for this build.');
   }
+  if (provider === 'apple') {
+    return continueWithAppleSignIn();
+  }
 
   const redirectTo = getOAuthRedirectUrl(provider);
   const supabase = getMobileSupabaseClient();
@@ -499,12 +543,6 @@ export async function continueWithOAuthProvider(provider: MobileOAuthProvider): 
     }
 
     const completed = await completeMobileAuthCallbackUrl(result.url);
-    if (provider === 'apple') {
-      await captureAppleAuthRevocationPlaceholder({
-        userId: completed.session.userId,
-        email: completed.session.email
-      }).catch(() => undefined);
-    }
 
     return completed;
   } finally {

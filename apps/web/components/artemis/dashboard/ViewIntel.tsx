@@ -73,8 +73,8 @@ export function ViewIntel({
 
   return (
     <MissionControlCard
-      title="Intelligence Feed"
-      subtitle="Authority-ranked stream of Artemis media, data, and source-linked updates"
+      title="Updates Feed"
+      subtitle="Source-linked Artemis articles, imagery, posts, and data updates"
       action={<span>{filteredItems.length} visible</span>}
       className="xl:h-full xl:overflow-hidden"
       bodyClassName="xl:h-full xl:overflow-y-auto xl:pr-1"
@@ -127,9 +127,11 @@ export function ViewIntel({
                   </div>
                 ) : (
                   <>
-                    <div className="mt-1 text-sm font-semibold text-text1">{item.title}</div>
+                    <a href={item.url} target="_blank" rel="noreferrer" className="mt-1 block text-sm font-semibold text-text1 hover:text-primary">
+                      {item.title}
+                    </a>
                     {isRenderableImageUrl(item.imageUrl) ? (
-                      <div className="mt-2 overflow-hidden rounded-lg border border-stroke bg-surface-1">
+                      <a href={item.url} target="_blank" rel="noreferrer" className="mt-2 block overflow-hidden rounded-lg border border-stroke bg-surface-1">
                         <Image
                           src={item.imageUrl}
                           alt={item.title}
@@ -138,12 +140,9 @@ export function ViewIntel({
                           unoptimized
                           className="h-auto w-full object-cover"
                         />
-                      </div>
+                      </a>
                     ) : null}
                     {item.summary ? <p className="mt-2 text-xs text-text2">{truncateText(item.summary, 180)}</p> : null}
-                    <a href={item.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-xs text-primary hover:text-primary/80">
-                      Source
-                    </a>
                   </>
                 )}
 
@@ -166,8 +165,8 @@ export function ViewIntel({
       ) : (
         <div className="mt-4">
           <MissionControlEmptyState
-            title="No intelligence rows for this filter"
-            detail="Try broadening the tier or content-type filters to view more signals."
+            title="No updates for this filter"
+            detail="Try broadening the tier or content filters to load more coverage."
           />
         </div>
       )}

@@ -15,11 +15,11 @@ const DOC_LINKS = [
   { title: 'About', href: '/about', subtitle: 'Origin story and product mission.', badge: 'docs' },
   { title: 'FAQ', href: '/docs/faq', subtitle: 'Common questions about the native app.', badge: 'docs' },
   { title: 'Roadmap', href: '/docs/roadmap', subtitle: 'Implementation phases and future work.', badge: 'docs' },
-  { title: 'SMS Opt-In', href: '/docs/sms-opt-in', subtitle: 'Required disclosures and consent flow.', badge: 'docs' },
+  { title: 'Notifications', href: '/preferences', subtitle: 'Native push setup and alert controls.', badge: 'docs' },
   { title: 'Privacy Notice', href: '/legal/privacy', subtitle: 'Collection, use, and disclosure overview.', badge: 'legal' },
   { title: 'Privacy Choices', href: '/legal/privacy-choices', subtitle: 'Export, privacy, and delete-account controls.', badge: 'legal' },
   { title: 'Data & Attribution', href: '/legal/data', subtitle: 'Source inventory and attribution notes.', badge: 'legal' },
-  { title: 'SMS Terms', href: '/legal/sms', subtitle: 'SMS disclosures and alert policy.', badge: 'legal' },
+  { title: 'Notification Policy', href: '/legal/sms', subtitle: 'Native push disclosure and device guidance.', badge: 'legal' },
   { title: 'Terms of Service', href: '/legal/terms', subtitle: 'Platform terms and service rules.', badge: 'legal' },
   { title: 'Jellyfish Effect', href: '/jellyfish-effect', subtitle: 'Viewing guide and twilight plume planning.', badge: 'guide' }
 ] as const;
@@ -66,7 +66,7 @@ function resolveDocsFallbackPage(slug: string): CustomerRouteStaticPage {
   if (slug === 'about') return ABOUT_FALLBACK_PAGE;
   if (slug === 'faq') return FAQ_FALLBACK_PAGE;
   if (slug === 'roadmap') return ROADMAP_FALLBACK_PAGE;
-  if (slug === 'sms-opt-in') return SMS_OPT_IN_FALLBACK_PAGE;
+  if (slug === 'sms-opt-in') return NOTIFICATION_SETTINGS_FALLBACK_PAGE;
   if (slug === 'jellyfish-effect') return JELLYFISH_FALLBACK_PAGE;
   return buildGenericDocsFallback(slug);
 }
@@ -129,33 +129,33 @@ const ROADMAP_FALLBACK_PAGE: CustomerRouteStaticPage = {
   ]
 };
 
-const SMS_OPT_IN_FALLBACK_PAGE: CustomerRouteStaticPage = {
+const NOTIFICATION_SETTINGS_FALLBACK_PAGE: CustomerRouteStaticPage = {
   eyebrow: 'Docs',
-  title: 'SMS Opt-In',
-  description: 'How to opt in to SMS launch alerts and what disclosures need to appear at consent time.',
+  title: 'Notifications',
+  description: 'How native push alerts work and where to manage them in the mobile app.',
   lastUpdated: 'Jan 20, 2026',
   sections: [
     {
-      title: 'Consent flow',
-      body: 'Users sign in, review the disclosure, verify a US phone number, and then enable SMS alerts from the notifications screen.',
+      title: 'Push setup',
+      body: 'Users sign in, open notification settings, and register a device for push delivery.',
       bullets: [
-        'Consent must be explicit and unchecked by default.',
-        'SMS is optional and not tied to purchase.',
-        'Verification should happen before the account is marked opted in.'
+        'Push is optional and managed in the app.',
+        'Device registration happens in the mobile client.',
+        'Alert scopes stay tied to the signed-in account.'
       ]
     },
     {
-      title: 'Opt out',
-      body: 'A user must be able to stop alerts at any time with a clear opt-out path.',
+      title: 'Disable alerts',
+      body: 'A user must be able to stop alerts at any time with a clear in-app control path.',
       bullets: [
-        'Reply STOP to cancel.',
-        'Reply START to re-subscribe.',
-        'Reply HELP or contact support for assistance.'
+        'Turn off push from notification settings.',
+        'Disable the device registration if you no longer want alerts.',
+        'Contact support if the app state does not match your device settings.'
       ]
     }
   ],
   actions: [
-    { label: 'Terms', href: '/legal/terms' },
+    { label: 'Notification policy', href: '/legal/sms' },
     { label: 'Privacy notice', href: '/legal/privacy', variant: 'secondary' }
   ]
 };

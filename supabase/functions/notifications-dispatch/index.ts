@@ -99,6 +99,7 @@ type MobilePushInstallationRowV2 = {
   user_id?: string | null;
   installation_id: string;
   platform?: string | null;
+  delivery_kind?: 'web_push' | 'mobile_push' | null;
   is_active?: boolean | null;
 };
 
@@ -107,12 +108,21 @@ type MobilePushRuleRowV2 = {
   owner_kind: 'guest' | 'user';
   user_id?: string | null;
   installation_id?: string | null;
-  scope_kind: 'all_us' | 'state' | 'launch' | 'all_launches' | 'preset' | 'follow';
+  intent?: 'follow' | 'notifications_only' | null;
+  visible_in_following?: boolean | null;
+  enabled?: boolean | null;
+  scope_kind: 'all_us' | 'state' | 'launch' | 'all_launches' | 'preset' | 'provider' | 'rocket' | 'pad' | 'launch_site' | 'tier' | 'filter';
+  scope_key?: string | null;
   state?: string | null;
   launch_id?: string | null;
+  provider?: string | null;
+  rocket_id?: number | null;
+  pad_key?: string | null;
+  launch_site?: string | null;
   filter_preset_id?: string | null;
-  follow_rule_type?: 'launch' | 'pad' | 'provider' | 'tier' | null;
-  follow_rule_value?: string | null;
+  filters?: Record<string, unknown> | null;
+  tier?: string | null;
+  channels?: string[] | null;
   timezone?: string | null;
   prelaunch_offsets_minutes?: number[] | null;
   daily_digest_local_time?: string | null;
@@ -199,19 +209,18 @@ async function dispatchNotifications(supabase: ReturnType<typeof createSupabaseA
   ]);
   const notificationUserIds = Array.from(new Set([...premiumUserIds, ...activeMobilePushUserIds]));
 
-  if (!notificationUserIds.length) {
-    const empty: DispatchResult = { queued: 0, updated: 0, usageUpdates: 0, reason: 'no_notification_users' };
-    return { queued: 0, updated: 0, usageUpdates: 0, sms: empty, email: empty, push: empty };
-  }
-
   const [prefsRes, profilesRes] = await Promise.all([
-    supabase
-      .from('notification_preferences')
-      .select(
-        'user_id, email_enabled, sms_enabled, sms_verified, push_enabled, notify_t_minus_60, notify_t_minus_10, notify_t_minus_5, notify_status_change, notify_net_change, quiet_hours_enabled, quiet_start_local, quiet_end_local, launch_day_email_enabled, launch_day_email_providers, launch_day_email_states'
-      )
-      .in('user_id', notificationUserIds),
-    supabase.from('profiles').select('user_id, timezone').in('user_id', notificationUserIds)
+    notificationUserIds.length
+      ? supabase
+          .from('notification_preferences')
+          .select(
+            'user_id, email_enabled, sms_enabled, sms_verified, push_enabled, notify_t_minus_60, notify_t_minus_10, notify_t_minus_5, notify_status_change, notify_net_change, quiet_hours_enabled, quiet_start_local, quiet_end_local, launch_day_email_enabled, launch_day_email_providers, launch_day_email_states'
+          )
+          .in('user_id', notificationUserIds)
+      : Promise.resolve({ data: [], error: null }),
+    notificationUserIds.length
+      ? supabase.from('profiles').select('user_id, timezone').in('user_id', notificationUserIds)
+      : Promise.resolve({ data: [], error: null })
   ]);
   if (prefsRes.error) throw prefsRes.error;
   if (profilesRes.error) throw profilesRes.error;
@@ -248,31 +257,29 @@ async function dispatchNotifications(supabase: ReturnType<typeof createSupabaseA
     (row: PrefsRow) => premiumUserIdSet.has(row.user_id) && row.email_enabled !== false && row.launch_day_email_enabled === true
   );
 
-  const smsResult: DispatchResult = !settings.sms_enabled
-    ? { queued: 0, updated: 0, usageUpdates: 0, reason: 'sms_disabled' }
-    : smsEligibleUserIds.length
-      ? await dispatchSmsNotifications(supabase, { settings, now, dayStart, monthStart, smsEligibleUserIds, quietByUser, timeZoneByUser })
-      : { queued: 0, updated: 0, usageUpdates: 0, reason: 'no_sms_opted_users' };
+  const smsResult = await dispatchSmsNotifications(supabase, {
+    settings,
+    now,
+    dayStart,
+    monthStart,
+    smsEligibleUserIds,
+    quietByUser,
+    timeZoneByUser
+  });
 
-  const pushResult: DispatchResult = !settings.push_enabled
-    ? { queued: 0, updated: 0, usageUpdates: 0, reason: 'push_disabled' }
-    : pushEligibleUserIds.length
-      ? await dispatchPushNotifications(supabase, {
-          settings,
-          now,
-          dayStart,
-          monthStart,
-          pushEligibleUserIds,
-          webPushEligibleUserIds: premiumUserIds,
-          prefsByUser,
-          quietByUser,
-          timeZoneByUser
-        })
-      : { queued: 0, updated: 0, usageUpdates: 0, reason: 'no_push_opted_users' };
+  const pushResult = await dispatchPushNotifications(supabase, {
+    settings,
+    now,
+    dayStart,
+    monthStart,
+    pushEligibleUserIds,
+    webPushEligibleUserIds: pushEligibleUserIds,
+    prefsByUser,
+    quietByUser,
+    timeZoneByUser
+  });
 
-  const emailResult: DispatchResult = emailEligiblePrefs.length
-    ? await dispatchLaunchDayEmailDigests(supabase, { now, monthStart, prefs: emailEligiblePrefs })
-    : { queued: 0, updated: 0, usageUpdates: 0, reason: 'no_email_opted_users' };
+  const emailResult = await dispatchLaunchDayEmailDigests(supabase, { now, monthStart, prefs: emailEligiblePrefs });
 
   const mobilePushV2Result: DispatchResult = settings.push_enabled
     ? await dispatchMobilePushV2(supabase, {
@@ -308,9 +315,10 @@ async function loadPremiumUserIds(supabase: ReturnType<typeof createSupabaseAdmi
 
 async function loadActiveMobilePushUserIds(supabase: ReturnType<typeof createSupabaseAdminClient>) {
   const { data, error } = await supabase
-    .from('notification_push_devices')
+    .from('notification_push_destinations_v3')
     .select('user_id')
     .eq('is_active', true)
+    .eq('delivery_kind', 'mobile_push')
     .eq('push_provider', 'expo')
     .in('platform', ['ios', 'android']);
 
@@ -339,215 +347,15 @@ async function dispatchSmsNotifications(
     timeZoneByUser: Map<string, string>;
   }
 ): Promise<DispatchResult> {
-  const { data: launchPrefs, error: launchPrefsError } = await supabase
-    .from('launch_notification_preferences')
-    .select('user_id, launch_id, channel, mode, timezone, t_minus_minutes, local_times, notify_status_change, notify_net_change')
-    .in('user_id', smsEligibleUserIds)
-    .eq('channel', 'sms');
-  if (launchPrefsError) throw launchPrefsError;
-
-  if (!launchPrefs?.length) {
-    return { queued: 0, updated: 0, usageUpdates: 0, reason: 'no_launch_prefs' };
-  }
-
-  const launchIds = Array.from(new Set(launchPrefs.map((row: LaunchPrefRow) => row.launch_id)));
-  const updatesSince = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
-
-  const [launchesRes, updatesRes, existingOutboxRes, usageRes] = await Promise.all([
-    supabase
-      .from('launches')
-      .select('id, name, net, net_precision, status_name, tier_auto, tier_override, provider, pad_name, pad_short_code, pad_state')
-      .eq('hidden', false)
-      .in('id', launchIds),
-    supabase
-      .from('launch_updates')
-      .select('id, launch_id, changed_fields, old_values, new_values, detected_at')
-      .gte('detected_at', updatesSince)
-      .in('launch_id', launchIds)
-      .order('detected_at', { ascending: false })
-      .limit(2000),
-    supabase
-      .from('notifications_outbox')
-      .select('id, user_id, launch_id, channel, event_type, scheduled_for, status, payload')
-      .gte('scheduled_for', updatesSince)
-      .in('launch_id', launchIds),
-    supabase
-      .from('notification_usage_monthly')
-      .select('user_id, month_start, messages_sent')
-      .eq('month_start', monthStart)
-      .eq('channel', 'sms')
-  ]);
-
-  if (launchesRes.error) throw launchesRes.error;
-  if (updatesRes.error) throw updatesRes.error;
-  if (existingOutboxRes.error) throw existingOutboxRes.error;
-  if (usageRes.error) throw usageRes.error;
-
-  const prefsByLaunch = new Map<string, LaunchPrefRow[]>();
-  (launchPrefs || []).forEach((row: LaunchPrefRow) => {
-    const list = prefsByLaunch.get(row.launch_id) || [];
-    list.push(row);
-    prefsByLaunch.set(row.launch_id, list);
-  });
-
-  const launches: LaunchRow[] = (launchesRes.data || []) as any;
-  const launchById = new Map<string, LaunchRow>();
-  launches.forEach((launch) => launchById.set(launch.id, launch));
-  const updates: LaunchUpdateRow[] = (updatesRes.data || []) as any;
-  const existingOutbox = existingOutboxRes.data || [];
-  const usageByUser = new Map<string, number>();
-  (usageRes.data || []).forEach((row: any) => usageByUser.set(row.user_id, row.messages_sent ?? 0));
-
-  const smsCounters = buildSmsCounters(existingOutbox, usageByUser, dayStart);
-
-  const existingByKey = new Map<string, any>();
-  const existingUpdateKeys = new Set<string>();
-  (existingOutbox || []).forEach((row: any) => {
-    const key = outboxKey(String(row.user_id || ''), String(row.launch_id || ''), String(row.channel || ''), String(row.event_type || ''));
-    if (!key) return;
-    if (!existingByKey.has(key)) existingByKey.set(key, row);
-
-    const updateId = readUpdateId(row.payload);
-    if (!updateId) return;
-    const eventType = String(row.event_type || '');
-    if (!isChangeEventType(eventType)) return;
-    const changeKey = outboxUpdateKey(String(row.user_id || ''), String(row.launch_id || ''), String(row.channel || ''), eventType, updateId);
-    if (changeKey) existingUpdateKeys.add(changeKey);
-  });
-
-  const toInsert: any[] = [];
-  const toUpdate: Array<{ id: number; scheduled_for: string; payload: Record<string, unknown> }> = [];
-  const smsUsageIncrements = new Map<string, number>();
-
-  for (const launch of launches) {
-    const prefsForLaunch = prefsByLaunch.get(launch.id);
-    if (!prefsForLaunch || !prefsForLaunch.length) continue;
-
-    for (const pref of prefsForLaunch) {
-      const tz = normalizeTimeZone(pref.timezone);
-      const events = buildScheduledEventsForPref(launch, pref);
-
-      for (const evt of events) {
-        const scheduledFor = resolveScheduledFor(evt.at, now, settings.sms_batch_window_minutes);
-        if (!scheduledFor) continue;
-
-        const quiet = quietByUser.get(pref.user_id);
-        const quietTimeZone = safeTimeZone(timeZoneByUser.get(pref.user_id));
-        const quietAdjustedFor = applyQuietHours(scheduledFor, quiet, quietTimeZone);
-
-        const key = outboxKey(pref.user_id, launch.id, 'sms', evt.type);
-        const existing = key ? existingByKey.get(key) : null;
-
-        if (existing) {
-          if (existing.status === 'queued') {
-            const existingAt = new Date(existing.scheduled_for);
-            const diffMs = Number.isFinite(existingAt.getTime())
-              ? Math.abs(existingAt.getTime() - quietAdjustedFor.getTime())
-              : Number.POSITIVE_INFINITY;
-            if (diffMs > 30_000) {
-              const payload = makeOutboxPayload(launch, evt, tz, settings.sms_max_chars);
-              toUpdate.push({ id: Number(existing.id), scheduled_for: quietAdjustedFor.toISOString(), payload });
-              existing.scheduled_for = quietAdjustedFor.toISOString();
-              existing.payload = payload;
-            }
-          }
-          continue;
-        }
-
-        if (smsCounters.canSend(pref.user_id, launch.id, quietAdjustedFor, evt.type, settings)) {
-          toInsert.push(makeOutboxRow(pref.user_id, launch.id, 'sms', evt, quietAdjustedFor, launch, now, tz, settings.sms_max_chars));
-          smsCounters.increment(pref.user_id, launch.id, quietAdjustedFor, evt.type);
-          smsUsageIncrements.set(pref.user_id, (smsUsageIncrements.get(pref.user_id) || 0) + 1);
-        }
-      }
-    }
-  }
-
-  for (const update of updates) {
-    const launch = launchById.get(update.launch_id);
-    if (!launch) continue;
-
-    const changed = Array.isArray(update.changed_fields) ? update.changed_fields.map((f) => String(f)) : [];
-    const statusChanged = changed.some((f) => STATUS_CHANGE_FIELDS.has(f));
-    const timingChanged = changed.some((f) => TIMING_CHANGE_FIELDS.has(f));
-    if (!statusChanged && !timingChanged) continue;
-
-    const prefsForLaunch = prefsByLaunch.get(update.launch_id);
-    if (!prefsForLaunch || !prefsForLaunch.length) continue;
-
-    for (const pref of prefsForLaunch) {
-      const wantsStatus = Boolean(pref.notify_status_change);
-      const wantsTiming = Boolean(pref.notify_net_change);
-      const sendStatus = statusChanged && wantsStatus;
-      const sendTiming = timingChanged && wantsTiming;
-      if (!sendStatus && !sendTiming) continue;
-
-      const eventType = sendStatus && sendTiming ? 'status_net_change' : sendStatus ? 'status_change' : 'net_change';
-      const changeKey = outboxUpdateKey(pref.user_id, launch.id, 'sms', eventType, update.id);
-      if (changeKey && existingUpdateKeys.has(changeKey)) continue;
-
-      const quiet = quietByUser.get(pref.user_id);
-      const quietTimeZone = safeTimeZone(timeZoneByUser.get(pref.user_id));
-      const quietAdjustedFor = applyQuietHours(now, quiet, quietTimeZone);
-
-      if (!smsCounters.canSend(pref.user_id, launch.id, quietAdjustedFor, eventType, settings)) continue;
-
-      const tz = normalizeTimeZone(pref.timezone);
-      const payload = makeChangeOutboxPayload(launch, eventType, tz, update, settings.sms_max_chars);
-
-      toInsert.push({
-        user_id: pref.user_id,
-        launch_id: launch.id,
-        channel: 'sms',
-        event_type: eventType,
-        payload,
-        status: 'queued',
-        scheduled_for: quietAdjustedFor.toISOString(),
-        created_at: now.toISOString()
-      });
-      smsCounters.increment(pref.user_id, launch.id, quietAdjustedFor, eventType);
-      smsUsageIncrements.set(pref.user_id, (smsUsageIncrements.get(pref.user_id) || 0) + 1);
-      if (changeKey) existingUpdateKeys.add(changeKey);
-    }
-  }
-
-  if (!toInsert.length && !toUpdate.length) {
-    return { queued: 0, updated: 0, usageUpdates: 0, reason: 'no_notifications' };
-  }
-
-  if (toInsert.length) {
-    const { error: insertError } = await supabase.from('notifications_outbox').insert(toInsert);
-    if (insertError) throw insertError;
-  }
-
-  if (toUpdate.length) {
-    for (const row of toUpdate) {
-      if (!Number.isFinite(row.id)) continue;
-      const { error: updateError } = await supabase
-        .from('notifications_outbox')
-        .update({ scheduled_for: row.scheduled_for, payload: row.payload })
-        .eq('id', row.id);
-      if (updateError) console.warn('outbox reschedule warning', updateError.message);
-    }
-  }
-
-  let usageUpdates = 0;
-  if (smsUsageIncrements.size > 0) {
-    const usageRows = Array.from(smsUsageIncrements.entries()).map(([userId, inc]) => ({
-      user_id: userId,
-      month_start: monthStart,
-      channel: 'sms',
-      messages_sent: (usageByUser.get(userId) || 0) + inc,
-      segments_sent: (usageByUser.get(userId) || 0) + inc
-    }));
-    const { error: usageError } = await supabase
-      .from('notification_usage_monthly')
-      .upsert(usageRows, { onConflict: 'user_id,month_start,channel' });
-    if (usageError) console.warn('usage upsert warning', usageError.message);
-    usageUpdates = usageRows.length;
-  }
-
-  return { queued: toInsert.length, updated: toUpdate.length, usageUpdates };
+  void supabase;
+  void settings;
+  void now;
+  void dayStart;
+  void monthStart;
+  void smsEligibleUserIds;
+  void quietByUser;
+  void timeZoneByUser;
+  return { queued: 0, updated: 0, usageUpdates: 0, reason: 'retired_native_mobile_push_only' };
 }
 
 async function dispatchPushNotifications(
@@ -574,293 +382,17 @@ async function dispatchPushNotifications(
     timeZoneByUser: Map<string, string>;
   }
 ): Promise<DispatchResult> {
-  const [pushSubsRes, pushDevicesRes] = await Promise.all([
-    webPushEligibleUserIds.length
-      ? supabase.from('push_subscriptions').select('user_id').in('user_id', webPushEligibleUserIds)
-      : Promise.resolve({ data: [], error: null }),
-    supabase
-      .from('notification_push_devices')
-      .select('user_id')
-      .eq('is_active', true)
-      .eq('push_provider', 'expo')
-      .in('platform', ['ios', 'android'])
-      .in('user_id', pushEligibleUserIds)
-  ]);
-  if (pushSubsRes.error) throw pushSubsRes.error;
-  if (pushDevicesRes.error) throw pushDevicesRes.error;
-
-  const webPushEligibleUserIdSet = new Set(webPushEligibleUserIds);
-  const mobileSubscribedUserIds = new Set<string>();
-  const subscribedUserIds = new Set<string>();
-  (pushSubsRes.data || []).forEach((row: any) => {
-    if (row?.user_id) subscribedUserIds.add(String(row.user_id));
-  });
-  (pushDevicesRes.data || []).forEach((row: any) => {
-    if (!row?.user_id) return;
-    const userId = String(row.user_id);
-    mobileSubscribedUserIds.add(userId);
-    subscribedUserIds.add(userId);
-  });
-
-  const eligibleUserIds = pushEligibleUserIds.filter(
-    (id) => mobileSubscribedUserIds.has(id) || (webPushEligibleUserIdSet.has(id) && subscribedUserIds.has(id))
-  );
-  if (!eligibleUserIds.length) {
-    return { queued: 0, updated: 0, usageUpdates: 0, reason: 'no_push_destinations' };
-  }
-
-  const updatesSince = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
-
-  const [launchPrefsRes, alertRulesRes, launchesRes, existingOutboxRes, usageRes] = await Promise.all([
-    supabase
-      .from('launch_notification_preferences')
-      .select('user_id, launch_id, channel, mode, timezone, t_minus_minutes, local_times, notify_status_change, notify_net_change')
-      .in('user_id', eligibleUserIds)
-      .eq('channel', 'push'),
-    supabase
-      .from('notification_alert_rules')
-      .select('user_id, kind, state, filter_preset_id, follow_rule_type, follow_rule_value, launch_filter_presets(filters)')
-      .in('user_id', eligibleUserIds),
-    supabase
-      .from('launches')
-      .select(
-        'id, name, net, net_precision, status_name, tier_auto, tier_override, ll2_pad_id, provider, pad_name, pad_location_name, pad_short_code, pad_state, pad_country_code'
-      )
-      .eq('hidden', false)
-      .gte('net', updatesSince)
-      .order('net', { ascending: true })
-      .limit(3000),
-    supabase
-      .from('notifications_outbox')
-      .select('id, user_id, launch_id, channel, event_type, scheduled_for, status, payload')
-      .gte('scheduled_for', updatesSince)
-      .in('user_id', eligibleUserIds)
-      .eq('channel', 'push'),
-    supabase
-      .from('notification_usage_monthly')
-      .select('user_id, month_start, messages_sent')
-      .eq('month_start', monthStart)
-      .eq('channel', 'push')
-  ]);
-
-  if (launchPrefsRes.error) throw launchPrefsRes.error;
-  if (alertRulesRes.error) throw alertRulesRes.error;
-  if (launchesRes.error) throw launchesRes.error;
-  if (existingOutboxRes.error) throw existingOutboxRes.error;
-  if (usageRes.error) throw usageRes.error;
-
-  const launchPrefs = (launchPrefsRes.data || []) as LaunchPrefRow[];
-  const alertRules = (alertRulesRes.data || []) as any[];
-  if (!launchPrefs.length && !alertRules.length) {
-    return { queued: 0, updated: 0, usageUpdates: 0, reason: 'no_alert_rules' };
-  }
-
-  const launches: LaunchRow[] = (launchesRes.data || []) as any;
-  const launchById = new Map<string, LaunchRow>();
-  launches.forEach((launch) => launchById.set(launch.id, launch));
-
-  const explicitLaunchIds = Array.from(new Set(launchPrefs.map((row) => row.launch_id)));
-  const allLaunchIds = Array.from(new Set([...launches.map((launch) => launch.id), ...explicitLaunchIds]));
-
-  const updatesRes = allLaunchIds.length
-    ? await supabase
-        .from('launch_updates')
-        .select('id, launch_id, changed_fields, old_values, new_values, detected_at')
-        .gte('detected_at', updatesSince)
-        .in('launch_id', allLaunchIds)
-        .order('detected_at', { ascending: false })
-        .limit(2000)
-    : { data: [], error: null };
-
-  if (updatesRes.error) throw updatesRes.error;
-
-  const prefsByLaunch = new Map<string, LaunchPrefRow[]>();
-  launchPrefs.forEach((row: LaunchPrefRow) => {
-    const list = prefsByLaunch.get(row.launch_id) || [];
-    list.push(row);
-    prefsByLaunch.set(row.launch_id, list);
-  });
-
-  for (const row of alertRules) {
-    const alertRule = normalizeAlertRuleRow(row);
-    if (!alertRule) continue;
-    const requiresPremiumAlertRule = alertRule.kind === 'filter_preset' || alertRule.kind === 'follow';
-    if (requiresPremiumAlertRule && !premiumUserIdSet.has(alertRule.user_id)) continue;
-    const pref = prefsByUser.get(alertRule.user_id);
-    if (!pref || pref.push_enabled !== true) continue;
-    const defaultPref = buildDefaultPushAlertPref(alertRule.user_id, pref, timeZoneByUser.get(alertRule.user_id));
-    if (!defaultPref) continue;
-
-    for (const launch of launches) {
-      if (!launchMatchesAlertRule(launch, alertRule)) continue;
-      const list = prefsByLaunch.get(launch.id) || [];
-      list.push({
-        ...defaultPref,
-        launch_id: launch.id
-      });
-      prefsByLaunch.set(launch.id, list);
-    }
-  }
-
-  const updates: LaunchUpdateRow[] = (updatesRes.data || []) as any;
-  const existingOutbox = existingOutboxRes.data || [];
-  const usageByUser = new Map<string, number>();
-  (usageRes.data || []).forEach((row: any) => usageByUser.set(row.user_id, row.messages_sent ?? 0));
-
-  const pushCounters = buildPushCounters(existingOutbox, usageByUser, dayStart);
-
-  const existingByKey = new Map<string, any>();
-  const existingUpdateKeys = new Set<string>();
-  const queuedKeys = new Set<string>();
-  (existingOutbox || []).forEach((row: any) => {
-    const key = outboxKey(String(row.user_id || ''), String(row.launch_id || ''), String(row.channel || ''), String(row.event_type || ''));
-    if (!key) return;
-    if (!existingByKey.has(key)) existingByKey.set(key, row);
-    queuedKeys.add(key);
-
-    const updateId = readUpdateId(row.payload);
-    if (!updateId) return;
-    const eventType = String(row.event_type || '');
-    if (!isChangeEventType(eventType)) return;
-    const changeKey = outboxUpdateKey(String(row.user_id || ''), String(row.launch_id || ''), String(row.channel || ''), eventType, updateId);
-    if (changeKey) existingUpdateKeys.add(changeKey);
-  });
-
-  const toInsert: any[] = [];
-  const toUpdate: Array<{ id: number; scheduled_for: string; payload: Record<string, unknown> }> = [];
-  const pushUsageIncrements = new Map<string, number>();
-
-  for (const launch of launches) {
-    const prefsForLaunch = prefsByLaunch.get(launch.id);
-    if (!prefsForLaunch || !prefsForLaunch.length) continue;
-
-    for (const pref of prefsForLaunch) {
-      const tz = normalizeTimeZone(pref.timezone);
-      const events = buildScheduledEventsForPref(launch, pref);
-
-      for (const evt of events) {
-        const scheduledFor = resolveScheduledFor(evt.at, now, settings.push_batch_window_minutes);
-        if (!scheduledFor) continue;
-
-        const quiet = quietByUser.get(pref.user_id);
-        const quietTimeZone = safeTimeZone(timeZoneByUser.get(pref.user_id));
-        const quietAdjustedFor = applyQuietHours(scheduledFor, quiet, quietTimeZone);
-
-        const key = outboxKey(pref.user_id, launch.id, 'push', evt.type);
-        if (key && queuedKeys.has(key)) continue;
-        const existing = key ? existingByKey.get(key) : null;
-
-        if (existing) {
-          if (existing.status === 'queued') {
-            const existingAt = new Date(existing.scheduled_for);
-            const diffMs = Number.isFinite(existingAt.getTime())
-              ? Math.abs(existingAt.getTime() - quietAdjustedFor.getTime())
-              : Number.POSITIVE_INFINITY;
-            if (diffMs > 30_000) {
-              const payload = makeOutboxPayload(launch, evt, tz, settings.push_max_chars);
-              toUpdate.push({ id: Number(existing.id), scheduled_for: quietAdjustedFor.toISOString(), payload });
-              existing.scheduled_for = quietAdjustedFor.toISOString();
-              existing.payload = payload;
-            }
-          }
-          continue;
-        }
-
-        if (pushCounters.canSend(pref.user_id, launch.id, quietAdjustedFor, evt.type, settings)) {
-          toInsert.push(makeOutboxRow(pref.user_id, launch.id, 'push', evt, quietAdjustedFor, launch, now, tz, settings.push_max_chars));
-          if (key) queuedKeys.add(key);
-          pushCounters.increment(pref.user_id, launch.id, quietAdjustedFor, evt.type);
-          pushUsageIncrements.set(pref.user_id, (pushUsageIncrements.get(pref.user_id) || 0) + 1);
-        }
-      }
-    }
-  }
-
-  for (const update of updates) {
-    const launch = launchById.get(update.launch_id);
-    if (!launch) continue;
-
-    const changed = Array.isArray(update.changed_fields) ? update.changed_fields.map((f) => String(f)) : [];
-    const statusChanged = changed.some((f) => STATUS_CHANGE_FIELDS.has(f));
-    const timingChanged = changed.some((f) => TIMING_CHANGE_FIELDS.has(f));
-    if (!statusChanged && !timingChanged) continue;
-
-    const prefsForLaunch = prefsByLaunch.get(update.launch_id);
-    if (!prefsForLaunch || !prefsForLaunch.length) continue;
-
-    for (const pref of prefsForLaunch) {
-      const wantsStatus = Boolean(pref.notify_status_change);
-      const wantsTiming = Boolean(pref.notify_net_change);
-      const sendStatus = statusChanged && wantsStatus;
-      const sendTiming = timingChanged && wantsTiming;
-      if (!sendStatus && !sendTiming) continue;
-
-      const eventType = sendStatus && sendTiming ? 'status_net_change' : sendStatus ? 'status_change' : 'net_change';
-      const changeKey = outboxUpdateKey(pref.user_id, launch.id, 'push', eventType, update.id);
-      if (changeKey && existingUpdateKeys.has(changeKey)) continue;
-
-      const quiet = quietByUser.get(pref.user_id);
-      const quietTimeZone = safeTimeZone(timeZoneByUser.get(pref.user_id));
-      const quietAdjustedFor = applyQuietHours(now, quiet, quietTimeZone);
-
-      if (!pushCounters.canSend(pref.user_id, launch.id, quietAdjustedFor, eventType, settings)) continue;
-
-      const tz = normalizeTimeZone(pref.timezone);
-      const payload = makeChangeOutboxPayload(launch, eventType, tz, update, settings.push_max_chars);
-
-      toInsert.push({
-        user_id: pref.user_id,
-        launch_id: launch.id,
-        channel: 'push',
-        event_type: eventType,
-        payload,
-        status: 'queued',
-        scheduled_for: quietAdjustedFor.toISOString(),
-        created_at: now.toISOString()
-      });
-      pushCounters.increment(pref.user_id, launch.id, quietAdjustedFor, eventType);
-      pushUsageIncrements.set(pref.user_id, (pushUsageIncrements.get(pref.user_id) || 0) + 1);
-      if (changeKey) existingUpdateKeys.add(changeKey);
-    }
-  }
-
-  if (!toInsert.length && !toUpdate.length) {
-    return { queued: 0, updated: 0, usageUpdates: 0, reason: 'no_notifications' };
-  }
-
-  if (toInsert.length) {
-    const { error: insertError } = await supabase.from('notifications_outbox').insert(toInsert);
-    if (insertError) throw insertError;
-  }
-
-  if (toUpdate.length) {
-    for (const row of toUpdate) {
-      if (!Number.isFinite(row.id)) continue;
-      const { error: updateError } = await supabase
-        .from('notifications_outbox')
-        .update({ scheduled_for: row.scheduled_for, payload: row.payload })
-        .eq('id', row.id);
-      if (updateError) console.warn('outbox reschedule warning', updateError.message);
-    }
-  }
-
-  let usageUpdates = 0;
-  if (pushUsageIncrements.size > 0) {
-    const usageRows = Array.from(pushUsageIncrements.entries()).map(([userId, inc]) => ({
-      user_id: userId,
-      month_start: monthStart,
-      channel: 'push',
-      messages_sent: (usageByUser.get(userId) || 0) + inc,
-      segments_sent: (usageByUser.get(userId) || 0) + inc
-    }));
-    const { error: usageError } = await supabase
-      .from('notification_usage_monthly')
-      .upsert(usageRows, { onConflict: 'user_id,month_start,channel' });
-    if (usageError) console.warn('usage upsert warning', usageError.message);
-    usageUpdates = usageRows.length;
-  }
-
-  return { queued: toInsert.length, updated: toUpdate.length, usageUpdates };
+  void supabase;
+  void settings;
+  void now;
+  void dayStart;
+  void monthStart;
+  void pushEligibleUserIds;
+  void webPushEligibleUserIds;
+  void prefsByUser;
+  void quietByUser;
+  void timeZoneByUser;
+  return { queued: 0, updated: 0, usageUpdates: 0, reason: 'retired_native_mobile_push_only' };
 }
 
 async function dispatchMobilePushV2(
@@ -875,8 +407,9 @@ async function dispatchMobilePushV2(
 ): Promise<DispatchResult> {
   const premiumUserIds = new Set(await loadPremiumUserIds(supabase));
   const { data: installationsRes, error: installationsError } = await supabase
-    .from('mobile_push_installations_v2')
-    .select('owner_kind, user_id, installation_id, platform, is_active')
+    .from('notification_push_destinations_v3')
+    .select('owner_kind, user_id, installation_id, platform, delivery_kind, is_active')
+    .eq('delivery_kind', 'mobile_push')
     .eq('is_active', true);
   if (installationsError) throw installationsError;
 
@@ -900,20 +433,24 @@ async function dispatchMobilePushV2(
   const [guestRulesRes, userRulesRes, launchesRes] = await Promise.all([
     guestInstallationIds.length
       ? supabase
-          .from('mobile_push_rules_v2')
+          .from('notification_rules_v3')
           .select(
-            'id, owner_kind, user_id, installation_id, scope_kind, state, launch_id, filter_preset_id, follow_rule_type, follow_rule_value, timezone, prelaunch_offsets_minutes, daily_digest_local_time, status_change_types, notify_net_change, launch_filter_presets(filters)'
+            'id, owner_kind, user_id, installation_id, intent, visible_in_following, enabled, scope_kind, scope_key, state, launch_id, provider, rocket_id, pad_key, launch_site, filter_preset_id, filters, tier, channels, timezone, prelaunch_offsets_minutes, daily_digest_local_time, status_change_types, notify_net_change, launch_filter_presets(filters)'
           )
           .eq('owner_kind', 'guest')
+          .eq('enabled', true)
+          .contains('channels', ['push'])
           .in('installation_id', guestInstallationIds)
       : Promise.resolve({ data: [], error: null }),
     userIds.length
       ? supabase
-          .from('mobile_push_rules_v2')
+          .from('notification_rules_v3')
           .select(
-            'id, owner_kind, user_id, installation_id, scope_kind, state, launch_id, filter_preset_id, follow_rule_type, follow_rule_value, timezone, prelaunch_offsets_minutes, daily_digest_local_time, status_change_types, notify_net_change, launch_filter_presets(filters)'
+            'id, owner_kind, user_id, installation_id, intent, visible_in_following, enabled, scope_kind, scope_key, state, launch_id, provider, rocket_id, pad_key, launch_site, filter_preset_id, filters, tier, channels, timezone, prelaunch_offsets_minutes, daily_digest_local_time, status_change_types, notify_net_change, launch_filter_presets(filters)'
           )
           .eq('owner_kind', 'user')
+          .eq('enabled', true)
+          .contains('channels', ['push'])
           .in('user_id', userIds)
       : Promise.resolve({ data: [], error: null }),
     supabase
@@ -930,12 +467,16 @@ async function dispatchMobilePushV2(
   if (userRulesRes.error) throw userRulesRes.error;
   if (launchesRes.error) throw launchesRes.error;
 
-  const rules = [...((guestRulesRes.data || []) as MobilePushRuleRowV2[]), ...((userRulesRes.data || []) as MobilePushRuleRowV2[])];
+  const launches: LaunchRow[] = (launchesRes.data || []) as any;
+  const rules = filterDeliverableMobilePushRules(
+    [...((guestRulesRes.data || []) as MobilePushRuleRowV2[]), ...((userRulesRes.data || []) as MobilePushRuleRowV2[])],
+    launches,
+    now
+  );
   if (!rules.length) {
     return { queued: 0, updated: 0, usageUpdates: 0, reason: 'no_mobile_push_rules' };
   }
 
-  const launches: LaunchRow[] = (launchesRes.data || []) as any;
   const launchById = new Map<string, LaunchRow>();
   launches.forEach((launch) => launchById.set(launch.id, launch));
   const explicitLaunchIds = Array.from(
@@ -1141,6 +682,68 @@ async function dispatchMobilePushV2(
   };
 }
 
+function filterDeliverableMobilePushRules(rules: MobilePushRuleRowV2[], launches: LaunchRow[], now: Date) {
+  const launchById = new Map<string, LaunchRow>();
+  launches.forEach((launch) => launchById.set(launch.id, launch));
+
+  const retainedGuestLaunchIds = new Map<string, string>();
+  const guestLaunchCandidates = new Map<string, Array<{ launchId: string; netMs: number }>>();
+
+  for (const rule of rules) {
+    if (rule.owner_kind !== 'guest' || rule.scope_kind !== 'launch') {
+      continue;
+    }
+    const ownerKey = String(rule.installation_id || '').trim().toLowerCase();
+    const launchId = String(rule.launch_id || '').trim();
+    const launch = launchById.get(launchId);
+    const netMs = launch ? Date.parse(launch.net) : Number.NaN;
+    if (!ownerKey || !launch || !Number.isFinite(netMs) || netMs <= now.getTime()) {
+      continue;
+    }
+    const next = guestLaunchCandidates.get(ownerKey) || [];
+    next.push({ launchId, netMs });
+    guestLaunchCandidates.set(ownerKey, next);
+  }
+
+  guestLaunchCandidates.forEach((candidates, ownerKey) => {
+    candidates.sort((left, right) => left.netMs - right.netMs);
+    if (candidates[0]) {
+      retainedGuestLaunchIds.set(ownerKey, candidates[0].launchId);
+    }
+  });
+
+  return rules.filter((rule) => {
+    if (rule.owner_kind !== 'guest') {
+      return true;
+    }
+    if (rule.scope_kind === 'state') {
+      return false;
+    }
+    if (rule.scope_kind !== 'launch') {
+      return true;
+    }
+
+    const ownerKey = String(rule.installation_id || '').trim().toLowerCase();
+    const launchId = String(rule.launch_id || '').trim();
+    if (!ownerKey || !launchId) {
+      return false;
+    }
+
+    const launch = launchById.get(launchId);
+    if (!launch) {
+      return false;
+    }
+
+    const netMs = Date.parse(launch.net);
+    if (!Number.isFinite(netMs) || netMs <= now.getTime()) {
+      return false;
+    }
+
+    const retainedLaunchId = retainedGuestLaunchIds.get(ownerKey);
+    return retainedLaunchId === launchId;
+  });
+}
+
 function normalizeOffsetsForRule(values: number[] | null | undefined) {
   if (!Array.isArray(values)) return [];
   return Array.from(new Set(values.map((value) => Math.trunc(Number(value))).filter((value) => Number.isInteger(value) && value >= 0))).sort(
@@ -1171,7 +774,28 @@ function launchMatchesMobilePushRule(launch: LaunchRow, rule: MobilePushRuleRowV
   if (rule.scope_kind === 'preset') {
     return launchMatchesFilterPreset(launch, firstPresetFilters(rule.launch_filter_presets));
   }
-  return launchMatchesFollowRule(launch, rule.follow_rule_type, rule.follow_rule_value);
+  if (rule.scope_kind === 'provider') {
+    return normalizeComparableText(launch.provider) === normalizeComparableText(rule.provider);
+  }
+  if (rule.scope_kind === 'pad') {
+    const padKey = String(rule.pad_key || '').trim();
+    if (!padKey) return false;
+    if (padKey.startsWith('ll2:')) {
+      return String(launch.ll2_pad_id || '') === padKey.slice(4);
+    }
+    return normalizeComparableText(launch.pad_short_code) === normalizeComparableText(padKey.replace(/^code:/, ''));
+  }
+  if (rule.scope_kind === 'rocket') {
+    return false;
+  }
+  if (rule.scope_kind === 'launch_site') {
+    return normalizeComparableText(launch.pad_location_name) === normalizeComparableText(rule.launch_site);
+  }
+  if (rule.scope_kind === 'tier') {
+    const tier = String(launch.tier_override || launch.tier_auto || '').trim().toLowerCase();
+    return tier.length > 0 && tier === String(rule.tier || '').trim().toLowerCase();
+  }
+  return false;
 }
 
 function ruleWantsStatusChange(rule: MobilePushRuleRowV2, nextStatus: string) {
@@ -1269,186 +893,11 @@ async function dispatchLaunchDayEmailDigests(
     prefs: PrefsRow[];
   }
 ): Promise<DispatchResult> {
-  const userIds = prefs.map((row) => row.user_id);
-  if (!userIds.length) return { queued: 0, updated: 0, usageUpdates: 0, reason: 'no_email_opted_users' };
-
-  const [profilesRes, usageRes] = await Promise.all([
-    supabase.from('profiles').select('user_id, email, timezone').in('user_id', userIds),
-    supabase
-      .from('notification_usage_monthly')
-      .select('user_id, month_start, messages_sent')
-      .eq('month_start', monthStart)
-      .eq('channel', 'email')
-      .in('user_id', userIds)
-  ]);
-
-  if (profilesRes.error) throw profilesRes.error;
-  if (usageRes.error) throw usageRes.error;
-
-  const profileByUser = new Map<string, any>();
-  (profilesRes.data || []).forEach((row: any) => profileByUser.set(row.user_id, row));
-
-  type LaunchDayEmailUser = {
-    userId: string;
-    email: string;
-    timeZone: string;
-    providers: string[];
-    states: string[];
-  };
-
-  const users: LaunchDayEmailUser[] = [];
-
-  for (const row of prefs) {
-    const profile = profileByUser.get(row.user_id);
-    const email = String(profile?.email || '').trim();
-    if (!email) continue;
-    const timeZone = safeTimeZone(profile?.timezone);
-    users.push({
-      userId: row.user_id,
-      email,
-      timeZone,
-      providers: normalizeStringList(row.launch_day_email_providers),
-      states: normalizeStringList(row.launch_day_email_states)
-    });
-  }
-
-  if (!users.length) {
-    return { queued: 0, updated: 0, usageUpdates: 0, reason: 'no_email_recipients' };
-  }
-
-  const existingWindowStart = new Date(now.getTime() - 6 * 60 * 60 * 1000).toISOString();
-  const existingWindowEnd = new Date(now.getTime() + 72 * 60 * 60 * 1000).toISOString();
-  const { data: existingOutbox, error: existingError } = await supabase
-    .from('notifications_outbox')
-    .select('id, user_id, event_type, status, scheduled_for')
-    .eq('channel', 'email')
-    .in('user_id', users.map((u) => u.userId))
-    .gte('scheduled_for', existingWindowStart)
-    .lt('scheduled_for', existingWindowEnd);
-  if (existingError) throw existingError;
-
-  const existingByKey = new Map<string, any>();
-  (existingOutbox || []).forEach((row: any) => {
-    const eventType = String(row.event_type || '');
-    if (!eventType.startsWith('launch_day_digest_')) return;
-    existingByKey.set(`${row.user_id}:${eventType}`, row);
-  });
-
-  const usageByUser = new Map<string, number>();
-  (usageRes.data || []).forEach((row: any) => usageByUser.set(row.user_id, row.messages_sent ?? 0));
-
-  const usersByTz = new Map<string, LaunchDayEmailUser[]>();
-  users.forEach((u) => {
-    const list = usersByTz.get(u.timeZone) || [];
-    list.push(u);
-    usersByTz.set(u.timeZone, list);
-  });
-
-  const siteUrl = getSiteUrl();
-  const queuedRows: any[] = [];
-  const updateRows: Array<{ id: number; payload: Record<string, unknown> }> = [];
-  const deleteIds: number[] = [];
-  const emailUsageIncrements = new Map<string, number>();
-
-  for (const [timeZone, tzUsers] of usersByTz.entries()) {
-    const window = resolveNextLocalEightAmWindow(now, timeZone);
-    const { data: launches, error: launchesError } = await supabase
-      .from('launches')
-      .select('id, name, net, provider, pad_name, pad_short_code, pad_state, status_name')
-      .eq('hidden', false)
-      .gte('net', window.dayStart.toISOString())
-      .lt('net', window.dayEnd.toISOString())
-      .order('net', { ascending: true })
-      .limit(500);
-    if (launchesError) throw launchesError;
-
-    const list: LaunchRow[] = (launches || []) as any;
-
-    for (const user of tzUsers) {
-      const matches = list.filter((launch) => matchesEmailFilters(launch, user.providers, user.states));
-      const eventType = `launch_day_digest_${window.dateKey}`;
-      const key = `${user.userId}:${eventType}`;
-      const existing = existingByKey.get(key) || null;
-
-      if (!matches.length) {
-        if (existing && existing.status === 'queued') {
-          deleteIds.push(Number(existing.id));
-        }
-        continue;
-      }
-
-      const payload = buildLaunchDayDigestPayload({
-        launches: matches,
-        timeZone,
-        dateKey: window.dateKey,
-        providers: user.providers,
-        states: user.states,
-        siteUrl
-      });
-
-      if (existing) {
-        if (existing.status === 'queued') {
-          updateRows.push({ id: Number(existing.id), payload });
-        }
-        continue;
-      }
-
-      queuedRows.push({
-        user_id: user.userId,
-        launch_id: null,
-        channel: 'email',
-        event_type: eventType,
-        payload,
-        status: 'queued',
-        scheduled_for: window.scheduledFor.toISOString(),
-        created_at: now.toISOString()
-      });
-      emailUsageIncrements.set(user.userId, (emailUsageIncrements.get(user.userId) || 0) + 1);
-    }
-  }
-
-  if (!queuedRows.length && !updateRows.length && !deleteIds.length) {
-    return { queued: 0, updated: 0, usageUpdates: 0, reason: 'no_notifications' };
-  }
-
-  if (queuedRows.length) {
-    const { error: insertError } = await supabase.from('notifications_outbox').insert(queuedRows);
-    if (insertError) throw insertError;
-  }
-
-  if (updateRows.length) {
-    for (const row of updateRows) {
-      if (!Number.isFinite(row.id)) continue;
-      const { error: updateError } = await supabase.from('notifications_outbox').update({ payload: row.payload }).eq('id', row.id);
-      if (updateError) console.warn('email digest payload update warning', updateError.message);
-    }
-  }
-
-  if (deleteIds.length) {
-    const ids = deleteIds.filter((id) => Number.isFinite(id));
-    if (ids.length) {
-      const { error: deleteError } = await supabase.from('notifications_outbox').delete().in('id', ids as any);
-      if (deleteError) console.warn('email digest delete warning', deleteError.message);
-    }
-  }
-
-  let usageUpdates = 0;
-  if (emailUsageIncrements.size > 0) {
-    const usageRows = Array.from(emailUsageIncrements.entries()).map(([userId, inc]) => ({
-      user_id: userId,
-      month_start: monthStart,
-      channel: 'email',
-      messages_sent: (usageByUser.get(userId) || 0) + inc,
-      segments_sent: (usageByUser.get(userId) || 0) + inc
-    }));
-    const { error: usageError } = await supabase
-      .from('notification_usage_monthly')
-      .upsert(usageRows, { onConflict: 'user_id,month_start,channel' });
-    if (usageError) console.warn('email usage upsert warning', usageError.message);
-    usageUpdates = usageRows.length;
-  }
-
-  return { queued: queuedRows.length, updated: updateRows.length, usageUpdates };
+  void supabase;
+  void now;
+  void monthStart;
+  void prefs;
+  return { queued: 0, updated: 0, usageUpdates: 0, reason: 'retired_native_mobile_push_only' };
 }
 
 const STATUS_CHANGE_FIELDS = new Set(['status_id', 'status_name', 'status_abbrev']);

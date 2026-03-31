@@ -12,12 +12,12 @@ const PREMIUM_FEATURES = [
   'Live updates every 15 seconds',
   'Full change log (see what changed)',
   'Saved/default filters + follows (“My Launches”)',
-  'Advanced alerts + browser notifications',
+  'Advanced alerts + native push notifications',
   'Recurring calendar feeds (.ics) from presets, follows, or all future launches',
   'RSS + Atom feeds for any filtered feed',
   'Embeddable “Next launch” widget (token link)',
   'Enhanced forecast insights (select launches)',
-  'Launch-day email + AR trajectory overlay'
+  'AR trajectory overlay'
 ];
 
 export function PremiumUpsellModal({

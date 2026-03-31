@@ -6,6 +6,9 @@
   - `celestrak_intdes_recent_min_interval_seconds` (default `21600` / 6h)
   - `celestrak_intdes_legacy_min_interval_seconds` (default `2592000` / 30d)
   Recent launches are polled faster; legacy designators back off to reduce write churn.
+- CelesTrak SupGP discovery cadence: managed scheduler runs `celestrak-supgp-sync` every 15 minutes to parse the live SupGP page and keep `celestrak_datasets` aligned with both family feeds and launch-specific `FILE=` datasets (including backup windows).
+- CelesTrak SupGP ingest cadence: managed scheduler runs `celestrak-supgp-ingest` every 15 minutes. Launch-file datasets inherit tighter per-dataset `min_interval_seconds` values than family feeds, so near-launch SupGP rows can be claimed far more frequently than the scheduler’s base cadence.
+- SupGP ownership split: `celestrak-ingest` no longer fetches SupGP rows inline. Dedicated SupGP discovery/ingest is now handled by `celestrak-supgp-sync` plus `celestrak-supgp-ingest`.
 - LL2 catalog cadence: Supabase `pg_cron` calls Edge Function `ll2-catalog` every 20 minutes to backfill global LL2 catalog endpoints (agencies, astronauts, space stations, expeditions, docking events, launcher configurations, launchers, spacecraft configurations, locations, pads, events) into base tables + public cache.
 - LL2 catalog joins: `ll2-catalog` can optionally refresh astronaut + launcher flight join tables (settings `ll2_catalog_astronaut_flights_*`, `ll2_catalog_launcher_flights_*`) for richer launch cross-links.
 - Rocket reuse KPIs (Max flights / Avg flights per core) depend on `ll2_launcher_launches`; zeros typically mean the launcher flight joins are empty.
@@ -14,7 +17,7 @@
 - LL2 payload/spacecraft manifest backfill: Edge Function `ll2-payload-backfill` drains historical launches to populate payload manifest tables (migration `0133`) and spacecraft manifest tables (migration `0135`). To backfill only spacecraft tables, set `system_settings.ll2_payload_backfill_spacecraft_only=true`. When the backfill is complete, disable + unschedule it to avoid minute-level no-op scheduler churn.
 - CDC cadence: LL2 incremental uses a cursor watermark; SNAPI uses high-water marks with an overlap window.
 - Monitoring cadence: Supabase `pg_cron` calls `monitoring-check` every 5 minutes to populate `ops_alerts` for the admin UI.
-- Notifications cadence: Supabase `pg_cron` calls `notifications-dispatch` every 2 minutes and `notifications-send` every minute to queue and deliver notifications (SMS, push, email) when enabled.
+- Notifications cadence: Supabase `pg_cron` calls `notifications-dispatch` every 2 minutes and `notifications-send` every minute to queue native mobile push notifications. Legacy SMS, browser/web push, and notification-email rows are retired in place when encountered.
 - SpaceX launch-content ingest: Supabase `pg_cron` calls `spacex-infographics-ingest` daily to cache normalized `content.spacex.com` mission bundles into `launch_external_resources` for launch detail pages, while writing lightweight `mission_infographic` and `landing_hint` constraint rows only when those trajectory/display hints are present.
 - NAVCEN BNM hazard ingest: managed scheduler runs `navcen-bnm-ingest` hourly to ingest District 7 (SE US) GovDelivery RSS items, resolve NAVCEN BNM message GUIDs, and store parsed hazard areas for trajectory constraints.
 - FAA trajectory hazard ingest: managed scheduler runs `faa-trajectory-hazard-ingest` hourly to project matched FAA TFR shapes into `launch_trajectory_constraints` (`constraint_type='hazard_area'`) for additional hazard coverage.

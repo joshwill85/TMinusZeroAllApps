@@ -26,8 +26,8 @@ export async function generateMetadata({
   const siteUrl = getSiteUrl().replace(/\/$/, '');
   const canonical = '/artemis/contracts';
   const pageUrl = `${siteUrl}${canonical}`;
-  const title = `Artemis Contracts & Procurement Story | ${BRAND_NAME}`;
-  const description = 'Artemis contract records from normalized SAM data with contract-family views, action history, and bid opportunity context.';
+  const title = `Artemis Contracts & Awards | ${BRAND_NAME}`;
+  const description = 'Artemis contract pages with action history, notices, and linked source records.';
 
   return {
     title,
@@ -87,15 +87,15 @@ export default async function ArtemisContractsPage({
       <ProgramHubBackLink program="artemis" />
 
       <header className="space-y-4">
-        <p className="text-xs uppercase tracking-[0.14em] text-text3">Contracts Intelligence</p>
+        <p className="text-xs uppercase tracking-[0.14em] text-text3">Contracts</p>
         <h1 className="text-3xl font-semibold text-text1">Artemis Contracts</h1>
         <p className="max-w-3xl text-sm text-text2">
-          Contract-family records and procurement story snapshots stitched from SAM-normalized Artemis data.
+          Internal contract pages built from Artemis award and notice records.
         </p>
         <div className="flex flex-wrap items-center gap-2 text-xs text-text3">
           <span className="rounded-full border border-stroke px-3 py-1">Contracts: {totalRows}</span>
-          <span className="rounded-full border border-stroke px-3 py-1">Tracked families: {byPiid.length}</span>
-          <span className="rounded-full border border-stroke px-3 py-1">Showing families: {visibleContracts.length}</span>
+          <span className="rounded-full border border-stroke px-3 py-1">Contract pages: {byPiid.length}</span>
+          <span className="rounded-full border border-stroke px-3 py-1">Showing: {visibleContracts.length}</span>
         </div>
       </header>
 
@@ -126,7 +126,7 @@ export default async function ArtemisContractsPage({
                       <span>Base award: {formatDateLabel(contract.baseAwardDate)}</span>
                       {contract.contractType ? <span>Type: {contract.contractType}</span> : null}
                       <Link href={buildArtemisContractHref(contract.piid)} className="text-primary hover:text-primary/80">
-                        Review full story
+                        Open contract page
                       </Link>
                     </div>
                   </li>
@@ -172,7 +172,7 @@ export default async function ArtemisContractsPage({
           Blue Origin Contracts
         </Link>
         <Link href="/contracts" className="rounded-full border border-stroke px-3 py-1 uppercase tracking-[0.14em] hover:text-text1">
-          Canonical Contracts
+          All Contracts
         </Link>
       </div>
     </div>

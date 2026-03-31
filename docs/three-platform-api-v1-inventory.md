@@ -32,9 +32,9 @@ Current migration hotspots by raw browser `/api/*` usage:
 | Profile | `/api/me/profile` | `GET /api/v1/me/profile`, `PATCH /api/v1/me/profile` | Cookie or bearer | Normalize current `POST` update path |
 | Watchlists | `/api/me/watchlists`, `/api/me/watchlists/[id]`, `/rules`, `/launches` | `/api/v1/me/watchlists/*` | Cookie or bearer | Preserve capability/limit checks |
 | Filter presets | `/api/me/filter-presets`, `/api/me/filter-presets/[id]` | `/api/v1/me/filter-presets/*` | Cookie or bearer | Shared contract with saved-items UI |
-| Notification preferences | `/api/me/notifications/preferences` | `GET/PATCH /api/v1/me/notification-preferences` | Cookie or bearer | Includes quiet hours + SMS state |
-| Launch-specific notifications | `/api/me/notifications/launches/[id]` | `GET/PATCH /api/v1/me/launch-notifications/:launchId` | Cookie or bearer | Shared with launch detail follow/save flows |
-| Push device registration | `/api/me/notifications/push/subscribe`, `/unsubscribe`, `/test` | `POST /api/v1/me/devices/push` and `DELETE /api/v1/me/devices/push/:deviceId` | Cookie or bearer | Replace web-only subscription shape with provider-neutral device records |
+| Notification preferences | `/api/me/notifications/preferences` | `GET/PATCH /api/v1/me/notification-preferences` | Cookie or bearer | Legacy read shape remains for compatibility; write attempts retire to native-mobile-push-only |
+| Launch-specific notifications | `/api/me/notifications/launches/[id]` | `GET/PATCH /api/v1/me/launch-notifications/:launchId` | Cookie or bearer | Legacy read shape remains disabled; launch alert management now lives in native mobile push flows |
+| Push device registration | `/api/me/notifications/push/subscribe`, `/unsubscribe`, `/test` | `POST /api/v1/me/devices/push` and `DELETE /api/v1/me/devices/push/:deviceId` | Cookie or bearer | Web/browser push routes are retired; native mobile device registration remains the supported path |
 
 ## Later-Phase Non-Admin User Features
 

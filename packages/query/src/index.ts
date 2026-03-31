@@ -281,6 +281,7 @@ function normalizeCatalogCollectionQueryOptions(options: CatalogCollectionQueryK
 export const sharedQueryKeys = {
   viewerSession: ['viewer-session'] as const,
   entitlements: ['viewer-entitlements'] as const,
+  basicFollows: ['basic-follows'] as const,
   launchFeed: ['launch-feed'] as const,
   launchFeedVariant: (options: LaunchFeedQueryKeyOptions = {}) => {
     const normalized = normalizeLaunchFeedQueryOptions(options);
@@ -456,6 +457,7 @@ export const sharedQueryKeys = {
   billingSummary: ['billing-summary'] as const,
   billingSummaryVariant: (viewerId: string | null | undefined) => ['billing-summary', normalizeToken(viewerId)] as const,
   billingCatalog: (options: BillingCatalogQueryKeyOptions) => ['billing-catalog', options.platform] as const,
+  adminAccessOverride: ['admin-access-override'] as const,
   marketingEmail: ['marketing-email'] as const,
   watchlists: ['watchlists'] as const,
   filterPresets: ['filter-presets'] as const,
@@ -464,8 +466,6 @@ export const sharedQueryKeys = {
   rssFeeds: ['rss-feeds'] as const,
   embedWidgets: ['embed-widgets'] as const,
   notificationPreferences: ['notification-preferences'] as const,
-  launchNotificationPreference: (launchId: string, channel: 'sms' | 'push' = 'push') =>
-    ['launch-notification-preference', launchId, channel] as const,
   pushDevice: (installationId: string) => ['push-device', installationId] as const,
   mobilePushRules: (installationId: string) => ['mobile-push-rules', installationId] as const,
   mobilePushLaunchPreference: (launchId: string, installationId: string) =>
@@ -475,6 +475,8 @@ export const sharedQueryKeys = {
 export const sharedQueryStaleTimes = {
   viewerSession: 60_000,
   entitlements: 60_000,
+  adminAccessOverride: 15_000,
+  basicFollows: 30_000,
   launchFeed: 30_000,
   launchFilterOptions: 300_000,
   launchFeedVersion: 0,
@@ -532,7 +534,6 @@ export const sharedQueryStaleTimes = {
   rssFeeds: 60_000,
   embedWidgets: 60_000,
   notificationPreferences: 30_000,
-  launchNotificationPreference: 30_000,
   pushDevice: 60_000,
   mobilePushRules: 30_000,
   mobilePushLaunchPreference: 30_000
@@ -557,6 +558,22 @@ export function viewerEntitlementsQueryOptions<T>(queryFn: QueryLoader<T>) {
     queryKey: sharedQueryKeys.entitlements,
     queryFn,
     staleTime: sharedQueryStaleTimes.entitlements
+  });
+}
+
+export function adminAccessOverrideQueryOptions<T>(queryFn: QueryLoader<T>) {
+  return queryOptions({
+    queryKey: sharedQueryKeys.adminAccessOverride,
+    queryFn,
+    staleTime: sharedQueryStaleTimes.adminAccessOverride
+  });
+}
+
+export function basicFollowsQueryOptions<T>(queryFn: QueryLoader<T>) {
+  return queryOptions({
+    queryKey: sharedQueryKeys.basicFollows,
+    queryFn,
+    staleTime: sharedQueryStaleTimes.basicFollows
   });
 }
 
@@ -1025,18 +1042,6 @@ export function notificationPreferencesQueryOptions<T>(queryFn: QueryLoader<T>) 
     queryKey: sharedQueryKeys.notificationPreferences,
     queryFn,
     staleTime: sharedQueryStaleTimes.notificationPreferences
-  });
-}
-
-export function launchNotificationPreferenceQueryOptions<T>(
-  launchId: string,
-  channel: 'sms' | 'push',
-  queryFn: QueryLoader<T>
-) {
-  return queryOptions({
-    queryKey: sharedQueryKeys.launchNotificationPreference(launchId, channel),
-    queryFn,
-    staleTime: sharedQueryStaleTimes.launchNotificationPreference
   });
 }
 

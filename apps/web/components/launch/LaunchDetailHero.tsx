@@ -51,8 +51,10 @@ export function LaunchDetailHero({
             priority
           />
           {/* Gradient Overlays */}
-          <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/60 to-surface-0" />
-          <div className="absolute inset-0 bg-gradient-to-r from-black/40 to-transparent" />
+          <div className="absolute inset-0 bg-[rgba(4,7,16,0.08)]" />
+          <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-black/30 to-[rgba(7,9,19,0.78)]" />
+          <div className="absolute inset-y-0 left-0 w-[62%] bg-gradient-to-r from-[rgba(7,9,19,0.54)] via-[rgba(7,9,19,0.18)] to-transparent" />
+          <div className="absolute right-0 top-0 h-80 w-80 rounded-full bg-cyan-300/10 blur-3xl" />
         </div>
       )}
 
@@ -60,53 +62,55 @@ export function LaunchDetailHero({
       <div className="relative mx-auto max-w-5xl px-4 py-16 md:px-8 md:py-20">
         <div className="grid gap-8 md:grid-cols-3">
           {/* Left Column: Main Info (2/3 width) */}
-          <div className="md:col-span-2 space-y-6">
-            {/* Badges */}
-            <div className="flex flex-wrap gap-2">
-              {status && (
-                <StatusBadge
-                  label={status}
-                  tone={statusTone}
-                />
+          <div className="space-y-6 md:col-span-2">
+            <div className="rounded-[2rem] border border-white/10 bg-[rgba(7,9,19,0.56)] p-5 shadow-[0_18px_60px_rgba(0,0,0,0.28)] backdrop-blur-xl md:max-w-[42rem] md:p-7">
+              {/* Badges */}
+              <div className="flex flex-wrap gap-2">
+                {status && (
+                  <StatusBadge
+                    label={status}
+                    tone={statusTone}
+                  />
+                )}
+                {tier && (
+                  <Badge label={tier} variant="secondary" />
+                )}
+                {webcastLive && (
+                  <LiveBadge />
+                )}
+              </div>
+
+              {/* Provider */}
+              {provider && (
+                <p className="mt-5 text-sm font-semibold uppercase tracking-wider text-text2">
+                  {provider}
+                </p>
               )}
-              {tier && (
-                <Badge label={tier} variant="secondary" />
+
+              {/* Launch Name */}
+              <h1 className="mt-3 text-4xl font-extrabold leading-tight text-text1 md:text-5xl lg:text-6xl">
+                {launchName}
+              </h1>
+
+              {/* Vehicle */}
+              {vehicle && (
+                <p className="mt-3 text-xl font-semibold text-primary md:text-2xl">
+                  {vehicle}
+                </p>
               )}
-              {webcastLive && (
-                <LiveBadge />
-              )}
-            </div>
 
-            {/* Provider */}
-            {provider && (
-              <p className="text-sm font-semibold uppercase tracking-wider text-text2">
-                {provider}
-              </p>
-            )}
-
-            {/* Launch Name */}
-            <h1 className="text-4xl font-extrabold leading-tight text-text1 md:text-5xl lg:text-6xl">
-              {launchName}
-            </h1>
-
-            {/* Vehicle */}
-            {vehicle && (
-              <p className="text-xl font-semibold text-primary md:text-2xl">
-                {vehicle}
-              </p>
-            )}
-
-            {/* Action Buttons */}
-            <div className="flex flex-wrap gap-3 pt-4">
-              {actionButtons}
+              {/* Action Buttons */}
+              <div className="mt-6 flex flex-wrap gap-3">
+                {actionButtons}
+              </div>
             </div>
           </div>
 
           {/* Right Column: Countdown & Details (1/3 width) */}
-          <div className="md:col-span-1 space-y-6">
+          <div className="space-y-6 md:col-span-1">
             {/* Countdown */}
             {countdown && (
-              <div className="rounded-2xl border border-stroke bg-surface-1/80 backdrop-blur-sm p-6">
+              <div className="rounded-[1.75rem] border border-white/10 bg-[rgba(7,9,19,0.54)] p-6 shadow-[0_18px_60px_rgba(0,0,0,0.22)] backdrop-blur-xl">
                 <p className="text-sm font-medium text-text2 mb-2">
                   Countdown
                 </p>
@@ -117,7 +121,7 @@ export function LaunchDetailHero({
             )}
 
             {/* NET Time & Location */}
-            <div className="space-y-3">
+            <div className="space-y-3 rounded-[1.75rem] border border-white/10 bg-[rgba(7,9,19,0.48)] p-5 shadow-[0_18px_60px_rgba(0,0,0,0.18)] backdrop-blur-xl">
               {netTime && (
                 <div className="flex items-center gap-3">
                   <span className="text-xl">🕐</span>

@@ -10,26 +10,45 @@ type RequestOptions = {
   body?: unknown;
 };
 
-const launchDayEmailFilterOptionsSchema = z.object({
-  providers: z.array(z.string()).default([]),
-  states: z.array(z.string()).default([])
-});
+const legacyProfileSchema = {
+  parse(value: unknown) {
+    const payload = value as {
+      profile?: {
+        user_id: string;
+        email?: string | null;
+        role?: string | null;
+        first_name?: string | null;
+        last_name?: string | null;
+        timezone?: string | null;
+        created_at?: string | null;
+        email_confirmed_at?: string | null;
+      } | null;
+    };
+    return {
+      profile: payload?.profile ?? null
+    };
+  }
+} as const;
 
-const webPushSubscribeResponseSchema = z.object({
-  subscription: z
-    .object({
-      id: z.string().optional(),
-      endpoint: z.string().optional(),
-      created_at: z.string().optional()
-    })
-    .optional()
-});
+const legacyPrivacyPreferencesSchema = {
+  parse(value: unknown) {
+    const payload = value as {
+      preferences?: {
+        opt_out_sale_share?: boolean;
+        limit_sensitive?: boolean;
+        block_third_party_embeds?: boolean;
+        gpc_enabled?: boolean;
+        created_at?: string | null;
+        updated_at?: string | null;
+      } | null;
+    };
+    return {
+      preferences: payload?.preferences ?? null
+    };
+  }
+} as const;
 
-const successResponseSchema = z.object({
-  ok: z.boolean().optional()
-});
-
-const legacyProfileSchema = z.object({
+const legacyProfilePayloadSchema = {
   profile: z
     .object({
       user_id: z.string(),
@@ -42,9 +61,9 @@ const legacyProfileSchema = z.object({
       email_confirmed_at: z.string().nullable().optional()
     })
     .nullable()
-});
+} as const;
 
-const legacyPrivacyPreferencesSchema = z.object({
+const legacyPrivacyPreferencesPayloadSchema = {
   preferences: z
     .object({
       opt_out_sale_share: z.boolean().optional(),
@@ -55,24 +74,7 @@ const legacyPrivacyPreferencesSchema = z.object({
       updated_at: z.string().nullable().optional()
     })
     .nullable()
-});
-
-const webPushDeviceStatusSchema = z.object({
-  supported: z.boolean(),
-  permission: z.enum(['default', 'granted', 'denied', 'unsupported']),
-  subscribed: z.boolean()
-});
-
-type WebPushSubscribePayload = {
-  endpoint: string;
-  p256dh: string;
-  auth: string;
-  user_agent?: string;
-};
-
-type WebPushUnsubscribePayload = {
-  endpoint: string;
-};
+} as const;
 
 export const WEB_USE_LEGACY_ACCOUNT_PRIVACY_ADAPTERS = process.env.NEXT_PUBLIC_ACCOUNT_PRIVACY_LEGACY_ADAPTERS === '1';
 
@@ -112,7 +114,7 @@ async function requestJson<T>(
   return schema.parse(json);
 }
 
-function mapLegacyProfilePayload(value: z.infer<typeof legacyProfileSchema>['profile']) {
+function mapLegacyProfilePayload(value: z.infer<(typeof legacyProfilePayloadSchema)['profile']>) {
   if (!value) {
     throw new WebAccountAdapterError('/api/me/profile', 401, 'unauthorized');
   }
@@ -129,7 +131,9 @@ function mapLegacyProfilePayload(value: z.infer<typeof legacyProfileSchema>['pro
   });
 }
 
-function mapLegacyPrivacyPreferencesPayload(value: z.infer<typeof legacyPrivacyPreferencesSchema>['preferences']) {
+function mapLegacyPrivacyPreferencesPayload(
+  value: z.infer<(typeof legacyPrivacyPreferencesPayloadSchema)['preferences']>
+) {
   return privacyPreferencesSchemaV1.parse({
     optOutSaleShare: value?.opt_out_sale_share === true,
     limitSensitive: value?.limit_sensitive === true,
@@ -138,10 +142,6 @@ function mapLegacyPrivacyPreferencesPayload(value: z.infer<typeof legacyPrivacyP
     createdAt: value?.created_at ?? null,
     updatedAt: value?.updated_at ?? null
   });
-}
-
-export async function getLaunchDayEmailFilterOptions() {
-  return requestJson('/api/filters?mode=live&region=all', launchDayEmailFilterOptionsSchema);
 }
 
 export async function getLegacyProfile() {
@@ -204,60 +204,3 @@ export async function getLegacyAccountExport() {
 export async function getSharedAccountExport() {
   return WEB_USE_LEGACY_ACCOUNT_PRIVACY_ADAPTERS ? getLegacyAccountExport() : browserApiClient.getAccountExport();
 }
-
-export async function subscribeWebPushDevice(payload: WebPushSubscribePayload) {
-  return requestJson('/api/me/notifications/push/subscribe', webPushSubscribeResponseSchema, {
-    method: 'POST',
-    body: payload
-  });
-}
-
-export async function unsubscribeWebPushDevice(payload: WebPushUnsubscribePayload) {
-  return requestJson('/api/me/notifications/push/unsubscribe', successResponseSchema, {
-    method: 'POST',
-    body: payload
-  });
-}
-
-export async function sendWebPushTest() {
-  return requestJson('/api/me/notifications/push/test', successResponseSchema, {
-    method: 'POST'
-  });
-}
-
-export async function getWebPushDeviceStatus() {
-  if (typeof window === 'undefined' || typeof navigator === 'undefined') {
-    return webPushDeviceStatusSchema.parse({
-      supported: false,
-      permission: 'unsupported',
-      subscribed: false
-    });
-  }
-
-  const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
-  if (!supported) {
-    return webPushDeviceStatusSchema.parse({
-      supported: false,
-      permission: 'unsupported',
-      subscribed: false
-    });
-  }
-
-  let subscribed = false;
-  try {
-    const registration = await navigator.serviceWorker.getRegistration();
-    const subscription = registration ? await registration.pushManager.getSubscription() : null;
-    subscribed = Boolean(subscription);
-  } catch {
-    subscribed = false;
-  }
-
-  return webPushDeviceStatusSchema.parse({
-    supported: true,
-    permission: Notification.permission,
-    subscribed
-  });
-}
-
-export type LaunchDayEmailFilterOptions = z.infer<typeof launchDayEmailFilterOptionsSchema>;
-export type WebPushDeviceStatus = z.infer<typeof webPushDeviceStatusSchema>;

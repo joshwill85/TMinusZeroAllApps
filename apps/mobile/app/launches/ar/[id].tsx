@@ -1,10 +1,12 @@
 import { startTransition, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { AppState, Linking, PermissionsAndroid, Platform, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { ArTelemetrySessionEventV1, TrajectoryPublicV2ResponseV1 } from '@tminuszero/contracts';
 import { EmptyStateCard, ErrorStateCard, LoadingStateCard, SectionCard } from '@/src/components/SectionCard';
+import { CollapsibleCard } from '@/src/components/launch/CollapsibleSection';
 import {
   useArTelemetrySessionMutation,
   useLaunchDetailQuery,
@@ -82,6 +84,116 @@ function buildTrajectoryStepSeconds(trajectory: TrajectoryPublicV2ResponseV1) {
   return Number.isFinite(firstStep) && firstStep > 0 ? Math.round(firstStep) : undefined;
 }
 
+function deriveActiveTPlusSec(net: string | null | undefined, nowMs: number) {
+  if (!net) {
+    return null;
+  }
+
+  const netMs = Date.parse(net);
+  if (!Number.isFinite(netMs)) {
+    return null;
+  }
+
+  return (nowMs - netMs) / 1000;
+}
+
+function formatFlightClock(activeTPlusSec: number | null) {
+  if (activeTPlusSec == null || !Number.isFinite(activeTPlusSec)) {
+    return 'Clock pending';
+  }
+
+  const rounded = Math.round(activeTPlusSec);
+  const prefix = rounded >= 0 ? 'T+' : 'T-';
+  const absoluteSeconds = Math.abs(rounded);
+  const minutes = Math.floor(absoluteSeconds / 60);
+  const seconds = absoluteSeconds % 60;
+
+  if (minutes >= 60) {
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    return `${prefix}${hours}:${remainingMinutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  }
+
+  return `${prefix}${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
+function formatGuidanceSemanticsLabel(trajectory: TrajectoryPublicV2ResponseV1) {
+  if (trajectory.guidanceSemantics === 'constraint_backed') return 'Constraint-backed';
+  if (trajectory.guidanceSemantics === 'modeled') return 'Modeled corridor';
+  return 'Pad guide';
+}
+
+function buildTopologyLabel(trajectory: TrajectoryPublicV2ResponseV1) {
+  if (trajectory.trackTopology.hasUpperStageTrack && trajectory.trackTopology.hasBoosterTrack) {
+    return 'Stage split live';
+  }
+  if (trajectory.trackTopology.hasUpperStageTrack) {
+    return 'Upper stage modeled';
+  }
+  if (trajectory.trackTopology.hasBoosterTrack) {
+    return 'Booster return modeled';
+  }
+  return 'Single-track ascent';
+}
+
+function buildIosSetupState(nativeUpdate: TmzArTrajectorySessionUpdate | null) {
+  if (!nativeUpdate) {
+    return {
+      title: 'Preparing native AR',
+      body: 'Checking camera, location, and ARKit alignment prerequisites.',
+      retryLabel: null,
+      showSettings: false
+    };
+  }
+
+  if (nativeUpdate.cameraPermission === 'denied' || nativeUpdate.cameraPermission === 'error') {
+    return {
+      title: 'Camera access required',
+      body: 'Camera access is required for native AR trajectory.',
+      retryLabel: 'Try again',
+      showSettings: true
+    };
+  }
+
+  if (nativeUpdate.locationPermission === 'denied' || nativeUpdate.locationPermission === 'error') {
+    return {
+      title: 'Location access required',
+      body: 'Location is required to align the trajectory to the launch site on iPhone and iPad.',
+      retryLabel: 'Try again',
+      showSettings: true
+    };
+  }
+
+  if (nativeUpdate.locationFixState === 'timeout') {
+    return {
+      title: 'Location fix delayed',
+      body: nativeUpdate.message ?? 'Move to a clearer view of the sky or retry location alignment.',
+      retryLabel: 'Retry alignment',
+      showSettings: true
+    };
+  }
+
+  if (nativeUpdate.locationFixState === 'coarse') {
+    return {
+      title: 'Full accuracy required',
+      body: nativeUpdate.message ?? 'iOS is still reporting reduced or coarse location accuracy, so live AR guidance stays blocked.',
+      retryLabel: 'Retry alignment',
+      showSettings: true
+    };
+  }
+
+  if (nativeUpdate.locationPermission === 'prompt' || nativeUpdate.locationFixState === 'acquiring' || nativeUpdate.alignmentReady !== true) {
+    return {
+      title: 'Aligning launch site',
+      body: nativeUpdate.message ?? 'Waiting for a usable location fix before the live sky trajectory starts.',
+      retryLabel: null,
+      showSettings: false
+    };
+  }
+
+  return null;
+}
+
 function bucketZoomRatio(value: number, supported: boolean) {
   if (!supported || !Number.isFinite(value) || value <= 0) {
     return 'unsupported';
@@ -100,6 +212,19 @@ function normalizePermissionState(
   fallback: 'granted' | 'denied' | 'prompt' | 'error' = 'granted'
 ): 'granted' | 'denied' | 'prompt' | 'error' {
   if (value === 'denied' || value === 'prompt' || value === 'error') {
+    return value;
+  }
+  if (value === 'granted') {
+    return 'granted';
+  }
+  return fallback;
+}
+
+function normalizeMotionPermissionState(
+  value: TmzArTrajectorySessionUpdate['motionPermission'],
+  fallback: 'granted' | 'denied' | 'prompt' | 'error' | 'not_applicable' = 'granted'
+): 'granted' | 'denied' | 'prompt' | 'error' | 'not_applicable' {
+  if (value === 'denied' || value === 'prompt' || value === 'error' || value === 'not_applicable') {
     return value;
   }
   if (value === 'granted') {
@@ -129,13 +254,13 @@ function buildTelemetryEvent({
 }): ArTelemetrySessionEventV1 {
   const durationMs = endedAt ? Math.max(0, Date.parse(endedAt) - Date.parse(startedAt)) : undefined;
   const cameraStatus = normalizePermissionState(nativeUpdate.cameraPermission, 'prompt');
-  const motionStatus = normalizePermissionState(nativeUpdate.motionPermission, 'granted');
+  const motionStatus = normalizeMotionPermissionState(nativeUpdate.motionPermission, runtimeFamily === 'ios_native' ? 'not_applicable' : 'granted');
   const headingSource = nativeUpdate.headingSource ?? (runtimeFamily === 'ios_native' ? 'arkit_world' : 'unknown');
   const poseSource = nativeUpdate.poseSource ?? (runtimeFamily === 'ios_native' ? 'arkit_world_tracking' : 'deviceorientation');
   const poseMode = nativeUpdate.poseMode ?? (runtimeFamily === 'ios_native' ? 'arkit_world_tracking' : 'sensor_fused');
-  const visionBackend = nativeUpdate.visionBackend ?? (runtimeFamily === 'ios_native' ? 'vision_native' : 'none');
+  const visionBackend = nativeUpdate.visionBackend ?? 'none';
   const headingStatus =
-    headingSource === 'arkit_world' || nativeUpdate.worldAlignment === 'gravity_and_heading' ? 'ok' : 'unknown';
+    nativeUpdate.headingStatus ?? (headingSource === 'arkit_world' || nativeUpdate.worldAlignment === 'gravity_and_heading' ? 'ok' : 'unknown');
 
   return {
     type,
@@ -173,7 +298,7 @@ function buildTelemetryEvent({
       zoomControlPath: nativeUpdate.zoomControlPath,
       zoomApplyLatencyBucket: nativeUpdate.zoomApplyLatencyBucket,
       zoomProjectionSyncLatencyBucket: nativeUpdate.zoomProjectionSyncLatencyBucket,
-      projectionSource: nativeUpdate.projectionSource,
+      projectionSource: nativeUpdate.projectionSource ?? (runtimeFamily === 'ios_native' ? 'projection_matrix' : 'inferred_fov'),
       trajectoryVersion: trajectory.version,
       durationS: buildTrajectoryDurationSeconds(trajectory),
       stepS: buildTrajectoryStepSeconds(trajectory),
@@ -187,6 +312,7 @@ function buildTelemetryEvent({
 
 export default function LaunchArTrajectoryScreen() {
   const router = useRouter();
+  const isFocused = useIsFocused();
   const insets = useSafeAreaInsets();
   const { theme } = useMobileBootstrap();
   const runtimeFamily: 'ios_native' | 'android_native' = Platform.OS === 'android' ? 'android_native' : 'ios_native';
@@ -201,6 +327,10 @@ export default function LaunchArTrajectoryScreen() {
   const [lastNativeUpdate, setLastNativeUpdate] = useState<TmzArTrajectorySessionUpdate | null>(null);
   const [zoomTrayOpen, setZoomTrayOpen] = useState(false);
   const [targetZoomRatio, setTargetZoomRatio] = useState<number | null>(null);
+  const [prefersWidescreen, setPrefersWidescreen] = useState(false);
+  const [nativeViewKey, setNativeViewKey] = useState(0);
+  const [appStateStatus, setAppStateStatus] = useState(AppState.currentState);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [androidCameraPermission, setAndroidCameraPermission] = useState<'prompt' | 'granted' | 'denied'>(
     Platform.OS === 'android' ? 'prompt' : 'granted'
   );
@@ -212,6 +342,8 @@ export default function LaunchArTrajectoryScreen() {
   const launch = detail?.launchData ?? detail?.launch ?? null;
   const arTrajectory = detail?.arTrajectory ?? null;
   const canUseArTrajectory = entitlementsQuery.data?.capabilities.canUseArTrajectory ?? false;
+  const isIpad = Platform.OS === 'ios' && Platform.isPad === true;
+  const isIphone = Platform.OS === 'ios' && Platform.isPad !== true;
 
   const isNativePlatform = Platform.OS === 'ios' || Platform.OS === 'android';
   const canOpenNativeAr =
@@ -222,12 +354,28 @@ export default function LaunchArTrajectoryScreen() {
     arTrajectory?.hasTrajectory === true &&
     (Platform.OS !== 'android' || androidCameraPermission === 'granted');
   const androidLocationStatus = Platform.OS === 'android' ? (lastNativeUpdate?.locationPermission ?? androidLocationPermission) : 'granted';
+  const isScreenActive = isFocused && appStateStatus === 'active';
 
   const trajectoryQuery = useLaunchTrajectoryQuery(launchId, {
     enabled: canOpenNativeAr
   });
 
   const trajectory = trajectoryQuery.data ?? null;
+  const activeTPlusSec = useMemo(() => deriveActiveTPlusSec(launch?.net ?? null, nowMs), [launch?.net, nowMs]);
+  const prelaunchMilestones = useMemo(() => {
+    if (!trajectory || (activeTPlusSec != null && activeTPlusSec >= 0)) {
+      return [];
+    }
+    return trajectory.milestones.filter((milestone) => milestone.phase === 'prelaunch');
+  }, [activeTPlusSec, trajectory]);
+  const visibleFlightMilestones = useMemo(() => {
+    if (!trajectory) {
+      return [];
+    }
+    return trajectory.milestones.filter((milestone) => milestone.phase !== 'prelaunch' && milestone.projectable).slice(0, 6);
+  }, [trajectory]);
+  const iosSetupState = Platform.OS === 'ios' ? buildIosSetupState(lastNativeUpdate) : null;
+  const nativeSessionActive = canOpenNativeAr && isScreenActive;
   const trajectoryJson = useMemo(() => (trajectory ? JSON.stringify(trajectory) : null), [trajectory]);
   const zoomMin = useMemo(() => {
     const value = lastNativeUpdate?.zoomRangeMin ?? capabilities?.minZoomRatio ?? 1;
@@ -255,6 +403,22 @@ export default function LaunchArTrajectoryScreen() {
   const lastTelemetryUpdateAtRef = useRef<number>(0);
   const hasSentStartRef = useRef(false);
   const hasSentEndRef = useRef(false);
+
+  useEffect(() => {
+    setLastNativeUpdate(null);
+    setNativeError(null);
+    setZoomTrayOpen(false);
+    setTargetZoomRatio(null);
+    setPrefersWidescreen(false);
+    setNativeViewKey(0);
+    sessionIdRef.current = null;
+    sessionStartedAtRef.current = null;
+    lastNativeUpdateRef.current = null;
+    lastTelemetrySignatureRef.current = null;
+    lastTelemetryUpdateAtRef.current = 0;
+    hasSentStartRef.current = false;
+    hasSentEndRef.current = false;
+  }, [launchId]);
 
   const requestAndroidCameraPermission = useEffectEvent(async () => {
     if (Platform.OS !== 'android') {
@@ -342,15 +506,11 @@ export default function LaunchArTrajectoryScreen() {
   }, [requestAndroidCameraPermission, requestAndroidLocationPermission]);
 
   useEffect(() => {
-    if (Platform.OS !== 'android') {
-      return;
-    }
-
     const subscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState !== 'active') {
-        return;
+      setAppStateStatus(nextState);
+      if (Platform.OS === 'android' && nextState === 'active') {
+        void syncAndroidPermissions();
       }
-      void syncAndroidPermissions();
     });
 
     return () => {
@@ -400,15 +560,47 @@ export default function LaunchArTrajectoryScreen() {
   }, [capabilities?.defaultZoomRatio, targetZoomRatio, zoomEnabled, zoomMax, zoomMin]);
 
   useEffect(() => {
-    if (Platform.OS !== 'ios' && Platform.OS !== 'android') {
+    if (!isScreenActive || !trajectory) {
       return;
     }
 
-    void lockOrientationAsync('landscape');
+    setNowMs(Date.now());
+    const interval = setInterval(() => {
+      setNowMs(Date.now());
+    }, 500);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [isScreenActive, trajectory]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'ios') {
+      return;
+    }
+
+    if (!isScreenActive) {
+      void unlockOrientationAsync();
+      return;
+    }
+
+    if (isIpad) {
+      void lockOrientationAsync('all');
+      return () => {
+        void unlockOrientationAsync();
+      };
+    }
+
+    if (isIphone && prefersWidescreen) {
+      void lockOrientationAsync('landscape');
+    } else {
+      void unlockOrientationAsync();
+    }
+
     return () => {
       void unlockOrientationAsync();
     };
-  }, []);
+  }, [isIpad, isIphone, isScreenActive, prefersWidescreen]);
 
   const getOrCreateSession = useEffectEvent(() => {
     if (!sessionIdRef.current) {
@@ -452,6 +644,7 @@ export default function LaunchArTrajectoryScreen() {
       lastNativeUpdateRef.current ??
       ({
         sessionRunning: false,
+        status: 'failed',
         trackingState: 'not_available',
         trackingReason: 'session_closed',
         worldAlignment:
@@ -478,13 +671,18 @@ export default function LaunchArTrajectoryScreen() {
         zoomRangeMin: 1,
         zoomRangeMax: 1,
         zoomControlPath: 'unsupported',
-        projectionSource: 'inferred_fov',
+        projectionSource: runtimeFamily === 'ios_native' ? 'projection_matrix' : 'inferred_fov',
         zoomRatioBucket: 'unsupported',
         zoomApplyLatencyBucket: 'unknown',
         zoomProjectionSyncLatencyBucket: 'unknown',
         cameraPermission: Platform.OS === 'android' ? androidCameraPermission : 'granted',
-        motionPermission: 'granted',
+        motionPermission: Platform.OS === 'android' ? 'granted' : 'not_applicable',
         locationPermission: Platform.OS === 'android' ? androidLocationPermission : 'granted',
+        locationAccuracy: Platform.OS === 'android' ? 'unknown' : 'full',
+        locationFixState: Platform.OS === 'android' ? 'ready' : 'unavailable',
+        alignmentReady: false,
+        headingStatus: 'unknown',
+        message: 'AR session closed.',
         lastUpdatedAt: new Date().toISOString()
       } satisfies TmzArTrajectorySessionUpdate);
 
@@ -505,11 +703,14 @@ export default function LaunchArTrajectoryScreen() {
     }
 
     const signature = [
+      update.status,
       update.trackingState,
       update.trackingReason ?? '',
       update.worldMappingStatus,
       update.occlusionMode,
+      String(update.alignmentReady),
       String(update.relocalizationCount),
+      String(update.sessionRunning),
       String(update.renderLoopRunning),
       String(update.zoomRatio),
       update.zoomControlPath
@@ -621,7 +822,7 @@ export default function LaunchArTrajectoryScreen() {
   } else if (capabilityError) {
     content = <ErrorStateCard title="Capability check failed" body={capabilityError} />;
   } else if (!capabilities) {
-    content = <LoadingStateCard title="Preparing native AR" body="Reading device capabilities and locking the AR session orientation." />;
+    content = <LoadingStateCard title="Preparing native AR" body="Reading device capabilities and preparing the AR session." />;
   } else if (!capabilities.isSupported) {
     content =
       Platform.OS === 'android' ? (
@@ -661,19 +862,73 @@ export default function LaunchArTrajectoryScreen() {
           }}
         >
           <TmzArTrajectoryView
+            key={`native-ar-${launchId}-${nativeViewKey}`}
             style={{ flex: 1 }}
             trajectoryJson={trajectoryJson}
             qualityState={trajectory.qualityState}
             worldAlignment={capabilities.preferredWorldAlignment}
             enableSceneDepth
-            enableSceneReconstruction
+            enableSceneReconstruction={Platform.OS === 'android'}
             highResCaptureEnabled={false}
             enablePinchZoom={zoomEnabled}
             targetZoomRatio={zoomEnabled ? zoomRatio : undefined}
+            activeTPlusSec={Platform.OS === 'ios' ? activeTPlusSec : undefined}
+            sessionActive={Platform.OS === 'ios' ? nativeSessionActive : undefined}
             showDebugStatistics={false}
             onSessionUpdate={handleNativeSessionUpdate}
             onSessionError={handleNativeSessionError}
           />
+          {Platform.OS === 'ios' && iosSetupState ? (
+            <View
+              pointerEvents="box-none"
+              style={{
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                top: 0,
+                bottom: 0,
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 20
+              }}
+            >
+              <View
+                style={{
+                  width: '100%',
+                  maxWidth: 360,
+                  borderRadius: 22,
+                  borderWidth: 1,
+                  borderColor: 'rgba(255, 255, 255, 0.12)',
+                  backgroundColor: 'rgba(7, 9, 19, 0.92)',
+                  padding: 18,
+                  gap: 12
+                }}
+              >
+                <Text style={{ color: theme.foreground, fontSize: 16, fontWeight: '700' }}>{iosSetupState.title}</Text>
+                <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>{iosSetupState.body}</Text>
+                <View style={{ gap: 10 }}>
+                  {iosSetupState.retryLabel ? (
+                    <ArButton
+                      label={iosSetupState.retryLabel}
+                      onPress={() => {
+                        setNativeError(null);
+                        setLastNativeUpdate(null);
+                        setNativeViewKey((current) => current + 1);
+                      }}
+                    />
+                  ) : null}
+                  {iosSetupState.showSettings ? (
+                    <ArButton
+                      label="Open settings"
+                      onPress={() => {
+                        void Linking.openSettings();
+                      }}
+                    />
+                  ) : null}
+                </View>
+              </View>
+            </View>
+          ) : null}
           <View
             pointerEvents="box-none"
             style={{
@@ -699,32 +954,35 @@ export default function LaunchArTrajectoryScreen() {
               }}
             >
               <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{launch?.name ?? 'Launch trajectory'}</Text>
-              <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
-                {Platform.OS === 'android'
-                  ? androidLocationStatus === 'granted'
-                    ? capabilities.supportsWorldTracking
-                      ? 'Android ARCore world tracking with live zoom-aware premium trajectory overlays.'
-                      : 'Android native camera guidance with live zoom-aware premium trajectory overlays.'
+                <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
+                  {Platform.OS === 'android'
+                    ? androidLocationStatus === 'granted'
+                      ? capabilities.supportsWorldTracking
+                        ? 'Android ARCore world tracking with live zoom-aware premium trajectory overlays.'
+                        : 'Android native camera guidance with live zoom-aware premium trajectory overlays.'
                     : capabilities.supportsWorldTracking
                       ? 'Android ARCore tracking is active. Enable location for cleaner launch-site alignment.'
                       : 'Android native camera guidance is active. Enable location for cleaner launch-site alignment.'
-                  : `ARKit world tracking with ${capabilities.lidarAvailable ? 'LiDAR-aware occlusion' : 'camera-only guidance'} and premium trajectory overlays.`}
-              </Text>
+                  : `${formatGuidanceSemanticsLabel(trajectory)} guidance with ${lastNativeUpdate?.geoTrackingState === 'localized' ? 'Apple geo-localized alignment' : lastNativeUpdate?.geoTrackingState === 'localizing' || lastNativeUpdate?.geoTrackingState === 'initializing' ? 'Apple geo-localizing alignment' : trajectory.trackTopology.hasStageSplit ? 'stage-aware split tracks' : 'single-track ascent guidance'} and ${capabilities.lidarAvailable ? 'scene-depth-aware hardware support' : 'camera-only sky alignment'}.`}
+                </Text>
+              </View>
+            <View style={{ alignItems: 'flex-end', gap: 8 }}>
+              <StatusChip label={formatFlightClock(activeTPlusSec)} accent={activeTPlusSec != null && activeTPlusSec >= 0} />
+              <Pressable
+                onPress={() => router.back()}
+                style={({ pressed }) => ({
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: 'rgba(255, 255, 255, 0.08)',
+                  backgroundColor: 'rgba(7, 9, 19, 0.82)',
+                  paddingHorizontal: 14,
+                  paddingVertical: 10,
+                  opacity: pressed ? 0.86 : 1
+                })}
+              >
+                <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Close</Text>
+              </Pressable>
             </View>
-            <Pressable
-              onPress={() => router.back()}
-              style={({ pressed }) => ({
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: 'rgba(255, 255, 255, 0.08)',
-                backgroundColor: 'rgba(7, 9, 19, 0.82)',
-                paddingHorizontal: 14,
-                paddingVertical: 10,
-                opacity: pressed ? 0.86 : 1
-              })}
-            >
-              <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Close</Text>
-            </Pressable>
           </View>
           <View
             pointerEvents="box-none"
@@ -736,6 +994,26 @@ export default function LaunchArTrajectoryScreen() {
               gap: 8
             }}
           >
+            {isIphone ? (
+              <Pressable
+                onPress={() => {
+                  setPrefersWidescreen((current) => !current);
+                }}
+                style={({ pressed }) => ({
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: prefersWidescreen ? 'rgba(34, 211, 238, 0.28)' : 'rgba(255, 255, 255, 0.14)',
+                  backgroundColor: prefersWidescreen ? 'rgba(34, 211, 238, 0.12)' : 'rgba(7, 9, 19, 0.86)',
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  opacity: pressed ? 0.86 : 1
+                })}
+              >
+                <Text style={{ color: prefersWidescreen ? theme.accent : theme.foreground, fontSize: 12, fontWeight: '700' }}>
+                  {prefersWidescreen ? 'Portrait' : 'Widescreen'}
+                </Text>
+              </Pressable>
+            ) : null}
             <Pressable
               onPress={() => {
                 if (!zoomEnabled) {
@@ -865,11 +1143,36 @@ export default function LaunchArTrajectoryScreen() {
           compact
         >
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: Platform.OS === 'android' && androidLocationStatus !== 'granted' ? 10 : 0 }}>
-            <StatusChip label={formatQualityLabel(trajectory.qualityState)} accent={trajectory.qualityState === 'precision'} />
+            <StatusChip label={formatGuidanceSemanticsLabel(trajectory)} accent={trajectory.guidanceSemantics === 'constraint_backed'} />
+            <StatusChip label={buildTopologyLabel(trajectory)} accent={trajectory.trackTopology.hasStageSplit} />
             <StatusChip label={`Confidence ${trajectory.confidenceBadge}`} />
             <StatusChip label={lastNativeUpdate?.trackingState ?? 'starting'} />
             <StatusChip label={lastNativeUpdate?.occlusionMode ?? 'none'} />
             <StatusChip label={zoomEnabled ? `${zoomRatio.toFixed(2)}x` : 'zoom off'} />
+            {Platform.OS === 'ios' ? (
+              <StatusChip
+                label={
+                  lastNativeUpdate?.locationFixState === 'coarse'
+                    ? 'full accuracy needed'
+                    : lastNativeUpdate?.alignmentReady === true
+                      ? 'alignment ready'
+                      : 'aligning'
+                }
+                accent={lastNativeUpdate?.alignmentReady !== true}
+              />
+            ) : null}
+            {Platform.OS === 'ios' ? (
+              <StatusChip
+                label={
+                  lastNativeUpdate?.geoTrackingState === 'localized'
+                    ? 'geo localized'
+                    : lastNativeUpdate?.geoTrackingState === 'localizing' || lastNativeUpdate?.geoTrackingState === 'initializing'
+                      ? 'geo localizing'
+                      : 'world tracking'
+                }
+                accent={lastNativeUpdate?.geoTrackingState === 'localized'}
+              />
+            ) : null}
             {Platform.OS === 'android' ? (
               <StatusChip label={androidLocationStatus === 'granted' ? 'location on' : 'location off'} accent={androidLocationStatus !== 'granted'} />
             ) : null}
@@ -884,9 +1187,33 @@ export default function LaunchArTrajectoryScreen() {
           ) : null}
         </SectionCard>
 
-        <SectionCard title="Launch cues" description="Milestones projected from the premium trajectory package." compact>
+        <SectionCard title="Launch cues" description="Live milestone cues from the premium trajectory package." compact>
           <View style={{ gap: 10 }}>
-            {trajectory.milestones.slice(0, 4).map((milestone) => (
+            {prelaunchMilestones.length > 0 ? (
+              <CollapsibleCard title={`Prelaunch (${prelaunchMilestones.length})`} defaultExpanded={false}>
+                <View style={{ gap: 10 }}>
+                  {prelaunchMilestones.map((milestone) => (
+                    <View
+                      key={milestone.key}
+                      style={{
+                        borderRadius: 14,
+                        borderWidth: 1,
+                        borderColor: theme.stroke,
+                        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                        padding: 12,
+                        gap: 4
+                      }}
+                    >
+                      <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>{milestone.label}</Text>
+                      <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
+                        {milestone.timeText ?? (milestone.tPlusSec == null ? 'Projected timing pending' : formatFlightClock(milestone.tPlusSec))}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </CollapsibleCard>
+            ) : null}
+            {visibleFlightMilestones.map((milestone) => (
               <View
                 key={milestone.key}
                 style={{
@@ -902,8 +1229,16 @@ export default function LaunchArTrajectoryScreen() {
                 <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
                   {milestone.timeText ?? (milestone.tPlusSec == null ? 'Projected timing pending' : `T+${milestone.tPlusSec.toFixed(0)}s`)}
                 </Text>
+                {milestone.estimated ? <Text style={{ color: theme.muted, fontSize: 11 }}>Estimated from modeled track.</Text> : null}
               </View>
             ))}
+            {visibleFlightMilestones.length === 0 ? (
+              <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
+                {activeTPlusSec != null && activeTPlusSec >= 0
+                  ? 'Prelaunch cues have been removed at T0. Flight milestones appear only when projectable track cues are available.'
+                  : 'Flight milestones will appear here once projectable launch cues are available.'}
+              </Text>
+            ) : null}
           </View>
         </SectionCard>
       </View>
@@ -1017,12 +1352,6 @@ function StatusChip({ label, accent = false }: { label: string; accent?: boolean
   );
 }
 
-function formatQualityLabel(qualityState: TrajectoryPublicV2ResponseV1['qualityState']) {
-  if (qualityState === 'precision') return 'Precision';
-  if (qualityState === 'safe_corridor') return 'Safe corridor';
-  return 'Pad guide';
-}
-
 function buildSessionDescription(
   nativeUpdate: TmzArTrajectorySessionUpdate | null,
   trajectory: TrajectoryPublicV2ResponseV1,
@@ -1032,12 +1361,30 @@ function buildSessionDescription(
     return 'Waiting for the native AR session to emit its first tracking update.';
   }
 
+  if (!isAndroid && nativeUpdate.alignmentReady !== true) {
+    if (nativeUpdate.locationPermission && nativeUpdate.locationPermission !== 'granted') {
+      return 'iPhone and iPad alignment is blocked until location access is granted.';
+    }
+    if (nativeUpdate.geoTrackingState === 'localizing' || nativeUpdate.geoTrackingState === 'initializing') {
+      return nativeUpdate.message ?? 'Apple geo tracking is localizing the launch alignment before the live sky track can start.';
+    }
+    if (nativeUpdate.locationFixState === 'coarse') {
+      return nativeUpdate.message ?? 'Live AR guidance stays blocked until iOS reports a full-accuracy launch-site fix.';
+    }
+    if (nativeUpdate.locationFixState === 'timeout') {
+      return nativeUpdate.message ?? 'Location alignment timed out. Move to a clearer view of the sky and retry.';
+    }
+    return nativeUpdate.message ?? 'ARKit is waiting for a usable launch-site location fix before rendering the live sky track.';
+  }
+
   if (nativeUpdate.trackingState === 'limited' && nativeUpdate.trackingReason) {
     return `Tracking is limited: ${nativeUpdate.trackingReason.replace(/_/g, ' ')}. Move slowly and keep the pad horizon in frame.`;
   }
 
   if (nativeUpdate.trackingState === 'normal') {
-    return `${formatQualityLabel(trajectory.qualityState)} guidance is live with ${nativeUpdate.occlusionMode.replace(/_/g, ' ')} occlusion.`;
+    const alignmentLabel =
+      nativeUpdate.locationFixState === 'coarse' ? 'full-accuracy location still required' : `${nativeUpdate.occlusionMode.replace(/_/g, ' ')} occlusion`;
+    return `${formatGuidanceSemanticsLabel(trajectory)} guidance is live with ${alignmentLabel}.`;
   }
 
   if (isAndroid && nativeUpdate.locationPermission && nativeUpdate.locationPermission !== 'granted') {
@@ -1046,5 +1393,5 @@ function buildSessionDescription(
 
   return isAndroid
     ? 'Native AR is initializing Android camera tracking and aligning the launch trajectory shell.'
-    : 'Native AR is initializing ARKit world tracking and aligning the launch trajectory shell.';
+    : nativeUpdate.message ?? 'Native AR is initializing ARKit world tracking and aligning the launch trajectory shell.';
 }

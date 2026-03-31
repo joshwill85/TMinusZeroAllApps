@@ -125,7 +125,7 @@ export function ViewOverview({
           )}
         </MissionControlCard>
 
-        <MissionControlCard title="Intel Highlights" subtitle="Top Tier 1 signals from authority-ranked articles">
+        <MissionControlCard title="Top Coverage" subtitle="Top Tier 1 updates from linked articles">
           {intelHighlights.length ? (
             <ul className="space-y-2">
               {intelHighlights.map((item) => (
@@ -143,8 +143,8 @@ export function ViewOverview({
             </ul>
           ) : (
             <MissionControlEmptyState
-              title="No ranked intelligence"
-              detail="Article highlights will populate when source rows are available."
+              title="No source highlights"
+              detail="Article highlights will appear when source rows are available."
             />
           )}
         </MissionControlCard>

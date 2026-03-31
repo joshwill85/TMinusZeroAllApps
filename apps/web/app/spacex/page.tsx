@@ -46,9 +46,9 @@ export async function generateMetadata(): Promise<Metadata> {
   const siteUrl = getSiteUrl().replace(/\/$/, '');
   const canonical = '/spacex';
   const pageUrl = `${siteUrl}${canonical}`;
-  const title = `SpaceX Program Dashboard, Missions, Flights, Contracts & Finance Signals | ${BRAND_NAME}`;
+  const title = `SpaceX Program Hub, Missions, Flights & Contracts | ${BRAND_NAME}`;
   const description =
-    'Comprehensive SpaceX program dashboard with Starship, Falcon, Dragon mission pages, flights, drone-ship recovery intelligence, contracts, passengers, payloads, and investor proxy signals.';
+    'SpaceX program hub with Starship, Falcon, and Dragon mission pages, flights, recovery coverage, internal contract pages, passengers, and payloads.';
 
   return {
     title,
@@ -140,7 +140,7 @@ export default async function SpaceXProgramPage() {
     url: pageUrl,
     name: 'SpaceX Program',
     description:
-      'SpaceX program workbench for mission systems, notable flights, contracts lifecycle context, and investor proxy signals.',
+      'SpaceX program hub for mission pages, flights, recovery, contracts, and source-linked records.',
     dateModified: program.lastUpdated || program.generatedAt
   };
 

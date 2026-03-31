@@ -3,9 +3,10 @@ import { Text, View } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { getMobileViewerTier } from '@tminuszero/domain';
 import {
+  useAdminAccessOverrideQuery,
   useMarketingEmailQuery,
-  useNotificationPreferencesQuery,
   useProfileQuery,
+  useUpdateAdminAccessOverrideMutation,
   useUpdateMarketingEmailMutation,
   useUpdateProfileMutation,
   useViewerEntitlementsQuery,
@@ -33,9 +34,10 @@ export default function ProfileScreen() {
   const callbackUrl = useMemo(() => `${getPublicSiteUrl()}/auth/callback`, []);
   const sessionQuery = useViewerSessionQuery();
   const entitlementsQuery = useViewerEntitlementsQuery();
+  const adminAccessOverrideQuery = useAdminAccessOverrideQuery();
   const profileQuery = useProfileQuery();
   const marketingEmailQuery = useMarketingEmailQuery();
-  const notificationPreferencesQuery = useNotificationPreferencesQuery();
+  const updateAdminAccessOverrideMutation = useUpdateAdminAccessOverrideMutation();
   const updateProfileMutation = useUpdateProfileMutation();
   const updateMarketingEmailMutation = useUpdateMarketingEmailMutation();
   const billing = useNativeBilling(sessionQuery.data?.viewerId ?? null);
@@ -47,6 +49,10 @@ export default function ProfileScreen() {
   const email = profile?.email ?? sessionQuery.data?.email ?? null;
   const title = fullName ? fullName : isAuthed ? 'Your account' : 'Profile';
   const emailVerified = Boolean(profile?.emailConfirmedAt);
+  const isAdminViewer = sessionQuery.data?.role === 'admin';
+  const adminAccessOverride = adminAccessOverrideQuery.data?.adminAccessOverride ?? entitlementsQuery.data?.adminAccessOverride ?? null;
+  const effectiveTierSource = entitlementsQuery.data?.effectiveTierSource ?? 'guest';
+  const billingIsPaid = entitlementsQuery.data?.billingIsPaid === true;
   const [editFirstName, setEditFirstName] = useState('');
   const [editLastName, setEditLastName] = useState('');
   const [editTimezone, setEditTimezone] = useState('America/New_York');
@@ -59,6 +65,8 @@ export default function ProfileScreen() {
   const [resendError, setResendError] = useState<string | null>(null);
   const [resendingEmail, setResendingEmail] = useState(false);
   const [accountMessage, setAccountMessage] = useState<string | null>(null);
+  const [adminAccessMessage, setAdminAccessMessage] = useState<string | null>(null);
+  const [adminAccessError, setAdminAccessError] = useState<string | null>(null);
   const showStoreManagementAction = Boolean(
     billingSummary && billingSummary.isPaid && isStoreManagedBillingProvider(billingSummary.provider) && billingSummary.managementUrl
   );
@@ -159,6 +167,19 @@ export default function ProfileScreen() {
     }
   }
 
+  async function updateAdminAccessOverride(next: 'anon' | 'premium' | null) {
+    setAdminAccessMessage(null);
+    setAdminAccessError(null);
+    try {
+      await updateAdminAccessOverrideMutation.mutateAsync({ adminAccessOverride: next });
+      setAdminAccessMessage(
+        next === null ? 'Default admin access restored.' : next === 'premium' ? 'Admin premium test mode is active.' : 'Admin free test mode is active.'
+      );
+    } catch (error) {
+      setAdminAccessError(error instanceof Error ? error.message : 'Unable to update admin access.');
+    }
+  }
+
   return (
     <AppScreen testID="profile-screen">
       <CustomerShellHero
@@ -184,8 +205,12 @@ export default function ProfileScreen() {
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
           <CustomerShellMetric
             label="Access"
-            value={formatTierLabel(tier)}
-            caption={entitlementsQuery.data?.isPaid ? 'Premium is active' : isAuthed ? 'Premium available' : 'Anon access'}
+            value={formatTierLabel(tier, isAuthed)}
+            caption={buildAccessCaption({
+              isAuthed,
+              effectiveTierSource,
+              billingIsPaid
+            })}
           />
           <CustomerShellMetric
             label="Billing"
@@ -199,6 +224,46 @@ export default function ProfileScreen() {
           />
         </View>
       </CustomerShellPanel>
+
+      {isAdminViewer ? (
+        <CustomerShellPanel
+          title="Admin access testing"
+          description="Switch this admin account between free and premium customer access. Billing and admin tools stay unchanged."
+        >
+          <View style={{ gap: 10 }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+              <CustomerShellMetric label="Current access" value={tier === 'premium' ? 'Premium' : 'Free'} caption={formatEffectiveTierSource(effectiveTierSource)} />
+              <CustomerShellMetric label="Real billing" value={billingIsPaid ? 'Active' : 'Inactive'} caption="Store or web subscription state" />
+            </View>
+            <CustomerShellActionButton
+              label={adminAccessOverride === null ? 'Using default' : 'Use default'}
+              variant={adminAccessOverride === null ? 'primary' : 'secondary'}
+              disabled={adminAccessOverrideQuery.isPending || updateAdminAccessOverrideMutation.isPending}
+              onPress={() => {
+                void updateAdminAccessOverride(null);
+              }}
+            />
+            <CustomerShellActionButton
+              label={adminAccessOverride === 'anon' ? 'Free mode active' : 'Switch to free'}
+              variant={adminAccessOverride === 'anon' ? 'primary' : 'secondary'}
+              disabled={adminAccessOverrideQuery.isPending || updateAdminAccessOverrideMutation.isPending}
+              onPress={() => {
+                void updateAdminAccessOverride('anon');
+              }}
+            />
+            <CustomerShellActionButton
+              label={adminAccessOverride === 'premium' ? 'Premium mode active' : 'Switch to premium'}
+              variant={adminAccessOverride === 'premium' ? 'primary' : 'secondary'}
+              disabled={adminAccessOverrideQuery.isPending || updateAdminAccessOverrideMutation.isPending}
+              onPress={() => {
+                void updateAdminAccessOverride('premium');
+              }}
+            />
+            {adminAccessMessage ? <Text style={{ color: '#7ff0bc', fontSize: 13, lineHeight: 19 }}>{adminAccessMessage}</Text> : null}
+            {adminAccessError ? <Text style={{ color: '#ff9087', fontSize: 13, lineHeight: 19 }}>{adminAccessError}</Text> : null}
+          </View>
+        </CustomerShellPanel>
+      ) : null}
 
       <ViewerTierCard tier={tier} isAuthed={isAuthed} showAction={tier !== 'premium'} testID="profile-tier-card" />
       <AccountNotice message={accountMessage} tone="success" />
@@ -286,7 +351,6 @@ export default function ProfileScreen() {
               <AccountDetailRow testID="profile-email" label="Email" value={profile?.email || '—'} />
               <AccountDetailRow label="Email verified" value={emailVerified ? 'Yes' : 'No'} />
               <AccountDetailRow label="Timezone" value={profile?.timezone || 'America/New_York'} />
-              <AccountDetailRow label="Phone" value={notificationPreferencesQuery.data?.smsPhone || '—'} />
             </View>
           </CustomerShellPanel>
 
@@ -479,11 +543,48 @@ function formatDate(value: string) {
   });
 }
 
-function formatTierLabel(tier: 'anon' | 'premium') {
+function formatTierLabel(tier: 'anon' | 'premium', isAuthed = false) {
   if (tier === 'premium') {
     return 'Premium';
   }
-  return 'Anon';
+  return isAuthed ? 'Signed in' : 'Public';
+}
+
+function buildAccessCaption({
+  isAuthed,
+  effectiveTierSource,
+  billingIsPaid
+}: {
+  isAuthed: boolean;
+  effectiveTierSource: string;
+  billingIsPaid: boolean;
+}) {
+  if (effectiveTierSource === 'admin_override') {
+    return 'Admin test mode is active';
+  }
+  if (effectiveTierSource === 'admin') {
+    return 'Admin premium access is active';
+  }
+  if (billingIsPaid || effectiveTierSource === 'subscription') {
+    return 'Premium is active';
+  }
+  return isAuthed ? 'Premium available' : 'Public access';
+}
+
+function formatEffectiveTierSource(value: string) {
+  if (value === 'admin_override') {
+    return 'Manual override';
+  }
+  if (value === 'admin') {
+    return 'Admin default';
+  }
+  if (value === 'subscription') {
+    return 'Paid subscription';
+  }
+  if (value === 'free') {
+    return 'Signed in without Premium';
+  }
+  return 'Guest';
 }
 
 function formatBillingProvider(value: string) {

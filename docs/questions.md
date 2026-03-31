@@ -38,21 +38,11 @@ Keep this list as the running “handoff checklist” for anything that requires
 22. Stripe webhook hygiene: remove duplicate endpoints (Snapshot vs Thin) once you settle on one, to avoid double deliveries.
 23. Billing portal: confirm portal settings (cancel/upgrade/downgrade) you want enabled.
 
-## 6) Notifications: Email, SMS, Web Push (Paid)
-24. Email provider selection (Resend/Postmark/etc.) + API key(s) + from/reply-to addresses.
-25. Twilio credentials for SMS:
-   - `TWILIO_ACCOUNT_SID`
-   - `TWILIO_AUTH_TOKEN`
-   - `TWILIO_MESSAGING_SERVICE_SID` or `TWILIO_FROM_NUMBER` (outbound notifications)
-   - `TWILIO_VERIFY_SERVICE_SID` (one-time opt-in verification)
-   - `TWILIO_OPT_OUT_MODE` (optional; set to `twilio` when using Twilio Default/Advanced Opt-Out to avoid duplicate STOP/HELP replies)
-   - Any compliance copy required for initial opt-in message.
-26. Web push: will you generate VAPID keys or should the app generate them? Provide:
-   - Server (Supabase Edge): `VAPID_SUBJECT` (mailto:...), `VAPID_SERVER_PUBLIC_KEY`, `VAPID_SERVER_PRIVATE_KEY`
-     - Also accepted: `WEB_PUSH_*` or `PUSH_VAPID_*` (legacy)
-   - Client (Next.js): `NEXT_PUBLIC_WEB_PUSH_PUBLIC_KEY`
-27. iOS push policy: confirm UX cadence for the iOS “Add to Home Screen” prompt (default once/7 days).
-28. SMS verification: Twilio Verify (one-time opt-in). Confirm verification copy and any compliance requirements.
+## 6) Notifications: Native Mobile Push + Essential Email
+24. Native push delivery credentials: confirm Expo/device registration settings for iOS + Android.
+25. Essential email only: confirm auth, billing, and service-email provider settings plus from/reply-to addresses.
+26. iOS push policy: confirm the desired permission cadence and any install guidance for the native app.
+27. Android push policy: confirm default channel behavior, notification grouping, and any OEM-specific guidance.
 
 ## 8) Legal and Compliance
 31. Governing law/jurisdiction (currently “Delaware” placeholder) and arbitration/venue preferences.

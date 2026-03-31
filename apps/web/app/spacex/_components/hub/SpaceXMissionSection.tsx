@@ -21,9 +21,9 @@ export function SpaceXMissionSection({
   return (
     <section id="mission" className="scroll-mt-24 space-y-4">
       <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
-        <h2 className="text-xl font-semibold text-text1">Mission systems</h2>
+        <h2 className="text-xl font-semibold text-text1">Mission pages</h2>
         <p className="mt-2 text-sm text-text2">
-          Mission hubs split coverage across Starship, Falcon 9, Falcon Heavy, and Dragon with linked flights, passengers, payloads, and contract context.
+          Mission pages cover Starship, Falcon 9, Falcon Heavy, and Dragon with linked flights, passengers, payloads, and contract pages.
         </p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {SPACEX_MISSION_ITEMS.map((mission) => (
@@ -33,7 +33,7 @@ export function SpaceXMissionSection({
               className="rounded-xl border border-stroke bg-surface-0 p-3 hover:border-primary/60"
             >
               <p className="text-sm font-semibold text-text1">{mission.label}</p>
-              <p className="mt-1 text-xs text-text3">Mission-specific schedule and intelligence.</p>
+              <p className="mt-1 text-xs text-text3">Flights, payloads, passengers, and contract pages.</p>
             </Link>
           ))}
         </div>
@@ -41,13 +41,13 @@ export function SpaceXMissionSection({
 
       <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-xl font-semibold text-text1">Program pulse</h2>
+          <h2 className="text-xl font-semibold text-text1">Program summary</h2>
           <span className="rounded-full border border-stroke px-3 py-1 text-[10px] uppercase tracking-[0.12em] text-text3">
-            BI signal view
+            Coverage snapshot
           </span>
         </div>
         <p className="mt-2 text-sm text-text2">
-          Storyline: flight cadence remains broad across mission families, while crew and payload throughput pressure operations and contracting priorities.
+          Flight activity spans multiple mission families, with crew, payload, and contract coverage collected in one place.
         </p>
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
           <div className="rounded-xl border border-stroke bg-surface-0 p-3">
@@ -74,19 +74,19 @@ export function SpaceXMissionSection({
           </div>
 
           <div className="rounded-xl border border-stroke bg-surface-0 p-3">
-            <p className="text-xs uppercase tracking-[0.12em] text-text3">Operational narrative</p>
+            <p className="text-xs uppercase tracking-[0.12em] text-text3">Program snapshot</p>
             <ul className="mt-3 space-y-2 text-sm text-text2">
               <li className="rounded-lg border border-stroke bg-surface-1/40 p-2">
-                <span className="font-semibold text-text1">Flight pressure:</span> {upcomingCount} upcoming missions against {recentCount} recent completions.
+                <span className="font-semibold text-text1">Upcoming vs. recent flights:</span> {upcomingCount} upcoming missions against {recentCount} recent completions.
               </li>
               <li className="rounded-lg border border-stroke bg-surface-1/40 p-2">
-                <span className="font-semibold text-text1">Human spaceflight footprint:</span> {passengersCount} passenger records currently connected to tracked missions.
+                <span className="font-semibold text-text1">Passenger records:</span> {passengersCount} passenger records currently connected to tracked missions.
               </li>
               <li className="rounded-lg border border-stroke bg-surface-1/40 p-2">
-                <span className="font-semibold text-text1">Payload throughput:</span> {payloadsCount} payload records tied to program flights.
+                <span className="font-semibold text-text1">Payload records:</span> {payloadsCount} payload records tied to program flights.
               </li>
               <li className="rounded-lg border border-stroke bg-surface-1/40 p-2">
-                <span className="font-semibold text-text1">Contract layer:</span> {contractsCount} tracked contract entries with government/procurement linkage.
+                <span className="font-semibold text-text1">Contract pages:</span> {contractsCount} tracked contract entries with linked source records.
               </li>
             </ul>
           </div>

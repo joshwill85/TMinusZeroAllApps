@@ -65,13 +65,16 @@ const payloadByPath = new Map<string, MockResponseResolver>([
   [
     '/api/v1/viewer/entitlements',
     () => ({
-      tier: 'free',
+      tier: 'anon',
       status: 'active',
       source: 'stripe',
       isPaid: false,
+      billingIsPaid: false,
       isAdmin: false,
       isAuthed: true,
       mode: 'public',
+      effectiveTierSource: 'free',
+      adminAccessOverride: null,
       refreshIntervalSeconds: 900,
       capabilities: {
         canUseSavedItems: false,
@@ -86,6 +89,9 @@ const payloadByPath = new Map<string, MockResponseResolver>([
         canUseBasicAlertRules: true,
         canUseAdvancedAlertRules: false,
         canUseBrowserLaunchAlerts: false,
+        canUseSingleLaunchFollow: true,
+        canUseAllUsLaunchAlerts: true,
+        canUseStateLaunchAlerts: false,
         canUseRecurringCalendarFeeds: false,
         canUseRssFeeds: false,
         canUseEmbedWidgets: false,
@@ -97,7 +103,8 @@ const payloadByPath = new Map<string, MockResponseResolver>([
         presetLimit: 0,
         filterPresetLimit: 0,
         watchlistLimit: 0,
-        watchlistRuleLimit: 0
+        watchlistRuleLimit: 0,
+        singleLaunchFollowLimit: 1
       },
       cancelAtPeriodEnd: false,
       currentPeriodEnd: null,
@@ -151,7 +158,7 @@ const payloadByPath = new Map<string, MockResponseResolver>([
     '/api/v1/launches/version',
     () => ({
       scope: 'public',
-      tier: 'free',
+      tier: 'anon',
       intervalSeconds: 900,
       matchCount: 1,
       updatedAt: '2026-03-08T12:00:00.000Z',
@@ -163,7 +170,7 @@ const payloadByPath = new Map<string, MockResponseResolver>([
     () => ({
       launchId,
       scope: 'public',
-      tier: 'free',
+      tier: 'anon',
       intervalSeconds: 900,
       updatedAt: '2026-03-08T12:00:00.000Z',
       version: `${launchId}|public|2026-03-08T12:00:00.000Z`
@@ -215,8 +222,8 @@ const payloadByPath = new Map<string, MockResponseResolver>([
   [
     '/api/v1/me/notification-preferences',
     () => ({
-      pushEnabled: true,
-      emailEnabled: true,
+      pushEnabled: false,
+      emailEnabled: false,
       smsEnabled: false,
       launchDayEmailEnabled: false,
       launchDayEmailProviders: [],
@@ -226,7 +233,7 @@ const payloadByPath = new Map<string, MockResponseResolver>([
       quietEndLocal: null,
       smsVerified: false,
       smsPhone: null,
-      smsSystemEnabled: true
+      smsSystemEnabled: false
     })
   ],
   [

@@ -1,43 +1,34 @@
 import { LegalSummaryScreen } from '@/src/features/account/LegalSummaryScreen';
 
-export default function SmsTermsRoute() {
+export default function NotificationsPolicyRoute() {
   return (
     <LegalSummaryScreen
       testID="legal-sms-screen"
       eyebrow="Legal"
-      title="SMS Terms"
-      description="Required disclosures and opt-out rules for SMS launch alerts."
+      title="Notification Policy"
+      description="Native push notification guidance and device-level alert behavior."
       lastUpdated="Jan 20, 2026"
       actions={[
-        { label: 'SMS opt-in guide', href: '/docs/sms-opt-in' },
+        { label: 'Notification settings', href: '/preferences' },
         { label: 'Privacy notice', href: '/legal/privacy', variant: 'secondary' }
       ]}
       sections={[
         {
           title: 'Program summary',
-          body: 'SMS alerts are used for launch reminders and status updates that the customer explicitly requests.',
+          body: 'Launch alerts are delivered through native push notifications on iOS and Android.',
           bullets: [
-            'Message frequency varies based on alert settings.',
-            'Message and data rates may apply.',
-            'Consent is not a condition of purchase.'
+            'Message frequency varies based on the launches you follow.',
+            'Keep your device notifications enabled to receive alerts.',
+            'Alerts can be disabled at any time from the app.'
           ]
         },
         {
-          title: 'Consent and verification',
-          body: 'Users should actively opt in, verify a US phone number, and then save their SMS settings.',
+          title: 'Setup',
+          body: 'Open notification settings, register the device, and choose the alert scopes you want.',
           bullets: [
-            'Checkboxes should be unchecked by default.',
-            'Verification should complete before SMS is marked enabled.',
-            'The app should surface the exact account state after saving.'
-          ]
-        },
-        {
-          title: 'Opt-out and help',
-          body: 'Users need simple, documented commands to stop or recover SMS alerts.',
-          bullets: [
-            'Reply STOP to cancel.',
-            'Reply START to re-subscribe.',
-            'Reply HELP or contact support if something does not work as expected.'
+            'Use the native app for alert management.',
+            'Device registration happens locally in the app.',
+            'Push delivery follows the operating system notification settings.'
           ]
         }
       ]}

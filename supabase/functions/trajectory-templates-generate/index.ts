@@ -855,7 +855,7 @@ function classifyMission({
     return 'SSO_POLAR';
   }
   if (hasAny(orbit, ['gto', 'geo', 'geostationary'])) return 'GTO_GEO';
-  if (hasAny(mission, ['iss', 'crew', 'dragon', 'crs']) || (hasAny(vehicle, ['falcon 9']) && hasAny(mission, ['starlink']))) {
+  if (hasAny(mission, ['iss', 'crew', 'dragon', 'crs'])) {
     return 'ISS_CREW';
   }
   if (hasAny(orbit, ['leo', 'low earth'])) return 'LEO_GENERIC';
@@ -899,7 +899,7 @@ async function finishIngestionRun(
   if (!runId) return;
   const update: Record<string, unknown> = {
     success,
-    finished_at: new Date().toISOString()
+    ended_at: new Date().toISOString()
   };
   if (stats) update.stats = stats;
   if (error) update.error = error;

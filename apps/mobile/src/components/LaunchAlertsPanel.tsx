@@ -59,9 +59,11 @@ export function LaunchAlertsPanel({
   const [draft, setDraft] = useState<LaunchAlertDraft>(DEFAULT_PREMIUM_DRAFT);
   const [message, setMessage] = useState<{ tone: 'error' | 'success' | null; text: string }>({ tone: null, text: '' });
   const rule = preferenceQuery.data?.rule ?? null;
-  const readOnly = !isPremium;
-  const maxOffsets = 3;
-  const offsetOptions = PREMIUM_OFFSET_OPTIONS;
+  const access = preferenceQuery.data?.access ?? null;
+  const canManageLaunchNotifications = access?.basicAllowed !== false;
+  const canUseAdvancedNotifications = access?.advancedAllowed === true;
+  const maxOffsets = access?.maxPrelaunchOffsets ?? (isPremium ? 3 : 1);
+  const offsetOptions = canUseAdvancedNotifications ? PREMIUM_OFFSET_OPTIONS : ([10, 60] as const);
 
   useEffect(() => {
     if (!rule) {
@@ -79,31 +81,33 @@ export function LaunchAlertsPanel({
   }, [isPremium, rule]);
 
   const validationError = useMemo(() => {
-    if (readOnly) return null;
+    if (!canManageLaunchNotifications) return null;
     if (draft.prelaunchOffsetsMinutes.length === 0 && (draft.statusChangeTypes.length === 0 && !draft.notifyNetChanges)) {
-      return 'Choose at least one reminder time.';
+      return 'Choose at least one notification.';
     }
     if (draft.prelaunchOffsetsMinutes.length > maxOffsets) {
-      return `Choose at most ${maxOffsets} reminder times.`;
+      return `Choose at most ${maxOffsets} reminder time${maxOffsets === 1 ? '' : 's'}.`;
     }
     return null;
-  }, [draft.notifyNetChanges, draft.prelaunchOffsetsMinutes.length, draft.statusChangeTypes.length, maxOffsets, readOnly]);
+  }, [canManageLaunchNotifications, draft.notifyNetChanges, draft.prelaunchOffsetsMinutes.length, draft.statusChangeTypes.length, maxOffsets]);
 
   return (
     <SectionCard
-      title="Launch alerts"
+      title="Launch notifications"
       description={
-        isPremium
-          ? 'Set up to three reminder times for this launch and choose which schedule or status changes should trigger push alerts.'
-          : rule
-            ? 'Stored launch alerts stay visible on this account, but Premium is required to edit or reactivate them.'
-            : 'Launch alerts are Premium-only. Upgrade to create alerts for this launch.'
+        canUseAdvancedNotifications
+          ? 'Set reminder times for this launch and choose which timing or status changes should trigger push notifications.'
+          : canManageLaunchNotifications
+            ? 'Set basic push notifications for this launch. Premium adds more reminder windows and change notifications.'
+            : rule
+              ? 'Stored launch notifications stay visible on this device, but push must be enabled before you can edit them.'
+              : 'Enable push on this device before you create launch notifications.'
       }
     >
       {!installationId ? (
         <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>Preparing device push settings…</Text>
       ) : preferenceQuery.isPending ? (
-        <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>Loading launch alert preferences…</Text>
+        <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>Loading launch notification settings…</Text>
       ) : preferenceQuery.isError ? (
         <Text style={{ color: '#ff9087', fontSize: 14, lineHeight: 21 }}>{preferenceQuery.error.message}</Text>
       ) : (
@@ -111,7 +115,9 @@ export function LaunchAlertsPanel({
           <View style={{ gap: 8 }}>
             <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>Reminder times</Text>
             <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
-              {isPremium ? 'Choose up to three push reminders before liftoff.' : 'Premium is required to create or edit launch reminders.'}
+              {canUseAdvancedNotifications
+                ? 'Choose up to three push reminders before liftoff.'
+                : `Choose up to ${maxOffsets} push reminder${maxOffsets === 1 ? '' : 's'} before liftoff. Premium unlocks change notifications.`}
             </Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
               {offsetOptions.map((value) => {
@@ -121,10 +127,10 @@ export function LaunchAlertsPanel({
                     key={value}
                     label={value >= 1440 ? '1 day' : value >= 60 ? `${Math.round(value / 60)} hr` : `${value} min`}
                     active={active}
-                    disabled={readOnly}
+                    disabled={!canManageLaunchNotifications}
                     onPress={() => {
-                      if (readOnly) {
-                        onOpenUpgrade();
+                      if (!canManageLaunchNotifications) {
+                        onOpenPreferences();
                         return;
                       }
                       setDraft((current) => {
@@ -154,11 +160,11 @@ export function LaunchAlertsPanel({
           </View>
 
           <View style={{ gap: 8 }}>
-            <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>Premium change alerts</Text>
+            <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>Launch changes</Text>
             <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
-              {isPremium
-                ? 'Choose which status changes should trigger alerts, and whether NET or window changes should trigger a push.'
-                : 'Status-change and NET-change alerts are Premium on mobile.'}
+              {canUseAdvancedNotifications
+                ? 'Choose which status changes should trigger notifications, and whether NET or window changes should send a push.'
+                : 'Status-change and NET-change notifications are Premium.'}
             </Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
               {STATUS_OPTIONS.map((option) => {
@@ -168,9 +174,9 @@ export function LaunchAlertsPanel({
                     key={option.key}
                     label={option.label}
                     active={active}
-                    disabled={readOnly || !isPremium}
+                    disabled={!canUseAdvancedNotifications}
                     onPress={() => {
-                      if (!isPremium) {
+                      if (!canUseAdvancedNotifications) {
                         onOpenUpgrade();
                         return;
                       }
@@ -201,9 +207,9 @@ export function LaunchAlertsPanel({
               <SelectChip
                 label="NET changes"
                 active={draft.notifyNetChanges}
-                disabled={readOnly || !isPremium}
+                disabled={!canUseAdvancedNotifications}
                 onPress={() => {
-                  if (!isPremium) {
+                  if (!canUseAdvancedNotifications) {
                     onOpenUpgrade();
                     return;
                   }
@@ -217,9 +223,9 @@ export function LaunchAlertsPanel({
             <PanelActionButton label="Enable push on this device" onPress={onOpenPreferences} variant="secondary" />
           ) : null}
 
-          {readOnly ? (
+          {!canUseAdvancedNotifications && canManageLaunchNotifications ? (
             <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>
-              Signed-in anon can keep account ownership and review stored launch alerts here, but Premium is required to create, edit, or remove them.
+              Basic launch notifications are available on this device. Premium adds multiple reminders plus NET and status-change notifications.
             </Text>
           ) : null}
 
@@ -230,27 +236,21 @@ export function LaunchAlertsPanel({
           ) : null}
 
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-            {readOnly ? (
-              <PanelActionButton label="Upgrade to Premium" onPress={onOpenUpgrade} disabled={upsertRuleMutation.isPending || deleteRuleMutation.isPending} />
-            ) : (
-              <>
-                <PanelActionButton
-                  label={upsertRuleMutation.isPending ? 'Saving…' : rule ? 'Save launch alerts' : 'Create launch alerts'}
-                  onPress={() => {
-                    void saveLaunchAlerts();
-                  }}
-                  disabled={upsertRuleMutation.isPending || deleteRuleMutation.isPending || !isPushRegistered || Boolean(validationError)}
-                />
-                <PanelActionButton
-                  label="Clear"
-                  variant="secondary"
-                  onPress={() => {
-                    void clearLaunchAlerts();
-                  }}
-                  disabled={upsertRuleMutation.isPending || deleteRuleMutation.isPending || !rule}
-                />
-              </>
-            )}
+            <PanelActionButton
+              label={upsertRuleMutation.isPending ? 'Saving…' : rule ? 'Save notifications' : 'Create notifications'}
+              onPress={() => {
+                void saveLaunchAlerts();
+              }}
+              disabled={upsertRuleMutation.isPending || deleteRuleMutation.isPending || !isPushRegistered || Boolean(validationError)}
+            />
+            <PanelActionButton
+              label="Clear"
+              variant="secondary"
+              onPress={() => {
+                void clearLaunchAlerts();
+              }}
+              disabled={upsertRuleMutation.isPending || deleteRuleMutation.isPending || !rule}
+            />
           </View>
         </View>
       )}
@@ -259,9 +259,9 @@ export function LaunchAlertsPanel({
 
   async function saveLaunchAlerts() {
     if (!installationId) return;
-    if (readOnly) {
-      onOpenUpgrade();
-      setMessage({ tone: 'error', text: 'Upgrade to Premium to manage launch alerts.' });
+    if (!canManageLaunchNotifications) {
+      onOpenPreferences();
+      setMessage({ tone: 'error', text: 'Enable push on this device before saving launch notifications.' });
       return;
     }
     if (validationError) {
@@ -269,7 +269,7 @@ export function LaunchAlertsPanel({
       return;
     }
     if (!isPushRegistered) {
-      setMessage({ tone: 'error', text: 'Enable push on this device before saving launch alerts.' });
+      setMessage({ tone: 'error', text: 'Enable push on this device before saving launch notifications.' });
       return;
     }
 
@@ -284,11 +284,11 @@ export function LaunchAlertsPanel({
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
           prelaunchOffsetsMinutes: draft.prelaunchOffsetsMinutes,
           dailyDigestLocalTime: null,
-          statusChangeTypes: isPremium ? draft.statusChangeTypes : [],
-          notifyNetChanges: isPremium ? draft.notifyNetChanges : false
+          statusChangeTypes: canUseAdvancedNotifications ? draft.statusChangeTypes : [],
+          notifyNetChanges: canUseAdvancedNotifications ? draft.notifyNetChanges : false
         }
       });
-      setMessage({ tone: 'success', text: 'Launch alerts updated.' });
+      setMessage({ tone: 'success', text: 'Launch notifications updated.' });
     } catch (error) {
       setMessage({
         tone: 'error',
@@ -301,9 +301,9 @@ export function LaunchAlertsPanel({
     if (!installationId || !rule) {
       return;
     }
-    if (readOnly) {
-      onOpenUpgrade();
-      setMessage({ tone: 'error', text: 'Upgrade to Premium to manage launch alerts.' });
+    if (!canManageLaunchNotifications) {
+      onOpenPreferences();
+      setMessage({ tone: 'error', text: 'Enable push on this device before changing launch notifications.' });
       return;
     }
 
@@ -316,7 +316,7 @@ export function LaunchAlertsPanel({
         }
       });
       setDraft(DEFAULT_PREMIUM_DRAFT);
-      setMessage({ tone: 'success', text: 'Launch alerts cleared.' });
+      setMessage({ tone: 'success', text: 'Launch notifications cleared.' });
     } catch (error) {
       setMessage({
         tone: 'error',
@@ -396,15 +396,15 @@ function SelectChip({
 function describeLaunchAlertError(error: unknown) {
   if (error instanceof ApiClientError) {
     if (error.code === 'payment_required') {
-      return 'That alert setup needs Premium.';
+      return 'That notification setup needs Premium.';
     }
     if (error.code === 'push_not_registered') {
-      return 'Enable push on this device before saving launch alerts.';
+      return 'Enable push on this device before saving launch notifications.';
     }
     if (error.code === 'invalid_guest_device') {
       return 'This device push session expired. Enable push again to refresh it.';
     }
   }
 
-  return error instanceof Error ? error.message : 'Unable to update launch alerts.';
+  return error instanceof Error ? error.message : 'Unable to update launch notifications.';
 }

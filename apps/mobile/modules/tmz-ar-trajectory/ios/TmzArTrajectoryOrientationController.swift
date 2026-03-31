@@ -4,38 +4,47 @@ import UIKit
 public final class TmzArTrajectoryOrientationController: NSObject {
   public static let shared = TmzArTrajectoryOrientationController()
 
-  private(set) public var supportedOrientations: UIInterfaceOrientationMask = .portrait
+  private(set) public var supportedOrientations: UIInterfaceOrientationMask
 
-  private override init() {}
+  private override init() {
+    supportedOrientations = .allButUpsideDown
+  }
 
   @discardableResult
   public func lock(orientation: String) -> Bool {
     let nextMask: UIInterfaceOrientationMask
-    let targetOrientation: UIInterfaceOrientation
+    let targetOrientation: UIInterfaceOrientation?
+    let shouldRequestGeometryUpdate: Bool
 
     switch orientation {
     case "landscape":
       nextMask = .landscape
       targetOrientation = .landscapeRight
+      shouldRequestGeometryUpdate = true
     case "all":
       nextMask = .allButUpsideDown
-      targetOrientation = .portrait
+      targetOrientation = nil
+      shouldRequestGeometryUpdate = false
     default:
       nextMask = .portrait
       targetOrientation = .portrait
+      shouldRequestGeometryUpdate = true
     }
 
     DispatchQueue.main.async {
       self.supportedOrientations = nextMask
-      if #available(iOS 16.0, *),
+      if shouldRequestGeometryUpdate,
+        #available(iOS 16.0, *),
         let windowScene = UIApplication.shared.connectedScenes
           .compactMap({ $0 as? UIWindowScene })
           .first(where: { $0.activationState == .foregroundActive }) {
         let geometryPreferences = UIWindowScene.GeometryPreferences.iOS(interfaceOrientations: nextMask)
-        try? windowScene.requestGeometryUpdate(geometryPreferences)
+        windowScene.requestGeometryUpdate(geometryPreferences) { _ in }
       }
 
-      UIDevice.current.setValue(targetOrientation.rawValue, forKey: "orientation")
+      if let targetOrientation {
+        UIDevice.current.setValue(targetOrientation.rawValue, forKey: "orientation")
+      }
       UIViewController.attemptRotationToDeviceOrientation()
     }
 
@@ -44,6 +53,10 @@ public final class TmzArTrajectoryOrientationController: NSObject {
 
   @discardableResult
   public func unlock() -> Bool {
-    return lock(orientation: "portrait")
+    DispatchQueue.main.async {
+      self.supportedOrientations = .allButUpsideDown
+      UIViewController.attemptRotationToDeviceOrientation()
+    }
+    return true
   }
 }

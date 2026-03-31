@@ -19,31 +19,31 @@ const NAV_ITEMS: readonly ArtemisDashboardNavItem[] = [
     id: 'overview',
     label: 'Overview',
     shortLabel: 'Overview',
-    description: 'Executive mission pulse'
+    description: 'Program summary'
   },
   {
     id: 'timeline',
     label: 'Timeline',
     shortLabel: 'Timeline',
-    description: 'Deep event exploration'
+    description: 'Mission timeline'
   },
   {
     id: 'intel',
-    label: 'Intelligence',
-    shortLabel: 'Intel',
-    description: 'Media and data signals'
+    label: 'Updates',
+    shortLabel: 'Updates',
+    description: 'Articles, media, and data'
   },
   {
     id: 'budget',
     label: 'Budget',
     shortLabel: 'Budget',
-    description: 'Funding and awards'
+    description: 'Funding and contracts'
   },
   {
     id: 'missions',
     label: 'Missions',
     shortLabel: 'Missions',
-    description: 'Mission hub navigation'
+    description: 'Mission pages'
   }
 ];
 

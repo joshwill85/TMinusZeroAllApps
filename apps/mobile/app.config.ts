@@ -5,7 +5,7 @@ const baseConfig = appJson.expo as ExpoConfig;
 const baseExtra = (baseConfig.extra ?? {}) as ExpoConfig['extra'] & {
   eas?: { projectId?: string };
 };
-const ASSOCIATED_DOMAIN_HOSTS = ['www.tminuszero.app', 'tminuszero.app'];
+const DEFAULT_ASSOCIATED_DOMAIN_HOSTS = ['www.tminuszero.app', 'tminuszero.app'];
 
 function uniqueStrings(values: Array<string | null | undefined>) {
   return Array.from(
@@ -15,6 +15,13 @@ function uniqueStrings(values: Array<string | null | undefined>) {
         .filter(Boolean)
     )
   );
+}
+
+function parseCsvList(value: string | undefined) {
+  return String(value || '')
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
 }
 
 function normalizeUrl(value: string | undefined) {
@@ -53,6 +60,11 @@ function normalizeEnv(value: string | undefined) {
   return trimmed || null;
 }
 
+function getAssociatedDomainHosts() {
+  const explicit = parseCsvList(process.env.MOBILE_APP_LINK_HOSTS);
+  return explicit.length ? explicit : DEFAULT_ASSOCIATED_DOMAIN_HOSTS;
+}
+
 function hasAppleAppLinkConfiguration() {
   if (normalizeEnv(process.env.APPLE_APP_LINK_APP_IDS)) {
     return true;
@@ -85,6 +97,7 @@ function isReleaseProfile(profile: string | null) {
 export default (): ExpoConfig => {
   const buildProfile = getBuildProfile();
   const buildPlatform = getBuildPlatform();
+  const associatedDomainHosts = uniqueStrings(getAssociatedDomainHosts());
   if (isReleaseProfile(buildProfile)) {
     assertSecureReleaseUrl('EXPO_PUBLIC_API_BASE_URL', normalizeUrl(process.env.EXPO_PUBLIC_API_BASE_URL));
     assertSecureReleaseUrl('EXPO_PUBLIC_SITE_URL', normalizeUrl(process.env.EXPO_PUBLIC_SITE_URL));
@@ -105,7 +118,7 @@ export default (): ExpoConfig => {
       ...baseConfig.ios,
       associatedDomains: uniqueStrings([
         ...(baseConfig.ios?.associatedDomains ?? []),
-        ...ASSOCIATED_DOMAIN_HOSTS.map((host) => `applinks:${host}`)
+        ...associatedDomainHosts.map((host) => `applinks:${host}`)
       ])
     },
     android: {
@@ -116,7 +129,7 @@ export default (): ExpoConfig => {
           action: 'VIEW',
           autoVerify: true,
           category: ['BROWSABLE', 'DEFAULT'],
-          data: ASSOCIATED_DOMAIN_HOSTS.map((host) => ({
+          data: associatedDomainHosts.map((host) => ({
             scheme: 'https',
             host,
             pathPrefix: '/auth/'

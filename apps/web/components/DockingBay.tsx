@@ -42,7 +42,7 @@ export function DockingBay({ profile, isAdmin, viewerTier, onOpenCalendar, onOpe
         { label: 'News', href: '/news' },
         { label: 'About', href: '/about' },
         { label: 'FAQ', href: '/docs/faq' },
-        { label: 'SMS Opt-In', href: '/docs/sms-opt-in' },
+        { label: 'Notifications', href: '/preferences' },
         viewerTier && viewerTier !== 'premium' ? { label: 'Premium · $3.99/mo', href: buildUpgradeHref() } : null,
         { label: accountLabel, href: accountHref },
         isAdmin ? { label: 'Admin', href: '/admin' } : null

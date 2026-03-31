@@ -1,15 +1,17 @@
-import { Image, Linking, Pressable, Share, Text, View } from 'react-native';
-import type { LaunchFeedItemV1 } from '@tminuszero/contracts';
+import type { ReactNode } from 'react';
+import { Image, Linking, Pressable, Share, Text, View, type DimensionValue } from 'react-native';
 import { buildCountdownSnapshot } from '@tminuszero/domain';
 import { buildLaunchHref } from '@tminuszero/navigation';
 import { getPublicSiteUrl } from '@/src/config/api';
+import type { FeedLaunchCardData } from '@/src/feed/feedCardData';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import { formatTimestamp } from '@/src/utils/format';
 
 type WebParityLaunchCardProps = {
-  launch: LaunchFeedItemV1;
+  launch: FeedLaunchCardData;
   isNext?: boolean;
   testID?: string;
+  showDeferredMedia?: boolean;
   onOpenDetails: () => void;
   onOpenProvider?: () => void;
   onOpenPad?: () => void;
@@ -22,8 +24,13 @@ type WebParityLaunchCardProps = {
   isPadFollowed?: boolean;
   padFollowDisabled?: boolean;
   onToggleFollowPad?: () => void;
-  onOpenCalendar?: () => void;
-  onOpenAlerts?: () => void;
+  followMenuLabel?: string;
+  followMenuCount?: number;
+  followMenuCapacityLabel?: string;
+  followMenuActive?: boolean;
+  followMenuDisabled?: boolean;
+  notificationsActive?: boolean;
+  onOpenFollowMenu?: () => void;
   onOpenAr?: () => void;
 };
 
@@ -35,7 +42,7 @@ type StatusTone = {
   pillBorder: string;
 };
 
-const STATUS_TONES: Record<LaunchFeedItemV1['status'], StatusTone> = {
+const STATUS_TONES: Record<FeedLaunchCardData['status'], StatusTone> = {
   go: {
     borderColor: 'rgba(52, 211, 153, 0.28)',
     fillColor: 'rgba(52, 211, 153, 0.92)',
@@ -77,6 +84,7 @@ export function WebParityLaunchCard({
   launch,
   isNext = false,
   testID,
+  showDeferredMedia = true,
   onOpenDetails,
   onOpenProvider,
   onOpenPad,
@@ -89,8 +97,13 @@ export function WebParityLaunchCard({
   isPadFollowed = false,
   padFollowDisabled = false,
   onToggleFollowPad,
-  onOpenCalendar,
-  onOpenAlerts,
+  followMenuLabel,
+  followMenuCount = 0,
+  followMenuCapacityLabel,
+  followMenuActive = false,
+  followMenuDisabled = false,
+  notificationsActive = false,
+  onOpenFollowMenu,
   onOpenAr
 }: WebParityLaunchCardProps) {
   const { theme } = useMobileBootstrap();
@@ -99,7 +112,7 @@ export function WebParityLaunchCard({
   const orbitLabel = buildOrbitLabel(launch);
   const providerLabel = String(launch.provider || 'Launch').trim().toUpperCase();
   const providerLogoUrl = typeof launch.providerLogoUrl === 'string' ? launch.providerLogoUrl.trim() : '';
-  const backgroundImageUrl = launch.image?.thumbnail || launch.image?.full || null;
+  const backgroundImageUrl = showDeferredMedia ? launch.image?.thumbnail || launch.image?.full || null : null;
   const coverageUrl = buildCoverageUrl(launch);
   const activeEvent = launch.currentEvent ?? launch.nextEvent;
   const activeEventTag = launch.currentEvent ? 'Current event' : activeEvent ? 'Next event' : null;
@@ -200,7 +213,7 @@ export function WebParityLaunchCard({
       <View style={{ gap: 12 }}>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
-            {providerLogoUrl ? (
+            {showDeferredMedia && providerLogoUrl ? (
               <Pressable onPress={onOpenProvider} disabled={!onOpenProvider}>
                 <Image source={{ uri: providerLogoUrl }} resizeMode="contain" style={{ width: 132, height: 34 }} />
               </Pressable>
@@ -242,7 +255,26 @@ export function WebParityLaunchCard({
           </View>
         </View>
 
-        <Text style={{ color: theme.foreground, fontSize: 20, fontWeight: '800', lineHeight: 25 }}>{launch.name}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+          <Text style={{ flex: 1, color: theme.foreground, fontSize: 20, fontWeight: '800', lineHeight: 25 }}>{launch.name}</Text>
+          <View
+            pointerEvents="none"
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: 'rgba(255, 255, 255, 0.08)',
+              backgroundColor: 'rgba(255, 255, 255, 0.03)',
+              paddingHorizontal: 10,
+              paddingVertical: 6
+            }}
+          >
+            <Text style={{ color: theme.muted, fontSize: 10, fontWeight: '800', letterSpacing: 1.1, textTransform: 'uppercase' }}>Open</Text>
+            <ChevronGlyph color={theme.muted} />
+          </View>
+        </View>
 
         <View style={{ gap: 5 }}>
           {showVehicle ? (
@@ -337,36 +369,57 @@ export function WebParityLaunchCard({
         </View>
       </View>
 
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-        <CardActionButton
-          label={launch.webcastLive ? 'Watch live' : coverageUrl ? (launch.status === 'scrubbed' ? 'Replay' : 'Watch') : 'Coverage'}
-          disabled={!coverageUrl}
-          onPress={() => {
-            if (!coverageUrl) return;
-            void Linking.openURL(coverageUrl);
-          }}
-          variant="primary"
-        />
-        <CardActionButton label={launch.status === 'scrubbed' ? 'Report' : 'Details'} onPress={onOpenDetails} variant="secondary" />
-      </View>
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          paddingTop: 2
+        }}
+      >
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, flex: 1 }}>
+          {coverageUrl ? (
+            <CardIconButton
+              label={launch.webcastLive ? 'Watch live' : launch.status === 'scrubbed' ? 'Replay coverage' : 'Watch coverage'}
+              active={launch.webcastLive}
+              onPress={() => {
+                void Linking.openURL(coverageUrl);
+              }}
+            >
+              <PlayGlyph color={launch.webcastLive ? theme.accent : theme.foreground} active={launch.webcastLive} />
+            </CardIconButton>
+          ) : null}
+          <CardIconButton
+            label="Share launch"
+            onPress={() => {
+              void Share.share({
+                message: `${launch.name}\n${shareUrl}`,
+                url: shareUrl
+              });
+            }}
+          >
+            <ShareGlyph color={theme.foreground} />
+          </CardIconButton>
+          {onOpenAr ? (
+            <CardIconButton label="Open AR trajectory" onPress={onOpenAr}>
+              <ArGlyph color={theme.foreground} />
+            </CardIconButton>
+          ) : null}
+        </View>
 
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        <CardUtilityButton
-          label="Share"
-          onPress={() => {
-            void Share.share({
-              message: `${launch.name}\n${shareUrl}`,
-              url: shareUrl
-            });
-          }}
-        />
-        {onOpenCalendar ? <CardUtilityButton label="Calendar" onPress={onOpenCalendar} /> : null}
-        {onOpenAlerts ? <CardUtilityButton label="Alerts" onPress={onOpenAlerts} /> : null}
-        {onOpenAr ? <CardUtilityButton label="AR" onPress={onOpenAr} /> : null}
-      </View>
-
-      {onToggleWatch || onToggleFollowProvider || onToggleFollowPad ? (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        {onOpenFollowMenu ? (
+          <PrimaryFollowButton
+            label={followMenuLabel || 'Follow'}
+            active={followMenuActive}
+            disabled={followMenuDisabled}
+            count={followMenuCount}
+            capacityLabel={followMenuCapacityLabel}
+            notificationsActive={notificationsActive}
+            onPress={onOpenFollowMenu}
+          />
+        ) : onToggleWatch || onToggleFollowProvider || onToggleFollowPad ? (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
           {onToggleWatch ? (
             <FollowChip
               label={isWatched ? 'Following launch' : 'Follow launch'}
@@ -391,8 +444,9 @@ export function WebParityLaunchCard({
               onPress={onToggleFollowPad}
             />
           ) : null}
-        </View>
-      ) : null}
+          </View>
+        ) : null}
+      </View>
 
       <View
         style={{
@@ -453,80 +507,122 @@ export function WebParityLaunchCard({
   );
 }
 
-function CardActionButton({
+function CardIconButton({
   label,
+  active = false,
   onPress,
-  disabled = false,
-  variant
+  children
 }: {
   label: string;
+  active?: boolean;
   onPress: () => void;
-  disabled?: boolean;
-  variant: 'primary' | 'secondary';
+  children: ReactNode;
 }) {
+  const { theme } = useMobileBootstrap();
+
   return (
     <Pressable
-      disabled={disabled}
+      accessibilityLabel={label}
       onPress={onPress}
       style={({ pressed }) => ({
-        flex: variant === 'primary' ? 1.15 : 1,
+        width: 44,
+        height: 44,
         alignItems: 'center',
         justifyContent: 'center',
-        borderRadius: 12,
+        borderRadius: 14,
         borderWidth: 1,
-        borderColor: variant === 'primary' ? 'rgba(34, 211, 238, 0.28)' : 'rgba(234, 240, 255, 0.12)',
-        backgroundColor:
-          variant === 'primary'
-            ? pressed
-              ? 'rgba(34, 211, 238, 0.16)'
-              : 'rgba(34, 211, 238, 0.12)'
-            : pressed
-              ? 'rgba(255, 255, 255, 0.07)'
-              : 'rgba(255, 255, 255, 0.04)',
-        paddingHorizontal: 14,
-        paddingVertical: 11,
-        opacity: disabled ? 0.45 : 1
+        borderColor: active ? `${theme.accent}66` : 'rgba(234, 240, 255, 0.1)',
+        backgroundColor: active ? 'rgba(34, 211, 238, 0.12)' : pressed ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.03)'
       })}
     >
-      <Text
-        style={{
-          color: variant === 'primary' ? '#6fe8ff' : '#eaf0ff',
-          fontSize: 13,
-          fontWeight: '700'
-        }}
-      >
-        {label}
-      </Text>
+      {children}
     </Pressable>
   );
 }
 
-function CardUtilityButton({
+function PrimaryFollowButton({
   label,
+  active,
+  disabled = false,
+  count,
+  capacityLabel,
+  notificationsActive,
   onPress
 }: {
   label: string;
+  active: boolean;
+  disabled?: boolean;
+  count: number;
+  capacityLabel?: string;
+  notificationsActive: boolean;
   onPress: () => void;
 }) {
   const { theme } = useMobileBootstrap();
 
   return (
     <Pressable
+      disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => ({
-        flexGrow: 1,
-        flexBasis: 92,
+        minHeight: 44,
+        flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'center',
+        gap: 10,
         borderRadius: 999,
         borderWidth: 1,
-        borderColor: 'rgba(234, 240, 255, 0.1)',
-        backgroundColor: pressed ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.03)',
-        paddingHorizontal: 12,
-        paddingVertical: 10
+        borderColor: active ? `${theme.accent}80` : 'rgba(234, 240, 255, 0.14)',
+        backgroundColor: active ? 'rgba(34, 211, 238, 0.14)' : pressed ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.04)',
+        paddingLeft: 14,
+        paddingRight: 12,
+        paddingVertical: 10,
+        opacity: disabled ? 0.45 : 1
       })}
     >
-      <Text style={{ color: theme.foreground, fontSize: 12, fontWeight: '700' }}>{label}</Text>
+      <View
+        style={{
+          width: 22,
+          height: 22,
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderRadius: 999,
+          borderWidth: 1,
+          borderColor: active ? `${theme.accent}80` : 'rgba(234, 240, 255, 0.14)',
+          backgroundColor: active ? 'rgba(34, 211, 238, 0.16)' : 'rgba(255, 255, 255, 0.03)'
+        }}
+      >
+        {active ? <CheckGlyph color={theme.accent} /> : <PlusGlyph color={theme.foreground} />}
+      </View>
+      <Text style={{ color: active ? theme.accent : theme.foreground, fontSize: 13, fontWeight: '800' }}>{label}</Text>
+      {capacityLabel ? (
+        <View
+          style={{
+            minWidth: 22,
+            height: 22,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: 999,
+            backgroundColor: active ? 'rgba(34, 211, 238, 0.2)' : 'rgba(255, 255, 255, 0.08)',
+            paddingHorizontal: 7
+          }}
+        >
+          <Text style={{ color: active ? theme.accent : theme.foreground, fontSize: 11, fontWeight: '800' }}>{capacityLabel}</Text>
+        </View>
+      ) : count > 0 ? (
+        <View
+          style={{
+            minWidth: 22,
+            height: 22,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: 999,
+            backgroundColor: active ? 'rgba(34, 211, 238, 0.2)' : 'rgba(255, 255, 255, 0.08)',
+            paddingHorizontal: 7
+          }}
+        >
+          <Text style={{ color: active ? theme.accent : theme.foreground, fontSize: 11, fontWeight: '800' }}>{count}</Text>
+        </View>
+      ) : null}
+      {notificationsActive ? <NotificationDot color={theme.accent} /> : null}
     </Pressable>
   );
 }
@@ -592,6 +688,134 @@ function FollowChip({
       <Text style={{ color: active ? theme.accent : theme.foreground, fontSize: 11, fontWeight: '700' }}>{label}</Text>
     </Pressable>
   );
+}
+
+function PlayGlyph({ color, active = false }: { color: string; active?: boolean }) {
+  return (
+    <View style={{ width: 16, height: 16, alignItems: 'center', justifyContent: 'center' }}>
+      <View
+        style={{
+          width: 0,
+          height: 0,
+          borderTopWidth: 5,
+          borderBottomWidth: 5,
+          borderLeftWidth: 8,
+          borderTopColor: 'transparent',
+          borderBottomColor: 'transparent',
+          borderLeftColor: color,
+          marginLeft: 2
+        }}
+      />
+      {active ? (
+        <View
+          style={{
+            position: 'absolute',
+            right: 0,
+            top: 0,
+            width: 4,
+            height: 4,
+            borderRadius: 999,
+            backgroundColor: color
+          }}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+function ShareGlyph({ color }: { color: string }) {
+  return (
+    <View style={{ width: 18, height: 18 }}>
+      <View
+        style={{
+          position: 'absolute',
+          left: 3,
+          bottom: 2,
+          width: 11,
+          height: 10,
+          borderWidth: 1.6,
+          borderTopWidth: 0,
+          borderColor: color,
+          borderRadius: 3
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          left: 8,
+          top: 1,
+          width: 1.8,
+          height: 10,
+          borderRadius: 999,
+          backgroundColor: color
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          left: 5,
+          top: 1.5,
+          width: 6,
+          height: 6,
+          borderTopWidth: 1.8,
+          borderRightWidth: 1.8,
+          borderColor: color,
+          transform: [{ rotate: '-45deg' }]
+        }}
+      />
+    </View>
+  );
+}
+
+function ArGlyph({ color }: { color: string }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 1 }}>
+      <Text style={{ color, fontSize: 10, fontWeight: '800', letterSpacing: 0.8 }}>AR</Text>
+    </View>
+  );
+}
+
+function ChevronGlyph({ color }: { color: string }) {
+  return (
+    <View
+      style={{
+        width: 7,
+        height: 7,
+        borderTopWidth: 1.6,
+        borderRightWidth: 1.6,
+        borderColor: color,
+        transform: [{ rotate: '45deg' }]
+      }}
+    />
+  );
+}
+
+function PlusGlyph({ color }: { color: string }) {
+  return (
+    <View style={{ width: 10, height: 10, alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ position: 'absolute', width: 10, height: 1.8, borderRadius: 999, backgroundColor: color }} />
+      <View style={{ position: 'absolute', width: 1.8, height: 10, borderRadius: 999, backgroundColor: color }} />
+    </View>
+  );
+}
+
+function CheckGlyph({ color }: { color: string }) {
+  return (
+    <View
+      style={{
+        width: 9,
+        height: 5,
+        borderLeftWidth: 1.8,
+        borderBottomWidth: 1.8,
+        borderColor: color,
+        transform: [{ rotate: '-45deg' }]
+      }}
+    />
+  );
+}
+
+function NotificationDot({ color }: { color: string }) {
+  return <View style={{ width: 7, height: 7, borderRadius: 999, backgroundColor: color }} />;
 }
 
 function StatusPill({ label, tone }: { label: string; tone: StatusTone }) {
@@ -666,7 +890,75 @@ function StatusTag({
   );
 }
 
-function buildStatusLabel(launch: LaunchFeedItemV1) {
+export function WebParityLaunchCardSkeleton({ testID }: { testID?: string }) {
+  const { theme } = useMobileBootstrap();
+
+  return (
+    <View
+      testID={testID}
+      style={{
+        overflow: 'hidden',
+        gap: 16,
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: theme.stroke,
+        backgroundColor: 'rgba(11, 16, 35, 0.82)',
+        paddingHorizontal: 18,
+        paddingVertical: 18
+      }}
+    >
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
+        <SkeletonBlock width="36%" height={16} />
+        <SkeletonBlock width={82} height={28} rounded />
+      </View>
+      <SkeletonBlock width="82%" height={26} />
+      <View style={{ gap: 8 }}>
+        <SkeletonBlock width="46%" height={12} />
+        <SkeletonBlock width="60%" height={12} />
+      </View>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 14 }}>
+        <View style={{ flex: 1, gap: 8 }}>
+          <SkeletonBlock width="34%" height={11} />
+          <SkeletonBlock width="72%" height={18} />
+          <SkeletonBlock width="58%" height={12} />
+        </View>
+        <SkeletonBlock width={124} height={52} />
+      </View>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <SkeletonBlock width="52%" height={44} />
+        <SkeletonBlock width="44%" height={44} />
+      </View>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        <SkeletonBlock width={86} height={34} rounded />
+        <SkeletonBlock width={86} height={34} rounded />
+        <SkeletonBlock width={78} height={34} rounded />
+      </View>
+    </View>
+  );
+}
+
+function SkeletonBlock({
+  width,
+  height,
+  rounded = false
+}: {
+  width: DimensionValue;
+  height: number;
+  rounded?: boolean;
+}) {
+  return (
+    <View
+      style={{
+        width,
+        height,
+        borderRadius: rounded ? 999 : 10,
+        backgroundColor: 'rgba(255, 255, 255, 0.08)'
+      }}
+    />
+  );
+}
+
+function buildStatusLabel(launch: FeedLaunchCardData) {
   if (launch.status === 'go') {
     return launch.netPrecision === 'day' || launch.netPrecision === 'tbd' ? 'Awaiting NET' : 'T-minus running';
   }
@@ -676,7 +968,7 @@ function buildStatusLabel(launch: LaunchFeedItemV1) {
   return launch.statusText || 'Mission status';
 }
 
-function buildCoverageUrl(launch: LaunchFeedItemV1) {
+function buildCoverageUrl(launch: FeedLaunchCardData) {
   const direct = typeof launch.videoUrl === 'string' ? launch.videoUrl.trim() : '';
   if (direct) return direct;
   const stream = launch.launchVidUrls?.find((item) => typeof item?.url === 'string' && item.url.trim().length > 0)?.url?.trim();
@@ -685,7 +977,7 @@ function buildCoverageUrl(launch: LaunchFeedItemV1) {
   return info || null;
 }
 
-function buildWeatherSummary(weatherConcerns: LaunchFeedItemV1['weatherConcerns']) {
+function buildWeatherSummary(weatherConcerns: FeedLaunchCardData['weatherConcerns']) {
   if (!Array.isArray(weatherConcerns) || weatherConcerns.length === 0) {
     return null;
   }
@@ -693,18 +985,18 @@ function buildWeatherSummary(weatherConcerns: LaunchFeedItemV1['weatherConcerns'
   return labels.slice(0, 2).join(' • ') || null;
 }
 
-function buildOrbitLabel(launch: LaunchFeedItemV1) {
+function buildOrbitLabel(launch: FeedLaunchCardData) {
   return launch.mission?.orbit || launch.payloads?.find((item) => item?.orbit)?.orbit || launch.mission?.type || 'TBD';
 }
 
-function buildPadLabel(launch: LaunchFeedItemV1) {
+function buildPadLabel(launch: FeedLaunchCardData) {
   const locationName = normalizeKnownValue(launch.pad.locationName);
   const padName = normalizeKnownValue(launch.pad.name);
   const shortCode = normalizeKnownValue(launch.pad.shortCode);
   return locationName || padName || shortCode || 'Pad';
 }
 
-function buildPadMeta(launch: LaunchFeedItemV1) {
+function buildPadMeta(launch: FeedLaunchCardData) {
   const locationName = normalizeKnownValue(launch.pad.locationName);
   if (locationName) {
     return null;
@@ -718,11 +1010,11 @@ function buildPadMeta(launch: LaunchFeedItemV1) {
   return state;
 }
 
-function buildVehicleLabel(launch: LaunchFeedItemV1) {
+function buildVehicleLabel(launch: FeedLaunchCardData) {
   return launch.rocket?.fullName || launch.vehicle;
 }
 
-function shouldShowVehicle(launch: LaunchFeedItemV1) {
+function shouldShowVehicle(launch: FeedLaunchCardData) {
   const vehicleKey = normalizeKey(buildVehicleLabel(launch));
   const nameKey = normalizeKey(launch.name);
   if (!vehicleKey || !nameKey) return true;

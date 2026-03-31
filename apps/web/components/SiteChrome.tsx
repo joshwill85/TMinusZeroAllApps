@@ -37,7 +37,7 @@ export function SiteChrome() {
   }, [profileQuery.data]);
   const viewerTier = useMemo<ViewerTier | null>(() => {
     const tier = entitlementsQuery.data?.tier;
-    return tier === 'anon' || tier === 'free' || tier === 'premium' ? tier : null;
+    return tier === 'anon' || tier === 'premium' ? tier : null;
   }, [entitlementsQuery.data?.tier]);
   const isAdmin = profile?.role === 'admin';
   const isCameraGuide = /^\/launches\/[^/]+\/ar(?:\/|$)/.test(pathname || '');

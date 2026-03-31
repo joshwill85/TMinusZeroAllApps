@@ -33,7 +33,7 @@ Mobile-first, dark-space launch schedule with LL2, free/public cache vs paid liv
 - CelesTrak usage: optionally set `CELESTRAK_USER_AGENT` to an app + contact string.
 - Supabase Edge `monitoring-check` watches ingestion runs and writes `ops_alerts` for the admin UI.
 - Enable/disable scheduled jobs via `system_settings` (`jobs_enabled`, `jobs_base_url`, `jobs_apikey`, `jobs_auth_token`).
-- Production should rely on the Edge functions; local one-off ingestion/backfill scripts were removed to avoid drift. Remaining local audits: `npm run trajectory:coverage` and `npm run twilio:a2p:audit`.
+- Production should rely on the Edge functions; local one-off ingestion/backfill scripts were removed to avoid drift. Remaining local audits focus on ingestion and trajectory coverage only.
 
 ## Backfills (server-side)
 - Global LL2 ingestion is controlled by `system_settings.ll2_location_filter_mode` (`us` or `all`).
@@ -60,8 +60,7 @@ Mobile-first, dark-space launch schedule with LL2, free/public cache vs paid liv
 
 ## Next steps (implementation)
 - Connect production providers:
-  - Email: `RESEND_API_KEY`, `NOTIFICATIONS_EMAIL_FROM` (optional: `NOTIFICATIONS_EMAIL_REPLY_TO`)
-  - Web push: `VAPID_SUBJECT`, `VAPID_SERVER_PUBLIC_KEY`, `VAPID_SERVER_PRIVATE_KEY`, and `NEXT_PUBLIC_WEB_PUSH_PUBLIC_KEY`
-  - SMS: Twilio (A2P, Verify, outbound)
+  - Native mobile push: Expo/device registration plus the push-only alert management flows
+  - Essential email only where still required outside launch notifications
 - Run ingestion + notifications as hosted jobs (Supabase cron/Edge Functions or external worker).
 - Stripe: wire real products/prices/webhooks and confirm entitlement behavior end-to-end.

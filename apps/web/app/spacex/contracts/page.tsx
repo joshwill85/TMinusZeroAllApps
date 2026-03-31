@@ -26,8 +26,8 @@ export async function generateMetadata({
   const siteUrl = getSiteUrl().replace(/\/$/, '');
   const canonical = '/spacex/contracts';
   const pageUrl = `${siteUrl}${canonical}`;
-  const title = `SpaceX Contracts & Government Awards | ${BRAND_NAME}`;
-  const description = 'SpaceX contracts index with government award context, obligations signals, and mission-linked detail pages.';
+  const title = `SpaceX Contracts & Awards | ${BRAND_NAME}`;
+  const description = 'SpaceX contract pages with award details, source records, and mission links.';
 
   return {
     title,
@@ -85,15 +85,15 @@ export default async function SpaceXContractsPage({
       <ProgramHubBackLink program="spacex" />
 
       <header className="space-y-4">
-        <p className="text-xs uppercase tracking-[0.14em] text-text3">Contracts Intelligence</p>
+        <p className="text-xs uppercase tracking-[0.14em] text-text3">Contracts</p>
         <h1 className="text-3xl font-semibold text-text1">SpaceX Contracts</h1>
         <p className="max-w-3xl text-sm text-text2">
-          Government and partner contract records associated with SpaceX mission families, with detail pages for award profile and obligation context.
+          Internal contract pages for SpaceX awards with linked source records and mission context.
         </p>
         <div className="flex flex-wrap items-center gap-2 text-xs text-text3">
           <span className="rounded-full border border-stroke px-3 py-1">Contracts: {contracts.items.length}</span>
           <span className="rounded-full border border-stroke px-3 py-1">Showing: {visibleContracts.length}</span>
-          <span className="rounded-full border border-stroke px-3 py-1">Source: USAspending-derived + fallback records</span>
+          <span className="rounded-full border border-stroke px-3 py-1">Source: internal pages + source records</span>
         </div>
       </header>
 
@@ -124,11 +124,11 @@ export default async function SpaceXContractsPage({
                     {typeof contract.amount === 'number' ? <span>Amount: {formatCurrency(contract.amount)}</span> : null}
                     {contract.sourceUrl ? (
                       <a href={contract.sourceUrl} target="_blank" rel="noreferrer" className="text-primary hover:text-primary/80">
-                        Source
+                        Source record
                       </a>
                     ) : null}
                     <Link href={`/spacex/contracts/${buildSpaceXContractSlug(contract.contractKey)}`} className="text-primary hover:text-primary/80">
-                      Drilldown
+                      Open contract page
                     </Link>
                   </div>
                 </li>
@@ -173,7 +173,7 @@ export default async function SpaceXContractsPage({
           Blue Origin Contracts
         </Link>
         <Link href="/contracts" className="rounded-full border border-stroke px-3 py-1 uppercase tracking-[0.14em] hover:text-text1">
-          Canonical Contracts
+          All Contracts
         </Link>
         <Link href="/artemis/awardees" className="rounded-full border border-stroke px-3 py-1 uppercase tracking-[0.14em] hover:text-text1">
           Artemis Awardees

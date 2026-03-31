@@ -2029,8 +2029,7 @@ function isJobScriptName(name: string) {
     name.startsWith('cache:') ||
     name.startsWith('trajectory:') ||
     name.startsWith('backfill:') ||
-    name.startsWith('dispatch:') ||
-    name.startsWith('twilio:')
+    name.startsWith('dispatch:')
   );
 }
 
@@ -2042,8 +2041,6 @@ function formatLocalJobLabel(name: string) {
       const upper = word.toUpperCase();
       if (upper === 'LL2' || upper === 'SNAPI' || upper === 'WS45' || upper === 'NWS') return upper;
       if (upper === 'PG') return 'Postgres';
-      if (upper === 'SMS') return 'SMS';
-      if (upper === 'TWILIO') return 'Twilio';
       return word.charAt(0).toUpperCase() + word.slice(1);
     })
     .join(' ');

@@ -22,7 +22,7 @@ export function ProgramContractDiscoveryList({
           {subtitle ? <p className="mt-1 text-sm text-text3">{subtitle}</p> : null}
         </div>
         <span className="text-xs uppercase tracking-[0.08em] text-text3">
-          {items.length} leads
+          {items.length} records
         </span>
       </div>
 
@@ -33,7 +33,7 @@ export function ProgramContractDiscoveryList({
               <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.08em] text-text3">
                 <span>{item.sourceType === 'sam-contract-award' ? 'SAM award' : 'SAM notice'}</span>
                 <span className="rounded-full border border-stroke px-2 py-0.5">
-                  {item.joinStatus === 'candidate' ? 'Candidate' : 'Unlinked'}
+                  {item.joinStatus === 'candidate' ? 'Possible match' : 'Unmatched'}
                 </span>
                 {item.noticeId || item.solicitationId || item.piid ? (
                   <span className="font-mono normal-case tracking-normal">
@@ -45,11 +45,11 @@ export function ProgramContractDiscoveryList({
                 <div className="min-w-0 flex-1">
                   {item.sourceUrl ? (
                     <a href={item.sourceUrl} target="_blank" rel="noreferrer" className="text-base font-semibold text-text1 hover:text-primary">
-                      {item.title || item.summary || item.entityName || 'Procurement discovery item'}
+                      {item.title || item.summary || item.entityName || 'Source record'}
                     </a>
                   ) : (
                     <p className="text-base font-semibold text-text1">
-                      {item.title || item.summary || item.entityName || 'Procurement discovery item'}
+                      {item.title || item.summary || item.entityName || 'Source record'}
                     </p>
                   )}
                   {item.summary ? <p className="mt-1 text-sm text-text2">{item.summary}</p> : null}

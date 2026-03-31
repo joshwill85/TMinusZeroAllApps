@@ -998,6 +998,7 @@ assert.equal(resolvedMilestones.find((milestone) => milestone.label === 'GO for 
 assert.equal(resolvedMilestones.find((milestone) => milestone.label === 'Stage 2 Separation')?.phase, 'core_ascent');
 assert.equal(resolvedMilestones.find((milestone) => milestone.label === 'Fairing Separation')?.trackKind, 'core_up');
 assert.equal(resolvedMilestones.find((milestone) => milestone.label === 'SES-1')?.phase, 'upper_stage');
+assert.equal(resolvedMilestones.find((milestone) => milestone.label === 'SES-1')?.trackKind, 'upper_stage_up');
 
 const projectedMilestones = applyTrajectoryMilestoneProjection({
   milestones: resolvedMilestones,
@@ -1042,6 +1043,12 @@ assert.equal(trajectoryContract?.qualityState, 'guided');
 assert.equal(trajectoryPublicV2?.qualityState, 'safe_corridor');
 assert.equal(trajectoryPublicV2?.modelVersion, 'trajectory_v1');
 assert.equal(trajectoryPublicV2?.tracks.length, 1);
+assert.equal(trajectoryPublicV2?.guidanceSemantics, 'modeled');
+assert.deepEqual(trajectoryPublicV2?.trackTopology, {
+  hasStageSplit: false,
+  hasUpperStageTrack: false,
+  hasBoosterTrack: false
+});
 
 const milestoneAwareContract = buildTrajectoryContract({
   launch_id: 'trajectory-milestones',

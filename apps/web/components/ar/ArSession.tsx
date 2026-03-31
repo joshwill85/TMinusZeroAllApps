@@ -61,7 +61,6 @@ import {
   formatTrajectoryAuthorityTierLabel,
   formatTrajectoryFieldConfidenceLabel,
   formatTrajectoryMilestoneOffsetLabel,
-  formatTrajectoryQualityStateLabel,
   TrajectoryAuthorityTier,
   TrajectoryContract,
   TrajectoryMilestonePayload,
@@ -255,6 +254,63 @@ function bucketTimeToLockMs(durationMs: number | null): TimeToLockBucket | undef
   if (sec < 20) return '10..20s';
   if (sec < 60) return '20..60s';
   return '60s+';
+}
+
+function formatTrajectoryGuidanceSemanticsLabel(trajectory: TrajectoryContract) {
+  if (trajectory.guidanceSemantics === 'constraint_backed') return 'Constraint-backed guidance';
+  if (trajectory.guidanceSemantics === 'modeled') return 'Modeled corridor';
+  return 'Pad guide';
+}
+
+function formatTrajectoryRecoverySemanticsLabel(trajectory: TrajectoryContract) {
+  if (trajectory.recoverySemantics === 'exact_track') return 'Exact recovery track';
+  if (trajectory.recoverySemantics === 'coarse_sector') return 'Coarse recovery sector';
+  if (trajectory.recoverySemantics === 'text_only') return 'Recovery text only';
+  return 'No recovery placement';
+}
+
+function formatTrajectorySupgpModeLabel(supgpMode: TrajectoryContract['sourceCoverage']['supgpMode']) {
+  if (supgpMode === 'launch_file') return 'CelesTrak launch file';
+  if (supgpMode === 'family_feed') return 'CelesTrak family feed';
+  return 'No SupGP';
+}
+
+function formatTrajectorySourceCoverageSummary(trajectory: TrajectoryContract) {
+  const sourceCoverage = trajectory.sourceCoverage;
+  const labels = [
+    `Orbit ${sourceCoverage.orbitClass.replace(/_/g, ' ')}`,
+    sourceCoverage.hazardPresent ? 'Hazard-backed' : 'No hazard footprint',
+    `Landing ${sourceCoverage.landingClass.replace(/_/g, ' ')}`,
+    `Stage sep ${sourceCoverage.stageSeparationSource.replace(/_/g, ' ')}`,
+    formatTrajectorySupgpModeLabel(sourceCoverage.supgpMode),
+    sourceCoverage.shipAssignmentPresent ? 'Ship assignment present' : null
+  ].filter((value): value is string => Boolean(value));
+  return labels.join(' • ');
+}
+
+function getTrajectoryTrackPalette(trackKind: TrajectoryTrackKind, inLaunchPhase: boolean) {
+  if (trackKind === 'upper_stage_up') {
+    return {
+      futureColor: 'rgba(132, 196, 255, 0.92)',
+      corridorColor: 'rgba(88, 160, 255, 0.1)',
+      pastColor: 'rgba(132, 196, 255, 0.24)',
+      pointColor: 'rgba(196, 224, 255, 0.78)'
+    };
+  }
+  if (trackKind === 'booster_down') {
+    return {
+      futureColor: 'rgba(255, 176, 92, 0.92)',
+      corridorColor: 'rgba(255, 148, 62, 0.1)',
+      pastColor: 'rgba(255, 176, 92, 0.24)',
+      pointColor: 'rgba(255, 214, 168, 0.78)'
+    };
+  }
+  return {
+    futureColor: inLaunchPhase ? 'rgba(255, 186, 120, 0.92)' : 'rgba(140, 240, 255, 0.92)',
+    corridorColor: inLaunchPhase ? 'rgba(255, 170, 90, 0.08)' : 'rgba(90, 210, 255, 0.08)',
+    pastColor: 'rgba(255,255,255,0.22)',
+    pointColor: inLaunchPhase ? 'rgba(255, 218, 186, 0.8)' : 'rgba(214, 248, 255, 0.8)'
+  };
 }
 
 function droppedFrameRatioFromStats(stats: FrameStats) {
@@ -546,6 +602,7 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
   const [calibrationNotice, setCalibrationNotice] = useState<string | null>(null);
 	  const [showQualityHelp, setShowQualityHelp] = useState(false);
 		const [showConfidenceInfo, setShowConfidenceInfo] = useState(false);
+  const [showPrelaunchFlightPlan, setShowPrelaunchFlightPlan] = useState(false);
 	  const [showMilestones, setShowMilestones] = useState(true);
 	  const [advancedFusionEnabled, setAdvancedFusionEnabled] = useState(false);
     const [traceRecording, setTraceRecording] = useState(false);
@@ -2682,13 +2739,7 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
 
   const time = useTrajectoryTime({ netIso: net, durationSec });
 
-  const displayTSec = useMemo(() => {
-    if (time.mode !== 'LIVE') return time.tSelectedSec;
-    if (!time.isBeforeLiftoff) return time.tSelectedSec;
-    if (showWizard) return time.tSelectedSec;
-    if (!(durationSec > 0)) return time.tSelectedSec;
-    return Math.min(durationSec, 60);
-  }, [durationSec, showWizard, time.isBeforeLiftoff, time.mode, time.tSelectedSec]);
+  const displayTSec = time.tSelectedSec;
 
   const effectiveYawOffset = useMemo(() => normalizeAngleDelta(yawOffset + autoYawBias), [yawOffset, autoYawBias]);
   const effectivePitchOffset = useMemo(() => pitchOffset + autoPitchBias, [pitchOffset, autoPitchBias]);
@@ -3587,19 +3638,26 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
   }, [primaryTrajectoryTrack, trajectoryTrackPointsByKind]);
 
   const trajectoryMaxElevation = useMemo(() => {
-    if (!trajectoryPoints.length) return null;
+    const allTrackPoints = Object.values(trajectoryTrackPointsByKind).flat();
+    if (!allTrackPoints.length) return null;
     let max = Number.NEGATIVE_INFINITY;
-    for (const point of trajectoryPoints) {
+    for (const point of allTrackPoints) {
       if (typeof point?.elDeg === 'number' && Number.isFinite(point.elDeg)) {
         if (point.elDeg > max) max = point.elDeg;
       }
     }
     return Number.isFinite(max) ? max : null;
-  }, [trajectoryPoints]);
+  }, [trajectoryTrackPointsByKind]);
 
   const trajectoryBelowHorizon = trajectoryMaxElevation != null && trajectoryMaxElevation < 0;
-  const trajectorySampleCount = primaryTrajectoryTrackSamples.length;
-  const hasTrajectoryLine = trajectorySampleCount >= 2;
+  const trajectorySampleCount = useMemo(
+    () => trajectoryTracks.reduce((sum, track) => sum + (Array.isArray(track.samples) ? track.samples.length : 0), 0),
+    [trajectoryTracks]
+  );
+  const hasTrajectoryLine = useMemo(
+    () => Object.values(trajectoryTrackPointsByKind).some((points) => Array.isArray(points) && points.length >= 2),
+    [trajectoryTrackPointsByKind]
+  );
   const trajectoryRenderable = hasTrajectoryLine && !trajectoryBelowHorizon;
 
   const trajectoryStatusLabel = useMemo(() => {
@@ -3608,9 +3666,12 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
       return 'Pad marker only';
     }
     if (trajectoryBelowHorizon) return 'Below your horizon';
-    if (trajectory.qualityState === 'precision') return 'Precision guidance';
-    if (trajectory.qualityState === 'guided') return 'Guided corridor';
-    return 'Search corridor';
+    const guidanceLabel = formatTrajectoryGuidanceSemanticsLabel(trajectory);
+    const topologyLabel = trajectory.trackTopology.hasStageSplit ? 'split tracks' : 'single-track ascent';
+    if (trajectory.recoverySemantics === 'exact_track') return `${guidanceLabel} • ${topologyLabel} • exact recovery track`;
+    if (trajectory.recoverySemantics === 'coarse_sector') return `${guidanceLabel} • ${topologyLabel} • coarse recovery sector`;
+    if (trajectory.recoverySemantics === 'text_only') return `${guidanceLabel} • ${topologyLabel} • recovery text only`;
+    return `${guidanceLabel} • ${topologyLabel}`;
   }, [trajectory, hasTrajectoryLine, trajectoryBelowHorizon]);
 
   const trajectoryEvidenceView = useMemo(() => {
@@ -3618,7 +3679,10 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
     return {
       confidenceBadge: trajectory.confidenceBadge,
       confidenceBadgeLabel: trajectory.confidenceBadgeLabel,
-      evidenceLabel: trajectory.evidenceLabel
+      evidenceLabel: trajectory.evidenceLabel,
+      guidanceLabel: formatTrajectoryGuidanceSemanticsLabel(trajectory),
+      recoveryLabel: formatTrajectoryRecoverySemanticsLabel(trajectory),
+      sourceCoverageLabel: formatTrajectorySourceCoverageSummary(trajectory)
     };
   }, [trajectory]);
 
@@ -3663,16 +3727,22 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
     () =>
       trajectoryMilestones.filter(
         (milestone) =>
+          (time.mode !== 'LIVE' || time.isBeforeLiftoff || milestone.phase !== 'prelaunch') &&
           milestone.projectable &&
           typeof milestone.tPlusSec === 'number' &&
           Number.isFinite(milestone.tPlusSec) &&
           Boolean(milestone.trackKind)
       ),
-    [trajectoryMilestones]
+    [time.isBeforeLiftoff, time.mode, trajectoryMilestones]
   );
 
+  const trajectoryPrelaunchMilestones = useMemo(() => {
+    if (time.mode === 'LIVE' && !time.isBeforeLiftoff) return [];
+    return trajectoryMilestones.filter((milestone) => milestone.phase === 'prelaunch');
+  }, [time.isBeforeLiftoff, time.mode, trajectoryMilestones]);
+
   const trajectoryFlightPlanMilestones = useMemo(
-    () => trajectoryMilestones.filter((milestone) => !milestone.projectable),
+    () => trajectoryMilestones.filter((milestone) => milestone.phase !== 'prelaunch' && !milestone.projectable),
     [trajectoryMilestones]
   );
 
@@ -5224,12 +5294,34 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
       };
 
       const points = state.trajectoryPoints;
-      const canRenderTrajectory = state.trajectoryRenderable && points.length >= 2;
+      const orderedTrackKinds: TrajectoryTrackKind[] = ['core_up', 'upper_stage_up', 'booster_down'];
+      const projectedTrackSeries = orderedTrackKinds
+        .map((trackKind) => {
+          const rawPoints = state.trajectoryTrackPointsByKind[trackKind] ?? [];
+          if (rawPoints.length === 0) return null;
+          const projected = rawPoints
+            .map((point) => {
+              const projectedPoint = project(point.azDeg, point.elDeg);
+              if (!projectedPoint) return null;
+              return {
+                x: projectedPoint.x,
+                y: projectedPoint.y,
+                t: point.tPlusSec,
+                sigmaDeg: readTrajectoryPointSigmaDeg(point) ?? 12
+              };
+            })
+            .filter((point): point is { x: number; y: number; t: number; sigmaDeg: number } => point != null);
+          return projected.length > 0 ? { trackKind, rawPoints, projected } : null;
+        })
+        .filter((track): track is NonNullable<typeof track> => track != null);
+      const canRenderTrajectory =
+        state.trajectoryRenderable && projectedTrackSeries.some((track) => track.projected.length >= 2);
       const tSelectedSec =
         state.timeMode === 'LIVE' && state.liftoffAtMs != null && !state.isBeforeLiftoff && state.durationSec > 0
           ? clamp((Date.now() - state.liftoffAtMs) / 1000, 0, state.durationSec)
           : state.tSelectedSec;
-      const aim = canRenderTrajectory ? interpolateTrajectory(points, tSelectedSec) : null;
+      const aimTrackPoints = points.length > 0 ? points : projectedTrackSeries[0]?.rawPoints ?? [];
+      const aim = canRenderTrajectory ? interpolateTrajectory(aimTrackPoints, tSelectedSec) : null;
 
       const aimProjected = aim ? project(aim.azDeg, aim.elDeg) : null;
       const sigmaDegBase = readTrajectoryPointSigmaDeg(aim) ?? readTrajectoryPointSigmaDeg(points[0]) ?? 12;
@@ -5241,80 +5333,93 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
       const guidanceSigmaDegScaled = Math.max(crossTrackSigmaDegScaled, alongTrackSigmaDegScaled);
       const anisotropyRatio = clamp(alongTrackSigmaDeg / Math.max(1, crossTrackSigmaDeg), 0.65, 2.4);
 
-      const projectedAll: Array<{ x: number; y: number; t: number }> = [];
-      if (canRenderTrajectory) {
-        for (const point of points) {
-          const projected = project(point.azDeg, point.elDeg);
-          if (!projected) continue;
-          projectedAll.push({ x: projected.x, y: projected.y, t: point.tPlusSec });
-        }
-      }
-
-      if (projectedAll.length >= 2) {
+      if (projectedTrackSeries.length > 0) {
         const inLaunchPhase = tSelectedSec < 90;
-        const coreColor = inLaunchPhase ? 'rgba(255, 186, 120, 0.9)' : 'rgba(140, 240, 255, 0.9)';
-        const dimColor = 'rgba(255,255,255,0.22)';
-
         const halfFovXRad = (Math.max(1, fovXValue) * Math.PI) / 180 / 2;
         const halfFovYRad = (Math.max(1, fovYValue) * Math.PI) / 180 / 2;
         const pxPerDegX = (width / 2) * ((Math.PI / 180) / Math.tan(halfFovXRad));
         const pxPerDegY = (height / 2) * ((Math.PI / 180) / Math.tan(halfFovYRad));
         const pxPerDeg = Math.max(pxPerDegX, pxPerDegY);
-        const radiusPx = clamp(crossTrackSigmaDegScaled * pxPerDeg, 2, Math.min(width, height) * 0.45);
-        const corridorWidth = clamp(radiusPx * 2, 10, Math.min(width, height) * 0.9);
-        const futureLineWidth = clamp(2.8 + (anisotropyRatio - 1) * 0.8, 2.3, 4.7);
-        const pastLineWidth = clamp(1.8 + (anisotropyRatio - 1) * 0.4, 1.4, 3.2);
 
-        const splitIndex = projectedAll.findIndex((p) => p.t > tSelectedSec);
-        const past = splitIndex === -1 ? projectedAll : projectedAll.slice(0, splitIndex);
-        const future = splitIndex === -1 ? [] : projectedAll.slice(splitIndex);
+        for (const track of projectedTrackSeries) {
+          const projectedAll = track.projected;
+          if (projectedAll.length >= 2) {
+            const palette = getTrajectoryTrackPalette(track.trackKind, inLaunchPhase);
+            const sigmaDeg =
+              (track.rawPoints.reduce((sum, point) => sum + (readTrajectoryPointSigmaDeg(point) ?? 12), 0) /
+                Math.max(track.rawPoints.length, 1)) *
+              corridorScale;
+            const radiusPx = clamp(sigmaDeg * pxPerDeg, 2, Math.min(width, height) * 0.45);
+            const corridorWidth = clamp(radiusPx * 2, 10, Math.min(width, height) * 0.9);
+            const futureLineWidth = clamp(2.8 + (anisotropyRatio - 1) * 0.8, 2.3, 4.7);
+            const pastLineWidth = clamp(1.8 + (anisotropyRatio - 1) * 0.4, 1.4, 3.2);
 
-        if (aimProjected) {
-          past.push({ x: aimProjected.x, y: aimProjected.y, t: tSelectedSec });
-          future.unshift({ x: aimProjected.x, y: aimProjected.y, t: tSelectedSec });
+            const splitIndex = projectedAll.findIndex((point) => point.t > tSelectedSec);
+            const past = splitIndex === -1 ? [...projectedAll] : projectedAll.slice(0, splitIndex);
+            const future = splitIndex === -1 ? [] : projectedAll.slice(splitIndex);
+
+            if (aimProjected && track.trackKind === 'core_up') {
+              past.push({ x: aimProjected.x, y: aimProjected.y, t: tSelectedSec, sigmaDeg });
+              future.unshift({ x: aimProjected.x, y: aimProjected.y, t: tSelectedSec, sigmaDeg });
+            }
+
+            ctx.save();
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            ctx.strokeStyle = palette.corridorColor;
+            ctx.lineWidth = corridorWidth;
+            ctx.beginPath();
+            drawPath(ctx, projectedAll);
+            ctx.stroke();
+            ctx.restore();
+
+            ctx.save();
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            ctx.strokeStyle = palette.pastColor;
+            ctx.lineWidth = pastLineWidth;
+            ctx.beginPath();
+            if (drawPath(ctx, past)) ctx.stroke();
+            ctx.restore();
+
+            ctx.save();
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            ctx.strokeStyle = palette.futureColor;
+            ctx.lineWidth = futureLineWidth;
+            ctx.shadowBlur = 0;
+            ctx.setLineDash(
+              !reducedEffectsEnabled && performanceTier < 2 && anisotropyRatio >= 1.35 && track.trackKind === 'core_up'
+                ? [8, 6]
+                : []
+            );
+            ctx.beginPath();
+            if (drawPath(ctx, future)) ctx.stroke();
+            ctx.restore();
+
+            for (let index = 0; index < projectedAll.length; index += 1) {
+              if (!(index === 0 || index === projectedAll.length - 1 || index % 4 === 0)) continue;
+              const point = projectedAll[index];
+              const markerRadius = clamp(3.5 + (point.sigmaDeg / 18) * 6, 3.5, 9);
+              ctx.save();
+              ctx.fillStyle = point.t < tSelectedSec ? palette.pastColor : palette.pointColor;
+              ctx.beginPath();
+              ctx.arc(point.x, point.y, markerRadius, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.restore();
+            }
+          } else if (projectedAll.length === 1) {
+            const palette = getTrajectoryTrackPalette(track.trackKind, inLaunchPhase);
+            const dot = projectedAll[0];
+            ctx.save();
+            ctx.fillStyle = palette.pointColor;
+            ctx.beginPath();
+            ctx.arc(dot.x, dot.y, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+          }
         }
-
-        // Corridor (uncertainty band)
-        ctx.save();
-        ctx.lineJoin = 'round';
-        ctx.lineCap = 'round';
-        ctx.strokeStyle = inLaunchPhase ? 'rgba(255, 170, 90, 0.08)' : 'rgba(90, 210, 255, 0.08)';
-        ctx.lineWidth = corridorWidth;
-        ctx.beginPath();
-        drawPath(ctx, projectedAll);
-        ctx.stroke();
-        ctx.restore();
-
-        // Spine (past, dim)
-        ctx.save();
-        ctx.lineJoin = 'round';
-        ctx.lineCap = 'round';
-        ctx.strokeStyle = dimColor;
-        ctx.lineWidth = pastLineWidth;
-        ctx.beginPath();
-        if (drawPath(ctx, past)) ctx.stroke();
-        ctx.restore();
-
-        // Spine (future, bright)
-        ctx.save();
-        ctx.lineJoin = 'round';
-        ctx.lineCap = 'round';
-        ctx.strokeStyle = coreColor;
-        ctx.lineWidth = futureLineWidth;
-        ctx.shadowBlur = 0;
-        ctx.setLineDash(!reducedEffectsEnabled && performanceTier < 2 && anisotropyRatio >= 1.35 ? [8, 6] : []);
-        ctx.beginPath();
-        if (drawPath(ctx, future)) ctx.stroke();
-        ctx.restore();
-	      } else if (projectedAll.length === 1) {
-	        const dot = projectedAll[0];
-	        ctx.save();
-	        ctx.fillStyle = 'rgba(255,255,255,0.75)';
-	        ctx.beginPath();
-	        ctx.arc(dot.x, dot.y, 5, 0, Math.PI * 2);
-	        ctx.fill();
-	        ctx.restore();
-	      }
+      }
 
 	      if (milestoneDensity !== 'off' && state.showMilestones && canRenderTrajectory && state.trajectoryMilestones.length > 0) {
 	        const inLaunchPhase = tSelectedSec < 90;
@@ -5819,28 +5924,66 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
           {netDisplay && <div className="text-[11px] text-white/70">NET {netDisplay}</div>}
           <div className="text-[10px] text-white/50">{trajectoryStatusLabel}</div>
         </div>
-        {trajectoryFlightPlanMilestones.length > 0 && (
+        {(trajectoryPrelaunchMilestones.length > 0 || trajectoryFlightPlanMilestones.length > 0) && (
           <div className="absolute right-[calc(1rem+env(safe-area-inset-right))] top-[calc(1rem+env(safe-area-inset-top))] max-w-[min(18rem,44vw)] rounded-xl border border-white/15 bg-black/55 px-3 py-2 text-white/85">
             <div className="text-[10px] uppercase tracking-[0.12em] text-white/55">Flight plan</div>
-            <div className="mt-1 text-[10px] text-white/45">Off-path milestones stay here until a matching AR track exists.</div>
-            <div className="mt-2 space-y-1.5">
-              {trajectoryFlightPlanMilestones.slice(0, 4).map((milestone, index) => (
-                <div key={`${milestone.key}:${milestone.tPlusSec ?? milestone.timeText ?? index}`} className="rounded-lg border border-white/10 bg-black/35 px-2.5 py-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 text-[11px] font-medium text-white/90">{milestone.label}</div>
-                    {formatTrajectoryMilestoneOffsetLabel(milestone.tPlusSec, milestone.timeText) && (
-                      <div className="shrink-0 text-[10px] text-white/55">
-                        {formatTrajectoryMilestoneOffsetLabel(milestone.tPlusSec, milestone.timeText)}
+            {trajectoryPrelaunchMilestones.length > 0 && (
+              <div className="mt-2 rounded-lg border border-white/10 bg-black/35 px-2.5 py-2">
+                <button
+                  type="button"
+                  onClick={() => setShowPrelaunchFlightPlan((prev) => !prev)}
+                  className="pointer-events-auto flex w-full items-center justify-between gap-3 text-left"
+                >
+                  <div>
+                    <div className="text-[11px] font-medium text-white/90">Prelaunch</div>
+                    <div className="mt-0.5 text-[10px] text-white/50">
+                      These cues collapse before liftoff and disappear automatically at T0.
+                    </div>
+                  </div>
+                  <div className="text-[10px] text-white/55">{showPrelaunchFlightPlan ? 'Hide' : 'Show'} ({trajectoryPrelaunchMilestones.length})</div>
+                </button>
+                {showPrelaunchFlightPlan && (
+                  <div className="mt-2 space-y-1.5">
+                    {trajectoryPrelaunchMilestones.slice(0, 5).map((milestone, index) => (
+                      <div key={`${milestone.key}:${milestone.tPlusSec ?? milestone.timeText ?? index}`} className="rounded-lg border border-white/10 bg-black/45 px-2.5 py-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 text-[11px] font-medium text-white/90">{milestone.label}</div>
+                          {formatTrajectoryMilestoneOffsetLabel(milestone.tPlusSec, milestone.timeText) && (
+                            <div className="shrink-0 text-[10px] text-white/55">
+                              {formatTrajectoryMilestoneOffsetLabel(milestone.tPlusSec, milestone.timeText)}
+                            </div>
+                          )}
+                        </div>
+                        <div className="mt-1 text-[10px] text-white/50">Prelaunch timeline cue</div>
                       </div>
-                    )}
+                    ))}
                   </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-white/50">
-                    <span>{formatArMilestoneProjectionReason(milestone)}</span>
-                    {milestone.estimated && <span className="text-amber-300/90">Estimated</span>}
-                  </div>
+                )}
+              </div>
+            )}
+            {trajectoryFlightPlanMilestones.length > 0 && (
+              <>
+                <div className="mt-2 text-[10px] text-white/45">Off-path milestones stay here until a matching AR track exists.</div>
+                <div className="mt-2 space-y-1.5">
+                  {trajectoryFlightPlanMilestones.slice(0, 4).map((milestone, index) => (
+                    <div key={`${milestone.key}:${milestone.tPlusSec ?? milestone.timeText ?? index}`} className="rounded-lg border border-white/10 bg-black/35 px-2.5 py-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 text-[11px] font-medium text-white/90">{milestone.label}</div>
+                        {formatTrajectoryMilestoneOffsetLabel(milestone.tPlusSec, milestone.timeText) && (
+                          <div className="shrink-0 text-[10px] text-white/55">
+                            {formatTrajectoryMilestoneOffsetLabel(milestone.tPlusSec, milestone.timeText)}
+                          </div>
+                        )}
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-white/50">
+                        <span>{formatArMilestoneProjectionReason(milestone)}</span>
+                        {milestone.estimated && <span className="text-amber-300/90">Estimated</span>}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -5959,12 +6102,10 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
 	          <div className="rounded-lg border border-white/10 bg-black/40 px-3 py-2">
 	            {trajectory ? (
 	              <>
-	                <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div>
-                      <span>
-                        Trajectory: {formatTrajectoryQualityStateLabel(trajectory.qualityState)}
-                      </span>{' '}
+                      <span>Trajectory: {trajectoryEvidenceView?.guidanceLabel ?? 'Trajectory estimate'}</span>{' '}
                       <span className="text-white/60">
                         (Tier {trajectory.quality} • {trajectory.version})
                       </span>
@@ -5972,6 +6113,10 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
                     <div className="mt-1 text-[11px] text-white/70">
                       Authority: {formatTrajectoryAuthorityTierLabel(trajectory.authorityTier)}
                     </div>
+                    <div className="mt-1 text-[11px] text-white/70">
+                      Recovery: {trajectoryEvidenceView?.recoveryLabel ?? 'Unknown'}
+                    </div>
+                    <div className="mt-1 text-[11px] text-white/60">{trajectoryEvidenceView?.sourceCoverageLabel}</div>
                     {(trajectoryEvidenceView || trajectory.confidenceTier || trajectory.freshnessState || trajectory.lineageComplete != null) && (
                       <>
                         {trajectoryEvidenceView && (
@@ -6001,13 +6146,16 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
                   <div className="mt-2 rounded-lg border border-white/10 bg-black/50 px-3 py-2 text-[11px] text-white/80">
                     <div className="space-y-1">
                       <div>
-                        <span className="text-white/90">Landing constrained:</span> Landing recovery is corroborated by stronger directional data; tighter corridor.
+                        <span className="text-white/90">Constraint-backed guidance:</span> Directional evidence is strong enough to keep the AR corridor tighter.
                       </div>
                       <div>
-                        <span className="text-white/90">Estimate corridor:</span> Orbit, hazard, template, and landing priors are fused; corridor widened when evidence is weaker.
+                        <span className="text-white/90">Modeled corridor:</span> Hazard, orbit, SupGP, template, and recovery priors are fused with wider uncertainty.
                       </div>
                       <div>
-                        <span className="text-white/90">Pad only:</span> No downrange data; only pad bearing available.
+                        <span className="text-white/90">Pad guide:</span> No reliable downrange track is available, so AR only shows the launch aim reference.
+                      </div>
+                      <div>
+                        <span className="text-white/90">Recovery semantics:</span> Exact track, coarse sector, and text-only recovery each reflect different evidence ceilings.
                       </div>
                     </div>
                     <div className="mt-2 text-white/60">
@@ -6468,7 +6616,7 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
                 <div className="min-w-0">
                   <div className="text-[10px] uppercase tracking-[0.12em] text-white/60">Trajectory confidence</div>
                   <div className="mt-1 text-sm font-semibold text-white">
-                    {trajectoryEvidenceView?.evidenceLabel ?? 'Trajectory estimate'}
+                    {trajectoryEvidenceView?.guidanceLabel ?? trajectoryEvidenceView?.evidenceLabel ?? 'Trajectory estimate'}
                   </div>
                   <div className="mt-0.5 text-[11px] text-white/70">
                     {trajectoryEvidenceView?.confidenceBadgeLabel ?? 'Confidence unknown'}
@@ -6478,7 +6626,7 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
                       ? ` • lineage ${trajectory.lineageComplete ? 'complete' : 'partial'}`
                       : ''}
                     {trajectory ? ` • ${formatTrajectoryAuthorityTierLabel(trajectory.authorityTier)}` : ''}
-                    {trajectory ? ` • ${formatTrajectoryQualityStateLabel(trajectory.qualityState)}` : ''}
+                    {trajectoryEvidenceView?.recoveryLabel ? ` • ${trajectoryEvidenceView.recoveryLabel}` : ''}
                   </div>
                 </div>
                 <button
@@ -6492,18 +6640,25 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
 
               <div className="mt-3 space-y-1 text-[11px] text-white/80">
                 <div>
-                  <span className="text-white/90">Tier A:</span> Constraint-backed, fresh sources, full lineage.
+                  <span className="text-white/90">Constraint-backed:</span> Strong directional inputs keep the sky corridor tighter and more stable.
                 </div>
                 <div>
-                  <span className="text-white/90">Tier B:</span> Directional constraints present, but some completeness limits.
+                  <span className="text-white/90">Modeled corridor:</span> Best-fit launch corridor from hazards, orbit hints, SupGP, and validated priors.
                 </div>
                 <div>
-                  <span className="text-white/90">Tier C:</span> Best-effort corridor (templates/heuristics); widened uncertainty.
+                  <span className="text-white/90">Pad guide:</span> No reliable postlaunch path is available, so only the launch aim reference is shown.
                 </div>
                 <div>
-                  <span className="text-white/90">Tier D:</span> Pad only (no downrange track).
+                  <span className="text-white/90">Recovery:</span> Exact track, coarse sector, and text-only recovery are labeled separately from ascent guidance.
                 </div>
               </div>
+
+              {trajectoryEvidenceView?.sourceCoverageLabel && (
+                <div className="mt-3 rounded-lg border border-white/10 bg-black/40 px-3 py-2">
+                  <div className="text-[10px] uppercase tracking-[0.12em] text-white/60">Source coverage</div>
+                  <div className="mt-1 text-[11px] text-white/75">{trajectoryEvidenceView.sourceCoverageLabel}</div>
+                </div>
+              )}
 
               {trajectory?.fieldProvenance && (
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -6569,9 +6724,7 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
           secondaryTimeLabel={
             time.mode === 'SCRUB'
               ? `Preview ${formatTPlus(time.tSelectedSec)}`
-              : time.isBeforeLiftoff && !showManualCalibrationUi && displayTSec !== time.tSelectedSec
-                ? `Preview ${formatTPlus(displayTSec)}`
-                : null
+              : null
           }
           onSelectLive={() => time.setMode('LIVE')}
           reducedEffects={effectiveReducedEffects}

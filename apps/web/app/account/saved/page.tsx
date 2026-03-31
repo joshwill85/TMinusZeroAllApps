@@ -324,7 +324,7 @@ export default function AccountSavedPage() {
             {viewerTier === 'premium'
               ? 'Saved items are fully enabled.'
               : hasSavedInventory
-                ? 'Saved items are stored but read-only on signed-in anon.'
+                ? 'Saved items stay stored but read-only without Premium.'
                 : 'Saved items are a Premium feature.'}
           </div>
           <div className="mt-1 text-xs text-text3">
@@ -564,7 +564,7 @@ function summarizeFilters(filters: LaunchFilter) {
 }
 
 function normalizeViewerTier(value: unknown): ViewerTier | undefined {
-  return value === 'anon' || value === 'free' || value === 'premium' ? value : undefined;
+  return value === 'anon' || value === 'premium' ? value : undefined;
 }
 
 function resolveViewerTier(value: unknown): ViewerTier {

@@ -108,8 +108,8 @@ export function NavBar() {
             <Link href="/docs/faq" className="hover:text-text1">
               FAQ
             </Link>
-            <Link href="/docs/sms-opt-in" className="hover:text-text1">
-              SMS Opt-In
+            <Link href="/preferences" className="hover:text-text1">
+              Notifications
             </Link>
             <Link href="/artemis" className="hover:text-text1">
               Artemis
@@ -152,8 +152,8 @@ export function NavBar() {
             <Link href="/docs/faq" className="hover:text-text1" onClick={() => setMenuOpen(false)}>
               FAQ
             </Link>
-            <Link href="/docs/sms-opt-in" className="hover:text-text1" onClick={() => setMenuOpen(false)}>
-              SMS Opt-In
+            <Link href="/preferences" className="hover:text-text1" onClick={() => setMenuOpen(false)}>
+              Notifications
             </Link>
             <Link href="/artemis" className="hover:text-text1" onClick={() => setMenuOpen(false)}>
               Artemis

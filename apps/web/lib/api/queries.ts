@@ -3,6 +3,8 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  AdminAccessOverrideUpdateV1,
+  AdminAccessOverrideV1,
   AccountExportV1,
   AlertRuleCreateV1,
   AlertRuleEnvelopeV1,
@@ -27,11 +29,7 @@ import type {
   LaunchFeedVersionRequest,
   LaunchFeedVersionV1,
   LaunchFeedV1,
-  LaunchNotificationPreferenceEnvelopeV1,
-  LaunchNotificationPreferenceUpdateV1,
   MarketingEmailV1,
-  NotificationPreferencesV1,
-  NotificationPreferencesUpdateV1,
   PrivacyPreferencesV1,
   PrivacyPreferencesUpdateV1,
   ProfileUpdateV1,
@@ -49,8 +47,10 @@ import type {
   WatchlistsV1
 } from '@tminuszero/api-client';
 import {
+  adminAccessOverrideQueryOptions,
   accountExportQueryOptions,
   alertRulesQueryOptions,
+  basicFollowsQueryOptions,
   billingCatalogQueryOptions,
   billingSummaryQueryOptions,
   calendarFeedsQueryOptions,
@@ -59,7 +59,6 @@ import {
   filterPresetsQueryOptions,
   launchFeedQueryOptions,
   launchFeedVersionQueryOptions,
-  launchNotificationPreferenceQueryOptions,
   launchDetailVersionQueryOptions,
   marketingEmailQueryOptions,
   normalizeSearchQuery,
@@ -87,13 +86,8 @@ import {
   getSharedAccountExport,
   getSharedPrivacyPreferences,
   getSharedProfile,
-  getLaunchDayEmailFilterOptions,
-  getWebPushDeviceStatus,
   updateSharedPrivacyPreferences,
-  updateSharedProfile,
-  sendWebPushTest,
-  subscribeWebPushDevice,
-  unsubscribeWebPushDevice
+  updateSharedProfile
 } from '@/lib/api/webAccountAdapters';
 import {
   getArEligibleLaunchIds,
@@ -105,6 +99,8 @@ import {
 const viewerScopedQueryKeys = [
   sharedQueryKeys.viewerSession,
   sharedQueryKeys.entitlements,
+  sharedQueryKeys.adminAccessOverride,
+  sharedQueryKeys.basicFollows,
   sharedQueryKeys.billingSummary,
   sharedQueryKeys.profile,
   sharedQueryKeys.privacyPreferences,
@@ -122,8 +118,6 @@ const WEB_USE_LEGACY_FEED_ADAPTERS = process.env.NEXT_PUBLIC_LAUNCH_FEED_LEGACY_
 
 export const webQueryKeys = sharedQueryKeys;
 export const webOnlyQueryKeys = {
-  launchDayEmailFilterOptions: ['launch-day-email-filter-options'] as const,
-  webPushDeviceStatus: ['web-push-device-status'] as const,
   arEligibleLaunchIds: ['ar-eligible-launch-ids'] as const,
   feedFilterOptions: (request: {
     mode: 'public' | 'live';
@@ -186,9 +180,12 @@ export const guestViewerEntitlements: EntitlementsV1 = {
   status: 'guest',
   source: 'guest',
   isPaid: false,
+  billingIsPaid: false,
   isAdmin: false,
   isAuthed: false,
   mode: 'public',
+  effectiveTierSource: 'guest',
+  adminAccessOverride: null,
   refreshIntervalSeconds: 7200,
   capabilities: {
     canUseSavedItems: false,
@@ -203,6 +200,9 @@ export const guestViewerEntitlements: EntitlementsV1 = {
     canUseBasicAlertRules: false,
     canUseAdvancedAlertRules: false,
     canUseBrowserLaunchAlerts: false,
+    canUseSingleLaunchFollow: false,
+    canUseAllUsLaunchAlerts: false,
+    canUseStateLaunchAlerts: false,
     canUseRecurringCalendarFeeds: false,
     canUseRssFeeds: false,
     canUseEmbedWidgets: false,
@@ -214,7 +214,8 @@ export const guestViewerEntitlements: EntitlementsV1 = {
     presetLimit: 0,
     filterPresetLimit: 0,
     watchlistLimit: 0,
-    watchlistRuleLimit: 0
+    watchlistRuleLimit: 0,
+    singleLaunchFollowLimit: 1
   },
   cancelAtPeriodEnd: false,
   currentPeriodEnd: null,
@@ -483,7 +484,6 @@ export function invalidateViewerScopedQueries(queryClient: QueryClient) {
   for (const queryKey of viewerScopedQueryKeys) {
     void queryClient.invalidateQueries({ queryKey });
   }
-  void queryClient.invalidateQueries({ queryKey: ['launch-notification-preference'] });
 }
 
 export function applyGuestViewerState(queryClient: QueryClient) {
@@ -493,6 +493,7 @@ export function applyGuestViewerState(queryClient: QueryClient) {
   queryClient.removeQueries({ queryKey: sharedQueryKeys.privacyPreferences });
   queryClient.removeQueries({ queryKey: sharedQueryKeys.accountExport });
   queryClient.removeQueries({ queryKey: sharedQueryKeys.billingSummary });
+  queryClient.removeQueries({ queryKey: sharedQueryKeys.basicFollows });
   queryClient.removeQueries({ queryKey: sharedQueryKeys.marketingEmail });
   queryClient.removeQueries({ queryKey: sharedQueryKeys.watchlists });
   queryClient.removeQueries({ queryKey: sharedQueryKeys.filterPresets });
@@ -501,7 +502,6 @@ export function applyGuestViewerState(queryClient: QueryClient) {
   queryClient.removeQueries({ queryKey: sharedQueryKeys.rssFeeds });
   queryClient.removeQueries({ queryKey: sharedQueryKeys.embedWidgets });
   queryClient.removeQueries({ queryKey: sharedQueryKeys.notificationPreferences });
-  queryClient.removeQueries({ queryKey: ['launch-notification-preference'] });
 }
 
 export function useViewerSessionQuery() {
@@ -510,6 +510,25 @@ export function useViewerSessionQuery() {
 
 export function useViewerEntitlementsQuery() {
   return useQuery(viewerEntitlementsQueryOptions(() => browserApiClient.getViewerEntitlements()));
+}
+
+export function useAdminAccessOverrideQuery(options?: { enabled?: boolean }) {
+  const viewerSessionQuery = useViewerSessionQuery();
+  const isAdmin = viewerSessionQuery.data?.role === 'admin';
+
+  return useQuery({
+    ...adminAccessOverrideQueryOptions(() => browserApiClient.getAdminAccessOverride()),
+    enabled: (options?.enabled ?? true) && Boolean(viewerSessionQuery.data?.viewerId) && isAdmin
+  });
+}
+
+export function useBasicFollowsQuery() {
+  const viewerSessionQuery = useViewerSessionQuery();
+
+  return useQuery({
+    ...basicFollowsQueryOptions(() => browserApiClient.getBasicFollows()),
+    enabled: Boolean(viewerSessionQuery.data?.viewerId)
+  });
 }
 
 export function useBillingSummaryQuery() {
@@ -636,24 +655,6 @@ export function useNotificationPreferencesQuery() {
   });
 }
 
-export function useLaunchDayEmailFilterOptionsQuery(options?: { enabled?: boolean }) {
-  return useQuery({
-    queryKey: webOnlyQueryKeys.launchDayEmailFilterOptions,
-    queryFn: getLaunchDayEmailFilterOptions,
-    staleTime: 5 * 60_000,
-    enabled: options?.enabled ?? true
-  });
-}
-
-export function useWebPushDeviceStatusQuery(options?: { enabled?: boolean }) {
-  return useQuery({
-    queryKey: webOnlyQueryKeys.webPushDeviceStatus,
-    queryFn: getWebPushDeviceStatus,
-    staleTime: 15_000,
-    enabled: options?.enabled ?? true
-  });
-}
-
 export function useArEligibleLaunchIdsQuery(options?: { enabled?: boolean; initialData?: string[] }) {
   return useQuery({
     queryKey: webOnlyQueryKeys.arEligibleLaunchIds,
@@ -745,21 +746,6 @@ export function useInfiniteSiteSearchQuery(query: string, options?: { limit?: nu
     staleTime: sharedQueryStaleTimes.search,
     getNextPageParam: (lastPage: SearchResponseV1) =>
       lastPage.hasMore ? lastPage.offset + lastPage.results.length : undefined
-  });
-}
-
-export function useLaunchNotificationPreferenceQuery(
-  launchId: string | null,
-  channel: 'sms' | 'push',
-  options?: { enabled?: boolean }
-) {
-  const viewerSessionQuery = useViewerSessionQuery();
-
-  return useQuery({
-    ...launchNotificationPreferenceQueryOptions(launchId || 'missing', channel, () =>
-      browserApiClient.getLaunchNotificationPreference(String(launchId), channel)
-    ),
-    enabled: (options?.enabled ?? true) && Boolean(viewerSessionQuery.data?.viewerId) && Boolean(launchId)
   });
 }
 
@@ -868,6 +854,7 @@ export function useCreateAlertRuleMutation() {
     mutationFn: (payload: AlertRuleCreateV1) => browserApiClient.createAlertRule(payload),
     onSuccess: (payload) => {
       queryClient.setQueryData<AlertRulesV1>(sharedQueryKeys.alertRules, (current) => mergeAlertRuleEnvelope(current, payload));
+      void queryClient.invalidateQueries({ queryKey: sharedQueryKeys.basicFollows });
     }
   });
 }
@@ -879,6 +866,7 @@ export function useDeleteAlertRuleMutation() {
     mutationFn: (ruleId: string) => browserApiClient.deleteAlertRule(ruleId),
     onSuccess: (_payload, ruleId) => {
       queryClient.setQueryData<AlertRulesV1>(sharedQueryKeys.alertRules, (current) => removeAlertRule(current, ruleId));
+      void queryClient.invalidateQueries({ queryKey: sharedQueryKeys.basicFollows });
     }
   });
 }
@@ -1018,18 +1006,6 @@ export function useRotateEmbedWidgetMutation() {
   });
 }
 
-export function useUpdateLaunchNotificationPreferenceMutation(launchId: string, channel: 'sms' | 'push') {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (payload: LaunchNotificationPreferenceUpdateV1) =>
-      browserApiClient.updateLaunchNotificationPreference(launchId, payload),
-    onSuccess: (payload: LaunchNotificationPreferenceEnvelopeV1) => {
-      queryClient.setQueryData(sharedQueryKeys.launchNotificationPreference(launchId, channel), payload);
-    }
-  });
-}
-
 export function useUpdateProfileMutation() {
   const queryClient = useQueryClient();
 
@@ -1052,18 +1028,6 @@ export function useUpdatePrivacyPreferencesMutation() {
   });
 }
 
-export function useUpdateNotificationPreferencesMutation() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (payload: NotificationPreferencesUpdateV1) => browserApiClient.updateNotificationPreferences(payload),
-    onSuccess: (payload) => {
-      queryClient.setQueryData<NotificationPreferencesV1>(sharedQueryKeys.notificationPreferences, payload);
-      void queryClient.invalidateQueries({ queryKey: ['launch-notification-preference'] });
-    }
-  });
-}
-
 export function useUpdateMarketingEmailMutation() {
   const queryClient = useQueryClient();
 
@@ -1071,6 +1035,33 @@ export function useUpdateMarketingEmailMutation() {
     mutationFn: (marketingEmailOptIn: boolean) => browserApiClient.updateMarketingEmail({ marketingEmailOptIn }),
     onSuccess: (payload: MarketingEmailV1) => {
       queryClient.setQueryData(sharedQueryKeys.marketingEmail, payload);
+    }
+  });
+}
+
+export function useUpdateAdminAccessOverrideMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: AdminAccessOverrideUpdateV1) => browserApiClient.updateAdminAccessOverride(payload),
+    onSuccess: async (payload: AdminAccessOverrideV1) => {
+      queryClient.setQueryData(sharedQueryKeys.adminAccessOverride, payload);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: sharedQueryKeys.adminAccessOverride }),
+        queryClient.invalidateQueries({ queryKey: sharedQueryKeys.entitlements }),
+        queryClient.invalidateQueries({ queryKey: sharedQueryKeys.basicFollows }),
+        queryClient.invalidateQueries({ queryKey: sharedQueryKeys.watchlists }),
+        queryClient.invalidateQueries({ queryKey: sharedQueryKeys.filterPresets }),
+        queryClient.invalidateQueries({ queryKey: sharedQueryKeys.alertRules }),
+        queryClient.invalidateQueries({ queryKey: sharedQueryKeys.calendarFeeds }),
+        queryClient.invalidateQueries({ queryKey: sharedQueryKeys.rssFeeds }),
+        queryClient.invalidateQueries({ queryKey: sharedQueryKeys.embedWidgets }),
+        queryClient.invalidateQueries({ queryKey: sharedQueryKeys.notificationPreferences }),
+        queryClient.invalidateQueries({ queryKey: sharedQueryKeys.launchFeed }),
+        queryClient.invalidateQueries({ queryKey: ['launch-detail'] }),
+        queryClient.invalidateQueries({ queryKey: ['launch-feed-version'] }),
+        queryClient.invalidateQueries({ queryKey: ['launch-detail-version'] })
+      ]);
     }
   });
 }
@@ -1126,46 +1117,5 @@ export function useResumeBillingSubscriptionMutation() {
       void queryClient.invalidateQueries({ queryKey: sharedQueryKeys.billingSummary });
       void queryClient.invalidateQueries({ queryKey: sharedQueryKeys.entitlements });
     }
-  });
-}
-
-export function useStartSmsVerificationMutation() {
-  return useMutation({
-    mutationFn: ({ phone, smsConsent }: { phone: string; smsConsent: boolean }) =>
-      browserApiClient.startSmsVerification({ phone, smsConsent })
-  });
-}
-
-export function useCompleteSmsVerificationMutation() {
-  return useMutation({
-    mutationFn: ({ phone, code }: { phone: string; code: string }) => browserApiClient.completeSmsVerification({ phone, code })
-  });
-}
-
-export function useSubscribeWebPushDeviceMutation() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: subscribeWebPushDevice,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: webOnlyQueryKeys.webPushDeviceStatus });
-    }
-  });
-}
-
-export function useUnsubscribeWebPushDeviceMutation() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: unsubscribeWebPushDevice,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: webOnlyQueryKeys.webPushDeviceStatus });
-    }
-  });
-}
-
-export function useSendWebPushTestMutation() {
-  return useMutation({
-    mutationFn: () => sendWebPushTest()
   });
 }

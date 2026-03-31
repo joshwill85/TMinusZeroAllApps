@@ -80,7 +80,7 @@ public final class TmzArTrajectoryModule: Module {
         view.enableSceneDepth = enabled
       }
 
-      Prop("enableSceneReconstruction", true) { (view: TmzArTrajectoryView, enabled: Bool) in
+      Prop("enableSceneReconstruction", false) { (view: TmzArTrajectoryView, enabled: Bool) in
         view.enableSceneReconstruction = enabled
       }
 
@@ -94,6 +94,14 @@ public final class TmzArTrajectoryModule: Module {
 
       Prop("targetZoomRatio") { (view: TmzArTrajectoryView, zoomRatio: Double?) in
         view.targetZoomRatio = zoomRatio
+      }
+
+      Prop("activeTPlusSec") { (view: TmzArTrajectoryView, activeTPlusSec: Double?) in
+        view.activeTPlusSec = activeTPlusSec
+      }
+
+      Prop("sessionActive", true) { (view: TmzArTrajectoryView, active: Bool) in
+        view.sessionActive = active
       }
 
       Prop("showDebugStatistics", false) { (view: TmzArTrajectoryView, enabled: Bool) in

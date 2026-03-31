@@ -7,11 +7,14 @@ export type TmzArTrajectoryWorldMappingStatus = 'not_available' | 'limited' | 'e
 export type TmzArTrajectoryGeoTrackingState = 'not_available' | 'initializing' | 'localizing' | 'localized'
 export type TmzArTrajectoryGeoTrackingAccuracy = 'unknown' | 'low' | 'medium' | 'high'
 export type TmzArTrajectoryOcclusionMode = 'none' | 'scene_depth' | 'mesh'
-export type TmzArTrajectoryPermissionState = 'granted' | 'denied' | 'prompt' | 'error'
+export type TmzArTrajectoryPermissionState = 'granted' | 'denied' | 'prompt' | 'error' | 'not_applicable'
+export type TmzArTrajectoryLocationAccuracy = 'full' | 'reduced' | 'unknown'
+export type TmzArTrajectoryLocationFixState = 'unavailable' | 'acquiring' | 'timeout' | 'coarse' | 'ready'
 export type TmzArTrajectoryOrientationLock = 'portrait' | 'landscape' | 'all'
 export type TmzArTrajectoryZoomControlPath = 'native_camera' | 'track_constraints' | 'preset_fallback' | 'unsupported'
 export type TmzArTrajectoryProjectionSource = 'intrinsics_frame' | 'projection_matrix' | 'inferred_fov' | 'preset'
 export type TmzArTrajectoryHeadingSource = 'arkit_world' | 'core_location_heading' | 'unknown'
+export type TmzArTrajectoryHeadingStatus = 'ok' | 'noisy' | 'unknown' | 'unavailable'
 export type TmzArTrajectoryPoseSource = 'arkit_world_tracking' | 'deviceorientation'
 export type TmzArTrajectoryPoseMode = 'arkit_world_tracking' | 'sensor_fused'
 export type TmzArTrajectoryVisionBackend = 'vision_native' | 'none'
@@ -39,6 +42,7 @@ export type TmzArTrajectoryCapabilities = {
 
 export type TmzArTrajectorySessionUpdate = {
   sessionRunning: boolean
+  status: 'initializing' | 'running' | 'unsupported' | 'failed'
   trackingState: TmzArTrajectoryTrackingState
   trackingReason: string | null
   worldAlignment: TmzArTrajectoryWorldAlignment
@@ -66,6 +70,10 @@ export type TmzArTrajectorySessionUpdate = {
   cameraPermission?: TmzArTrajectoryPermissionState
   motionPermission?: TmzArTrajectoryPermissionState
   locationPermission?: TmzArTrajectoryPermissionState
+  locationAccuracy?: TmzArTrajectoryLocationAccuracy
+  locationFixState?: TmzArTrajectoryLocationFixState
+  alignmentReady?: boolean
+  headingStatus?: TmzArTrajectoryHeadingStatus
   headingSource?: TmzArTrajectoryHeadingSource
   poseSource?: TmzArTrajectoryPoseSource
   poseMode?: TmzArTrajectoryPoseMode
@@ -73,15 +81,18 @@ export type TmzArTrajectorySessionUpdate = {
   zoomRatioBucket?: string
   zoomApplyLatencyBucket?: string
   zoomProjectionSyncLatencyBucket?: string
+  message?: string | null
+  retryCount?: number
   lastUpdatedAt: string
 }
 
 export type TmzArTrajectorySessionState = TmzArTrajectorySessionUpdate & {
-  status: 'initializing' | 'running' | 'unsupported' | 'failed'
   cameraPermission: TmzArTrajectoryPermissionState
   motionPermission: TmzArTrajectoryPermissionState
   locationPermission: TmzArTrajectoryPermissionState
-  locationAccuracy: 'full' | 'reduced' | 'unknown'
+  locationAccuracy: TmzArTrajectoryLocationAccuracy
+  locationFixState: TmzArTrajectoryLocationFixState
+  alignmentReady: boolean
   message: string | null
   retryCount: number
 }
@@ -105,6 +116,8 @@ export type TmzArTrajectoryViewProps = {
   highResCaptureEnabled?: boolean
   enablePinchZoom?: boolean
   targetZoomRatio?: number
+  activeTPlusSec?: number | null
+  sessionActive?: boolean
   showDebugStatistics?: boolean
   onSessionUpdate?: (event: TmzArTrajectorySessionUpdateEvent) => void
   onSessionError?: (event: TmzArTrajectoryErrorEvent) => void

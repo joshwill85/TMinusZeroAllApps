@@ -916,7 +916,7 @@ export default function AdminOpsPage() {
       {status === 'ready' && (
         <SectionCard
           title="Notification outbox"
-          description="Queued/failed counts come from notifications_outbox; SMS guardrails enforced server-side."
+          description="Queued/failed counts come from notifications_outbox; legacy channels are retired and push is the remaining delivery path."
         >
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
             <InfoCard label="Queued" value={summary.outboxCounts.queued ?? 0} />

@@ -1,10 +1,10 @@
 export const LOCAL_ACCEPTANCE_PASSWORD = 'AcceptancePass!2026';
 
 export const LOCAL_ACCEPTANCE_USERS = {
-  free: {
-    email: 'acceptance-free@tminuszero.local',
+  anon: {
+    email: 'acceptance-anon@tminuszero.local',
     password: LOCAL_ACCEPTANCE_PASSWORD,
-    firstName: 'Free',
+    firstName: 'Anon',
     lastName: 'Viewer',
     timezone: 'America/New_York'
   },

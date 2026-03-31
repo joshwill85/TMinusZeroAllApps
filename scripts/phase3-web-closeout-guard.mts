@@ -84,7 +84,7 @@ const SURFACE_EXPECTATIONS = new Map<string, string[]>([
   ],
   [
     'apps/web/app/me/preferences/page.tsx',
-    ['useNotificationPreferencesQuery', 'useStartSmsVerificationMutation', 'useCompleteSmsVerificationMutation', 'useSendWebPushTestMutation']
+    ['buildProfileHref', 'BRAND_NAME', 'Open profile', 'Open account']
   ],
   [
     'apps/web/app/auth/callback/AuthCallbackClient.tsx',

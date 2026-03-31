@@ -18,6 +18,7 @@
   "scripts": {
     "preinstall": "node scripts/check-toolchain.cjs",
     "doctor": "node scripts/doctor-toolchain.cjs",
+    "auth:apple:client-secret": "node scripts/generate-apple-client-secret.mjs",
     "check:three-platform:boundaries": "node scripts/three-platform-boundary-check.cjs",
     "dev": "npm run dev --workspace @tminuszero/web",
     "dev:mobile": "npm run dev --workspace @tminuszero/mobile",
@@ -96,7 +97,6 @@
     "trajectory:kpi:history": "ts-node --project tsconfig.scripts.json --transpile-only -r tsconfig-paths/register scripts/ar-trajectory-kpi-history.ts",
     "trajectory:replay-bench": "ts-node --project tsconfig.scripts.json --transpile-only -r tsconfig-paths/register scripts/ar-trajectory-replay-bench.ts",
     "trajectory:replay-gate": "ts-node --project tsconfig.scripts.json --transpile-only -r tsconfig-paths/register scripts/ar-trajectory-replay-gate.ts",
-    "twilio:a2p:audit": "ts-node --project tsconfig.scripts.json --transpile-only -r tsconfig-paths/register scripts/twilio-a2p-audit.ts",
     "check:https": "ts-node --project tsconfig.scripts.json --transpile-only scripts/check-https-subdomains.ts",
     "backfill:blue-origin:launch-details": "ts-node --project tsconfig.scripts.json --transpile-only -r tsconfig-paths/register scripts/blue-origin-launch-details-backfill.ts",
     "audit:spacex:booster-joins": "ts-node --project tsconfig.scripts.json --transpile-only -r tsconfig-paths/register scripts/spacex-booster-joins-backfill.ts --mode=report",
@@ -126,7 +126,6 @@
     "sharp": "^0.33.2",
     "stripe": "^14.6.0",
     "three": "^0.182.0",
-    "twilio": "^5.11.1",
     "zod": "^3.22.4"
   },
   "devDependencies": {

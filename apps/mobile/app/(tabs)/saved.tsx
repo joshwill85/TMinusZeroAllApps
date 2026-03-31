@@ -413,10 +413,14 @@ export default function SavedScreen() {
       <CustomerShellHero
         eyebrow="Account"
         title="Saved"
-        description="Saved views, follows, and My Launches are Premium features. Mobile anon access keeps filters, the calendar, and basic reminders without saved-item sync."
+        description={
+          isAuthed
+            ? 'Saved views, follows, and My Launches are Premium features. Without Premium, you can still use filters, the calendar, and basic reminders, but saved items do not sync.'
+            : 'Saved views, follows, and My Launches are Premium features. Public mobile browsing keeps filters, the calendar, and basic reminders without saved-item sync.'
+        }
       >
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-          <CustomerShellBadge label={formatTierLabel(tier)} tone={tier === 'premium' ? 'accent' : 'default'} />
+          <CustomerShellBadge label={formatTierLabel(tier, isAuthed)} tone={tier === 'premium' ? 'accent' : 'default'} />
           <CustomerShellBadge label={canUseSavedItems ? 'Premium saved items' : 'Premium required'} tone={canUseSavedItems ? 'success' : 'warning'} />
         </View>
       </CustomerShellHero>
@@ -428,13 +432,15 @@ export default function SavedScreen() {
             ? 'Premium saved items are fully enabled across watchlists and reusable filter presets.'
             : hasSavedInventory
               ? 'Saved Premium items remain stored on your account, but they stay read-only until Premium is active again.'
-              : 'Anon access keeps browsing, filters, calendar, and basic reminders, but saved views and follows stay on Premium.'
+              : isAuthed
+                ? 'Without Premium, you can still browse, use filters, open the calendar, and set basic reminders, but saved views and follows require Premium.'
+                : 'Public browsing lets you use filters, open the calendar, and set basic reminders, but saved views and follows require Premium.'
         }
       >
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
           <CustomerShellMetric
-            label="Plan"
-            value={formatTierLabel(tier)}
+            label="Access"
+            value={formatTierLabel(tier, isAuthed)}
             caption={limits ? `${limits.watchlistLimit} watchlists · ${limits.presetLimit} presets` : 'Saved items sync to your account'}
           />
           <CustomerShellMetric
@@ -883,11 +889,11 @@ function InlineActionButton({
   );
 }
 
-function formatTierLabel(tier: 'anon' | 'premium') {
+function formatTierLabel(tier: 'anon' | 'premium', isAuthed = false) {
   if (tier === 'premium') {
     return 'Premium';
   }
-  return 'Anon';
+  return isAuthed ? 'Signed in' : 'Public';
 }
 
 function groupWatchlistRules(rules: WatchlistRuleV1[]) {

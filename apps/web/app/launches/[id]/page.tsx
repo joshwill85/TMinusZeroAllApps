@@ -63,7 +63,6 @@ import { buildGoogleMapsSatelliteUrl, buildPadSatellitePreviewPath, formatCoordi
 import { buildSatelliteHref, buildSatelliteOwnerHref, formatSatelliteOwnerLabel } from '@/lib/utils/satelliteLinks';
 import { getLaunchStatusTone, type LaunchStatusTone } from '@/lib/utils/launchStatusTone';
 import { getEffectivePrivacyPreferences } from '@/lib/server/privacyPreferences';
-import { SMS_NOTIFICATIONS_COMING_SOON } from '@/lib/notifications/smsAvailability';
 import { fetchLaunchFaaAirspace, type LaunchFaaAirspaceAdvisory } from '@/lib/server/faaAirspace';
 import { fetchBlueOriginPassengersDatabaseOnly, fetchBlueOriginPayloads } from '@/lib/server/blueOriginPeoplePayloads';
 import { fetchLaunchBoosterStats, type LaunchBoosterStats } from '@/lib/server/launchBoosterStats';
@@ -2475,130 +2474,127 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
         <div className="relative overflow-hidden rounded-2xl border border-stroke bg-surface-1 md:col-span-2">
           {heroImage && (
             <div className="absolute inset-0">
-              <img src={heroImage} alt="" className="h-full w-full object-cover opacity-70" />
-              <div className="absolute inset-0 bg-gradient-to-tr from-black via-black/70 to-transparent" />
+              <img src={heroImage} alt="" className="h-full w-full object-cover opacity-85" />
+              <div className="absolute inset-0 bg-[rgba(4,7,16,0.08)]" />
+              <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-black/30 to-[rgba(7,9,19,0.8)]" />
+              <div className="absolute inset-y-0 left-0 w-[64%] bg-gradient-to-r from-[rgba(7,9,19,0.54)] via-[rgba(7,9,19,0.18)] to-transparent" />
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.18),_transparent_60%)]" />
             </div>
           )}
           <div className="relative z-10 flex flex-col gap-4 p-5">
-            <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.1em] text-text3">
-              <span className={`rounded-full border px-3 py-1 ${statusToneStyles.badge}`}>{launch.statusText}</span>
-              <span className="rounded-full border border-stroke px-3 py-1">{launch.tier.toUpperCase()}</span>
-              {launch.webcastLive && <span className="rounded-full border border-success px-3 py-1 text-success">Webcast live</span>}
-              {launch.hashtag && <span className="rounded-full border border-stroke px-3 py-1">#{launch.hashtag.replace('#', '')}</span>}
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              {providerLogoUrl && (
-                providerHref ? (
-                  <Link
-                    href={providerHref}
-                    className="relative flex h-12 w-[min(200px,55vw)] items-center justify-center overflow-hidden rounded-xl border border-stroke bg-black/30 px-4 transition hover:border-primary"
-                  >
-                    <img
-                      src={providerLogoUrl}
-                      alt={`${launch.provider} logo`}
-                      className="max-h-[84%] w-full object-contain"
-                      loading="lazy"
-                      decoding="async"
-                    />
-                  </Link>
-                ) : (
-                  <div className="relative flex h-12 w-[min(200px,55vw)] items-center justify-center overflow-hidden rounded-xl border border-stroke bg-black/30 px-4">
-                    <img
-                      src={providerLogoUrl}
-                      alt={`${launch.provider} logo`}
-                      className="max-h-[84%] w-full object-contain"
-                      loading="lazy"
-                      decoding="async"
-                    />
-                  </div>
-                )
-              )}
-              <div>
-                <h2 className="text-2xl font-semibold text-text1">{mission.name || launch.name}</h2>
-                <p className="text-sm text-text2">
-                  {providerHref ? (
-                    <Link href={providerHref} className="transition hover:text-primary">
-                      {launch.provider}
+            <div className="max-w-[42rem] rounded-[2rem] border border-white/10 bg-[rgba(7,9,19,0.56)] p-5 shadow-[0_18px_60px_rgba(0,0,0,0.28)] backdrop-blur-xl md:p-6">
+              <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.1em] text-text3">
+                <span className={`rounded-full border px-3 py-1 ${statusToneStyles.badge}`}>{launch.statusText}</span>
+                <span className="rounded-full border border-stroke px-3 py-1">{launch.tier.toUpperCase()}</span>
+                {launch.webcastLive && <span className="rounded-full border border-success px-3 py-1 text-success">Webcast live</span>}
+                {launch.hashtag && <span className="rounded-full border border-stroke px-3 py-1">#{launch.hashtag.replace('#', '')}</span>}
+              </div>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                {providerLogoUrl && (
+                  providerHref ? (
+                    <Link
+                      href={providerHref}
+                      className="relative flex h-12 w-[min(200px,55vw)] items-center justify-center overflow-hidden rounded-xl border border-stroke bg-black/30 px-4 transition hover:border-primary"
+                    >
+                      <img
+                        src={providerLogoUrl}
+                        alt={`${launch.provider} logo`}
+                        className="max-h-[84%] w-full object-contain"
+                        loading="lazy"
+                        decoding="async"
+                      />
                     </Link>
                   ) : (
-                    launch.provider
-                  )}{' '}
-                  •{' '}
-                  <Link href={rocketHref} className="transition hover:text-primary">
-                    {rocket.fullName || launch.vehicle}
-                  </Link>{' '}
-                  • {launch.pad.shortCode}
-                </p>
-              </div>
-            </div>
-            <div className="w-full rounded-2xl border border-stroke bg-[rgba(255,255,255,0.02)] p-4">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex flex-col items-start gap-2">
-                  <div className="whitespace-nowrap">
-                    {dateOnly ? (
-                      <span className="rounded-full bg-[rgba(234,240,255,0.05)] px-3 py-1 text-xs font-semibold text-text2">Time TBD</span>
+                    <div className="relative flex h-12 w-[min(200px,55vw)] items-center justify-center overflow-hidden rounded-xl border border-stroke bg-black/30 px-4">
+                      <img
+                        src={providerLogoUrl}
+                        alt={`${launch.provider} logo`}
+                        className="max-h-[84%] w-full object-contain"
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    </div>
+                  )
+                )}
+                <div>
+                  <h2 className="text-2xl font-semibold text-text1">{mission.name || launch.name}</h2>
+                  <p className="text-sm text-text2">
+                    {providerHref ? (
+                      <Link href={providerHref} className="transition hover:text-primary">
+                        {launch.provider}
+                      </Link>
                     ) : (
-                      <Countdown net={launch.net} initialNowMs={nowMs} />
+                      launch.provider
+                    )}{' '}
+                    •{' '}
+                    <Link href={rocketHref} className="transition hover:text-primary">
+                      {rocket.fullName || launch.vehicle}
+                    </Link>{' '}
+                    • {launch.pad.shortCode}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 w-full rounded-2xl border border-stroke bg-[rgba(255,255,255,0.06)] p-4">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-col items-start gap-2">
+                    <div className="whitespace-nowrap">
+                      {dateOnly ? (
+                        <span className="rounded-full bg-[rgba(234,240,255,0.05)] px-3 py-1 text-xs font-semibold text-text2">Time TBD</span>
+                      ) : (
+                        <Countdown net={launch.net} initialNowMs={nowMs} />
+                      )}
+                    </div>
+                    <div className="whitespace-nowrap">
+                      <TimeDisplay net={launch.net} netPrecision={launch.netPrecision} />
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2 sm:justify-end">
+                    <WatchlistFollows
+                      isAuthed={isAuthed}
+                      canUseSavedItems={viewer.capabilities.canUseSavedItems}
+                      launchId={launch.id}
+                      launchName={launch.name}
+                      provider={launch.provider}
+                      ll2PadId={launch.ll2PadId}
+                      padShortCode={launch.pad.shortCode}
+                      padLabel={launch.pad.locationName || launch.pad.name || launch.pad.shortCode}
+                      ll2RocketConfigId={launch.ll2RocketConfigId}
+                      rocketLabel={rocket.fullName || launch.vehicle}
+                      launchSiteLabel={launch.pad.locationName || launch.pad.name}
+                      state={launch.pad.state}
+                    />
+                    {isArEligible && (
+                      viewer.tier === 'premium' ? (
+                        <CameraGuideButton
+                          href={arHref}
+                          launchId={launch.id}
+                          className="rounded-lg border border-primary/40 bg-primary/10 px-4 py-2 text-sm text-primary transition hover:border-primary"
+                        >
+                          AR trajectory
+                        </CameraGuideButton>
+                      ) : (
+                        <PremiumGateButton
+                          isAuthed={isAuthed}
+                          featureLabel="AR trajectory"
+                          className="rounded-lg border border-primary/40 bg-primary/10 px-4 py-2 text-sm text-primary transition hover:border-primary"
+                        >
+                          AR trajectory
+                        </PremiumGateButton>
+                      )
                     )}
+                    <AddToCalendarButton
+                      launch={launch}
+                      variant="icon"
+                      showAddBadge
+                      requiresAuth={!viewer.capabilities.canUseOneOffCalendar}
+                      isAuthed={isAuthed}
+                    />
+                    <ShareButton url={share.path} title={share.title} text={share.text} variant="icon" />
                   </div>
-                  <div className="whitespace-nowrap">
-                    <TimeDisplay net={launch.net} netPrecision={launch.netPrecision} />
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2 sm:justify-end">
-                  <WatchlistFollows
-                    isAuthed={isAuthed}
-                    canUseSavedItems={viewer.capabilities.canUseSavedItems}
-                    provider={launch.provider}
-                    ll2PadId={launch.ll2PadId}
-                    padShortCode={launch.pad.shortCode}
-                    padLabel={launch.pad.locationName || launch.pad.name || launch.pad.shortCode}
-                  />
-                  {isArEligible && (
-                    viewer.tier === 'premium' ? (
-                      <CameraGuideButton
-                        href={arHref}
-                        launchId={launch.id}
-                        className="rounded-lg border border-primary/40 bg-primary/10 px-4 py-2 text-sm text-primary transition hover:border-primary"
-                      >
-                        AR trajectory
-                      </CameraGuideButton>
-                    ) : (
-                      <PremiumGateButton
-                        isAuthed={isAuthed}
-                        featureLabel="AR trajectory"
-                        className="rounded-lg border border-primary/40 bg-primary/10 px-4 py-2 text-sm text-primary transition hover:border-primary"
-                      >
-                        AR trajectory
-                      </PremiumGateButton>
-                    )
-                  )}
-                  <AddToCalendarButton
-                    launch={launch}
-                    variant="icon"
-                    showAddBadge
-                    requiresAuth={!viewer.capabilities.canUseOneOffCalendar}
-                    isAuthed={isAuthed}
-                  />
-                  {SMS_NOTIFICATIONS_COMING_SOON && (
-                    <button
-                      type="button"
-                      className="btn-secondary flex items-center gap-2 rounded-lg border border-stroke px-4 py-2 text-sm text-text2 opacity-60"
-                      disabled
-                      aria-disabled="true"
-                    >
-                      <span>SMS alerts</span>
-                      <span className="rounded-full border border-stroke px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-text3">
-                        Coming soon
-                      </span>
-                    </button>
-                  )}
-                  <ShareButton url={share.path} title={share.title} text={share.text} variant="icon" />
                 </div>
               </div>
+              {blueOriginMissionSummary && <p className="mt-4 max-w-2xl text-sm text-text2">{blueOriginMissionSummary}</p>}
             </div>
-            {blueOriginMissionSummary && <p className="max-w-2xl text-sm text-text2">{blueOriginMissionSummary}</p>}
             {(launch.holdReason || blueOriginFailureReason || isEasternRange || (isUsPad && within14Days)) && (
               <div className="grid gap-2 md:grid-cols-2">
                 {launch.holdReason && <Info label="Hold reason" value={launch.holdReason} />}

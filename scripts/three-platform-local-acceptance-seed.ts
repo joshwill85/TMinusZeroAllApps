@@ -13,7 +13,7 @@ import { ensureLocalSupabaseStarted } from './three-platform-local-stack';
 type SeedArtifact = {
   generatedAt: string;
   users: {
-    free: { userId: string; email: string };
+    anon: { userId: string; email: string };
     premium: { userId: string; email: string };
   };
   launches: Array<{ id: string; name: string }>;
@@ -108,8 +108,8 @@ async function main() {
   await db.connect();
 
   try {
-    const [freeUser, premiumUser] = await Promise.all([
-      ensureAuthUser(admin, LOCAL_ACCEPTANCE_USERS.free),
+    const [anonUser, premiumUser] = await Promise.all([
+      ensureAuthUser(admin, LOCAL_ACCEPTANCE_USERS.anon),
       ensureAuthUser(admin, LOCAL_ACCEPTANCE_USERS.premium)
     ]);
 
@@ -134,11 +134,11 @@ async function main() {
         updated_at = timezone('utc', now())
       `,
       [
-        freeUser.id,
-        LOCAL_ACCEPTANCE_USERS.free.email,
-        LOCAL_ACCEPTANCE_USERS.free.firstName,
-        LOCAL_ACCEPTANCE_USERS.free.lastName,
-        LOCAL_ACCEPTANCE_USERS.free.timezone,
+        anonUser.id,
+        LOCAL_ACCEPTANCE_USERS.anon.email,
+        LOCAL_ACCEPTANCE_USERS.anon.firstName,
+        LOCAL_ACCEPTANCE_USERS.anon.lastName,
+        LOCAL_ACCEPTANCE_USERS.anon.timezone,
         premiumUser.id,
         LOCAL_ACCEPTANCE_USERS.premium.email,
         LOCAL_ACCEPTANCE_USERS.premium.firstName,
@@ -147,12 +147,12 @@ async function main() {
       ]
     );
 
-    await db.query('delete from public.notification_push_devices where user_id = any($1::uuid[])', [[freeUser.id, premiumUser.id]]);
-    await db.query('delete from public.purchase_events where user_id = any($1::uuid[])', [[freeUser.id, premiumUser.id]]);
-    await db.query('delete from public.purchase_entitlements where user_id = any($1::uuid[])', [[freeUser.id, premiumUser.id]]);
-    await db.query('delete from public.purchase_provider_customers where user_id = any($1::uuid[])', [[freeUser.id, premiumUser.id]]);
-    await db.query('delete from public.subscriptions where user_id = any($1::uuid[])', [[freeUser.id, premiumUser.id]]);
-    await db.query('delete from public.stripe_customers where user_id = any($1::uuid[])', [[freeUser.id, premiumUser.id]]);
+    await db.query('delete from public.notification_push_devices where user_id = any($1::uuid[])', [[anonUser.id, premiumUser.id]]);
+    await db.query('delete from public.purchase_events where user_id = any($1::uuid[])', [[anonUser.id, premiumUser.id]]);
+    await db.query('delete from public.purchase_entitlements where user_id = any($1::uuid[])', [[anonUser.id, premiumUser.id]]);
+    await db.query('delete from public.purchase_provider_customers where user_id = any($1::uuid[])', [[anonUser.id, premiumUser.id]]);
+    await db.query('delete from public.subscriptions where user_id = any($1::uuid[])', [[anonUser.id, premiumUser.id]]);
+    await db.query('delete from public.stripe_customers where user_id = any($1::uuid[])', [[anonUser.id, premiumUser.id]]);
     await db.query('delete from public.watchlist_rules where watchlist_id = $1::uuid', [LOCAL_ACCEPTANCE_IDS.premiumWatchlistId]);
     await db.query('delete from public.watchlists where id = $1::uuid', [LOCAL_ACCEPTANCE_IDS.premiumWatchlistId]);
     await db.query('delete from public.launch_filter_presets where id = $1::uuid', [LOCAL_ACCEPTANCE_IDS.premiumFilterPresetId]);
@@ -196,7 +196,7 @@ async function main() {
         sms_phone_e164 = excluded.sms_phone_e164,
         updated_at = timezone('utc', now())
       `,
-      [freeUser.id, premiumUser.id]
+      [anonUser.id, premiumUser.id]
     );
 
     await db.query(
@@ -222,7 +222,7 @@ async function main() {
         gpc_enabled = excluded.gpc_enabled,
         updated_at = timezone('utc', now())
       `,
-      [freeUser.id, premiumUser.id]
+      [anonUser.id, premiumUser.id]
     );
 
     await db.query(
@@ -450,9 +450,9 @@ async function main() {
     const artifact: SeedArtifact = {
       generatedAt: nowIso,
       users: {
-        free: {
-          userId: freeUser.id,
-          email: LOCAL_ACCEPTANCE_USERS.free.email
+        anon: {
+          userId: anonUser.id,
+          email: LOCAL_ACCEPTANCE_USERS.anon.email
         },
         premium: {
           userId: premiumUser.id,

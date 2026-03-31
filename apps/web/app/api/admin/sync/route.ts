@@ -15,6 +15,8 @@ const JOBS = {
   billing_reconcile: { slug: 'billing-reconcile' },
 
   celestrak_gp_groups_sync: { slug: 'celestrak-gp-groups-sync' },
+  celestrak_supgp_sync: { slug: 'celestrak-supgp-sync' },
+  celestrak_supgp_ingest: { slug: 'celestrak-supgp-ingest' },
   celestrak_ingest: { slug: 'celestrak-ingest' },
   celestrak_retention_cleanup: { slug: 'celestrak-retention-cleanup' },
 
@@ -61,6 +63,8 @@ const schema = z.object({
     'billing_reconcile',
 
     'celestrak_gp_groups_sync',
+    'celestrak_supgp_sync',
+    'celestrak_supgp_ingest',
     'celestrak_ingest',
     'celestrak_retention_cleanup',
 

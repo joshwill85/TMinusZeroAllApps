@@ -199,7 +199,7 @@ export function BillingPanel() {
     }
   };
 
-  const planTitle = isPaid ? 'Premium plan' : hasBillingIssue ? 'Billing issue' : 'Signed-in anon';
+  const planTitle = isPaid ? 'Premium plan' : hasBillingIssue ? 'Billing issue' : 'Signed in without Premium';
   const statusLabel = summary?.status ? formatStatus(summary.status) : 'Unknown';
 
   return (

@@ -14,12 +14,12 @@ const FEATURES = [
   'Live updates every 15 seconds',
   'Full change log (see what changed)',
   'Saved/default filters + follows (“My Launches”)',
-  'Advanced alerts + browser notifications',
+  'Advanced alerts + native push notifications',
   'Recurring calendar feeds (.ics) from presets, follows, or all future launches',
   'RSS + Atom feeds for any filtered feed',
   'Embeddable “Next launch” widget (token link)',
   'Enhanced forecast insights (select launches)',
-  'Launch-day email + AR trajectory overlay'
+  'AR trajectory overlay'
 ];
 
 const SUBSCRIPTION_CONFIRMATION_MAX_ATTEMPTS = 20;
@@ -404,7 +404,7 @@ export function UpgradePageContent() {
           {error && <div className="mt-3 text-xs text-danger">{error}</div>}
         </div>
         <div className="rounded-2xl border border-stroke bg-surface-1 p-5">
-          <div className="text-xs uppercase tracking-[0.1em] text-text3">Anon</div>
+          <div className="text-xs uppercase tracking-[0.1em] text-text3">Public access</div>
           <div className="mt-2 text-3xl font-semibold text-text1">$0</div>
           <ul className="mt-4 space-y-2 text-sm text-text2">
             <li>• Public launch schedule browsing</li>

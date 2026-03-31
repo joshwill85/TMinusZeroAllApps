@@ -110,12 +110,8 @@ export const FAQ_REGISTRY: readonly FaqCanonicalEntry[] = [
     surfaces: ['docs-faq'],
     question: 'What timezone are launch times shown in?',
     answer:
-      'Launch times in the web UI render in your local timezone. SMS templates use UTC formatting when SMS is enabled.',
-    verificationSources: [
-      internal('components/TimeDisplay.tsx'),
-      internal('lib/notifications/smsProgram.ts'),
-      internal('app/docs/sms-opt-in/page.tsx')
-    ]
+      'Launch times in the web UI render in your local timezone. The native mobile app uses the same launch timing data for push alerts and device-aware presentation.',
+    verificationSources: [internal('components/TimeDisplay.tsx'), internal('app/docs/sms-opt-in/page.tsx')]
   }),
   faqEntry({
     id: 'docs-status-changes',
@@ -144,12 +140,10 @@ export const FAQ_REGISTRY: readonly FaqCanonicalEntry[] = [
     surfaces: ['docs-faq'],
     question: 'How do notifications work right now?',
     answer:
-      'Premium members can enable browser notifications and launch-day email alerts today. SMS alert flows are implemented but currently marked coming soon while US A2P 10DLC registration is completed.',
+      'Launch alerts are push-only and managed in the native mobile app. The web surface no longer manages legacy notification subscriptions.',
     verificationSources: [
       internal('app/me/preferences/page.tsx'),
-      internal('app/api/me/notifications/preferences/route.ts'),
-      internal('lib/notifications/smsAvailability.ts'),
-      internal('docs/frontpage-premium-ux-checklist.md')
+      internal('app/api/me/notifications/preferences/route.ts')
     ]
   }),
   faqEntry({
@@ -166,33 +160,29 @@ export const FAQ_REGISTRY: readonly FaqCanonicalEntry[] = [
     verificationSources: [internal('app/me/preferences/page.tsx'), internal('supabase/functions/notifications-dispatch/index.ts')]
   }),
   faqEntry({
-    id: 'docs-sms-terms',
+    id: 'docs-notification-policy',
     order: 180,
     topic: 'sms-terms',
     claimClass: 'policy',
     verificationStatus: 'verified',
     risk: 'high',
     surfaces: ['docs-faq'],
-    question: 'Where can I read the SMS program terms?',
-    answer: 'See /legal/terms#sms-alerts and /docs/sms-opt-in.',
+    question: 'Where can I read the notification guidance?',
+    answer: 'See /legal/sms and /docs/sms-opt-in for the current native push notification guidance.',
     verificationSources: [internal('app/legal/terms/page.tsx'), internal('app/docs/sms-opt-in/page.tsx')]
   }),
   faqEntry({
-    id: 'docs-sms-guardrails',
+    id: 'docs-notification-guardrails',
     order: 190,
     topic: 'sms-guardrails',
     claimClass: 'code_behavior',
     verificationStatus: 'verified',
     risk: 'high',
     surfaces: ['docs-faq'],
-    question: 'How are SMS costs controlled?',
+    question: 'How is launch notification delivery controlled now?',
     answer:
-      'Server-side guardrails include daily and monthly caps per user, per-launch caps, minimum gaps between messages, batching windows, and maximum message length controls.',
-    verificationSources: [
-      internal('supabase/functions/notifications-dispatch/index.ts'),
-      internal('docs/twilio-a2p-10dlc-verification-playbook.md'),
-      external('https://www.twilio.com/docs/messaging/compliance/a2p-10dlc/quickstart')
-    ]
+      'Legacy SMS cost controls are retired with the push-only cutover. Current notification delivery is governed by mobile push registration and app-level settings.',
+    verificationSources: [internal('supabase/functions/notifications-dispatch/index.ts')]
   }),
   faqEntry({
     id: 'home-net-definition',
@@ -269,8 +259,8 @@ export const FAQ_REGISTRY: readonly FaqCanonicalEntry[] = [
     surfaces: ['home'],
     question: 'How do I get launch alerts?',
     answer:
-      'Create an account for filters and launch tracking. Premium adds faster live checks plus browser-notification and launch-day email alert controls. SMS remains marked coming soon.',
-    verificationSources: [internal('components/LaunchFeed.tsx'), internal('app/me/preferences/page.tsx'), internal('lib/notifications/smsAvailability.ts')]
+      'Create an account for filters and launch tracking. Premium adds faster live checks plus native mobile push alert controls.',
+    verificationSources: [internal('components/LaunchFeed.tsx'), internal('app/me/preferences/page.tsx')]
   }),
   faqEntry({
     id: 'artemis-program-overview',

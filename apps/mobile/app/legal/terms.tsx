@@ -6,16 +6,16 @@ export default function TermsScreen() {
       testID="legal-terms-screen"
       eyebrow="Legal"
       title="Terms of Service"
-      description="Core customer terms for using T-Minus Zero, including subscriptions, alerts, and acceptable use."
+      description="Core customer terms for using T-Minus Zero, including subscriptions, push alerts, and acceptable use."
       lastUpdated="Jan 30, 2026"
       actions={[
         { label: 'Privacy notice', href: '/legal/privacy' },
-        { label: 'Alert settings', href: '/preferences', variant: 'secondary' }
+        { label: 'Notification settings', href: '/preferences', variant: 'secondary' }
       ]}
       sections={[
         {
           title: 'Service scope',
-          body: 'T-Minus Zero provides launch schedules, related content, and optional alerts for informational use.',
+          body: 'T-Minus Zero provides launch schedules, related content, and optional push alerts for informational use.',
           bullets: [
             'Launch times, status, and mission data can change quickly and may be incomplete.',
             'The service is not for safety-critical, emergency, or mission-critical decisions.',
@@ -33,13 +33,13 @@ export default function TermsScreen() {
           ]
         },
         {
-          title: 'SMS and alerts',
-          body: 'SMS alerts are optional, require consent, and are subject to carrier delivery behavior.',
+          title: 'Push alerts',
+          body: 'Push alerts are optional and managed in the mobile app.',
           bullets: [
-            'You opt in by adding a phone number, completing verification, and enabling SMS alerts.',
+            'Register a device from the notification settings screen.',
             'Message frequency varies by the launches you follow.',
-            'Carrier messaging and data rates may apply.',
-            'Reply STOP to opt out and HELP for support where supported.'
+            'Keep your device notifications enabled to receive alerts.',
+            'You can disable alerts at any time from the app.'
           ]
         },
         {

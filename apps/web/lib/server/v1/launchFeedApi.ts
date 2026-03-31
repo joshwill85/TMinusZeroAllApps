@@ -132,7 +132,7 @@ export async function loadVersionedChangedLaunchesPayload(request: Request) {
   if (!viewer.isAuthed) {
     throw new LaunchFeedApiRouteError(401, 'unauthorized');
   }
-  if (!viewer.isAdmin && viewer.tier !== 'premium') {
+  if (viewer.tier !== 'premium') {
     throw new LaunchFeedApiRouteError(402, 'payment_required');
   }
   if (!isSupabaseAdminConfigured()) {
@@ -324,7 +324,7 @@ async function loadLiveFeed(feedRequest: FeedRequest, viewer: ViewerTierInfo) {
   if (!viewer.isAuthed) {
     throw new LaunchFeedApiRouteError(401, 'unauthorized');
   }
-  if (!viewer.isAdmin && viewer.tier !== 'premium') {
+  if (viewer.tier !== 'premium') {
     throw new LaunchFeedApiRouteError(402, 'payment_required');
   }
 
@@ -368,7 +368,7 @@ async function loadLiveFeedVersion(feedRequest: FeedRequest, viewer: ViewerTierI
   if (!viewer.isAuthed) {
     throw new LaunchFeedApiRouteError(401, 'unauthorized');
   }
-  if (!viewer.isAdmin && viewer.tier !== 'premium') {
+  if (viewer.tier !== 'premium') {
     throw new LaunchFeedApiRouteError(402, 'payment_required');
   }
 
@@ -409,7 +409,7 @@ async function loadWatchlistFeed(feedRequest: FeedRequest, viewer: ViewerTierInf
   if (!viewer.isAuthed || !viewer.userId) {
     throw new LaunchFeedApiRouteError(401, 'unauthorized');
   }
-  if (!viewer.isAdmin && !viewer.capabilities.canUseSavedItems) {
+  if (!viewer.capabilities.canUseSavedItems) {
     throw new LaunchFeedApiRouteError(402, 'payment_required');
   }
   if (!feedRequest.watchlistId || !isUuid(feedRequest.watchlistId)) {

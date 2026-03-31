@@ -23,9 +23,36 @@ export type TrajectoryAuthorityTier =
   | 'supplemental_ephemeris'
   | 'public_metadata'
   | 'model_prior';
-export type TrajectoryTrackKind = 'core_up' | 'booster_down';
+export type TrajectoryTrackKind = 'core_up' | 'upper_stage_up' | 'booster_down';
 export type TrajectoryMilestoneConfidence = 'low' | 'med' | 'high';
 export type TrajectoryQualityState = 'precision' | 'guided' | 'search' | 'pad_only';
+export type TrajectoryGuidanceSemantics = 'constraint_backed' | 'modeled' | 'pad_only';
+export type TrajectoryRecoverySemantics = 'exact_track' | 'coarse_sector' | 'text_only' | 'none';
+export type TrajectorySupgpMode = 'none' | 'family_feed' | 'launch_file';
+export type TrajectoryOrbitCoverageClass =
+  | 'licensed'
+  | 'official_numeric'
+  | 'supgp_launch_file'
+  | 'supgp_family_feed'
+  | 'hazard_backed'
+  | 'landing_prior'
+  | 'template_only'
+  | 'none';
+export type TrajectoryLandingCoverageClass = 'exact_coordinates' | 'directional' | 'downrange_only' | 'text_only' | 'none';
+export type TrajectoryStageSeparationSource = 'provider_timeline' | 'll2_timeline' | 'family_template' | 'unknown';
+export type TrajectoryTrackTopology = {
+  hasStageSplit: boolean;
+  hasUpperStageTrack: boolean;
+  hasBoosterTrack: boolean;
+};
+export type TrajectorySourceCoverage = {
+  orbitClass: TrajectoryOrbitCoverageClass;
+  hazardPresent: boolean;
+  landingClass: TrajectoryLandingCoverageClass;
+  stageSeparationSource: TrajectoryStageSeparationSource;
+  supgpMode: TrajectorySupgpMode;
+  shipAssignmentPresent: boolean;
+};
 
 export type TrajectoryTrackSample = {
   tPlusSec: number;
@@ -104,8 +131,14 @@ export type TrajectoryContract = {
     trackCount: number;
     milestoneCount: number;
     prefersWideSearch: boolean;
+    hasStageSplit: boolean;
+    hasUpperStageTrack: boolean;
     hasBoosterTrack: boolean;
   };
+  guidanceSemantics: TrajectoryGuidanceSemantics;
+  recoverySemantics: TrajectoryRecoverySemantics;
+  trackTopology: TrajectoryTrackTopology;
+  sourceCoverage: TrajectorySourceCoverage;
   uncertaintyEnvelope: TrajectoryUncertaintyEnvelope;
   sourceBlend: {
     sourceCode: string | null;
@@ -142,6 +175,10 @@ export type TrajectoryPublicV2Response = {
   modelVersion: string;
   quality: number;
   qualityState: TrajectoryPublicV2QualityState;
+  guidanceSemantics: TrajectoryGuidanceSemantics;
+  recoverySemantics: TrajectoryRecoverySemantics;
+  trackTopology: TrajectoryTrackTopology;
+  sourceCoverage: TrajectorySourceCoverage;
   uncertaintyEnvelope: TrajectoryUncertaintyEnvelope;
   sourceBlend: {
     sourceCode: string | null;
@@ -199,8 +236,10 @@ function normalizeTrackKind(raw: unknown): TrajectoryTrackKind {
   if (typeof raw === 'string') {
     const value = raw.trim().toLowerCase();
     if (value === 'booster_down' || value === 'booster-down' || value === 'boosterdown') return 'booster_down';
+    if (value === 'upper_stage_up' || value === 'upper-stage-up' || value === 'upperstageup') return 'upper_stage_up';
     if (value === 'core_up' || value === 'core-up' || value === 'coreup') return 'core_up';
     if (value.includes('booster') && value.includes('down')) return 'booster_down';
+    if (value.includes('upper') || value.includes('stage2') || value.includes('stage_2') || value.includes('second_stage')) return 'upper_stage_up';
   }
   return 'core_up';
 }
@@ -236,7 +275,8 @@ function inferLegacyMilestonePhase(key: string, label: string): TrajectoryMilest
 }
 
 function deriveTrackKindForPhase(phase: TrajectoryMilestonePhase): TrajectoryTrackKind | undefined {
-  if (phase === 'core_ascent' || phase === 'upper_stage') return 'core_up';
+  if (phase === 'core_ascent') return 'core_up';
+  if (phase === 'upper_stage') return 'upper_stage_up';
   if (phase === 'booster_return' || phase === 'landing') return 'booster_down';
   return undefined;
 }
@@ -464,6 +504,33 @@ function derivePublicV2QualityState({
   return 'pad_only';
 }
 
+function deriveGuidanceSemantics({
+  qualityLabel,
+  publishPolicyEnforced
+}: {
+  qualityLabel: string | null;
+  publishPolicyEnforced: boolean;
+}): TrajectoryGuidanceSemantics {
+  if (publishPolicyEnforced) return 'pad_only';
+  if (qualityLabel === 'landing_constrained') return 'constraint_backed';
+  if (qualityLabel === 'estimate_corridor') return 'modeled';
+  return 'pad_only';
+}
+
+function deriveRecoverySemantics({
+  tracks,
+  sourceSufficiency
+}: {
+  tracks: TrajectoryTrackPayload[];
+  sourceSufficiency: Record<string, unknown> | null;
+}): TrajectoryRecoverySemantics {
+  const landingSummary = asObject(sourceSufficiency?.landingSummary);
+  if (tracks.some((track) => track.trackKind === 'booster_down')) return 'exact_track';
+  if (Boolean(landingSummary?.hasDirectional) || Boolean(landingSummary?.hasDownrangeOnly)) return 'coarse_sector';
+  if (Boolean(landingSummary?.hasTextOnlyHint) || Boolean(landingSummary?.shipAssignmentPresent)) return 'text_only';
+  return 'none';
+}
+
 function deriveSourceBlend(sourceSufficiency: Record<string, unknown> | null) {
   const sourceSummary = asObject(sourceSufficiency?.sourceSummary);
   const signalSummary = asObject(sourceSufficiency?.signalSummary);
@@ -476,6 +543,63 @@ function deriveSourceBlend(sourceSufficiency: Record<string, unknown> | null) {
     hasHazardDirectional: Boolean(signalSummary?.hasHazardDirectional),
     hasMissionNumericOrbit: Boolean(signalSummary?.hasMissionNumericOrbit),
     hasSupgpConstraint: Boolean(signalSummary?.hasSupgpConstraint)
+  };
+}
+
+function deriveSourceCoverage({
+  sourceSufficiency,
+  milestones
+}: {
+  sourceSufficiency: Record<string, unknown> | null;
+  milestones: TrajectoryMilestonePayload[];
+}): TrajectorySourceCoverage {
+  const sourceSummary = asObject(sourceSufficiency?.sourceSummary);
+  const signalSummary = asObject(sourceSufficiency?.signalSummary);
+  const landingSummary = asObject(sourceSufficiency?.landingSummary);
+  const supgpMode =
+    signalSummary?.supgpMode === 'launch_file' || signalSummary?.supgpMode === 'family_feed'
+      ? signalSummary.supgpMode
+      : 'none';
+  const orbitClass: TrajectoryOrbitCoverageClass = Boolean(signalSummary?.hasLicensedTrajectoryFeed)
+    ? 'licensed'
+    : Boolean(signalSummary?.hasMissionNumericOrbit)
+      ? 'official_numeric'
+      : supgpMode === 'launch_file'
+        ? 'supgp_launch_file'
+        : supgpMode === 'family_feed'
+          ? 'supgp_family_feed'
+          : Boolean(signalSummary?.hasHazardDirectional)
+            ? 'hazard_backed'
+            : Boolean(signalSummary?.hasLandingDirectional) || Boolean(signalSummary?.hasDirectionalConstraint)
+              ? 'landing_prior'
+              : sourceSummary?.code === 'template_estimate'
+                ? 'template_only'
+                : 'none';
+  const landingClass: TrajectoryLandingCoverageClass = Boolean(landingSummary?.hasCoordinates)
+    ? 'exact_coordinates'
+    : Boolean(landingSummary?.hasDirectional)
+      ? 'directional'
+      : Boolean(landingSummary?.hasDownrangeOnly)
+        ? 'downrange_only'
+        : Boolean(landingSummary?.hasTextOnlyHint) || Boolean(landingSummary?.shipAssignmentPresent)
+          ? 'text_only'
+          : 'none';
+  const stageMilestone =
+    milestones.find((milestone) => milestone.key === 'STAGESEP' && milestone.sourceType) ??
+    milestones.find((milestone) => milestone.phase === 'upper_stage' && milestone.sourceType) ??
+    null;
+  const stageSeparationSource: TrajectoryStageSeparationSource =
+    stageMilestone?.sourceType === 'provider_timeline' || stageMilestone?.sourceType === 'll2_timeline' || stageMilestone?.sourceType === 'family_template'
+      ? stageMilestone.sourceType
+      : 'unknown';
+
+  return {
+    orbitClass,
+    hazardPresent: Boolean(signalSummary?.hasHazardDirectional),
+    landingClass,
+    stageSeparationSource,
+    supgpMode,
+    shipAssignmentPresent: Boolean(landingSummary?.shipAssignmentPresent)
   };
 }
 
@@ -621,13 +745,26 @@ function deriveRuntimeHints({
   tracks: TrajectoryTrackPayload[];
   milestones: TrajectoryMilestonePayload[];
 }) {
+  const trackTopology = deriveTrackTopology(tracks);
   return {
     defaultOverlayMode: qualityState === 'precision' ? 'precision' : qualityState === 'guided' ? 'guided' : 'search',
     trackCount: tracks.length,
     milestoneCount: milestones.length,
     prefersWideSearch: qualityState === 'search' || qualityState === 'pad_only',
-    hasBoosterTrack: tracks.some((track) => track.trackKind === 'booster_down')
+    hasStageSplit: trackTopology.hasStageSplit,
+    hasUpperStageTrack: trackTopology.hasUpperStageTrack,
+    hasBoosterTrack: trackTopology.hasBoosterTrack
   } satisfies TrajectoryContract['runtimeHints'];
+}
+
+function deriveTrackTopology(tracks: TrajectoryTrackPayload[]): TrajectoryTrackTopology {
+  const hasUpperStageTrack = tracks.some((track) => track.trackKind === 'upper_stage_up');
+  const hasBoosterTrack = tracks.some((track) => track.trackKind === 'booster_down');
+  return {
+    hasStageSplit: tracks.some((track) => track.trackKind === 'core_up') && hasUpperStageTrack,
+    hasUpperStageTrack,
+    hasBoosterTrack
+  };
 }
 
 function deriveConfidenceReasons({
@@ -692,6 +829,10 @@ export function buildTrajectoryContract(row: TrajectoryContractRow | null): Traj
     publishPolicyEnforced: publishPolicy.enforcePadOnly,
     confidenceTier: effectiveConfidenceTier
   });
+  const guidanceSemantics = deriveGuidanceSemantics({
+    qualityLabel: typeof effectiveProduct.qualityLabel === 'string' ? effectiveProduct.qualityLabel : null,
+    publishPolicyEnforced: publishPolicy.enforcePadOnly
+  });
   const evidence = deriveTrajectoryEvidenceView({
     confidenceTier: effectiveConfidenceTier,
     sourceSufficiency: effectiveSourceSufficiency,
@@ -700,6 +841,9 @@ export function buildTrajectoryContract(row: TrajectoryContractRow | null): Traj
   });
   const sourceBlend = deriveSourceBlend(effectiveSourceSufficiency);
   const authorityTier = deriveAuthorityTier(effectiveSourceSufficiency);
+  const trackTopology = deriveTrackTopology(tracks);
+  const recoverySemantics = deriveRecoverySemantics({ tracks, sourceSufficiency: effectiveSourceSufficiency });
+  const sourceCoverage = deriveSourceCoverage({ sourceSufficiency: effectiveSourceSufficiency, milestones });
   const confidenceReasons = deriveConfidenceReasons({
     publishReasons: publishPolicy.reasons,
     sourceSufficiency: effectiveSourceSufficiency
@@ -721,6 +865,10 @@ export function buildTrajectoryContract(row: TrajectoryContractRow | null): Traj
     modelVersion: typeof effectiveProduct.version === 'string' ? effectiveProduct.version : row.version,
     quality: effectiveQuality,
     qualityState,
+    guidanceSemantics,
+    recoverySemantics,
+    trackTopology,
+    sourceCoverage,
     authorityTier,
     fieldProvenance: deriveFieldProvenance({
       authorityTier,
@@ -795,7 +943,14 @@ export function buildTrajectoryPublicV2Response(row: TrajectoryContractRow | nul
     qualityLabel: typeof effectiveProduct?.qualityLabel === 'string' ? effectiveProduct.qualityLabel : null,
     publishPolicyEnforced: publishPolicy.enforcePadOnly
   });
+  const guidanceSemantics = deriveGuidanceSemantics({
+    qualityLabel: typeof effectiveProduct?.qualityLabel === 'string' ? effectiveProduct.qualityLabel : null,
+    publishPolicyEnforced: publishPolicy.enforcePadOnly
+  });
   const sourceBlend = deriveSourceBlend(effectiveSourceSufficiency);
+  const trackTopology = deriveTrackTopology(tracks);
+  const recoverySemantics = deriveRecoverySemantics({ tracks, sourceSufficiency: effectiveSourceSufficiency });
+  const sourceCoverage = deriveSourceCoverage({ sourceSufficiency: effectiveSourceSufficiency, milestones });
   const confidenceReasons = deriveConfidenceReasons({
     publishReasons: publishPolicy.reasons,
     sourceSufficiency: effectiveSourceSufficiency
@@ -807,6 +962,10 @@ export function buildTrajectoryPublicV2Response(row: TrajectoryContractRow | nul
     modelVersion: typeof effectiveProduct?.version === 'string' ? effectiveProduct.version : row.version,
     quality: effectiveQuality,
     qualityState,
+    guidanceSemantics,
+    recoverySemantics,
+    trackTopology,
+    sourceCoverage,
     uncertaintyEnvelope,
     sourceBlend: {
       sourceCode: sourceBlend.sourceCode,

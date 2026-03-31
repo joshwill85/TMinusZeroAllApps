@@ -1,5 +1,6 @@
 'use client';
 
+import { ApiClientError } from '@tminuszero/api-client';
 import { useEffect, useState } from 'react';
 import { type QueryClient, useQueryClient } from '@tanstack/react-query';
 import type { AuthProviderV1 } from '@tminuszero/contracts';
@@ -16,6 +17,7 @@ import { getSharedProfile, updateSharedProfile } from '@/lib/api/webAccountAdapt
 type Status = 'working' | 'error' | 'missing';
 
 const POST_CONFIRM_NEXT_STORAGE_KEY = 'tmn_auth_post_confirm_next';
+const PENDING_PREMIUM_CLAIM_STORAGE_KEY = 'tmn_auth_pending_claim_token';
 const PENDING_PROFILE_STORAGE_KEY = 'tmn_auth_pending_profile';
 
 function normalizeAuthProvider(value: unknown): 'apple' | 'google' | 'email_link' | 'unknown' {
@@ -69,6 +71,47 @@ function safeNextPath(value: string | null) {
   return sanitizeReturnTo(value, '/');
 }
 
+async function maybeAttachPendingPremiumClaim() {
+  if (typeof window === 'undefined') return null;
+
+  let claimToken = '';
+  try {
+    claimToken = window.localStorage.getItem(PENDING_PREMIUM_CLAIM_STORAGE_KEY) || '';
+  } catch {
+    claimToken = '';
+  }
+
+  const normalizedClaimToken = claimToken.trim();
+  if (!normalizedClaimToken) {
+    return null;
+  }
+
+  try {
+    const payload = await browserApiClient.attachPremiumClaim(normalizedClaimToken);
+    return safeNextPath(payload.returnTo || null);
+  } finally {
+    try {
+      window.localStorage.removeItem(PENDING_PREMIUM_CLAIM_STORAGE_KEY);
+    } catch {}
+  }
+}
+
+function formatPendingPremiumClaimError(error: unknown) {
+  if (error instanceof ApiClientError) {
+    if (error.code === 'claim_pending') {
+      return 'Sign-in succeeded, but the Premium purchase is still being verified. Open Upgrade and try again in a moment.';
+    }
+    if (error.code === 'claim_email_mismatch') {
+      return 'Sign-in succeeded, but this Premium purchase must be attached with the same checkout email.';
+    }
+    if (error.code === 'claim_already_claimed') {
+      return 'Sign-in succeeded, but this Premium purchase is already linked to another account.';
+    }
+  }
+
+  return 'Sign-in succeeded, but the Premium claim could not be attached yet. Open Account and try again in a moment.';
+}
+
 async function maybeApplyPendingProfile(queryClient: QueryClient) {
   if (typeof window === 'undefined') return;
   let pending: { first_name?: string; last_name?: string } | null = null;
@@ -99,6 +142,18 @@ async function maybeApplyPendingProfile(queryClient: QueryClient) {
   } catch {
     return;
   }
+}
+
+async function finishSuccessfulAuth(queryClient: QueryClient, redirectTo: string, type: string | null) {
+  await recordWebCallbackContext(type);
+  const claimRedirectTo = await maybeAttachPendingPremiumClaim();
+  try {
+    window.localStorage.removeItem(POST_CONFIRM_NEXT_STORAGE_KEY);
+  } catch {}
+  invalidateViewerScopedQueries(queryClient);
+  await maybeApplyPendingProfile(queryClient);
+  clearAuthParams();
+  window.location.replace(claimRedirectTo || redirectTo);
 }
 
 async function recordWebCallbackContext(type: string | null) {
@@ -197,14 +252,12 @@ export default function AuthCallbackClient() {
           return;
         }
         setPkceMissing(false);
-        await recordWebCallbackContext(null);
         try {
-          window.localStorage.removeItem(POST_CONFIRM_NEXT_STORAGE_KEY);
-        } catch {}
-        invalidateViewerScopedQueries(queryClient);
-        await maybeApplyPendingProfile(queryClient);
-        clearAuthParams();
-        window.location.replace(redirectTo);
+          await finishSuccessfulAuth(queryClient, redirectTo, null);
+        } catch (error) {
+          setStatus('error');
+          setMessage(formatPendingPremiumClaimError(error));
+        }
         return;
       }
 
@@ -220,14 +273,12 @@ export default function AuthCallbackClient() {
           return;
         }
         setPkceMissing(false);
-        await recordWebCallbackContext(type);
         try {
-          window.localStorage.removeItem(POST_CONFIRM_NEXT_STORAGE_KEY);
-        } catch {}
-        invalidateViewerScopedQueries(queryClient);
-        await maybeApplyPendingProfile(queryClient);
-        clearAuthParams();
-        window.location.replace(redirectTo);
+          await finishSuccessfulAuth(queryClient, redirectTo, type);
+        } catch (error) {
+          setStatus('error');
+          setMessage(formatPendingPremiumClaimError(error));
+        }
         return;
       }
 
@@ -244,14 +295,12 @@ export default function AuthCallbackClient() {
           return;
         }
         setPkceMissing(false);
-        await recordWebCallbackContext(null);
         try {
-          window.localStorage.removeItem(POST_CONFIRM_NEXT_STORAGE_KEY);
-        } catch {}
-        invalidateViewerScopedQueries(queryClient);
-        await maybeApplyPendingProfile(queryClient);
-        clearAuthParams();
-        window.location.replace(redirectTo);
+          await finishSuccessfulAuth(queryClient, redirectTo, null);
+        } catch (error) {
+          setStatus('error');
+          setMessage(formatPendingPremiumClaimError(error));
+        }
         return;
       }
 

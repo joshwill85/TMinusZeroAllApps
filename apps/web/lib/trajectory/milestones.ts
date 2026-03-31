@@ -1,4 +1,4 @@
-export type TrajectoryMilestoneTrackKind = 'core_up' | 'booster_down';
+export type TrajectoryMilestoneTrackKind = 'core_up' | 'upper_stage_up' | 'booster_down';
 export type TrajectoryMilestoneConfidence = 'low' | 'med' | 'high';
 export type TrajectoryMilestonePhase =
   | 'prelaunch'
@@ -120,7 +120,7 @@ const FAMILY_TEMPLATE_SOURCE = 'family_template' as const;
 
 const PHASE_TRACK_KIND: Partial<Record<TrajectoryMilestonePhase, TrajectoryMilestoneTrackKind>> = {
   core_ascent: 'core_up',
-  upper_stage: 'core_up',
+  upper_stage: 'upper_stage_up',
   booster_return: 'booster_down',
   landing: 'booster_down'
 };
@@ -133,7 +133,7 @@ const SOURCE_PRIORITY: Record<TrajectoryMilestoneSourceType, number> = {
 
 const PHASES: TrajectoryMilestonePhase[] = ['prelaunch', 'core_ascent', 'upper_stage', 'booster_return', 'landing', 'unknown'];
 const SOURCES: TrajectoryMilestoneSourceType[] = ['provider_timeline', 'll2_timeline', 'family_template'];
-const TRACKS: TrajectoryMilestoneTrackKind[] = ['core_up', 'booster_down'];
+const TRACKS: TrajectoryMilestoneTrackKind[] = ['core_up', 'upper_stage_up', 'booster_down'];
 const CONFIDENCE_LEVELS: TrajectoryMilestoneConfidence[] = ['low', 'med', 'high'];
 const MILESTONE_OCCURRENCE_MERGE_WINDOW_SEC = 10;
 
@@ -371,6 +371,7 @@ export function summarizeTrajectoryMilestones(milestones: TrajectoryMilestoneDra
   };
   const trackCounts: Record<TrajectoryMilestoneTrackKind, number> = {
     core_up: 0,
+    upper_stage_up: 0,
     booster_down: 0
   };
 
@@ -956,6 +957,9 @@ function normalizeProviderPhase(value?: string | null): 'prelaunch' | 'postlaunc
 
 function normalizeTrackKind(value?: string | null): TrajectoryMilestoneTrackKind {
   const normalized = normalizeText(value).toLowerCase();
+  if (normalized.includes('upper') || normalized.includes('stage2') || normalized.includes('stage_2') || normalized.includes('second_stage')) {
+    return 'upper_stage_up';
+  }
   if (normalized.includes('booster')) return 'booster_down';
   return 'core_up';
 }

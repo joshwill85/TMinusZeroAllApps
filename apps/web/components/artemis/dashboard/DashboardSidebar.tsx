@@ -25,7 +25,7 @@ export function DashboardSidebar({
 }) {
   return (
     <nav className="sticky top-24 rounded-3xl border border-stroke bg-[rgba(8,11,24,0.88)] p-3 shadow-surface backdrop-blur-xl" aria-label="Artemis views">
-      <p className="px-2 text-[10px] uppercase tracking-[0.22em] text-text4">Mission Control</p>
+      <p className="px-2 text-[10px] uppercase tracking-[0.22em] text-text4">Program Views</p>
       <ul className="mt-3 space-y-2">
         {items.map((item) => {
           const Icon = ICON_BY_VIEW[item.id];

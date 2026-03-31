@@ -271,7 +271,7 @@ export default function IntegrationsPage() {
         <div className="mt-4 rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
           <div className="text-xs uppercase tracking-[0.1em] text-text3">Signed in</div>
           <div className="mt-1 text-base font-semibold text-text1">
-            {hasIntegrationInventory ? 'Stored integrations are read-only on signed-in anon.' : 'Integrations are Premium-only.'}
+            {hasIntegrationInventory ? 'Stored integrations are read-only without Premium.' : 'Integrations are Premium-only.'}
           </div>
           <div className="mt-1 text-xs text-text3">
             {hasIntegrationInventory

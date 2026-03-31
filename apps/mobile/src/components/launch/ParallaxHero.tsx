@@ -8,6 +8,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { ANIMATION_CONSTANTS } from '@tminuszero/launch-animations';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
+import { HeroContentSurface, HeroImageProtection } from '@/src/components/launch/HeroProtection';
 
 type ParallaxHeroProps = {
   backgroundImage: string | null;
@@ -113,29 +114,7 @@ export function ParallaxHero({
         </Animated.View>
       )}
 
-      {/* Gradient Overlays */}
-      <View
-        style={{
-          position: 'absolute',
-          inset: 0,
-          backgroundColor: 'transparent',
-        }}
-        pointerEvents="none"
-      >
-        {/* Bottom gradient */}
-        <View
-          style={{
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            bottom: 0,
-            height: '60%',
-            backgroundColor: 'rgba(7, 9, 19, 0)',
-            // Note: For proper gradient, you'd use expo-linear-gradient
-            // This is a simplified version
-          }}
-        />
-      </View>
+      <HeroImageProtection />
 
       {/* Content Container */}
       <Animated.View
@@ -149,62 +128,64 @@ export function ParallaxHero({
           contentStyle,
         ]}
       >
-        {/* Status Badge */}
-        {status && (
-          <View style={{ marginBottom: 12 }}>
-            <View
-              style={{
-                alignSelf: 'flex-start',
-                paddingHorizontal: 12,
-                paddingVertical: 6,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: statusColor.border,
-                backgroundColor: statusColor.bg,
-              }}
-            >
-              <Text
+        <HeroContentSurface>
+          {/* Status Badge */}
+          {status && (
+            <View style={{ marginBottom: 12 }}>
+              <View
                 style={{
-                  color: statusColor.text,
-                  fontSize: 11,
-                  fontWeight: '700',
-                  letterSpacing: 1.2,
-                  textTransform: 'uppercase',
+                  alignSelf: 'flex-start',
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: statusColor.border,
+                  backgroundColor: statusColor.bg,
                 }}
               >
-                {status}
-              </Text>
+                <Text
+                  style={{
+                    color: statusColor.text,
+                    fontSize: 11,
+                    fontWeight: '700',
+                    letterSpacing: 1.2,
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {status}
+                </Text>
+              </View>
             </View>
-          </View>
-        )}
+          )}
 
-        {/* Title */}
-        <Text
-          style={{
-            fontSize: 33,
-            fontWeight: '800',
-            color: theme.foreground,
-            lineHeight: 38,
-            marginBottom: 8,
-          }}
-        >
-          {title}
-        </Text>
+          {/* Title */}
+          <Text
+            style={{
+              fontSize: 33,
+              fontWeight: '800',
+              color: theme.foreground,
+              lineHeight: 38,
+              marginBottom: 8,
+            }}
+          >
+            {title}
+          </Text>
 
-        {/* Subtitle */}
-        <Text
-          style={{
-            fontSize: 15,
-            color: theme.muted,
-            lineHeight: 22,
-            maxWidth: '90%',
-          }}
-        >
-          {subtitle}
-        </Text>
+          {/* Subtitle */}
+          <Text
+            style={{
+              fontSize: 15,
+              color: theme.muted,
+              lineHeight: 22,
+              maxWidth: '90%',
+            }}
+          >
+            {subtitle}
+          </Text>
 
-        {/* Optional children */}
-        {children && <View style={{ marginTop: 16 }}>{children}</View>}
+          {/* Optional children */}
+          {children && <View style={{ marginTop: 16 }}>{children}</View>}
+        </HeroContentSurface>
       </Animated.View>
 
       {/* Decorative accent line */}
@@ -268,6 +249,8 @@ export function StaticHero({
         </View>
       )}
 
+      <HeroImageProtection />
+
       {/* Content */}
       <View
         style={{
@@ -277,58 +260,60 @@ export function StaticHero({
           right: 24,
         }}
       >
-        {status && (
-          <View style={{ marginBottom: 12 }}>
-            <View
-              style={{
-                alignSelf: 'flex-start',
-                paddingHorizontal: 12,
-                paddingVertical: 6,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: statusColor.border,
-                backgroundColor: statusColor.bg,
-              }}
-            >
-              <Text
+        <HeroContentSurface>
+          {status && (
+            <View style={{ marginBottom: 12 }}>
+              <View
                 style={{
-                  color: statusColor.text,
-                  fontSize: 11,
-                  fontWeight: '700',
-                  letterSpacing: 1.2,
-                  textTransform: 'uppercase',
+                  alignSelf: 'flex-start',
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: statusColor.border,
+                  backgroundColor: statusColor.bg,
                 }}
               >
-                {status}
-              </Text>
+                <Text
+                  style={{
+                    color: statusColor.text,
+                    fontSize: 11,
+                    fontWeight: '700',
+                    letterSpacing: 1.2,
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {status}
+                </Text>
+              </View>
             </View>
-          </View>
-        )}
+          )}
 
-        <Text
-          style={{
-            fontSize: 33,
-            fontWeight: '800',
-            color: theme.foreground,
-            lineHeight: 38,
-            marginBottom: 8,
-          }}
-        >
-          {title}
-        </Text>
+          <Text
+            style={{
+              fontSize: 33,
+              fontWeight: '800',
+              color: theme.foreground,
+              lineHeight: 38,
+              marginBottom: 8,
+            }}
+          >
+            {title}
+          </Text>
 
-        <Text
-          style={{
-            fontSize: 15,
-            color: theme.muted,
-            lineHeight: 22,
-            maxWidth: '90%',
-          }}
-        >
-          {subtitle}
-        </Text>
+          <Text
+            style={{
+              fontSize: 15,
+              color: theme.muted,
+              lineHeight: 22,
+              maxWidth: '90%',
+            }}
+          >
+            {subtitle}
+          </Text>
 
-        {children && <View style={{ marginTop: 16 }}>{children}</View>}
+          {children && <View style={{ marginTop: 16 }}>{children}</View>}
+        </HeroContentSurface>
       </View>
     </View>
   );

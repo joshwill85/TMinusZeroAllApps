@@ -10,6 +10,8 @@ import { browserApiClient } from '@/lib/api/client';
 import { getBrowserClient } from '@/lib/api/supabase';
 import { CaptchaWidget } from './CaptchaWidget';
 
+const PENDING_PREMIUM_CLAIM_STORAGE_KEY = 'tmn_auth_pending_claim_token';
+
 export function AuthForm({
   mode,
   claimToken,
@@ -71,6 +73,8 @@ export function AuthForm({
     if (!baseUrl) return '';
     return `${baseUrl}${buildAuthCallbackHref({ returnTo: redirectPath, intent: authIntent })}`;
   }, [authIntent, baseUrl, redirectPath]);
+  const appleRedirectTo = emailRedirectTo;
+  const appleSignInEnabled = !isSignUp && Boolean(appleRedirectTo);
 
   useEffect(() => {
     if (!lockedClaimEmail) return;
@@ -232,12 +236,55 @@ export function AuthForm({
     }
   }
 
+  async function handleAppleSignIn() {
+    setMessage(null);
+    setLoading(true);
+    try {
+      const supabase = getBrowserClient();
+      if (!supabase) throw new Error('Supabase not available');
+      if (!appleRedirectTo) throw new Error('Apple sign-in is not configured for this origin.');
+      if (typeof window !== 'undefined') {
+        if (claimToken?.trim()) {
+          window.localStorage.setItem(PENDING_PREMIUM_CLAIM_STORAGE_KEY, claimToken.trim());
+        } else {
+          window.localStorage.removeItem(PENDING_PREMIUM_CLAIM_STORAGE_KEY);
+        }
+      }
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'apple',
+        options: {
+          redirectTo: appleRedirectTo
+        }
+      });
+      if (error) throw error;
+    } catch (err: any) {
+      setMessage({
+        tone: 'error',
+        text: err?.message || 'Unable to start Sign in with Apple.'
+      });
+      setLoading(false);
+    }
+  }
+
   return (
     <form onSubmit={handleSubmit} className="space-y-3 rounded-2xl border border-stroke bg-surface-1 p-4">
       {isSignUp ? (
         <div className="rounded-lg border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-2 text-xs text-text3">
           This account will be created from a verified Premium purchase. Signing in without Premium only keeps account ownership, recovery, and billing access.
         </div>
+      ) : null}
+      {appleSignInEnabled ? (
+        <>
+          <button
+            type="button"
+            className="w-full rounded-lg border border-stroke bg-[#f5f5f7] px-4 py-3 text-sm font-semibold text-[#05060A] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={() => void handleAppleSignIn()}
+            disabled={loading}
+          >
+            {loading ? 'Working...' : 'Continue with Apple'}
+          </button>
+          <div className="text-center text-xs uppercase tracking-[0.08em] text-text3">Or use email</div>
+        </>
       ) : null}
 
       <div className="flex flex-col gap-1">

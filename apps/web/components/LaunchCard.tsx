@@ -3,14 +3,9 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import clsx from 'clsx';
-import { ApiClientError } from '@tminuszero/api-client';
-import { buildAuthHref, buildPreferencesHref, buildUpgradeHref } from '@tminuszero/navigation';
-import { useSearchParams } from 'next/navigation';
-import { type CSSProperties, type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
-import {
-  useLaunchNotificationPreferenceQuery,
-  useUpdateLaunchNotificationPreferenceMutation
-} from '@/lib/api/queries';
+import { buildPreferencesHref } from '@tminuszero/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Launch } from '@/lib/types/launch';
 import { useSharedNow } from '@/lib/client/useSharedNow';
 import { LIFTOFF_VISIBILITY_SECONDS, NEXT_LAUNCH_RETENTION_MS } from '@/lib/constants/launchTimeline';
@@ -22,33 +17,14 @@ import { buildLaunchHref, buildLocationHref, buildProviderHref, buildRocketHref 
 import { getLaunchStatusTone } from '@/lib/utils/launchStatusTone';
 import { isArtemisLaunch } from '@/lib/utils/launchArtemis';
 import { isStarshipLaunch } from '@/lib/utils/launchStarship';
-import { SMS_NOTIFICATIONS_COMING_SOON } from '@/lib/notifications/smsAvailability';
 import { CameraGuideButton } from '@/components/ar/CameraGuideButton';
 import { TimeDisplay } from './TimeDisplay';
-import { AddToCalendarButton } from './AddToCalendarButton';
 import { ShareButton } from './ShareButton';
 import { buildLaunchShare } from '@/lib/share';
 import { CryoAtmosphere, type CryoStage } from './CryoAtmosphere';
 import { WeatherIcon } from './WeatherIcon';
 import { Badge, type BadgeTone } from './Badge';
-
-type LaunchAlertPrefs = {
-  mode: 't_minus' | 'local_time';
-  timezone: string;
-  t_minus_minutes: number[];
-  local_times: string[];
-  notify_status_change: boolean;
-  notify_net_change: boolean;
-};
-
-const DEFAULT_LAUNCH_ALERTS: LaunchAlertPrefs = {
-  mode: 't_minus',
-  timezone: 'UTC',
-  t_minus_minutes: [],
-  local_times: [],
-  notify_status_change: false,
-  notify_net_change: false
-};
+import { FollowMenuButton, type FollowMenuOption } from './FollowMenuButton';
 
 export function LaunchCard({
   launch,
@@ -58,8 +34,6 @@ export function LaunchCard({
   isAuthed = false,
   isPaid = false,
   canUseBasicAlertRules = false,
-  canUseBrowserLaunchAlerts = false,
-  canUseOneOffCalendar = false,
   isArEligible = false,
   onOpenUpsell,
   blockThirdPartyEmbeds = false,
@@ -73,7 +47,10 @@ export function LaunchCard({
   padFollowValue,
   isPadFollowed = false,
   padFollowDisabled = false,
-  onToggleFollowPad
+  onToggleFollowPad,
+  followMenuLabel,
+  followMenuCapacityLabel,
+  followMenuOptions
 }: {
   launch: Launch;
   isNext?: boolean;
@@ -82,8 +59,6 @@ export function LaunchCard({
   isAuthed?: boolean;
   isPaid?: boolean;
   canUseBasicAlertRules?: boolean;
-  canUseBrowserLaunchAlerts?: boolean;
-  canUseOneOffCalendar?: boolean;
   isArEligible?: boolean;
   onOpenUpsell?: (featureLabel?: string) => void;
   blockThirdPartyEmbeds?: boolean;
@@ -98,7 +73,11 @@ export function LaunchCard({
   isPadFollowed?: boolean;
   padFollowDisabled?: boolean;
   onToggleFollowPad?: (padRuleValue: string) => void;
+  followMenuLabel?: string;
+  followMenuCapacityLabel?: string;
+  followMenuOptions?: FollowMenuOption[];
 }) {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const debugToken = String(searchParams.get('debug') || '').trim().toLowerCase();
   const debugLaunchId = String(searchParams.get('debugLaunchId') || '').trim();
@@ -106,6 +85,9 @@ export function LaunchCard({
   const debugThisCard = debugEnabled && (!debugLaunchId || debugLaunchId === launch.id);
   const debugSessionIdRef = useRef(Math.random().toString(36).slice(2));
   const debugName = useMemo(() => `LaunchCard:${launch.id}:${debugSessionIdRef.current}`, [launch.id]);
+  void onAlertsNudgeClick;
+  void isAuthed;
+  void canUseBasicAlertRules;
 
   const [userTz, setUserTz] = useState('UTC');
   const dateOnly = !isCountdownEligible(launch, userTz);
@@ -317,26 +299,11 @@ export function LaunchCard({
   const activeEventTag = launch.currentEvent ? 'Current event' : 'Next event';
 
   const share = useMemo(() => buildLaunchShare(launch), [launch]);
-  const [alertsOpen, setAlertsOpen] = useState(false);
-  const [alertsError, setAlertsError] = useState<string | null>(null);
-  const [alertsNotice, setAlertsNotice] = useState<string | null>(null);
-  const [alertsChannel, setAlertsChannel] = useState<'sms' | 'push'>(() => (SMS_NOTIFICATIONS_COMING_SOON ? 'push' : 'sms'));
-  const [alertsNudgeLatched, setAlertsNudgeLatched] = useState(showAlertsNudge);
-  const [alertsSaved, setAlertsSaved] = useState<LaunchAlertPrefs>(DEFAULT_LAUNCH_ALERTS);
-  const [alertsDraft, setAlertsDraft] = useState<LaunchAlertPrefs>(DEFAULT_LAUNCH_ALERTS);
-  const [smsStatus, setSmsStatus] = useState<{ enabled: boolean; verified: boolean } | null>(null);
-  const [smsSystemEnabled, setSmsSystemEnabled] = useState<boolean | null>(null);
-  const [pushStatus, setPushStatus] = useState<{ enabled: boolean; subscribed: boolean } | null>(null);
-  const alertsQuery = useLaunchNotificationPreferenceQuery(launch.id, alertsChannel, {
-    enabled: alertsOpen && isAuthed && !(alertsChannel === 'sms' && SMS_NOTIFICATIONS_COMING_SOON)
+  const [, setFollowMenuState] = useState<{ open: boolean; view: 'following' | 'notifications' }>({
+    open: false,
+    view: 'following'
   });
-  const alertsMutation = useUpdateLaunchNotificationPreferenceMutation(launch.id, alertsChannel);
-  const alertsLoading = alertsQuery.isFetching;
-  const alertsSaving = alertsMutation.isPending;
-
-  useEffect(() => {
-    if (showAlertsNudge) setAlertsNudgeLatched(true);
-  }, [showAlertsNudge]);
+  const alertsNudgeLatched = showAlertsNudge;
   const windowStartIso = launch.windowStart || launch.net;
   const windowEndIso = launch.windowEnd || windowStartIso;
   const windowStartMs = parseIsoMs(windowStartIso);
@@ -504,143 +471,38 @@ export function LaunchCard({
     };
   }, [cryoStage, showCryo]);
 
-  const smsComingSoon = SMS_NOTIFICATIONS_COMING_SOON || smsSystemEnabled === false;
-  const canManageSms = isAuthed && isPaid && smsStatus?.enabled && smsStatus?.verified && !smsComingSoon;
-  const canManagePush = isAuthed && canUseBasicAlertRules && pushStatus?.enabled && pushStatus?.subscribed;
-  const canManageAlerts = alertsChannel === 'sms' ? canManageSms : canManagePush;
-  const normalizedSavedAlerts = useMemo(() => normalizeLaunchAlertPrefs(alertsSaved, userTz), [alertsSaved, userTz]);
-  const normalizedDraftAlerts = useMemo(() => normalizeLaunchAlertPrefs(alertsDraft, userTz), [alertsDraft, userTz]);
-  const hasUnsavedChanges = !launchAlertPrefsEqual(normalizedDraftAlerts, normalizedSavedAlerts);
-  const canSaveDraftAlerts = canManageAlerts && !alertsSaving && hasUnsavedChanges;
-  const hasConfiguredAlerts =
-    (normalizedSavedAlerts.mode === 't_minus'
-      ? normalizedSavedAlerts.t_minus_minutes.length > 0
-      : normalizedSavedAlerts.local_times.length > 0) ||
-    normalizedSavedAlerts.notify_status_change ||
-    normalizedSavedAlerts.notify_net_change;
-  const hasActiveAlerts = (alertsChannel === 'sms' ? !smsComingSoon : true) && hasConfiguredAlerts;
+  const activeFollowCount = followMenuOptions?.filter((option) => option.active).length ?? 0;
+  const followButtonLabel = followMenuLabel || (activeFollowCount > 0 ? 'Following' : 'Follow');
+  const followButtonActive = activeFollowCount > 0;
+  const detailsCueLabel = isPast ? 'Open report' : 'Open details';
+  const notificationsContent = (
+    <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.03)] p-3 text-sm text-text2">
+      <div className="text-xs uppercase tracking-[0.12em] text-text3">Launch notifications</div>
+      <div className="mt-1 text-sm text-text2">Launch alerts are managed in the native mobile app with push only.</div>
+      <div className="mt-3 rounded-lg border border-stroke bg-surface-1 p-2 text-xs text-text2">
+        Open the native app to manage push delivery, alert scopes, and device registration.
+      </div>
+      <div className="mt-3 flex items-center justify-end">
+        <Link className="btn rounded-lg px-3 py-2 text-xs" href={buildPreferencesHref()}>
+          Open notification settings
+        </Link>
+      </div>
+    </div>
+  );
 
-  const openAlerts = () => {
-    setAlertsOpen(true);
-    setAlertsError(null);
-    setAlertsNotice(null);
+  const handleCardNavigation = () => {
+    router.push(launchHref);
   };
 
-  const closeAlerts = () => {
-    setAlertsOpen(false);
-    setAlertsError(null);
-    setAlertsNotice(null);
-    setAlertsDraft(alertsSaved);
+  const handleCardClick = (event: ReactMouseEvent<HTMLElement>) => {
+    if (shouldIgnoreCardNavigation(event.target)) return;
+    handleCardNavigation();
   };
-
-  useEffect(() => {
-    if (!alertsOpen) return;
-    if (alertsQuery.isError) {
-      setAlertsError(alertsQuery.error instanceof Error ? alertsQuery.error.message : 'Failed to load alerts');
-    }
-  }, [alertsOpen, alertsQuery.error, alertsQuery.isError]);
-
-  useEffect(() => {
-    if (!alertsQuery.data) return;
-
-    const nextPrefs = normalizeLaunchAlertPrefs(alertsQuery.data.preference, userTz);
-    setAlertsSaved(nextPrefs);
-    setAlertsDraft(nextPrefs);
-    setAlertsError(null);
-    setSmsStatus(
-      alertsQuery.data.smsStatus
-        ? {
-            enabled: alertsQuery.data.smsStatus.enabled,
-            verified: alertsQuery.data.smsStatus.verified
-          }
-        : null
-    );
-    setSmsSystemEnabled(alertsQuery.data.smsStatus?.systemEnabled ?? null);
-    setPushStatus(
-      alertsQuery.data.pushStatus
-        ? {
-            enabled: alertsQuery.data.pushStatus.enabled,
-            subscribed: alertsQuery.data.pushStatus.subscribed
-          }
-        : null
-    );
-  }, [alertsChannel, alertsQuery.data, userTz]);
-
-  async function saveAlerts() {
-    if (alertsChannel === 'sms' && smsComingSoon) {
-      setAlertsError('SMS alerts are coming soon.');
-      return;
-    }
-
-    const normalized = normalizeLaunchAlertPrefs(alertsDraft, userTz);
-    const validationError = validateLaunchAlertPrefs(normalized, launch.net, launch.netPrecision, userTz);
-    if (validationError) {
-      setAlertsError(validationError);
-      return;
-    }
-
-    setAlertsError(null);
-    setAlertsNotice(null);
-    try {
-      const payload = await alertsMutation.mutateAsync({
-        channel: alertsChannel,
-        mode: normalized.mode,
-        timezone: normalized.timezone,
-        tMinusMinutes: normalized.t_minus_minutes,
-        localTimes: normalized.local_times,
-        notifyStatusChange: normalized.notify_status_change,
-        notifyNetChange: normalized.notify_net_change
-      });
-      const nextPrefs = normalizeLaunchAlertPrefs(payload.preference || normalized, userTz);
-      setAlertsSaved(nextPrefs);
-      setAlertsDraft(nextPrefs);
-      setAlertsNotice('Alerts saved.');
-    } catch (error) {
-      if (error instanceof ApiClientError) {
-        if (error.code === 'subscription_required') {
-          setAlertsError('Upgrade to Premium to enable launch alerts.');
-          return;
-        }
-        if (alertsChannel === 'sms') {
-          if (error.code === 'sms_system_disabled') {
-            setAlertsError('SMS alerts are coming soon.');
-            return;
-          }
-          if (error.code === 'sms_not_verified') {
-            setAlertsError('Verify your phone in Preferences before enabling alerts.');
-            return;
-          }
-          if (error.code === 'sms_not_enabled') {
-            setAlertsError('Enable SMS opt-in in Preferences first.');
-            return;
-          }
-        }
-        if (alertsChannel === 'push') {
-          if (error.code === 'push_not_enabled') {
-            setAlertsError('Enable push alerts in Preferences first.');
-            return;
-          }
-          if (error.code === 'push_not_subscribed') {
-            setAlertsError('Subscribe a device in Preferences first.');
-            return;
-          }
-        }
-        if (error.status === 401) {
-          setAlertsError('Sign in to manage alerts.');
-          return;
-        }
-        setAlertsError(error.code || 'Failed to save alerts');
-        return;
-      }
-
-      setAlertsError(error instanceof Error ? error.message : 'Failed to save alerts');
-    }
-  }
 
   return (
     <article
       className={clsx(
-        'launch-card group w-full',
+        'launch-card group w-full cursor-pointer',
         variant === 'go' && 'launch-card--go',
         variant === 'alert' && 'launch-card--alert',
         variant === 'hold' && 'launch-card--hold',
@@ -653,6 +515,7 @@ export function LaunchCard({
         isStarship && 'launch-card--starship'
       )}
       style={launchTextStyle}
+      onClick={handleCardClick}
     >
       <div className="launch-card__spine" aria-hidden="true">
         <div className="launch-card__spineTrack" />
@@ -801,6 +664,10 @@ export function LaunchCard({
                 {launch.name}
               </Link>
             </h3>
+            <div className="mt-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-text3 transition group-hover:text-text1">
+              <span>{detailsCueLabel}</span>
+              <ChevronRightIcon className="h-3 w-3" />
+            </div>
             <div className="mt-1 space-y-1">
               {showVehicle && launch.vehicle && (
                 <div className="flex flex-wrap items-center gap-x-2 text-xs font-semibold uppercase tracking-wider text-text3">
@@ -1042,328 +909,78 @@ export function LaunchCard({
           </div>
         )}
 
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/5 pt-3">
           <div className="flex items-center gap-2">
-            <a
-              href={launch.videoUrl || undefined}
-              target={launch.videoUrl ? '_blank' : undefined}
-              rel={launch.videoUrl ? 'noreferrer' : undefined}
-              className={clsx('btn h-10 rounded-lg px-4 py-2 text-sm', !launch.videoUrl && 'pointer-events-none opacity-50')}
-              aria-disabled={!launch.videoUrl}
-              tabIndex={launch.videoUrl ? undefined : -1}
-            >
-              {isPast ? 'Replay' : launch.webcastLive ? 'Watch Live' : 'Watch'}
-            </a>
-            <Link
-              href={launchHref}
-              className="btn-secondary flex h-10 items-center justify-center rounded-lg border border-stroke px-3 py-2 text-sm text-text2 hover:border-primary"
-            >
-              {isPast ? 'Report' : 'Details'}
-            </Link>
+            {launch.videoUrl ? (
+              <a
+                href={launch.videoUrl}
+                target="_blank"
+                rel="noreferrer"
+                className={clsx(
+                  'btn-secondary relative flex h-11 w-11 items-center justify-center rounded-lg border border-stroke text-text2 hover:border-primary',
+                  launch.webcastLive && 'border-primary text-primary'
+                )}
+                aria-label={isPast ? 'Watch replay coverage' : launch.webcastLive ? 'Watch live coverage' : 'Watch coverage'}
+                title={isPast ? 'Watch replay' : launch.webcastLive ? 'Watch live coverage' : 'Watch coverage'}
+              >
+                <PlayIcon className="h-4 w-4" />
+                {launch.webcastLive && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-primary shadow-glow" />}
+              </a>
+            ) : null}
+            <ShareButton url={share.path} title={share.title} text={share.text} variant="icon" />
             {isArEligible &&
               !isPast &&
               (isPaid ? (
                 <CameraGuideButton
                   href={arHref}
                   launchId={launch.id}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-4 py-2 text-sm text-primary transition hover:border-primary"
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-primary/40 bg-primary/10 text-primary transition hover:border-primary"
                 >
-                  AR trajectory
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em]">AR</span>
                 </CameraGuideButton>
               ) : canUpsell ? (
                 <button
                   type="button"
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-4 py-2 text-sm text-primary transition hover:border-primary"
+                  className="relative inline-flex h-11 w-11 items-center justify-center rounded-lg border border-primary/40 bg-primary/10 text-primary transition hover:border-primary"
                   onClick={() => onOpenUpsell?.('AR trajectory')}
                   aria-label="Upgrade to Premium to unlock AR trajectory"
                   title="AR trajectory (Premium)"
                 >
-                  <span>AR trajectory</span>
-                  <LockIcon className="h-3.5 w-3.5 opacity-80" />
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em]">AR</span>
+                  <CornerLockBadge size="sm" />
                 </button>
               ) : null)}
           </div>
 
-          <div className="flex items-center gap-2">
-            {!isPast &&
-              (onToggleWatch ? (
-                <button
-                  type="button"
-                  className={clsx(
-                    'btn-secondary relative flex h-11 items-center gap-2 rounded-lg border border-stroke px-3 text-text2 hover:border-primary',
-                    isWatched && 'border-primary text-primary',
-                    watchDisabled && 'pointer-events-none opacity-60'
-                  )}
-                  onClick={() => onToggleWatch(launch.id)}
-                  aria-pressed={isWatched}
-                  aria-label={isWatched ? 'Remove from My Launches' : 'Add to My Launches'}
-                >
-                  <StarIcon className="h-4 w-4" filled={isWatched} />
-                  <span className="hidden text-[11px] font-semibold uppercase tracking-[0.08em] sm:inline">
-                    {isWatched ? 'In My Launches' : 'My Launches'}
-                  </span>
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.08em] sm:hidden">
-                    {isWatched ? 'Saved' : 'Save'}
-                  </span>
-                </button>
-              ) : canUpsell ? (
-                <button
-                  type="button"
-                  className="btn-secondary relative flex h-11 items-center gap-2 rounded-lg border border-stroke px-3 text-text2 hover:border-primary"
-                  onClick={() => onOpenUpsell?.('My Launches')}
-                  aria-label="Upgrade to Premium to unlock My Launches"
-                  title="My Launches (Premium)"
-                >
-                  <StarIcon className="h-4 w-4" />
-                  <span className="hidden text-[11px] font-semibold uppercase tracking-[0.08em] sm:inline">My Launches</span>
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.08em] sm:hidden">Save</span>
-                  <CornerLockBadge />
-                </button>
-              ) : null)}
-            <button
-              type="button"
-              className={clsx(
-                'btn-secondary relative flex h-11 items-center justify-center rounded-lg border border-stroke text-text2 hover:border-primary',
-                alertsNudgeLatched ? 'gap-2 px-3' : 'w-11',
-                hasActiveAlerts && 'border-primary text-primary'
-              )}
-              onClick={() => {
-                if (isAuthed && !canUseBasicAlertRules && canUpsell) {
-                  if (showAlertsNudge) onAlertsNudgeClick?.();
-                  onOpenUpsell?.('browser alerts');
-                  return;
-                }
-                if (alertsOpen) {
-                  closeAlerts();
-                  return;
-                }
-                if (showAlertsNudge) onAlertsNudgeClick?.();
-                openAlerts();
-              }}
-              aria-expanded={alertsOpen}
-              aria-label="Launch alerts"
-              title={alertsNudgeLatched ? 'Get notified when things change' : undefined}
-            >
-              <BellIcon className="h-4 w-4" />
-              {alertsNudgeLatched && <span className="text-[11px] font-semibold uppercase tracking-[0.14em]">Alerts</span>}
-              {hasActiveAlerts && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-primary shadow-glow" />}
-              {isAuthed && !canUseBasicAlertRules && canUpsell && <CornerLockBadge />}
-            </button>
-            <ShareButton url={share.path} title={share.title} text={share.text} variant="icon" />
-            {!isPast && <AddToCalendarButton launch={launch} variant="icon" requiresAuth={!canUseOneOffCalendar} isAuthed={isAuthed} />}
-          </div>
-        </div>
-
-        {alertsOpen && (
-          <div className="mt-3 rounded-xl border border-stroke bg-[rgba(255,255,255,0.03)] p-3 text-sm text-text2">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-xs uppercase tracking-[0.12em] text-text3">Launch alerts</div>
-                <div className="text-sm text-text2">
-                  {alertsChannel === 'push'
-                    ? isPaid
-                      ? 'Push alerts on this browser and your mobile devices.'
-                      : 'Launch alerts are Premium-only.'
-                    : smsComingSoon
-                      ? 'SMS alerts (coming soon).'
-                      : isPaid
-                        ? 'SMS alerts.'
-                        : 'SMS alerts are Premium-only.'}
-                </div>
-              </div>
-              <button type="button" className="text-xs text-text3 hover:text-text1" onClick={closeAlerts}>
-                Exit
-              </button>
-            </div>
-
-            {alertsError && <div className="mt-2 rounded-lg border border-danger bg-[rgba(251,113,133,0.08)] p-2 text-xs text-danger">{alertsError}</div>}
-            {alertsNotice && <div className="mt-2 rounded-lg border border-stroke bg-[rgba(234,240,255,0.04)] p-2 text-xs text-text2">{alertsNotice}</div>}
-
-            {alertsLoading && <div className="mt-3 text-xs text-text3">Loading alert settings…</div>}
-
-            {!alertsLoading && (
-              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <AlertModeButton
-                  label="Push alerts"
-                  helper={isPaid ? 'Browser + mobile push' : 'Premium required'}
-                  active={alertsChannel === 'push'}
-                  onClick={() => {
-                    if (alertsChannel === 'push') return;
-                    setAlertsChannel('push');
-                    setAlertsSaved(DEFAULT_LAUNCH_ALERTS);
-                    setAlertsDraft(DEFAULT_LAUNCH_ALERTS);
-                    setAlertsError(null);
-                    setAlertsNotice(null);
-                  }}
-                />
-                <AlertModeButton
-                  label="SMS"
-                  helper={smsComingSoon ? 'Coming soon' : 'Text messages (Premium)'}
-                  active={alertsChannel === 'sms'}
-                  disabled={smsComingSoon}
-                  onClick={() => {
-                    if (smsComingSoon) return;
-                    if (alertsChannel === 'sms') return;
-                    setAlertsChannel('sms');
-                    setAlertsSaved(DEFAULT_LAUNCH_ALERTS);
-                    setAlertsDraft(DEFAULT_LAUNCH_ALERTS);
-                    setAlertsError(null);
-                    setAlertsNotice(null);
-                  }}
-                />
-              </div>
-            )}
-
-            {!alertsLoading && !isAuthed && (
-              <div className="mt-3 rounded-lg border border-stroke bg-surface-1 p-2 text-xs text-text2">
-                Sign in to enable launch alerts.{' '}
-                <Link className="text-primary" href={buildAuthHref('sign-in', { returnTo: launchHref, intent: 'upgrade' })}>
-                  Sign in
-                </Link>
-              </div>
-            )}
-
-            {!alertsLoading && isAuthed && !isPaid && (
-              <div className="mt-3 rounded-lg border border-stroke bg-surface-1 p-2 text-xs text-text2">
-                Launch alerts are Premium-only.{' '}
-                <Link className="text-primary" href={buildUpgradeHref({ returnTo: launchHref })}>
-                  Upgrade
-                </Link>{' '}
-                to save reminders, status-change alerts, and browser or mobile delivery.
-              </div>
-            )}
-
-            {!alertsLoading && alertsChannel === 'sms' && smsComingSoon && (
-              <div className="mt-3 rounded-lg border border-warning/40 bg-warning/10 p-2 text-xs text-warning">
-                SMS alerts are temporarily unavailable while we finish delivery setup.
-              </div>
-            )}
-
-            {!alertsLoading && alertsChannel === 'sms' && !smsComingSoon && isAuthed && isPaid && smsStatus && (!smsStatus.verified || !smsStatus.enabled) && (
-              <div className="mt-3 rounded-lg border border-stroke bg-surface-1 p-2 text-xs text-text2">
-                {smsStatus.verified ? 'Enable SMS opt-in in Preferences to use alerts.' : 'Verify your phone in Preferences to enable alerts.'}{' '}
-                <Link className="text-primary" href={buildPreferencesHref()}>
-                  Open Preferences
-                </Link>
-              </div>
-            )}
-
-            {!alertsLoading && alertsChannel === 'push' && isAuthed && canUseBasicAlertRules && pushStatus && (!pushStatus.enabled || !pushStatus.subscribed) && (
-              <div className="mt-3 rounded-lg border border-stroke bg-surface-1 p-2 text-xs text-text2">
-                {pushStatus.enabled
-                  ? 'Subscribe this browser or register a mobile device in Preferences to enable alerts.'
-                  : 'Enable push alerts in Preferences to enable alerts.'}{' '}
-                <Link className="text-primary" href={buildPreferencesHref()}>
-                  Open Preferences
-                </Link>
-              </div>
-            )}
-
-            {!alertsLoading && canManageAlerts && (
-              <>
-                <div className="mt-3 rounded-lg border border-stroke bg-surface-1 p-2 text-xs text-text2">
-                  <div className="text-[10px] uppercase tracking-[0.12em] text-text3">Launch time</div>
-                  <div className="mt-1 text-sm font-semibold text-text1">{formatLaunchDateTime(launch.net, launch.netPrecision, userTz)}</div>
-                  {launch.changeSummary && <div className="mt-1 text-xs text-text3">Update: {launch.changeSummary}</div>}
-                </div>
-
-                <div className="mt-3 space-y-3">
-                  <div className="text-xs font-semibold text-text1">Schedule up to 2 alerts</div>
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <AlertModeButton
-                      label="T-minus"
-                      helper="T-X before launch"
-                      active={normalizedDraftAlerts.mode === 't_minus'}
-                      onClick={() =>
-                        setAlertsDraft((prev) => ({
-                          ...prev,
-                          mode: 't_minus'
-                        }))
-                      }
-                    />
-                    <AlertModeButton
-                      label="Launch day (local time)"
-                      helper={`Up to 2 times (${userTz})`}
-                      active={normalizedDraftAlerts.mode === 'local_time'}
-                      onClick={() =>
-                        setAlertsDraft((prev) => ({
-                          ...prev,
-                          mode: 'local_time',
-                          timezone: userTz || prev.timezone
-                        }))
-                      }
-                    />
-                  </div>
-
-                  {normalizedDraftAlerts.mode === 't_minus' ? (
-                    <TMinusPicker
-                      netIso={launch.net}
-                      netPrecision={launch.netPrecision}
-                      userTz={userTz}
-                      value={normalizedDraftAlerts.t_minus_minutes}
-                      onChange={(next) =>
-                        setAlertsDraft((prev) => ({
-                          ...prev,
-                          mode: 't_minus',
-                          t_minus_minutes: next,
-                          local_times: []
-                        }))
-                      }
-                    />
-                  ) : (
-                    <LocalTimePicker
-                      netIso={launch.net}
-                      netPrecision={launch.netPrecision}
-                      userTz={userTz}
-                      value={normalizedDraftAlerts.local_times}
-                      onChange={(next) =>
-                        setAlertsDraft((prev) => ({
-                          ...prev,
-                          mode: 'local_time',
-                          timezone: userTz || prev.timezone,
-                          local_times: next,
-                          t_minus_minutes: []
-                        }))
-                      }
-                    />
-                  )}
-
-                  <div className="pt-2">
-                    <div className="text-xs font-semibold text-text1">Also alert me on changes</div>
-                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      <AlertToggle
-                        label="Status change"
-                        helper="Go/hold/scrub updates"
-                        checked={normalizedDraftAlerts.notify_status_change}
-                        onChange={(next) => setAlertsDraft((prev) => ({ ...prev, notify_status_change: next }))}
-                      />
-                      <AlertToggle
-                        label="Timing change"
-                        helper="NET or window shifts"
-                        checked={normalizedDraftAlerts.notify_net_change}
-                        onChange={(next) => setAlertsDraft((prev) => ({ ...prev, notify_net_change: next }))}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
-
-            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-              <button type="button" className="btn-secondary w-full rounded-lg px-3 py-2 text-xs sm:w-auto" onClick={closeAlerts}>
-                Exit
-              </button>
+          {!isPast &&
+            (followMenuOptions && followMenuOptions.length > 0 ? (
+              <FollowMenuButton
+                label={followButtonLabel}
+                active={followButtonActive}
+                activeCount={activeFollowCount}
+                capacityLabel={followMenuCapacityLabel}
+                notificationsActive={false}
+                options={followMenuOptions}
+                notificationsContent={notificationsContent}
+                defaultView={alertsNudgeLatched ? 'notifications' : 'following'}
+                onMenuStateChange={setFollowMenuState}
+              />
+            ) : canUpsell ? (
               <button
                 type="button"
-                className="btn w-full rounded-lg px-3 py-2 text-xs sm:w-auto"
-                onClick={saveAlerts}
-                disabled={!canSaveDraftAlerts}
+                className="btn-secondary relative flex h-11 items-center gap-2 rounded-full border border-stroke px-3 text-text2 hover:border-primary"
+                onClick={() => onOpenUpsell?.('My Launches')}
+                aria-label="Upgrade to Premium to unlock follow tools"
+                title="Follow tools (Premium)"
               >
-                {alertsSaving ? 'Saving…' : 'Save'}
+                <span className="flex h-5 w-5 items-center justify-center rounded-full border border-white/12 bg-white/5">
+                  <PlusIcon className="h-3 w-3" />
+                </span>
+                <span className="text-[11px] font-semibold uppercase tracking-[0.08em]">Follow</span>
+                <CornerLockBadge />
               </button>
-            </div>
-          </div>
-        )}
+            ) : null)}
+        </div>
 
         <footer className="mt-2 grid gap-3 border-t border-white/5 pt-3 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] md:items-center">
           <DataCell icon={<OrbitIcon className="h-4 w-4" />} label="Orbit" value={orbitLabel} tone="neutral" />
@@ -1743,428 +1360,6 @@ function ResultStamp({ tone, label }: { tone: 'success' | 'danger' | 'neutral' |
   );
 }
 
-const T_MINUS_OPTIONS: ReadonlyArray<number> = [5, 10, 15, 20, 30, 45, 60, 120];
-
-function AlertModeButton({
-  label,
-  helper,
-  active,
-  disabled,
-  onClick
-}: {
-  label: string;
-  helper: string;
-  active: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={clsx(
-        'rounded-lg border px-3 py-2 text-left transition',
-        active ? 'border-primary/70 bg-[rgba(34,211,238,0.08)]' : 'border-stroke bg-surface-0 hover:border-primary/50',
-        disabled && 'cursor-not-allowed opacity-60 hover:border-stroke'
-      )}
-      onClick={onClick}
-      disabled={disabled}
-    >
-      <div className="text-xs font-semibold uppercase tracking-[0.08em] text-text1">{label}</div>
-      <div className="mt-1 text-[11px] text-text3">{helper}</div>
-    </button>
-  );
-}
-
-function AlertToggle({
-  label,
-  helper,
-  checked,
-  disabled,
-  onChange
-}: {
-  label: string;
-  helper: string;
-  checked: boolean;
-  disabled?: boolean;
-  onChange: (next: boolean) => void;
-}) {
-  const labelId = useId();
-  const helperId = useId();
-  return (
-    <div
-      className={clsx(
-        'flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2',
-        disabled && 'opacity-60'
-      )}
-    >
-      <div>
-        <div id={labelId} className="text-xs font-semibold uppercase tracking-[0.08em] text-text1">
-          {label}
-        </div>
-        <div id={helperId} className="text-[11px] text-text3">
-          {helper}
-        </div>
-      </div>
-      <button
-        type="button"
-        className={clsx(
-          'flex h-5 w-9 items-center rounded-full border px-0.5 transition',
-          checked ? 'border-primary bg-[rgba(34,211,238,0.2)] justify-end' : 'border-stroke bg-surface-0 justify-start',
-          disabled ? 'cursor-not-allowed' : ''
-        )}
-        onClick={() => {
-          if (!disabled) onChange(!checked);
-        }}
-        role="switch"
-        aria-checked={checked}
-        aria-labelledby={labelId}
-        aria-describedby={helperId}
-        aria-disabled={disabled}
-      >
-        <span className="h-4 w-4 rounded-full bg-white" />
-      </button>
-    </div>
-  );
-}
-
-function TMinusPicker({
-  netIso,
-  netPrecision,
-  userTz,
-  value,
-  onChange
-}: {
-  netIso: string;
-  netPrecision: Launch['netPrecision'];
-  userTz: string;
-  value: number[];
-  onChange: (next: number[]) => void;
-}) {
-  const isDateOnly = isDateOnlyNet(netIso, netPrecision, userTz);
-  const net = new Date(netIso);
-  const netMs = net.getTime();
-
-  const selected = Array.from(new Set(value)).filter((v) => T_MINUS_OPTIONS.includes(v)).sort((a, b) => a - b).slice(0, 2);
-  const canAdd = selected.length < 2;
-
-  const add = () => {
-    const nextValue = T_MINUS_OPTIONS.find((opt) => !selected.includes(opt));
-    if (!nextValue) return;
-    onChange([...selected, nextValue].sort((a, b) => a - b));
-  };
-
-  return (
-    <div className="space-y-2">
-      {isDateOnly && (
-        <div className="rounded-lg border border-stroke bg-surface-1 p-2 text-xs text-text3">
-          Launch time is TBD; T-minus alerts will be scheduled once an exact time is published.
-        </div>
-      )}
-
-      {selected.map((minutes, idx) => {
-        const sendAt = Number.isFinite(netMs) ? new Date(netMs - minutes * 60 * 1000) : null;
-        const sendAtLabel =
-          sendAt && Number.isFinite(sendAt.getTime())
-            ? new Intl.DateTimeFormat('en-US', {
-                month: 'short',
-                day: '2-digit',
-                year: 'numeric',
-                hour: 'numeric',
-                minute: '2-digit',
-                timeZone: userTz,
-                timeZoneName: 'short'
-              }).format(sendAt)
-            : null;
-
-        return (
-          <div key={`${minutes}-${idx}`} className="rounded-lg border border-stroke bg-surface-0 p-2">
-            <div className="flex items-center gap-2">
-              <select
-                className="w-full rounded-md border border-stroke bg-surface-0 px-2 py-1 text-xs text-text1"
-                value={minutes}
-                onChange={(e) => {
-                  const next = Number(e.target.value);
-                  if (!Number.isFinite(next)) return;
-                  const updated = selected.map((v, i) => (i === idx ? next : v));
-                  onChange(Array.from(new Set(updated)).filter((v) => T_MINUS_OPTIONS.includes(v)).sort((a, b) => a - b).slice(0, 2));
-                }}
-                aria-label={`T-minus alert ${idx + 1}`}
-              >
-                {T_MINUS_OPTIONS.map((opt) => (
-                  <option key={opt} value={opt} disabled={selected.includes(opt) && opt !== minutes}>
-                    {formatTMinusOption(opt)}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                className="btn-secondary shrink-0 rounded-md px-2 py-1 text-[11px]"
-                onClick={() => onChange(selected.filter((_, i) => i !== idx))}
-              >
-                Remove
-              </button>
-            </div>
-            {sendAtLabel && !isDateOnly && <div className="mt-1 text-[11px] text-text3">Sends at {sendAtLabel}</div>}
-          </div>
-        );
-      })}
-
-      {selected.length === 0 && <div className="rounded-lg border border-stroke bg-surface-1 p-2 text-xs text-text3">Add up to 2 T-minus alerts.</div>}
-
-      <div className="flex items-center justify-end">
-        <button type="button" className="btn-secondary rounded-lg px-3 py-2 text-xs" onClick={add} disabled={!canAdd}>
-          Add alert
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function LocalTimePicker({
-  netIso,
-  netPrecision,
-  userTz,
-  value,
-  onChange
-}: {
-  netIso: string;
-  netPrecision: Launch['netPrecision'];
-  userTz: string;
-  value: string[];
-  onChange: (next: string[]) => void;
-}) {
-  const net = new Date(netIso);
-  const netMs = net.getTime();
-  const isDateOnly = isDateOnlyNet(netIso, netPrecision, userTz);
-  const localDay = Number.isFinite(netMs) ? { y: net.getFullYear(), m: net.getMonth(), d: net.getDate() } : null;
-
-  const selected = Array.from(new Set(value.map((t) => normalizeLocalTime(t)).filter(Boolean) as string[])).sort().slice(0, 2);
-  const rows = selected.length ? selected : [''];
-  const canAdd = rows.filter(Boolean).length < 2;
-
-  return (
-    <div className="space-y-2">
-      {rows.map((timeValue, idx) => {
-        const normalized = normalizeLocalTime(timeValue);
-        const sendAt =
-          localDay && normalized
-            ? new Date(localDay.y, localDay.m, localDay.d, Number(normalized.slice(0, 2)), Number(normalized.slice(3, 5)), 0, 0)
-            : null;
-        const sendAtLabel =
-          sendAt && Number.isFinite(sendAt.getTime())
-            ? new Intl.DateTimeFormat('en-US', {
-                month: 'short',
-                day: '2-digit',
-                year: 'numeric',
-                hour: 'numeric',
-                minute: '2-digit',
-                timeZone: userTz,
-                timeZoneName: 'short'
-              }).format(sendAt)
-            : null;
-
-        const invalidAfterLaunch = !isDateOnly && sendAt && Number.isFinite(netMs) ? sendAt.getTime() >= netMs : false;
-
-        return (
-          <div key={`${idx}-${timeValue}`} className="rounded-lg border border-stroke bg-surface-0 p-2">
-            <div className="flex items-center gap-2">
-              <input
-                type="time"
-                className="w-full rounded-md border border-stroke bg-surface-0 px-2 py-1 text-xs text-text1"
-                value={normalized ?? ''}
-                onChange={(e) => {
-                  const nextValue = normalizeLocalTime(e.target.value);
-                  const without = selected.filter((_, i) => i !== idx);
-                  const next = nextValue ? [...without, nextValue] : without;
-                  onChange(Array.from(new Set(next)).sort().slice(0, 2));
-                }}
-                aria-label={`Launch day alert ${idx + 1}`}
-              />
-              {rows.length > 1 && (
-                <button
-                  type="button"
-                  className="btn-secondary shrink-0 rounded-md px-2 py-1 text-[11px]"
-                  onClick={() => onChange(selected.filter((_, i) => i !== idx))}
-                >
-                  Remove
-                </button>
-              )}
-            </div>
-            {sendAtLabel && <div className="mt-1 text-[11px] text-text3">Sends at {sendAtLabel}</div>}
-            {invalidAfterLaunch && (
-              <div className="mt-1 text-[11px] text-danger">Pick a time before the scheduled launch time.</div>
-            )}
-          </div>
-        );
-      })}
-
-      {selected.length === 0 && <div className="rounded-lg border border-stroke bg-surface-1 p-2 text-xs text-text3">Add up to 2 times on launch day.</div>}
-
-      <div className="flex items-center justify-end">
-        <button
-          type="button"
-          className="btn-secondary rounded-lg px-3 py-2 text-xs"
-          onClick={() => {
-            if (!localDay) return;
-            const nextValue = selected.includes('09:00') ? '12:00' : '09:00';
-            onChange(Array.from(new Set([...selected, nextValue])).sort().slice(0, 2));
-          }}
-          disabled={!canAdd || !localDay}
-        >
-          Add time
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function formatTMinusOption(minutes: number) {
-  if (minutes === 120) return 'T-2h';
-  return `T-${minutes}`;
-}
-
-function normalizeLocalTime(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const match = trimmed.match(/^(\d{2}):(\d{2})(?::\d{2})?$/);
-  if (!match) return null;
-  const hh = Number(match[1]);
-  const mm = Number(match[2]);
-  if (!Number.isInteger(hh) || !Number.isInteger(mm)) return null;
-  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
-  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
-}
-
-function normalizeLaunchAlertPrefs(
-  prefs:
-    | LaunchAlertPrefs
-    | {
-        mode?: 't_minus' | 'local_time';
-        timezone?: string;
-        tMinusMinutes?: number[];
-        localTimes?: string[];
-        notifyStatusChange?: boolean;
-        notifyNetChange?: boolean;
-      },
-  userTz: string
-): LaunchAlertPrefs {
-  const notify_status_change = Boolean(
-    'notify_status_change' in prefs ? prefs.notify_status_change : prefs.notifyStatusChange
-  );
-  const notify_net_change = Boolean('notify_net_change' in prefs ? prefs.notify_net_change : prefs.notifyNetChange);
-  const mode = prefs?.mode === 'local_time' ? 'local_time' : 't_minus';
-  const rawTMinus = 't_minus_minutes' in prefs ? prefs.t_minus_minutes : prefs.tMinusMinutes;
-  const rawLocalTimes = 'local_times' in prefs ? prefs.local_times : prefs.localTimes;
-  const rawTimezone = 'timezone' in prefs ? prefs.timezone : userTz;
-
-  if (mode === 't_minus') {
-    const t_minus_minutes = Array.from(new Set((rawTMinus || []).filter((v) => Number.isFinite(v)) as number[]))
-      .filter((v) => T_MINUS_OPTIONS.includes(v))
-      .sort((a, b) => a - b)
-      .slice(0, 2);
-    return {
-      mode,
-      timezone: 'UTC',
-      t_minus_minutes,
-      local_times: [],
-      notify_status_change,
-      notify_net_change
-    };
-  }
-
-  const timezone = String(rawTimezone || userTz || 'UTC').trim() || 'UTC';
-  const local_times = Array.from(new Set((rawLocalTimes || []).map((t) => normalizeLocalTime(String(t))).filter(Boolean) as string[]))
-    .sort()
-    .slice(0, 2);
-
-  return {
-    mode,
-    timezone,
-    t_minus_minutes: [],
-    local_times,
-    notify_status_change,
-    notify_net_change
-  };
-}
-
-function launchAlertPrefsEqual(a: LaunchAlertPrefs, b: LaunchAlertPrefs) {
-  if (a.notify_status_change !== b.notify_status_change) return false;
-  if (a.notify_net_change !== b.notify_net_change) return false;
-  if (a.mode !== b.mode) return false;
-  if (a.mode === 'local_time' && a.timezone !== b.timezone) return false;
-  if (a.mode === 't_minus') return arrayEqual(a.t_minus_minutes, b.t_minus_minutes);
-  return arrayEqual(a.local_times, b.local_times);
-}
-
-function validateLaunchAlertPrefs(
-  prefs: LaunchAlertPrefs,
-  netIso: string,
-  netPrecision: Launch['netPrecision'],
-  timeZone?: string
-) {
-  if (prefs.mode === 't_minus') {
-    if (prefs.t_minus_minutes.length > 2) return 'Pick up to 2 T-minus alerts.';
-    if (prefs.t_minus_minutes.some((m) => !T_MINUS_OPTIONS.includes(m))) return 'Pick a valid T-minus alert value.';
-    return null;
-  }
-
-  if (prefs.local_times.length > 2) return 'Pick up to 2 launch-day times.';
-  if (prefs.local_times.some((t) => !normalizeLocalTime(t))) return 'Enter valid times (HH:MM).';
-  if (prefs.local_times.length === 0) return null;
-
-  const net = new Date(netIso);
-  const netMs = net.getTime();
-  if (!Number.isFinite(netMs)) return null;
-
-  const isDateOnly = isDateOnlyNet(netIso, netPrecision, timeZone);
-  if (isDateOnly) return null;
-
-  const day = { y: net.getFullYear(), m: net.getMonth(), d: net.getDate() };
-  for (const t of prefs.local_times) {
-    const normalized = normalizeLocalTime(t);
-    if (!normalized) continue;
-    const sendAt = new Date(day.y, day.m, day.d, Number(normalized.slice(0, 2)), Number(normalized.slice(3, 5)), 0, 0);
-    if (Number.isFinite(sendAt.getTime()) && sendAt.getTime() >= netMs) {
-      return 'Launch-day alert times must be before the scheduled launch time.';
-    }
-  }
-  return null;
-}
-
-function formatLaunchDateTime(netIso: string, netPrecision: Launch['netPrecision'], tz: string) {
-  const date = new Date(netIso);
-  if (Number.isNaN(date.getTime())) return netIso;
-
-  const isDateOnly = isDateOnlyNet(netIso, netPrecision, tz);
-  if (isDateOnly) {
-    const formatted = new Intl.DateTimeFormat('en-US', {
-      month: 'short',
-      day: '2-digit',
-      year: 'numeric',
-      timeZone: tz
-    }).format(date);
-    return `${formatted} (Time TBD)`;
-  }
-
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: '2-digit',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZone: tz,
-    timeZoneName: 'short'
-  }).format(date);
-}
-
-function arrayEqual<T>(a: T[], b: T[]) {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
-}
-
 function DataCell({
   icon,
   label,
@@ -2353,6 +1548,30 @@ function CheckIcon({ className }: { className?: string }) {
   );
 }
 
+function PlusIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function PlayIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <path d="M8 6.5v11l9-5.5-9-5.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ChevronRightIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <path d="m9 6 6 6-6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function AlertIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
@@ -2364,20 +1583,6 @@ function AlertIcon({ className }: { className?: string }) {
       />
       <path d="M12 9v5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
       <path d="M12 17.5h.01" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function BellIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
-      <path
-        d="M6.5 9.5a5.5 5.5 0 0 1 11 0v3.2l1.5 2.3H5l1.5-2.3V9.5Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinejoin="round"
-      />
-      <path d="M10 19.5a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   );
 }
@@ -2394,6 +1599,11 @@ function SlashIcon({ className }: { className?: string }) {
       />
     </svg>
   );
+}
+
+function shouldIgnoreCardNavigation(target: EventTarget | null) {
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest('a, button, input, select, textarea, summary, [role="button"], [data-no-card-nav="true"]'));
 }
 
 function OrbitIcon({ className }: { className?: string }) {

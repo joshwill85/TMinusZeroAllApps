@@ -19,8 +19,7 @@ const FOOTER_LINKS = [
   { label: 'Data Use', href: '/legal/data' },
   { label: 'About', href: '/about' },
   { label: 'FAQ', href: '/docs/faq' },
-  { label: 'Jellyfish Guide', href: '/jellyfish-effect' },
-  { label: 'SMS Opt-In', href: '/docs/sms-opt-in' }
+  { label: 'Jellyfish Guide', href: '/jellyfish-effect' }
 ] as const;
 
 const THANKS_MESSAGES = ['Primary launch schedule data: The Space Devs - Launch Library 2'] as const;

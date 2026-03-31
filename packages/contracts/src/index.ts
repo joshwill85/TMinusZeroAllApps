@@ -898,6 +898,9 @@ export const entitlementCapabilitiesSchemaV1 = z.object({
   canUseBasicAlertRules: z.boolean(),
   canUseAdvancedAlertRules: z.boolean(),
   canUseBrowserLaunchAlerts: z.boolean(),
+  canUseSingleLaunchFollow: z.boolean(),
+  canUseAllUsLaunchAlerts: z.boolean(),
+  canUseStateLaunchAlerts: z.boolean(),
   canUseRecurringCalendarFeeds: z.boolean(),
   canUseRssFeeds: z.boolean(),
   canUseEmbedWidgets: z.boolean(),
@@ -910,17 +913,25 @@ export const entitlementLimitsSchemaV1 = z.object({
   presetLimit: z.number().int().nonnegative(),
   filterPresetLimit: z.number().int().nonnegative(),
   watchlistLimit: z.number().int().nonnegative(),
-  watchlistRuleLimit: z.number().int().nonnegative()
+  watchlistRuleLimit: z.number().int().nonnegative(),
+  singleLaunchFollowLimit: z.number().int().nonnegative()
 });
 
+export const adminAccessOverrideTierSchemaV1 = z.enum(['anon', 'premium']);
+
+export const effectiveTierSourceSchemaV1 = z.enum(['guest', 'free', 'subscription', 'admin', 'admin_override']);
+
 export const entitlementSchemaV1 = z.object({
-  tier: z.enum(['anon', 'free', 'premium']),
+  tier: z.enum(['anon', 'premium']),
   status: z.string(),
   source: z.enum(['stub', 'guest', 'db', 'stripe_reconcile', 'none', 'stripe', 'apple', 'google', 'manual']),
   isPaid: z.boolean(),
+  billingIsPaid: z.boolean(),
   isAdmin: z.boolean(),
   isAuthed: z.boolean(),
   mode: z.enum(['public', 'live']),
+  effectiveTierSource: effectiveTierSourceSchemaV1,
+  adminAccessOverride: adminAccessOverrideTierSchemaV1.nullable(),
   refreshIntervalSeconds: z.number().int().nonnegative(),
   capabilities: entitlementCapabilitiesSchemaV1,
   limits: entitlementLimitsSchemaV1,
@@ -929,6 +940,19 @@ export const entitlementSchemaV1 = z.object({
   stripePriceId: z.string().nullable(),
   reconciled: z.boolean(),
   reconcileThrottled: z.boolean()
+});
+
+export const adminAccessOverrideSchemaV1 = z.object({
+  adminAccessOverride: adminAccessOverrideTierSchemaV1.nullable(),
+  effectiveTier: z.enum(['anon', 'premium']),
+  effectiveTierSource: effectiveTierSourceSchemaV1,
+  isAdmin: z.boolean(),
+  billingIsPaid: z.boolean(),
+  updatedAt: z.string().nullable()
+});
+
+export const adminAccessOverrideUpdateSchemaV1 = z.object({
+  adminAccessOverride: adminAccessOverrideTierSchemaV1.nullable()
 });
 
 export const launchCardSchemaV1 = z.object({
@@ -1378,7 +1402,7 @@ export const launchFeedSchemaV1 = z.object({
   freshness: z.string().nullable(),
   intervalMinutes: z.number().int().nonnegative().nullable(),
   intervalSeconds: z.number().int().nonnegative().nullable().optional(),
-  tier: z.enum(['anon', 'free', 'premium']).nullable().optional(),
+  tier: z.enum(['anon', 'premium']).nullable().optional(),
   scope: z.enum(['public', 'live', 'watchlist']).optional()
 });
 
@@ -1386,7 +1410,7 @@ const launchRefreshScopeSchemaV1 = z.enum(['public', 'live']);
 
 export const launchFeedVersionSchemaV1 = z.object({
   scope: launchRefreshScopeSchemaV1,
-  tier: z.enum(['anon', 'free', 'premium']),
+  tier: z.enum(['anon', 'premium']),
   intervalSeconds: z.number().int().nonnegative(),
   matchCount: z.number().int().nonnegative(),
   updatedAt: z.string().nullable(),
@@ -1413,7 +1437,7 @@ const changedLaunchSchemaV1 = z.object({
 
 export const changedLaunchesSchemaV1 = z.object({
   hours: z.number().int().positive(),
-  tier: z.enum(['anon', 'free', 'premium']),
+  tier: z.enum(['anon', 'premium']),
   intervalSeconds: z.number().int().nonnegative(),
   results: z.array(changedLaunchSchemaV1)
 });
@@ -1455,6 +1479,18 @@ const customerRouteLaunchSummarySchemaV1 = z.object({
   status: z.enum(['go', 'hold', 'scrubbed', 'tbd', 'unknown']).nullable(),
   statusText: z.string().nullable(),
   href: z.string()
+});
+
+export const basicLaunchFollowSchemaV1 = z.object({
+  launchId: z.string().uuid(),
+  launchName: z.string(),
+  net: z.string().nullable()
+});
+
+export const basicFollowsSchemaV1 = z.object({
+  singleLaunchFollowLimit: z.number().int().nonnegative(),
+  activeLaunchFollow: basicLaunchFollowSchemaV1.nullable(),
+  allUsEnabled: z.boolean()
 });
 
 const newsProviderSchemaV1 = z.object({
@@ -2043,7 +2079,7 @@ export const launchFilterOptionsSchemaV1 = z.object({
   statuses: z.array(z.string()).default([])
 });
 
-export const watchlistRuleTypeSchemaV1 = z.enum(['launch', 'pad', 'provider', 'tier']);
+export const watchlistRuleTypeSchemaV1 = z.enum(['launch', 'pad', 'provider', 'rocket', 'launch_site', 'state', 'tier']);
 
 export const pushDeviceRegistrationSchemaV1 = z.object({
   platform: z.enum(['web', 'ios', 'android']),
@@ -2080,6 +2116,23 @@ const localHourMinuteSchemaV1 = z
 export const mobilePushOwnerKindSchemaV1 = z.enum(['guest', 'user']);
 export const mobilePushScopeKindSchemaV1 = z.enum(['all_us', 'state', 'launch', 'all_launches', 'preset', 'follow']);
 export const mobilePushStatusChangeTypeSchemaV1 = z.enum(['any', 'go', 'hold', 'scrubbed', 'tbd']);
+export const notificationOwnerKindSchemaV2 = z.enum(['guest', 'user']);
+export const notificationChannelSchemaV2 = z.enum(['push', 'email', 'sms']);
+export const notificationDeliveryKindSchemaV2 = z.enum(['web_push', 'mobile_push', 'email', 'sms']);
+export const notificationRuleIntentSchemaV2 = z.enum(['follow', 'notifications_only']);
+export const notificationScopeKindSchemaV2 = z.enum([
+  'launch',
+  'state',
+  'provider',
+  'rocket',
+  'pad',
+  'launch_site',
+  'preset',
+  'filter',
+  'all_us',
+  'all_launches',
+  'tier'
+]);
 
 export const mobilePushGuestContextSchemaV1 = z
   .object({
@@ -2232,6 +2285,128 @@ export const mobilePushTestRequestSchemaV1 = mobilePushGuestContextSchemaV1;
 export const mobilePushTestSchemaV1 = z.object({
   ok: z.boolean(),
   queuedAt: z.string()
+});
+
+export const notificationRuleSettingsSchemaV2 = z.object({
+  timezone: z.string().trim().min(1).max(64),
+  prelaunchOffsetsMinutes: z.array(z.number().int()).max(5),
+  includeLiftoff: z.boolean(),
+  dailyDigestLocalTime: localHourMinuteSchemaV1.nullable(),
+  statusChangeTypes: z.array(mobilePushStatusChangeTypeSchemaV1).max(5),
+  notifyNetChanges: z.boolean()
+});
+
+export const notificationRuleSettingsInputSchemaV2 = z
+  .object({
+    timezone: z.string().trim().min(1).max(64).optional(),
+    prelaunchOffsetsMinutes: z.array(z.number().int()).max(5).optional(),
+    includeLiftoff: z.boolean().optional(),
+    dailyDigestLocalTime: localHourMinuteSchemaV1.nullable().optional(),
+    statusChangeTypes: z.array(mobilePushStatusChangeTypeSchemaV1).max(5).optional(),
+    notifyNetChanges: z.boolean().optional()
+  })
+  .strict();
+
+export const notificationDestinationSchemaV2 = z.object({
+  id: z.string().uuid(),
+  ownerKind: notificationOwnerKindSchemaV2,
+  channel: notificationChannelSchemaV2,
+  deliveryKind: notificationDeliveryKindSchemaV2,
+  platform: z.enum(['web', 'ios', 'android']).nullable().optional(),
+  installationId: z.string().trim().min(1).max(160).nullable().optional(),
+  label: z.string().nullable().optional(),
+  registered: z.boolean(),
+  active: z.boolean(),
+  verified: z.boolean().optional(),
+  createdAt: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional(),
+  lastSentAt: z.string().nullable().optional(),
+  lastReceiptAt: z.string().nullable().optional(),
+  lastFailureReason: z.string().nullable().optional(),
+  disabledAt: z.string().nullable().optional()
+});
+
+export const notificationCapabilitiesSchemaV2 = z.object({
+  ownerKind: notificationOwnerKindSchemaV2,
+  basicAllowed: z.boolean(),
+  advancedAllowed: z.boolean(),
+  allowedScopeKinds: z.array(notificationScopeKindSchemaV2),
+  allowedChannels: z.array(notificationChannelSchemaV2),
+  anonLaunchLimit: z.number().int().nonnegative(),
+  anonStateLimit: z.number().int().nonnegative()
+});
+
+export const notificationPreferencesSchemaV2 = z.object({
+  pushEnabled: z.boolean(),
+  emailEnabled: z.boolean(),
+  smsEnabled: z.boolean(),
+  smsVerified: z.boolean(),
+  quietHoursEnabled: z.boolean(),
+  quietStartLocal: z.string().nullable(),
+  quietEndLocal: z.string().nullable(),
+  launchDayEmailEnabled: z.boolean().optional(),
+  launchDayEmailProviders: z.array(z.string()).default([]).optional(),
+  launchDayEmailStates: z.array(z.string()).default([]).optional()
+});
+
+export const notificationRuleSchemaV2 = z.object({
+  id: z.string().uuid(),
+  ownerKind: notificationOwnerKindSchemaV2,
+  intent: notificationRuleIntentSchemaV2,
+  visibleInFollowing: z.boolean(),
+  enabled: z.boolean(),
+  label: z.string(),
+  scopeKind: notificationScopeKindSchemaV2,
+  scopeKey: z.string().trim().min(1).max(200),
+  channels: z.array(notificationChannelSchemaV2),
+  settings: notificationRuleSettingsSchemaV2,
+  launchId: z.string().uuid().nullable().optional(),
+  state: z.string().trim().min(1).max(60).nullable().optional(),
+  provider: z.string().trim().min(1).max(200).nullable().optional(),
+  rocketId: z.number().int().nullable().optional(),
+  padKey: z.string().trim().min(1).max(200).nullable().optional(),
+  launchSite: z.string().trim().min(1).max(200).nullable().optional(),
+  presetId: z.string().uuid().nullable().optional(),
+  filters: z.record(z.unknown()).nullable().optional(),
+  tier: z.string().trim().min(1).max(80).nullable().optional(),
+  createdAt: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional()
+});
+
+export const notificationRuleUpsertSchemaV2 = z
+  .object({
+    intent: notificationRuleIntentSchemaV2,
+    visibleInFollowing: z.boolean().optional(),
+    enabled: z.boolean().optional(),
+    scopeKind: notificationScopeKindSchemaV2,
+    launchId: z.string().uuid().optional(),
+    state: z.string().trim().min(1).max(60).optional(),
+    provider: z.string().trim().min(1).max(200).optional(),
+    rocketId: z.number().int().optional(),
+    padKey: z.string().trim().min(1).max(200).optional(),
+    launchSite: z.string().trim().min(1).max(200).optional(),
+    presetId: z.string().uuid().optional(),
+    filters: z.record(z.unknown()).optional(),
+    tier: z.string().trim().min(1).max(80).optional(),
+    channels: z.array(notificationChannelSchemaV2).optional()
+  })
+  .merge(notificationRuleSettingsInputSchemaV2)
+  .strict();
+
+export const notificationStateSchemaV2 = z.object({
+  capabilities: notificationCapabilitiesSchemaV2,
+  preferences: notificationPreferencesSchemaV2,
+  destinations: z.array(notificationDestinationSchemaV2),
+  rules: z.array(notificationRuleSchemaV2)
+});
+
+export const notificationRuleEnvelopeSchemaV2 = z.object({
+  rule: notificationRuleSchemaV2,
+  source: z.enum(['existing', 'created', 'updated']).optional()
+});
+
+export const notificationDestinationEnvelopeSchemaV2 = z.object({
+  destination: notificationDestinationSchemaV2
 });
 
 export const authProviderSchemaV1 = z.enum(['email_password', 'apple', 'google', 'email_link', 'unknown']);
@@ -2961,7 +3136,7 @@ export const launchDetailSchemaV1 = z.object({
 export const launchDetailVersionSchemaV1 = z.object({
   launchId: z.string(),
   scope: launchRefreshScopeSchemaV1,
-  tier: z.enum(['anon', 'free', 'premium']),
+  tier: z.enum(['anon', 'premium']),
   intervalSeconds: z.number().int().nonnegative(),
   updatedAt: z.string().nullable(),
   version: z.string()
@@ -2985,8 +3160,10 @@ const trajectoryTrackSampleSchemaV1 = z.object({
   uncertainty: trajectoryUncertaintySchemaV1.optional()
 });
 
+const trajectoryTrackKindSchemaV1 = z.enum(['core_up', 'upper_stage_up', 'booster_down']);
+
 const trajectoryTrackSchemaV1 = z.object({
-  trackKind: z.enum(['core_up', 'booster_down']),
+  trackKind: trajectoryTrackKindSchemaV1,
   samples: z.array(trajectoryTrackSampleSchemaV1)
 });
 
@@ -2999,7 +3176,7 @@ const trajectoryMilestoneSchemaV1 = z.object({
   sourceRefIds: z.array(z.string()),
   confidence: z.enum(['low', 'med', 'high']).optional(),
   phase: z.enum(['prelaunch', 'core_ascent', 'upper_stage', 'booster_return', 'landing', 'unknown']),
-  trackKind: z.enum(['core_up', 'booster_down']).optional(),
+  trackKind: trajectoryTrackKindSchemaV1.optional(),
   sourceType: z.enum(['provider_timeline', 'll2_timeline', 'family_template']),
   estimated: z.boolean(),
   projectable: z.boolean(),
@@ -3013,12 +3190,47 @@ const trajectoryUncertaintyEnvelopeSchemaV1 = z.object({
   sigmaDegMax: z.number().nullable()
 });
 
+const trajectoryGuidanceSemanticsSchemaV1 = z.enum(['constraint_backed', 'modeled', 'pad_only']);
+const trajectoryRecoverySemanticsSchemaV1 = z.enum(['exact_track', 'coarse_sector', 'text_only', 'none']);
+const trajectorySupgpModeSchemaV1 = z.enum(['none', 'family_feed', 'launch_file']);
+const trajectoryOrbitCoverageClassSchemaV1 = z.enum([
+  'licensed',
+  'official_numeric',
+  'supgp_launch_file',
+  'supgp_family_feed',
+  'hazard_backed',
+  'landing_prior',
+  'template_only',
+  'none'
+]);
+const trajectoryLandingCoverageClassSchemaV1 = z.enum(['exact_coordinates', 'directional', 'downrange_only', 'text_only', 'none']);
+const trajectoryStageSeparationSourceSchemaV1 = z.enum(['provider_timeline', 'll2_timeline', 'family_template', 'unknown']);
+
+const trajectoryTrackTopologySchemaV1 = z.object({
+  hasStageSplit: z.boolean(),
+  hasUpperStageTrack: z.boolean(),
+  hasBoosterTrack: z.boolean()
+});
+
+const trajectorySourceCoverageSchemaV1 = z.object({
+  orbitClass: trajectoryOrbitCoverageClassSchemaV1,
+  hazardPresent: z.boolean(),
+  landingClass: trajectoryLandingCoverageClassSchemaV1,
+  stageSeparationSource: trajectoryStageSeparationSourceSchemaV1,
+  supgpMode: trajectorySupgpModeSchemaV1,
+  shipAssignmentPresent: z.boolean()
+});
+
 export const trajectoryPublicV2ResponseSchemaV1 = z.object({
   launchId: z.string(),
   version: z.string(),
   modelVersion: z.string(),
   quality: z.number(),
   qualityState: trajectoryPublicQualityStateSchemaV1,
+  guidanceSemantics: trajectoryGuidanceSemanticsSchemaV1,
+  recoverySemantics: trajectoryRecoverySemanticsSchemaV1,
+  trackTopology: trajectoryTrackTopologySchemaV1,
+  sourceCoverage: trajectorySourceCoverageSchemaV1,
   uncertaintyEnvelope: trajectoryUncertaintyEnvelopeSchemaV1,
   sourceBlend: z.object({
     sourceCode: z.string().nullable(),
@@ -3085,7 +3297,7 @@ export const arTelemetrySessionEventSchemaV1 = z.object({
     screenBucket: z.enum(['xs', 'sm', 'md', 'lg', 'unknown']).optional(),
 
     cameraStatus: z.enum(['granted', 'denied', 'prompt', 'error']).optional(),
-    motionStatus: z.enum(['granted', 'denied', 'prompt', 'error']).optional(),
+    motionStatus: z.enum(['granted', 'denied', 'prompt', 'error', 'not_applicable']).optional(),
     headingStatus: z.enum(['ok', 'unavailable', 'noisy', 'unknown']).optional(),
     headingSource: z
       .enum([
@@ -3215,6 +3427,10 @@ export type ArtemisContentResponseV1 = z.infer<typeof artemisContentResponseSche
 export type EntitlementCapabilitiesV1 = z.infer<typeof entitlementCapabilitiesSchemaV1>;
 export type EntitlementLimitsV1 = z.infer<typeof entitlementLimitsSchemaV1>;
 export type EntitlementsV1 = z.infer<typeof entitlementSchemaV1>;
+export type AdminAccessOverrideV1 = z.infer<typeof adminAccessOverrideSchemaV1>;
+export type AdminAccessOverrideUpdateV1 = z.infer<typeof adminAccessOverrideUpdateSchemaV1>;
+export type BasicLaunchFollowV1 = z.infer<typeof basicLaunchFollowSchemaV1>;
+export type BasicFollowsV1 = z.infer<typeof basicFollowsSchemaV1>;
 export type LaunchCardV1 = z.infer<typeof launchCardSchemaV1>;
 export type LaunchFeedItemV1 = z.infer<typeof launchFeedItemSchemaV1>;
 export type LaunchFeedV1 = z.infer<typeof launchFeedSchemaV1>;
@@ -3298,6 +3514,21 @@ export type MobilePushRuleEnvelopeV1 = z.infer<typeof mobilePushRuleEnvelopeSche
 export type MobilePushLaunchPreferenceEnvelopeV1 = z.infer<typeof mobilePushLaunchPreferenceEnvelopeSchemaV1>;
 export type MobilePushTestRequestV1 = z.infer<typeof mobilePushTestRequestSchemaV1>;
 export type MobilePushTestV1 = z.infer<typeof mobilePushTestSchemaV1>;
+export type NotificationOwnerKindV2 = z.infer<typeof notificationOwnerKindSchemaV2>;
+export type NotificationChannelV2 = z.infer<typeof notificationChannelSchemaV2>;
+export type NotificationDeliveryKindV2 = z.infer<typeof notificationDeliveryKindSchemaV2>;
+export type NotificationRuleIntentV2 = z.infer<typeof notificationRuleIntentSchemaV2>;
+export type NotificationScopeKindV2 = z.infer<typeof notificationScopeKindSchemaV2>;
+export type NotificationRuleSettingsV2 = z.infer<typeof notificationRuleSettingsSchemaV2>;
+export type NotificationRuleSettingsInputV2 = z.infer<typeof notificationRuleSettingsInputSchemaV2>;
+export type NotificationDestinationV2 = z.infer<typeof notificationDestinationSchemaV2>;
+export type NotificationCapabilitiesV2 = z.infer<typeof notificationCapabilitiesSchemaV2>;
+export type NotificationPreferencesV2 = z.infer<typeof notificationPreferencesSchemaV2>;
+export type NotificationRuleV2 = z.infer<typeof notificationRuleSchemaV2>;
+export type NotificationRuleUpsertV2 = z.infer<typeof notificationRuleUpsertSchemaV2>;
+export type NotificationStateV2 = z.infer<typeof notificationStateSchemaV2>;
+export type NotificationRuleEnvelopeV2 = z.infer<typeof notificationRuleEnvelopeSchemaV2>;
+export type NotificationDestinationEnvelopeV2 = z.infer<typeof notificationDestinationEnvelopeSchemaV2>;
 export type AuthProviderV1 = z.infer<typeof authProviderSchemaV1>;
 export type AuthPlatformV1 = z.infer<typeof authPlatformSchemaV1>;
 export type MobileAuthPlatformV1 = z.infer<typeof mobileAuthPlatformSchemaV1>;

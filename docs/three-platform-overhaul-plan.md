@@ -6,6 +6,7 @@ This is the living master checklist for moving T-Minus Zero from a web-only prod
 
 Related implementation plans:
 - `docs/2026-03-20-anon-premium-cutover-plan.md`
+- `docs/2026-03-29-push-only-notification-cutover-plan.md`
 
 ## Purpose
 
@@ -72,6 +73,10 @@ Related implementation plans:
 
 ## Current Slice Tracker
 
+- 2026-03-29: Push-only notification cutover is in progress for `Web`, `iOS`, and `Android`.
+  - Source-of-truth plan: `docs/2026-03-29-push-only-notification-cutover-plan.md`
+  - Scope: retire SMS notifications, notification email delivery, and browser/web push; keep only native mobile push for alerts while preserving essential non-notification email.
+  - Guardrails: no destructive table or column drops, keep legacy `/api/v1` reads compatibility-safe, reject retired writes explicitly, and preserve the native mobile push v2 path.
 - 2026-03-20: Anon and Premium cutover is in progress for `Web`, `iOS`, and `Android`.
   - Source-of-truth plan: `docs/2026-03-20-anon-premium-cutover-plan.md`
   - Scope: remove new free sign-up, keep signed-in non-premium users on anon product access, add purchase-first premium claim flows, and preserve read-only saved/integration inventory for signed-in non-premium accounts.

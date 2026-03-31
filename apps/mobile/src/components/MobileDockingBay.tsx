@@ -244,11 +244,11 @@ export function MobileDockingBay() {
             testID: 'manifest-link-data'
           },
           {
-            key: 'sms',
-            title: 'SMS Alerts',
-            description: 'Opt-in disclosures, example messages, and compliance details.',
-            href: '/docs/sms-opt-in' as Href,
-            testID: 'manifest-link-sms'
+            key: 'notifications',
+            title: 'Notifications',
+            description: 'Push-only alert guidance and settings.',
+            href: '/preferences' as Href,
+            testID: 'manifest-link-notifications'
           }
         ]
       },
@@ -256,11 +256,11 @@ export function MobileDockingBay() {
         title: 'Legal',
         items: [
           {
-            key: 'sms-legal',
-            title: 'SMS Terms',
-            description: 'SMS-specific policy summary and terms linkage.',
-            href: '/legal/sms' as Href,
-            testID: 'manifest-link-sms-legal'
+            key: 'privacy-choices',
+            title: 'Privacy Choices',
+            description: 'Consumer privacy preferences and controls.',
+            href: '/legal/privacy-choices' as Href,
+            testID: 'manifest-link-privacy-choices'
           },
           {
             key: 'terms',
@@ -275,13 +275,6 @@ export function MobileDockingBay() {
             description: 'Privacy policy and data handling.',
             href: '/legal/privacy' as Href,
             testID: 'manifest-link-privacy'
-          },
-          {
-            key: 'privacy-choices',
-            title: 'Privacy Choices',
-            description: 'Consumer privacy preferences and controls.',
-            href: '/legal/privacy-choices' as Href,
-            testID: 'manifest-link-privacy-choices'
           }
         ]
       }
@@ -664,7 +657,7 @@ function CalendarGlyph({ color }: { color: string }) {
       <View
         style={{
           position: 'absolute',
-          top: 3,
+          top: 2,
           left: 2,
           right: 2,
           bottom: 2,
@@ -676,9 +669,21 @@ function CalendarGlyph({ color }: { color: string }) {
       <View
         style={{
           position: 'absolute',
-          top: 1,
+          top: 2,
+          left: 2,
+          right: 2,
+          height: 4,
+          borderTopLeftRadius: 4,
+          borderTopRightRadius: 4,
+          backgroundColor: color
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          top: 0.75,
           left: 5,
-          width: 2,
+          width: 1.8,
           height: 4,
           borderRadius: 999,
           backgroundColor: color
@@ -687,14 +692,33 @@ function CalendarGlyph({ color }: { color: string }) {
       <View
         style={{
           position: 'absolute',
-          top: 1,
+          top: 0.75,
           right: 5,
-          width: 2,
+          width: 1.8,
           height: 4,
           borderRadius: 999,
           backgroundColor: color
         }}
       />
+      {[
+        [5, 8],
+        [10, 8],
+        [5, 11.5],
+        [10, 11.5]
+      ].map(([left, top], index) => (
+        <View
+          key={index}
+          style={{
+            position: 'absolute',
+            left,
+            top,
+            width: 2.2,
+            height: 2.2,
+            borderRadius: 0.8,
+            backgroundColor: color
+          }}
+        />
+      ))}
     </View>
   );
 }

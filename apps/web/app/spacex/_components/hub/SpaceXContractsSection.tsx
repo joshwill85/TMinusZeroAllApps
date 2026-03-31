@@ -14,7 +14,7 @@ export function SpaceXContractsSection({
   return (
     <section id="contracts" className="scroll-mt-24 space-y-4">
       <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
-        <h2 className="text-xl font-semibold text-text1">Contracts and procurement</h2>
+        <h2 className="text-xl font-semibold text-text1">Contracts and records</h2>
         {contracts.length ? (
           <ul className="mt-3 space-y-2 text-sm text-text2">
             {contracts.slice(0, 8).map((contract) => (
@@ -33,7 +33,7 @@ export function SpaceXContractsSection({
                   <span>{contract.agency || contract.customer || 'Public record'}</span>
                   {contract.sourceUrl ? (
                     <a href={contract.sourceUrl} target="_blank" rel="noreferrer" className="text-primary hover:text-primary/80">
-                      Source
+                      Source record
                     </a>
                   ) : null}
                 </div>
@@ -43,7 +43,7 @@ export function SpaceXContractsSection({
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-success">
-                            Exact story
+                            In-house page
                           </span>
                           <span>
                             {contract.contractStory.actionCount} actions • {contract.contractStory.noticeCount} notices • {contract.contractStory.spendingPointCount} spending points
@@ -54,7 +54,7 @@ export function SpaceXContractsSection({
                             href={contract.storyPresentation.canonicalPath}
                             className="rounded border border-stroke px-2 py-1 text-[10px] uppercase tracking-[0.08em] text-text2 hover:text-text1"
                           >
-                            Open full story
+                            Open in-house page
                           </Link>
                         ) : null}
                       </div>
@@ -62,20 +62,20 @@ export function SpaceXContractsSection({
                   ) : contract.storyPresentation?.state === 'lead' ? (
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-warning">
-                          Related leads
-                        </span>
-                        <span>
-                          {contract.storyPresentation.leadCount} SAM record{contract.storyPresentation.leadCount === 1 ? '' : 's'} tracked separately until an exact story join lands.
-                        </span>
+                          <span className="rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-warning">
+                          Unmatched records
+                          </span>
+                          <span>
+                            {contract.storyPresentation.leadCount} SAM record{contract.storyPresentation.leadCount === 1 ? '' : 's'} are still waiting for a confident match to an in-house page.
+                          </span>
                       </div>
                     </div>
                   ) : (
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="rounded-full border border-stroke px-2 py-0.5">
-                        Story pending
+                        Page pending
                       </span>
-                      <span>No exact contract story is attached yet.</span>
+                      <span>No in-house contract page is attached yet.</span>
                     </div>
                   )}
                 </div>
@@ -93,10 +93,10 @@ export function SpaceXContractsSection({
       </section>
 
       <ProgramContractDiscoveryList
-        title="Related procurement leads"
-        subtitle="Relevant SpaceX procurement records that are tracked separately until an exact contract-story join lands."
+        title="Unmatched source records"
+        subtitle="Relevant SpaceX procurement records that are still waiting for a confident match to an in-house contract page."
         items={discoveryItems}
-        emptyMessage="Relevant SAM.gov leads will appear here when records are related to SpaceX but not yet safely attached to an exact contract story."
+        emptyMessage="Source records will appear here when they are related to SpaceX but not yet matched to an in-house contract page."
       />
     </section>
   );

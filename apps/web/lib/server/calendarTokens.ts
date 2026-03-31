@@ -54,7 +54,7 @@ export async function loadCalendarTokenPayload(session: ResolvedViewerSession) {
   if (!entitlement.isAuthed || !session.userId) {
     throw new CalendarTokenRouteError(401, 'unauthorized');
   }
-  if (!entitlement.isAdmin && !entitlement.capabilities.canUseRecurringCalendarFeeds) {
+  if (!entitlement.capabilities.canUseRecurringCalendarFeeds) {
     throw new CalendarTokenRouteError(402, 'payment_required');
   }
 

@@ -179,7 +179,7 @@ export function BlueOriginProcurementLedger({
                   <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-text3">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-success">
-                        Exact story
+                        In-house page
                       </span>
                       <span>
                         {storySummary.actionCount} actions • {storySummary.noticeCount} notices
@@ -191,7 +191,7 @@ export function BlueOriginProcurementLedger({
                       onClick={() => void handleToggleStory(entry.id, storySummary.storyKey)}
                       className="rounded border border-stroke px-2 py-1 text-[10px] uppercase tracking-[0.08em] text-text2 hover:text-text1 disabled:opacity-60"
                     >
-                      {storyPending ? 'Loading…' : storyExpanded ? 'Hide story' : 'Open story'}
+                      {storyPending ? 'Loading…' : storyExpanded ? 'Hide page' : 'Open page'}
                     </button>
                   </div>
                   {storyError ? (
@@ -216,12 +216,12 @@ export function BlueOriginProcurementLedger({
                         ) : null}
                         {storyDetail.links.canonicalPath ? (
                           <a href={storyDetail.links.canonicalPath} className="text-primary hover:text-primary/80">
-                            Full story
+                            Open in-house page
                           </a>
                         ) : null}
                         {storyDetail.links.artemisStoryHref ? (
                           <a href={storyDetail.links.artemisStoryHref} className="text-primary hover:text-primary/80">
-                            Contract page
+                            Open contract page
                           </a>
                         ) : null}
                       </div>
@@ -230,11 +230,11 @@ export function BlueOriginProcurementLedger({
                 </div>
               ) : storyPresentation?.state === 'lead' ? (
                 <div className="mt-2 ml-9 mr-1 rounded-md border border-warning/20 bg-warning/5 p-2 text-[11px] text-text3">
-                  {storyPresentation.leadCount} related SAM lead{storyPresentation.leadCount === 1 ? '' : 's'} tracked separately until an exact story join lands.
+                  {storyPresentation.leadCount} related SAM record{storyPresentation.leadCount === 1 ? '' : 's'} are still waiting for a confident match to an in-house page.
                 </div>
               ) : (
                 <div className="mt-2 ml-9 mr-1 rounded-md border border-stroke/70 bg-surface-1/40 p-2 text-[11px] text-text3">
-                  Story pending.
+                  In-house page pending.
                 </div>
               )}
 

@@ -27,7 +27,7 @@ export function ArtemisModeSwitch<TMode extends string = ArtemisWorkbenchMode>({
   options,
   value,
   onChange,
-  ariaLabel = 'Workbench mode',
+  ariaLabel = 'View mode',
   className
 }: ArtemisModeSwitchProps<TMode>) {
   const tablistId = useId();

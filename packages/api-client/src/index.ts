@@ -1,4 +1,5 @@
 import {
+  basicFollowsSchemaV1,
   alertRuleCreateSchemaV1,
   alertRuleEnvelopeSchemaV1,
   alertRulesSchemaV1,
@@ -6,6 +7,8 @@ import {
   appleBillingSyncRequestSchemaV1,
   authContextUpsertSchemaV1,
   billingCatalogSchemaV1,
+  adminAccessOverrideSchemaV1,
+  adminAccessOverrideUpdateSchemaV1,
   premiumClaimAttachResponseSchemaV1,
   premiumClaimEnvelopeSchemaV1,
   premiumClaimPasswordSignUpResponseSchemaV1,
@@ -119,10 +122,13 @@ import {
   watchlistRuleEnvelopeSchemaV1,
   watchlistUpdateSchemaV1,
   watchlistsSchemaV1,
+  type BasicFollowsV1,
   type AppleBillingSyncRequestV1,
   type AuthContextUpsertV1,
   type BillingCatalogProductV1,
   type BillingCatalogV1,
+  type AdminAccessOverrideV1,
+  type AdminAccessOverrideUpdateV1,
   type PremiumClaimAttachResponseV1,
   type PremiumClaimEnvelopeV1,
   type PremiumClaimPasswordSignUpResponseV1,
@@ -433,6 +439,17 @@ export class ApiClient {
 
   async getViewerEntitlements() {
     return this.request('/api/v1/viewer/entitlements', entitlementSchemaV1);
+  }
+
+  async getAdminAccessOverride() {
+    return this.request('/api/v1/me/admin-access-override', adminAccessOverrideSchemaV1);
+  }
+
+  async updateAdminAccessOverride(payload: AdminAccessOverrideUpdateV1) {
+    return this.request('/api/v1/me/admin-access-override', adminAccessOverrideSchemaV1, {
+      method: 'PUT',
+      body: adminAccessOverrideUpdateSchemaV1.parse(payload)
+    });
   }
 
   async getBillingSummary() {
@@ -833,6 +850,10 @@ export class ApiClient {
 
   async getNotificationPreferences() {
     return this.request('/api/v1/me/notification-preferences', notificationPreferencesSchemaV1);
+  }
+
+  async getBasicFollows() {
+    return this.request('/api/v1/me/basic-follows', basicFollowsSchemaV1);
   }
 
   async updateNotificationPreferences(payload: NotificationPreferencesUpdateV1) {
@@ -1271,6 +1292,7 @@ export function createApiClient(options?: ApiClientOptions) {
 }
 
 export type {
+  BasicFollowsV1,
   AlertRuleCreateV1,
   AlertRuleEnvelopeV1,
   AlertRuleV1,
@@ -1279,6 +1301,8 @@ export type {
   AuthContextUpsertV1,
   BillingCatalogProductV1,
   BillingCatalogV1,
+  AdminAccessOverrideV1,
+  AdminAccessOverrideUpdateV1,
   PremiumClaimAttachResponseV1,
   PremiumClaimEnvelopeV1,
   PremiumClaimPasswordSignUpResponseV1,

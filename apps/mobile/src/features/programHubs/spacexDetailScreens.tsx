@@ -1,6 +1,7 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useMemo, type ReactNode } from 'react';
 import { Linking, Pressable, Text, View } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
+import type { CanonicalContractDetailV1, CanonicalContractsResponseV1 } from '@tminuszero/contracts';
 import {
   useSpaceXContractsQuery,
   useSpaceXEnginesQuery,
@@ -10,10 +11,13 @@ import {
 import { AppScreen } from '@/src/components/AppScreen';
 import {
   CustomerShellHero,
+  CustomerShellBadge,
   CustomerShellMetric,
   CustomerShellPanel
 } from '@/src/components/CustomerShell';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
+import { useCanonicalContractDetailQuery, useCanonicalContractsQuery } from '@/src/features/customerRoutes/queries';
+import { openExternalCustomerUrl, RouteKeyValueRow, RouteListRow } from '@/src/features/customerRoutes/shared';
 import {
   buildSpaceXContractHref,
   buildSpaceXEngineHref,
@@ -340,17 +344,52 @@ export function SpaceXContractDetailScreen({ slug }: { slug: string }) {
   const contractsQuery = useSpaceXContractsQuery({ mission: 'all' });
   const flightsQuery = useSpaceXFlightsQuery({ mission: 'all' });
   const contract = contractsQuery.data?.items.find((entry) => normalizeSpaceXContractParam(entry.contractKey) === slug) ?? null;
+  const canonicalContractsQuery = useCanonicalContractsQuery(
+    {
+      scope: 'spacex',
+      q: contract?.contractKey ?? null
+    },
+    { enabled: Boolean(contract?.contractKey) }
+  );
+  const canonicalContractsPayload = (canonicalContractsQuery.data as CanonicalContractsResponseV1 | null) ?? null;
+  const canonicalSummary = useMemo(
+    () =>
+      canonicalContractsPayload?.items.find((entry) => normalizeSpaceXContractParam(entry.contractKey) === slug) ?? null,
+    [canonicalContractsPayload, slug]
+  );
+  const canonicalDetailQuery = useCanonicalContractDetailQuery(canonicalSummary?.uid ?? null, {
+    enabled: Boolean(canonicalSummary?.uid)
+  });
+  const canonicalDetail = (canonicalDetailQuery.data as CanonicalContractDetailV1 | null) ?? null;
   const relatedFlights = contract
     ? (flightsQuery.data?.items ?? []).filter((entry) => entry.missionKey === contract.missionKey).slice(0, 8)
     : [];
+  const canonicalFacts = canonicalDetail?.facts.map((fact) => {
+    if (fact.label !== 'Status') return fact;
+    return {
+      ...fact,
+      value: buildCanonicalStoryStatusLabel(canonicalSummary?.storyStatus)
+    };
+  }) ?? [];
+  const canonicalLinks = (canonicalDetail?.links ?? []).filter((link) => link.href !== canonicalSummary?.programPath);
+  const familyMembers = (canonicalDetail?.familyMembers ?? []).filter((member) => member.uid !== canonicalSummary?.uid);
+  const coverageLabel = canonicalSummary ? buildCanonicalStoryStatusLabel(canonicalSummary.storyStatus) : 'Summary only';
 
   return (
     <AppScreen testID="spacex-contract-detail-screen">
       <CustomerShellHero
         eyebrow="SpaceX Contract"
         title={contract?.title || 'Contract detail'}
-        description="Native contract detail backed by the shared SpaceX contracts index."
-      />
+        description="Native contract detail with internal contract coverage and linked source records."
+      >
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          <CustomerShellBadge
+            label={canonicalSummary ? buildCanonicalStoryStatusBadge(canonicalSummary.storyStatus) : 'summary'}
+            tone={canonicalSummary?.storyStatus === 'exact' ? 'success' : canonicalSummary ? 'warning' : 'default'}
+          />
+          {canonicalSummary?.amount != null ? <CustomerShellBadge label={formatCurrency(canonicalSummary.amount)} tone="accent" /> : null}
+        </View>
+      </CustomerShellHero>
       {renderQueryState(contractsQuery, {
         emptyTitle: 'Contract unavailable',
         emptyDescription: 'The requested SpaceX contract record is not available on mobile.',
@@ -362,15 +401,16 @@ export function SpaceXContractDetailScreen({ slug }: { slug: string }) {
           return (
             <>
               <MetricsPanel
-                title="Award profile"
+                title="Contract status"
                 metrics={[
                   { label: 'Mission', value: spaceXMissionLabel(contract.missionKey) },
+                  { label: 'Coverage', value: coverageLabel },
                   { label: 'Status', value: contract.status || 'Pending' },
                   { label: 'Awarded', value: contract.awardedOn ? formatDate(contract.awardedOn) : 'TBD' }
                 ]}
               />
 
-              <CustomerShellPanel title="Contract summary" description="Public contract fields available in the shared mobile payload.">
+              <CustomerShellPanel title="Contract summary" description="Program-specific summary from the shared SpaceX contracts index.">
                 <View style={{ gap: 10 }}>
                   <DetailRow
                     title={contract.contractKey}
@@ -387,7 +427,7 @@ export function SpaceXContractDetailScreen({ slug }: { slug: string }) {
                       title={contract.sourceLabel || 'Source record'}
                       body={contract.sourceUrl}
                       meta="Open source"
-                      onPress={() => void Linking.openURL(contract.sourceUrl || '')}
+                      onPress={() => void openExternalCustomerUrl(contract.sourceUrl || '')}
                     />
                   ) : null}
                   {typeof contract.amount === 'number' ? (
@@ -395,6 +435,74 @@ export function SpaceXContractDetailScreen({ slug }: { slug: string }) {
                   ) : null}
                 </View>
               </CustomerShellPanel>
+
+              {canonicalDetailQuery.isPending ? (
+                <CustomerShellPanel title="Loading in-house detail" description="Fetching the full contract page data for this record." />
+              ) : null}
+
+              {canonicalDetailQuery.isError ? (
+                <CustomerShellPanel
+                  title="In-house detail unavailable"
+                  description={
+                    canonicalDetailQuery.error instanceof Error
+                      ? canonicalDetailQuery.error.message
+                      : 'Unable to load the internal contract detail for this record.'
+                  }
+                />
+              ) : null}
+
+              {canonicalFacts.length ? (
+                <CustomerShellPanel title="In-house detail" description="Internal contract facts from the shared canonical contracts service.">
+                  <View style={{ gap: 10 }}>
+                    {canonicalFacts.map((fact) => (
+                      <RouteKeyValueRow key={`${fact.label}:${fact.value}`} label={fact.label} value={fact.value} />
+                    ))}
+                  </View>
+                </CustomerShellPanel>
+              ) : null}
+
+              {canonicalLinks.length ? (
+                <CustomerShellPanel title="Linked routes" description="Open the connected in-house and source routes for this contract.">
+                  <View style={{ gap: 10 }}>
+                    {canonicalLinks.map((link) => (
+                      <RouteListRow
+                        key={`${link.label}:${link.href}`}
+                        title={link.label}
+                        subtitle={link.external ? 'Source record' : 'Native contract surface'}
+                        badge={link.external ? 'source' : 'native'}
+                        onPress={() => {
+                          if (link.external) {
+                            void openExternalCustomerUrl(link.href);
+                            return;
+                          }
+                          router.push(link.href as Href);
+                        }}
+                      />
+                    ))}
+                  </View>
+                </CustomerShellPanel>
+              ) : null}
+
+              {familyMembers.length ? (
+                <CustomerShellPanel title="Related contract rows" description="Other rows grouped into this contract family.">
+                  <View style={{ gap: 10 }}>
+                    {familyMembers.map((member) => (
+                      <RouteListRow
+                        key={member.uid}
+                        title={member.title}
+                        subtitle={[member.missionLabel, member.description || member.status || ''].filter(Boolean).join(' • ')}
+                        meta={[member.piid || member.usaspendingAwardId || 'No award id', member.awardedOn ? formatDate(member.awardedOn) : null]
+                          .filter(Boolean)
+                          .join(' • ')}
+                        badge={buildCanonicalStoryStatusBadge(member.storyStatus)}
+                        onPress={() => {
+                          router.push((member.programPath || member.canonicalPath) as Href);
+                        }}
+                      />
+                    ))}
+                  </View>
+                </CustomerShellPanel>
+              ) : null}
 
               <CustomerShellPanel title="Related flights" description={`${relatedFlights.length} mission-linked flight record${relatedFlights.length === 1 ? '' : 's'} available.`}>
                 <View style={{ gap: 10 }}>
@@ -521,4 +629,12 @@ function formatCurrency(value: number) {
     currency: 'USD',
     maximumFractionDigits: 0
   }).format(value);
+}
+
+function buildCanonicalStoryStatusLabel(status: CanonicalContractsResponseV1['items'][number]['storyStatus'] | null | undefined) {
+  return status === 'exact' ? 'In-house page' : status === 'pending' ? 'Page pending' : 'Summary only';
+}
+
+function buildCanonicalStoryStatusBadge(status: CanonicalContractsResponseV1['items'][number]['storyStatus']) {
+  return status === 'exact' ? 'in-house' : 'pending';
 }

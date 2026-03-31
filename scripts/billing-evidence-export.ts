@@ -180,7 +180,7 @@ function buildEntitlementSnapshot({
     typeof sourceEntitlement?.is_active === 'boolean'
       ? sourceEntitlement.is_active
       : isPaidSubscriptionStatus(sourceEntitlement?.status ?? legacySubscription?.status);
-  const tier = isAdmin || isPaid ? 'premium' : 'free';
+  const tier = isAdmin || isPaid ? 'premium' : 'anon';
   return {
     tier,
     status,
@@ -202,7 +202,10 @@ function buildEntitlementSnapshot({
       canManageFollows: tier === 'premium',
       canUseBasicAlertRules: true,
       canUseAdvancedAlertRules: tier === 'premium',
-      canUseBrowserLaunchAlerts: tier === 'premium',
+      canUseBrowserLaunchAlerts: true,
+      canUseSingleLaunchFollow: true,
+      canUseAllUsLaunchAlerts: true,
+      canUseStateLaunchAlerts: tier === 'premium',
       canUseRecurringCalendarFeeds: tier === 'premium',
       canUseRssFeeds: tier === 'premium',
       canUseEmbedWidgets: tier === 'premium',
@@ -214,7 +217,8 @@ function buildEntitlementSnapshot({
       presetLimit: tier === 'premium' ? 50 : 0,
       filterPresetLimit: tier === 'premium' ? 50 : 0,
       watchlistLimit: tier === 'premium' ? 50 : 0,
-      watchlistRuleLimit: tier === 'premium' ? 500 : 0
+      watchlistRuleLimit: tier === 'premium' ? 500 : 0,
+      singleLaunchFollowLimit: tier === 'premium' ? 0 : 1
     },
     cancelAtPeriodEnd: Boolean(sourceEntitlement?.cancel_at_period_end ?? legacySubscription?.cancel_at_period_end),
     currentPeriodEnd: sourceEntitlement?.current_period_end ?? legacySubscription?.current_period_end ?? null,

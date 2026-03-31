@@ -1,4 +1,4 @@
-export type ViewerTier = 'anon' | 'free' | 'premium';
+export type ViewerTier = 'anon' | 'premium';
 export type ViewerMode = 'public' | 'live';
 export type MobileViewerTier = 'anon' | 'premium';
 
@@ -15,6 +15,9 @@ export type ViewerCapabilities = {
   canUseBasicAlertRules: boolean;
   canUseAdvancedAlertRules: boolean;
   canUseBrowserLaunchAlerts: boolean;
+  canUseSingleLaunchFollow: boolean;
+  canUseAllUsLaunchAlerts: boolean;
+  canUseStateLaunchAlerts: boolean;
   canUseRecurringCalendarFeeds: boolean;
   canUseRssFeeds: boolean;
   canUseEmbedWidgets: boolean;
@@ -28,11 +31,11 @@ export type ViewerLimits = {
   filterPresetLimit: number;
   watchlistLimit: number;
   watchlistRuleLimit: number;
+  singleLaunchFollowLimit: number;
 };
 
 export const TIER_REFRESH_SECONDS: Record<ViewerTier, number> = {
   anon: 2 * 60 * 60,
-  free: 15 * 60,
   premium: 15
 };
 
@@ -74,9 +77,12 @@ export function getTierCapabilities(tier: ViewerTier): ViewerCapabilities {
     canUseInstantAlerts: isPremium,
     canManageFilterPresets: isPremium,
     canManageFollows: isPremium,
-    canUseBasicAlertRules: isPremium,
+    canUseBasicAlertRules: true,
     canUseAdvancedAlertRules: isPremium,
-    canUseBrowserLaunchAlerts: isPremium,
+    canUseBrowserLaunchAlerts: true,
+    canUseSingleLaunchFollow: true,
+    canUseAllUsLaunchAlerts: true,
+    canUseStateLaunchAlerts: isPremium,
     canUseRecurringCalendarFeeds: isPremium,
     canUseRssFeeds: isPremium,
     canUseEmbedWidgets: isPremium,
@@ -105,9 +111,12 @@ export function getMobileTierCapabilities(tier: ViewerTier): ViewerCapabilities 
     canUseInstantAlerts: false,
     canManageFilterPresets: false,
     canManageFollows: false,
-    canUseBasicAlertRules: false,
+    canUseBasicAlertRules: true,
     canUseAdvancedAlertRules: false,
     canUseBrowserLaunchAlerts: false,
+    canUseSingleLaunchFollow: true,
+    canUseAllUsLaunchAlerts: true,
+    canUseStateLaunchAlerts: false,
     canUseRecurringCalendarFeeds: false,
     canUseRssFeeds: false,
     canUseEmbedWidgets: false,
@@ -123,16 +132,8 @@ export function getTierLimits(tier: ViewerTier): ViewerLimits {
       presetLimit: 25,
       filterPresetLimit: 25,
       watchlistLimit: 5,
-      watchlistRuleLimit: 200
-    };
-  }
-
-  if (tier === 'free') {
-    return {
-      presetLimit: 0,
-      filterPresetLimit: 0,
-      watchlistLimit: 0,
-      watchlistRuleLimit: 0
+      watchlistRuleLimit: 200,
+      singleLaunchFollowLimit: 0
     };
   }
 
@@ -140,7 +141,8 @@ export function getTierLimits(tier: ViewerTier): ViewerLimits {
     presetLimit: 0,
     filterPresetLimit: 0,
     watchlistLimit: 0,
-    watchlistRuleLimit: 0
+    watchlistRuleLimit: 0,
+    singleLaunchFollowLimit: 1
   };
 }
 

@@ -12,7 +12,6 @@ import {
   getTierCapabilities,
   getTierLimits,
   getTierRefreshSeconds,
-  resolveViewerTier,
   tierToMode,
   type ViewerCapabilities,
   type ViewerLimits,
@@ -33,13 +32,26 @@ type SessionScopedClient =
   | ReturnType<typeof createSupabaseAdminClient>
   | ReturnType<typeof createSupabaseServerClient>;
 
+export type AdminAccessOverrideTier = 'anon' | 'premium';
+export type EffectiveTierSource = 'guest' | 'free' | 'subscription' | 'admin' | 'admin_override';
+
+export type AdminAccessOverride = {
+  userId: string;
+  adminAccessOverride: AdminAccessOverrideTier | null;
+  updatedAt: string | null;
+  updatedBy: string | null;
+};
+
 export type ViewerEntitlement = {
   status: string;
   isPaid: boolean;
+  billingIsPaid: boolean;
   isAdmin: boolean;
   isAuthed: boolean;
   tier: ViewerTier;
   mode: ViewerMode;
+  effectiveTierSource: EffectiveTierSource;
+  adminAccessOverride: AdminAccessOverrideTier | null;
   refreshIntervalSeconds: number;
   capabilities: ViewerCapabilities;
   limits: ViewerLimits;
@@ -58,7 +70,15 @@ export type UserAccessEntitlement = {
   status: string | null;
   isAdmin: boolean;
   isPaid: boolean;
+  billingIsPaid: boolean;
+  tier: ViewerTier;
+  effectiveTierSource: EffectiveTierSource;
+  adminAccessOverride: AdminAccessOverrideTier | null;
 };
+
+function isMissingAdminAccessOverrideRelationCode(code: string | null | undefined) {
+  return code === '42P01' || code === 'PGRST205';
+}
 
 export async function getViewerEntitlement({
   request,
@@ -75,6 +95,7 @@ export async function getViewerEntitlement({
         status: 'stub',
         isAuthed: false,
         isAdmin: false,
+        adminAccessOverride: null,
         userId: null,
         source: 'stub',
         cancelAtPeriodEnd: false,
@@ -94,6 +115,7 @@ export async function getViewerEntitlement({
         status: 'none',
         isAuthed: false,
         isAdmin: false,
+        adminAccessOverride: null,
         userId: null,
         source: 'guest',
         cancelAtPeriodEnd: false,
@@ -114,6 +136,7 @@ export async function getViewerEntitlement({
         status: resolvedSession.role === 'admin' ? 'active' : 'none',
         isAuthed: true,
         isAdmin: resolvedSession.role === 'admin',
+        adminAccessOverride: null,
         userId: resolvedSession.userId,
         source: 'guest',
         cancelAtPeriodEnd: false,
@@ -126,19 +149,27 @@ export async function getViewerEntitlement({
     };
   }
 
-  const [providerEntitlementRes, subscriptionRes, profileRes] = await Promise.all([
+  const [providerEntitlementRes, subscriptionRes, profileRes, adminAccessOverrideRes] = await Promise.all([
     loadProviderEntitlement(client, resolvedSession.userId),
     client
       .from('subscriptions')
       .select('status,cancel_at_period_end,current_period_end,stripe_price_id,updated_at')
       .eq('user_id', resolvedSession.userId)
       .maybeSingle(),
-    client.from('profiles').select('role').eq('user_id', resolvedSession.userId).maybeSingle()
+    client.from('profiles').select('role').eq('user_id', resolvedSession.userId).maybeSingle(),
+    loadAdminAccessOverrideByUserId({
+      userId: resolvedSession.userId,
+      client
+    })
   ]);
 
   const loadError =
     providerEntitlementRes.loadError ??
-    (subscriptionRes.error ? 'subscription_fetch_failed' : profileRes.error ? 'profile_fetch_failed' : null);
+    (subscriptionRes.error
+      ? 'subscription_fetch_failed'
+      : profileRes.error
+        ? 'profile_fetch_failed'
+        : adminAccessOverrideRes.loadError);
   if (subscriptionRes.error) {
     console.error('subscription fetch error', subscriptionRes.error);
   }
@@ -150,6 +181,7 @@ export async function getViewerEntitlement({
   const isAdmin = role === 'admin';
   const providerEntitlement = providerEntitlementRes.entitlement;
   const subscription = subscriptionRes.data ?? null;
+  const adminAccessOverride = isAdmin ? adminAccessOverrideRes.override?.adminAccessOverride ?? null : null;
 
   const reconciledResult =
     reconcileStripe && admin
@@ -168,6 +200,7 @@ export async function getViewerEntitlement({
       status,
       isAuthed: true,
       isAdmin,
+      adminAccessOverride,
       userId: resolvedSession.userId,
       source,
       cancelAtPeriodEnd:
@@ -219,27 +252,41 @@ export async function getUserAccessEntitlementById({
   }
 
   const client = admin ?? createSupabaseAdminClient();
-  const [profileRes, subscriptionRes] = await Promise.all([
+  const [profileRes, subscriptionRes, adminAccessOverrideRes] = await Promise.all([
     client.from('profiles').select('role').eq('user_id', normalizedUserId).maybeSingle(),
-    client.from('subscriptions').select('status').eq('user_id', normalizedUserId).maybeSingle()
+    client.from('subscriptions').select('status').eq('user_id', normalizedUserId).maybeSingle(),
+    loadAdminAccessOverrideByUserId({ userId: normalizedUserId, client })
   ]);
 
-  if (profileRes.error || subscriptionRes.error) {
+  if (profileRes.error || subscriptionRes.error || adminAccessOverrideRes.loadError) {
     if (profileRes.error) console.error('profile entitlement lookup error', profileRes.error);
     if (subscriptionRes.error) console.error('subscription entitlement lookup error', subscriptionRes.error);
+    if (adminAccessOverrideRes.loadError) console.error('admin access override lookup error', adminAccessOverrideRes.loadError);
     return { entitlement: null, loadError: 'failed_to_load_entitlement' };
   }
 
   const role = profileRes.data?.role ?? null;
   const status = subscriptionRes.data?.status ?? null;
   const isAdmin = role === 'admin';
+  const billingIsPaid = isSubscriptionActive({ status });
+  const adminAccessOverride = isAdmin ? adminAccessOverrideRes.override?.adminAccessOverride ?? null : null;
+  const effectiveTier = resolveEffectiveTier({
+    isAuthed: true,
+    isAdmin,
+    billingIsPaid,
+    adminAccessOverride
+  });
   return {
     entitlement: {
       userId: normalizedUserId,
       role,
       status,
       isAdmin,
-      isPaid: isAdmin || isSubscriptionActive({ status })
+      isPaid: effectiveTier.tier === 'premium',
+      billingIsPaid,
+      tier: effectiveTier.tier,
+      effectiveTierSource: effectiveTier.source,
+      adminAccessOverride
     },
     loadError: null
   };
@@ -249,6 +296,7 @@ function buildEntitlement({
   status,
   isAuthed,
   isAdmin,
+  adminAccessOverride,
   userId,
   source,
   cancelAtPeriodEnd,
@@ -260,6 +308,7 @@ function buildEntitlement({
   status: string;
   isAuthed: boolean;
   isAdmin: boolean;
+  adminAccessOverride: AdminAccessOverrideTier | null;
   userId: string | null;
   source: ViewerEntitlement['source'];
   cancelAtPeriodEnd: boolean;
@@ -268,15 +317,25 @@ function buildEntitlement({
   reconciled: boolean;
   reconcileThrottled: boolean;
 }): ViewerEntitlement {
-  const isPaid = isAdmin || isSubscriptionActive({ status });
-  const tier = resolveViewerTier({ isAuthed, isPaid, isAdmin });
+  const billingIsPaid = isSubscriptionActive({ status });
+  const effectiveTier = resolveEffectiveTier({
+    isAuthed,
+    isAdmin,
+    billingIsPaid,
+    adminAccessOverride
+  });
+  const tier = effectiveTier.tier;
+  const isPaid = tier === 'premium';
   return {
     status,
     isPaid,
+    billingIsPaid,
     isAdmin,
     isAuthed,
     tier,
     mode: tierToMode(tier),
+    effectiveTierSource: effectiveTier.source,
+    adminAccessOverride,
     refreshIntervalSeconds: getTierRefreshSeconds(tier),
     capabilities: getTierCapabilities(tier),
     limits: getTierLimits(tier),
@@ -287,6 +346,79 @@ function buildEntitlement({
     stripePriceId,
     reconciled,
     reconcileThrottled
+  };
+}
+
+function resolveEffectiveTier({
+  isAuthed,
+  isAdmin,
+  billingIsPaid,
+  adminAccessOverride
+}: {
+  isAuthed: boolean;
+  isAdmin: boolean;
+  billingIsPaid: boolean;
+  adminAccessOverride: AdminAccessOverrideTier | null;
+}): { tier: ViewerTier; source: EffectiveTierSource } {
+  if (!isAuthed) {
+    return { tier: 'anon', source: 'guest' };
+  }
+
+  if (adminAccessOverride) {
+    return {
+      tier: adminAccessOverride,
+      source: 'admin_override'
+    };
+  }
+
+  if (isAdmin) {
+    return { tier: 'premium', source: 'admin' };
+  }
+
+  if (billingIsPaid) {
+    return { tier: 'premium', source: 'subscription' };
+  }
+
+  return { tier: 'anon', source: 'free' };
+}
+
+async function loadAdminAccessOverrideByUserId({
+  userId,
+  client
+}: {
+  userId: string;
+  client: SessionScopedClient | ReturnType<typeof createSupabaseAdminClient>;
+}): Promise<{ override: AdminAccessOverride | null; loadError: string | null }> {
+  const normalizedUserId = String(userId || '').trim();
+  if (!normalizedUserId) {
+    return { override: null, loadError: null };
+  }
+
+  const { data, error } = await client
+    .from('admin_access_overrides')
+    .select('user_id, effective_tier_override, updated_at, updated_by')
+    .eq('user_id', normalizedUserId)
+    .maybeSingle();
+
+  if (error) {
+    const code = typeof error.code === 'string' ? error.code : '';
+    if (code === 'PGRST116' || isMissingAdminAccessOverrideRelationCode(code)) {
+      return { override: null, loadError: null };
+    }
+    return { override: null, loadError: 'admin_access_override_fetch_failed' };
+  }
+
+  const overrideValue = String(data?.effective_tier_override || '').trim().toLowerCase();
+  return {
+    override: data
+      ? {
+          userId: normalizedUserId,
+          adminAccessOverride: overrideValue === 'anon' || overrideValue === 'premium' ? (overrideValue as AdminAccessOverrideTier) : null,
+          updatedAt: typeof data.updated_at === 'string' ? data.updated_at : null,
+          updatedBy: typeof data.updated_by === 'string' ? data.updated_by : null
+        }
+      : null,
+    loadError: null
   };
 }
 

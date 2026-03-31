@@ -1,45 +1,55 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import clsx from 'clsx';
-import { useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import type { WatchlistRuleV1 } from '@tminuszero/api-client';
 import {
+  useBasicFollowsQuery,
   useCreateWatchlistMutation,
   useCreateWatchlistRuleMutation,
   useDeleteWatchlistRuleMutation,
   useViewerEntitlementsQuery,
   useWatchlistsQuery
 } from '@/lib/api/queries';
+import { FollowMenuButton, type FollowMenuOption } from './FollowMenuButton';
+import { PremiumUpsellModal } from './PremiumUpsellModal';
 import { useToast } from './ToastProvider';
+
+type WatchlistFollowsProps = {
+  isAuthed: boolean;
+  canUseSavedItems: boolean;
+  launchId: string;
+  launchName?: string | null;
+  provider?: string | null;
+  ll2PadId?: number | null;
+  padShortCode?: string | null;
+  padLabel?: string | null;
+  ll2RocketConfigId?: number | null;
+  rocketLabel?: string | null;
+  launchSiteLabel?: string | null;
+  state?: string | null;
+};
+
+type FollowRuleType = 'launch' | 'provider' | 'pad' | 'rocket' | 'launch_site' | 'state';
 
 export function WatchlistFollows({
   isAuthed,
   canUseSavedItems,
+  launchId,
+  launchName,
   provider,
   ll2PadId,
   padShortCode,
-  padLabel
-}: {
-  isAuthed: boolean;
-  canUseSavedItems: boolean;
-  provider: string;
-  ll2PadId?: number | null;
-  padShortCode?: string | null;
-  padLabel?: string | null;
-}) {
+  padLabel,
+  ll2RocketConfigId,
+  rocketLabel,
+  launchSiteLabel,
+  state
+}: WatchlistFollowsProps) {
+  const router = useRouter();
   const { pushToast } = useToast();
-  const searchParams = useSearchParams();
-  const debugToken = String(searchParams.get('debug') || '').trim().toLowerCase();
-  const debugEnabled =
-    debugToken === '1' || debugToken === 'true' || debugToken === 'launch' || debugToken === 'detail' || debugToken === 'launchdetail';
-  const providerKey = String(provider || '').trim();
-  const padRuleValue = useMemo(() => buildPadRuleValue({ ll2PadId, padShortCode }), [ll2PadId, padShortCode]);
-  const providerFollowTarget = providerKey || 'Provider';
-  const providerFollowLabel = `Follow ${providerFollowTarget}`;
-  const padFollowTarget = useMemo(() => resolvePadFollowTarget({ padLabel, padShortCode }), [padLabel, padShortCode]);
-  const padFollowLabel = `Follow ${padFollowTarget}`;
   const entitlementsQuery = useViewerEntitlementsQuery();
+  const basicFollowsQuery = useBasicFollowsQuery();
   const watchlistsQuery = useWatchlistsQuery();
   const createWatchlistMutation = useCreateWatchlistMutation();
   const createWatchlistRuleMutation = useCreateWatchlistRuleMutation();
@@ -48,6 +58,7 @@ export function WatchlistFollows({
   const [didAttemptEnsureWatchlist, setDidAttemptEnsureWatchlist] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
+  const [upsellOpen, setUpsellOpen] = useState(false);
 
   const watchlists = useMemo(() => watchlistsQuery.data?.watchlists ?? [], [watchlistsQuery.data?.watchlists]);
   const selectedWatchlist = useMemo(
@@ -55,261 +66,392 @@ export function WatchlistFollows({
     [watchlists]
   );
   const watchlistId = selectedWatchlist?.id ?? null;
+  const loading = canUseSavedItems && (watchlistsQuery.isPending || createWatchlistMutation.isPending);
+  const ruleLimit = entitlementsQuery.data?.limits.watchlistRuleLimit ?? null;
+  const singleLaunchFollowLimit = Math.max(1, entitlementsQuery.data?.limits.singleLaunchFollowLimit ?? 1);
+  const activeBasicLaunchFollow = basicFollowsQuery.data?.activeLaunchFollow ?? null;
+  const normalizedLaunchId = String(launchId || '').trim().toLowerCase();
+  const currentBasicLaunchActive = activeBasicLaunchFollow?.launchId === normalizedLaunchId;
+  const basicFollowCapacityLabel = canUseSavedItems ? undefined : `${activeBasicLaunchFollow ? 1 : 0}/${singleLaunchFollowLimit}`;
+  const queryErrorMessage =
+    canUseSavedItems
+      ? watchlistsQuery.error
+        ? getErrorMessage(watchlistsQuery.error, 'Unable to load follows.')
+        : null
+      : basicFollowsQuery.error
+        ? getErrorMessage(basicFollowsQuery.error, 'Unable to load your launch slot.')
+        : null;
+
+  const providerKey = normalizeText(provider);
+  const padRuleValue = useMemo(() => buildPadRuleValue({ ll2PadId, padShortCode }), [ll2PadId, padShortCode]);
+  const rocketRuleValue = useMemo(() => buildRocketRuleValue({ ll2RocketConfigId, rocketLabel }), [ll2RocketConfigId, rocketLabel]);
+  const launchSiteRuleValue = useMemo(() => buildLaunchSiteRuleValue(launchSiteLabel ?? padLabel), [launchSiteLabel, padLabel]);
+  const stateRuleValue = useMemo(() => buildStateRuleValue(state), [state]);
+  const rocketDisplayLabel = normalizeText(rocketLabel) ?? (rocketRuleValue ? formatRocketRuleLabel(rocketRuleValue) : 'this rocket');
+  const launchSiteDisplayLabel = normalizeText(launchSiteLabel ?? padLabel) ?? 'this site';
+
+  const launchRuleId = useMemo(
+    () => (launchId ? findRuleId(selectedWatchlist?.rules ?? [], 'launch', launchId) : null),
+    [launchId, selectedWatchlist?.rules]
+  );
   const providerRuleId = useMemo(
-    () => findRuleId(selectedWatchlist?.rules ?? [], 'provider', providerKey),
+    () => (providerKey ? findRuleId(selectedWatchlist?.rules ?? [], 'provider', providerKey) : null),
     [providerKey, selectedWatchlist?.rules]
   );
   const padRuleId = useMemo(
     () => (padRuleValue ? findRuleId(selectedWatchlist?.rules ?? [], 'pad', padRuleValue) : null),
     [padRuleValue, selectedWatchlist?.rules]
   );
-  const loading = watchlistsQuery.isPending || createWatchlistMutation.isPending;
-  const ruleLimit = entitlementsQuery.data?.limits.watchlistRuleLimit ?? null;
-  const queryErrorMessage = watchlistsQuery.error ? getErrorMessage(watchlistsQuery.error, 'Unable to load follows.') : null;
+  const rocketRuleId = useMemo(
+    () => (rocketRuleValue ? findRuleId(selectedWatchlist?.rules ?? [], 'rocket', rocketRuleValue) : null),
+    [rocketRuleValue, selectedWatchlist?.rules]
+  );
+  const launchSiteRuleId = useMemo(
+    () => (launchSiteRuleValue ? findRuleId(selectedWatchlist?.rules ?? [], 'launch_site', launchSiteRuleValue) : null),
+    [launchSiteRuleValue, selectedWatchlist?.rules]
+  );
+  const stateRuleId = useMemo(
+    () => (stateRuleValue ? findRuleId(selectedWatchlist?.rules ?? [], 'state', stateRuleValue) : null),
+    [stateRuleValue, selectedWatchlist?.rules]
+  );
 
   useEffect(() => {
-    if (!isAuthed || !canUseSavedItems || (!providerKey && !padRuleValue)) {
+    if (!canUseSavedItems || !hasAnyFollowableValue({ launchId, providerKey, padRuleValue, rocketRuleValue, launchSiteRuleValue, stateRuleValue })) {
       setDidAttemptEnsureWatchlist(false);
       return;
     }
     if (!watchlists.length) return;
     setDidAttemptEnsureWatchlist(false);
-  }, [canUseSavedItems, isAuthed, padRuleValue, providerKey, watchlists.length]);
+  }, [canUseSavedItems, launchId, providerKey, watchlists.length, padRuleValue, rocketRuleValue, launchSiteRuleValue, stateRuleValue]);
 
   useEffect(() => {
-    if (!isAuthed || !canUseSavedItems || (!providerKey && !padRuleValue)) return;
+    if (!canUseSavedItems || !hasAnyFollowableValue({ launchId, providerKey, padRuleValue, rocketRuleValue, launchSiteRuleValue, stateRuleValue })) {
+      return;
+    }
     if (!watchlistsQuery.isSuccess || watchlists.length > 0 || didAttemptEnsureWatchlist || createWatchlistMutation.isPending) return;
 
     setDidAttemptEnsureWatchlist(true);
     setError(null);
-    if (debugEnabled) console.log('[WatchlistFollows] load_no_watchlist_creating');
-    void createWatchlistMutation
-      .mutateAsync({})
-      .then((payload) => {
-        if (debugEnabled) {
-          console.log('[WatchlistFollows] create_response', {
-            ok: true,
-            watchlistId: payload.watchlist.id ? `${payload.watchlist.id.slice(0, 8)}…` : null
-          });
-        }
-      })
-      .catch((createError: unknown) => {
-        console.error('watchlist follows create error', createError);
-        setError(getErrorMessage(createError, 'Unable to load follows.'));
-      });
+    void createWatchlistMutation.mutateAsync({}).catch((createError: unknown) => {
+      console.error('watchlist follows create error', createError);
+      setError(getErrorMessage(createError, 'Unable to load follows.'));
+    });
   }, [
     canUseSavedItems,
     createWatchlistMutation,
-    debugEnabled,
     didAttemptEnsureWatchlist,
-    isAuthed,
+    launchId,
+    launchSiteRuleValue,
     padRuleValue,
     providerKey,
+    rocketRuleValue,
+    stateRuleValue,
     watchlists.length,
     watchlistsQuery.isSuccess
   ]);
 
-  if (!isAuthed || !canUseSavedItems) return null;
-  if (!providerKey && !padRuleValue) return null;
-
-  const providerFollowing = Boolean(providerRuleId);
-  const padFollowing = Boolean(padRuleId);
   const activeError = error ?? queryErrorMessage;
+  const locked = !canUseSavedItems;
+  const baseDisabled = loading || Boolean(activeError);
+  const premiumFollowOptions: FollowMenuOption[] = [
+    {
+      key: 'launch',
+      label: 'This launch',
+      description: launchName ? `Keep ${launchName} in Following.` : 'Keep this exact launch in Following.',
+      active: Boolean(launchRuleId),
+      disabled: baseDisabled || !launchId || Boolean(busy[`launch:${launchId}`]),
+      locked,
+      onPress: () => {
+        if (locked) {
+          setUpsellOpen(true);
+          return;
+        }
+        void toggleRule('launch', launchId, launchName || 'this launch');
+      }
+    },
+    {
+      key: 'rocket',
+      label: 'This rocket',
+      description: rocketRuleValue ? `All launches for ${rocketDisplayLabel}.` : 'Rocket follow unavailable.',
+      active: Boolean(rocketRuleId),
+      disabled: baseDisabled || !rocketRuleValue || Boolean(busy[`rocket:${rocketRuleValue}`]),
+      locked,
+      onPress: () => {
+        if (locked) {
+          setUpsellOpen(true);
+          return;
+        }
+        if (!rocketRuleValue) return;
+        void toggleRule('rocket', rocketRuleValue, rocketDisplayLabel);
+      }
+    },
+    {
+      key: 'provider',
+      label: 'This provider',
+      description: providerKey ? `All launches from ${providerKey}.` : 'Provider follow unavailable.',
+      active: Boolean(providerRuleId),
+      disabled: baseDisabled || !providerKey || Boolean(busy[`provider:${providerKey}`]),
+      locked,
+      onPress: () => {
+        if (locked) {
+          setUpsellOpen(true);
+          return;
+        }
+        if (!providerKey) return;
+        void toggleRule('provider', providerKey, providerKey);
+      }
+    },
+    {
+      key: 'pad',
+      label: 'This pad',
+      description: padRuleValue ? `Launches from ${resolvePadFollowTarget({ padLabel, padShortCode })}.` : 'Pad follow unavailable.',
+      active: Boolean(padRuleId),
+      disabled: baseDisabled || !padRuleValue || Boolean(busy[`pad:${padRuleValue}`]),
+      locked,
+      onPress: () => {
+        if (locked) {
+          setUpsellOpen(true);
+          return;
+        }
+        if (!padRuleValue) return;
+        void toggleRule('pad', padRuleValue, resolvePadFollowTarget({ padLabel, padShortCode }));
+      }
+    },
+    {
+      key: 'launch_site',
+      label: 'This launch site',
+      description: launchSiteRuleValue ? `Launches from ${launchSiteDisplayLabel}.` : 'Launch-site follow unavailable.',
+      active: Boolean(launchSiteRuleId),
+      disabled: baseDisabled || !launchSiteRuleValue || Boolean(busy[`launch_site:${launchSiteRuleValue}`]),
+      locked,
+      onPress: () => {
+        if (locked) {
+          setUpsellOpen(true);
+          return;
+        }
+        if (!launchSiteRuleValue) return;
+        void toggleRule('launch_site', launchSiteRuleValue, launchSiteDisplayLabel);
+      }
+    },
+    {
+      key: 'state',
+      label: 'This state',
+      description: stateRuleValue ? `Launches in ${stateRuleValue.toUpperCase()}.` : 'State follow unavailable.',
+      active: Boolean(stateRuleId),
+      disabled: baseDisabled || !stateRuleValue || Boolean(busy[`state:${stateRuleValue}`]),
+      locked,
+      onPress: () => {
+        if (locked) {
+          setUpsellOpen(true);
+          return;
+        }
+        if (!stateRuleValue) return;
+        void toggleRule('state', stateRuleValue, stateRuleValue.toUpperCase());
+      }
+    }
+  ];
+  const basicFollowOptions: FollowMenuOption[] = [
+    {
+      key: 'launch',
+      label: 'This launch',
+      description: currentBasicLaunchActive
+        ? 'This launch is already tracked on your account. Manage it in the native iOS or Android app.'
+        : 'Manage launch push reminders for this launch in the native iOS or Android app.',
+      active: currentBasicLaunchActive,
+      disabled: false,
+      locked: false,
+      onPress: () => {
+        void toggleBasicLaunchFollow();
+      }
+    },
+    {
+      key: 'rocket',
+      label: 'This rocket',
+      description: 'Premium adds recurring rocket follows.',
+      active: false,
+      disabled: false,
+      locked: true,
+      onPress: () => {
+        setUpsellOpen(true);
+      }
+    },
+    {
+      key: 'provider',
+      label: 'This provider',
+      description: 'Premium adds recurring provider follows.',
+      active: false,
+      disabled: false,
+      locked: true,
+      onPress: () => {
+        setUpsellOpen(true);
+      }
+    },
+    {
+      key: 'pad',
+      label: 'This pad',
+      description: 'Premium adds recurring pad follows.',
+      active: false,
+      disabled: false,
+      locked: true,
+      onPress: () => {
+        setUpsellOpen(true);
+      }
+    },
+    {
+      key: 'launch_site',
+      label: 'This launch site',
+      description: 'Premium adds recurring launch-site follows.',
+      active: false,
+      disabled: false,
+      locked: true,
+      onPress: () => {
+        setUpsellOpen(true);
+      }
+    },
+    {
+      key: 'state',
+      label: 'This state',
+      description: 'Premium adds state-wide launch alerts.',
+      active: false,
+      disabled: false,
+      locked: true,
+      onPress: () => {
+        setUpsellOpen(true);
+      }
+    }
+  ];
+  const followOptions = canUseSavedItems ? premiumFollowOptions : basicFollowOptions;
+
+  const availableOptionCount = followOptions.filter((option) => !option.disabled || option.locked || option.active).length;
+  const activeFollowCount = followOptions.filter((option) => option.active).length;
+
+  if (!availableOptionCount) return null;
+
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        {activeError && (
+          <span className="rounded-lg border border-warning/40 bg-warning/10 px-2 py-1 text-xs text-warning">{activeError}</span>
+        )}
+        <FollowMenuButton
+          label={activeFollowCount > 0 ? 'Following' : 'Follow'}
+          active={activeFollowCount > 0}
+          activeCount={canUseSavedItems ? activeFollowCount : 0}
+          capacityLabel={basicFollowCapacityLabel}
+          options={followOptions}
+        />
+      </div>
+      <PremiumUpsellModal open={upsellOpen} onClose={() => setUpsellOpen(false)} isAuthed={isAuthed} featureLabel="Follow" />
+    </>
+  );
 
   function resolveRuleLimitMessage() {
     return ruleLimit ? `My Launches limit reached (${ruleLimit} rules).` : 'My Launches limit reached.';
   }
 
-  async function toggleProvider(options?: { skipToast?: boolean }) {
-    if (!watchlistId || !providerKey) return;
-    const key = `provider:${providerKey}`;
-    if (busy[key]) return;
-    setBusy((prev) => ({ ...prev, [key]: true }));
+  async function toggleRule(ruleType: FollowRuleType, ruleValue: string, label: string) {
+    if (!watchlistId) return;
+    const normalizedValue = String(ruleValue || '').trim();
+    if (!normalizedValue) return;
+
+    const busyKey = `${ruleType}:${normalizedValue}`;
+    if (busy[busyKey]) return;
+
+    const existingRuleId = findRuleId(selectedWatchlist?.rules ?? [], ruleType, normalizedValue);
+    setBusy((prev) => ({ ...prev, [busyKey]: true }));
     setError(null);
+
     try {
-      if (debugEnabled) {
-        console.log('[WatchlistFollows] toggle_provider_start', {
-          providerKey,
-          watchlistId: watchlistId ? `${watchlistId.slice(0, 8)}…` : null,
-          providerRuleId: providerRuleId ? `${providerRuleId.slice(0, 8)}…` : null
+      if (existingRuleId) {
+        await deleteWatchlistRuleMutation.mutateAsync({
+          watchlistId,
+          ruleId: existingRuleId
         });
-      }
-      if (providerRuleId) {
-        await deleteWatchlistRuleMutation.mutateAsync({ watchlistId, ruleId: providerRuleId });
-        if (debugEnabled) console.log('[WatchlistFollows] toggle_provider_delete_response', { ok: true });
-        if (debugEnabled) console.log('[WatchlistFollows] toggle_provider_deleted');
-        if (!options?.skipToast) {
-          pushToast({
-            message: `Unfollowed ${providerKey}.`,
-            tone: 'info',
-            onUndo: async () => {
-              try {
-                await createWatchlistRuleMutation.mutateAsync({
-                  watchlistId,
-                  payload: { ruleType: 'provider', ruleValue: providerKey }
-                });
-              } catch (err: any) {
-                console.error('provider follow undo error', err);
-                const nextError = getErrorCode(err) === 'limit_reached' ? resolveRuleLimitMessage() : getErrorMessage(err, 'Unable to undo provider follow.');
-                setError(nextError);
-              }
+        pushToast({
+          message: `Unfollowed ${label}.`,
+          tone: 'info',
+          onUndo: async () => {
+            try {
+              await createWatchlistRuleMutation.mutateAsync({
+                watchlistId,
+                payload: { ruleType, ruleValue: normalizedValue }
+              });
+            } catch (undoError: unknown) {
+              setError(getErrorMessage(undoError, `Unable to undo ${label} follow.`));
             }
-          });
-        }
+          }
+        });
         return;
       }
 
       const created = await createWatchlistRuleMutation.mutateAsync({
         watchlistId,
-        payload: { ruleType: 'provider', ruleValue: providerKey }
-      });
-      const nextId = created.rule.id;
-      if (debugEnabled) console.log('[WatchlistFollows] toggle_provider_post_response', { ok: true });
-      if (debugEnabled) console.log('[WatchlistFollows] toggle_provider_added', { providerRuleId: `${nextId.slice(0, 8)}…` });
-      if (!options?.skipToast) {
-        pushToast({
-          message: `Following ${providerKey}.`,
-          tone: 'success',
-          onUndo: async () => {
-            try {
-              await deleteWatchlistRuleMutation.mutateAsync({ watchlistId, ruleId: nextId });
-            } catch (err: any) {
-              console.error('provider unfollow undo error', err);
-              setError(getErrorMessage(err, 'Unable to undo provider unfollow.'));
-            }
-          }
-        });
-      }
-    } catch (err: any) {
-      console.error('provider follow toggle error', err);
-      const nextError = getErrorCode(err) === 'limit_reached' ? resolveRuleLimitMessage() : getErrorMessage(err, 'Unable to update provider follow.');
-      setError(nextError);
-      if (debugEnabled) console.log('[WatchlistFollows] toggle_provider_error', { error: String(err?.message || err) });
-    } finally {
-      setBusy((prev) => ({ ...prev, [key]: false }));
-    }
-  }
-
-  async function togglePad(options?: { skipToast?: boolean }) {
-    if (!watchlistId || !padRuleValue) return;
-    const key = `pad:${padRuleValue}`;
-    if (busy[key]) return;
-    setBusy((prev) => ({ ...prev, [key]: true }));
-    setError(null);
-    try {
-      if (debugEnabled) {
-        console.log('[WatchlistFollows] toggle_pad_start', {
-          padRuleValue,
-          watchlistId: watchlistId ? `${watchlistId.slice(0, 8)}…` : null,
-          padRuleId: padRuleId ? `${padRuleId.slice(0, 8)}…` : null
-        });
-      }
-      if (padRuleId) {
-        await deleteWatchlistRuleMutation.mutateAsync({ watchlistId, ruleId: padRuleId });
-        if (debugEnabled) console.log('[WatchlistFollows] toggle_pad_delete_response', { ok: true });
-        if (debugEnabled) console.log('[WatchlistFollows] toggle_pad_deleted');
-        if (!options?.skipToast) {
-          pushToast({
-            message: `Unfollowed ${padFollowTarget}.`,
-            tone: 'info',
-            onUndo: async () => {
-              try {
-                await createWatchlistRuleMutation.mutateAsync({
-                  watchlistId,
-                  payload: { ruleType: 'pad', ruleValue: padRuleValue }
-                });
-              } catch (err: any) {
-                console.error('pad follow undo error', err);
-                const nextError = getErrorCode(err) === 'limit_reached' ? resolveRuleLimitMessage() : getErrorMessage(err, 'Unable to undo pad follow.');
-                setError(nextError);
-              }
-            }
-          });
+        payload: {
+          ruleType,
+          ruleValue: normalizedValue
         }
-        return;
-      }
-
-      const created = await createWatchlistRuleMutation.mutateAsync({
-        watchlistId,
-        payload: { ruleType: 'pad', ruleValue: padRuleValue }
       });
-      const nextId = created.rule.id;
-      if (debugEnabled) console.log('[WatchlistFollows] toggle_pad_post_response', { ok: true });
-      if (debugEnabled) console.log('[WatchlistFollows] toggle_pad_added', { padRuleId: `${nextId.slice(0, 8)}…` });
-      if (!options?.skipToast) {
-        pushToast({
-          message: `Following ${padFollowTarget}.`,
-          tone: 'success',
-          onUndo: async () => {
-            try {
-              await deleteWatchlistRuleMutation.mutateAsync({ watchlistId, ruleId: nextId });
-            } catch (err: any) {
-              console.error('pad unfollow undo error', err);
-              setError(getErrorMessage(err, 'Unable to undo pad unfollow.'));
-            }
+      const nextRuleId = created.rule.id;
+      pushToast({
+        message: `Following ${label}.`,
+        tone: 'success',
+        onUndo: async () => {
+          if (!nextRuleId) return;
+          try {
+            await deleteWatchlistRuleMutation.mutateAsync({
+              watchlistId,
+              ruleId: nextRuleId
+            });
+          } catch (undoError: unknown) {
+            setError(getErrorMessage(undoError, `Unable to undo ${label} follow.`));
           }
-        });
-      }
-    } catch (err: any) {
-      console.error('pad follow toggle error', err);
-      const nextError = getErrorCode(err) === 'limit_reached' ? resolveRuleLimitMessage() : getErrorMessage(err, 'Unable to update pad follow.');
+        }
+      });
+    } catch (toggleError: unknown) {
+      const nextError =
+        getErrorCode(toggleError) === 'limit_reached'
+          ? resolveRuleLimitMessage()
+          : getErrorMessage(toggleError, `Unable to update ${label} follow.`);
       setError(nextError);
-      if (debugEnabled) console.log('[WatchlistFollows] toggle_pad_error', { error: String(err?.message || err) });
     } finally {
-      setBusy((prev) => ({ ...prev, [key]: false }));
+      setBusy((prev) => ({ ...prev, [busyKey]: false }));
     }
   }
 
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      {activeError && <span className="rounded-lg border border-warning/40 bg-warning/10 px-2 py-1 text-xs text-warning">{activeError}</span>}
-      {providerKey && (
-        <button
-          type="button"
-          className={clsx(
-            'btn-secondary relative flex h-11 items-center rounded-lg border border-stroke text-text2 transition hover:border-primary hover:text-text1',
-            providerFollowing ? 'w-11 justify-center px-0' : 'gap-2 px-3 text-xs font-semibold uppercase tracking-[0.08em]',
-            providerFollowing && 'border-primary text-primary',
-            (loading || busy[`provider:${providerKey}`]) && 'pointer-events-none opacity-60'
-          )}
-          onClick={() => void toggleProvider()}
-          aria-pressed={providerFollowing}
-          aria-label={providerFollowing ? `Unfollow ${providerFollowTarget}` : providerFollowLabel}
-          title={providerFollowing ? `Unfollow ${providerFollowTarget}` : providerFollowLabel}
-          disabled={loading || Boolean(busy[`provider:${providerKey}`])}
-        >
-          <StarIcon className="h-4 w-4" filled={providerFollowing} />
-          {!providerFollowing && <span>{providerFollowLabel}</span>}
-        </button>
-      )}
-      {padRuleValue && (
-        <button
-          type="button"
-          className={clsx(
-            'btn-secondary relative flex h-11 items-center rounded-lg border border-stroke text-text2 transition hover:border-primary hover:text-text1',
-            padFollowing ? 'w-11 justify-center px-0' : 'gap-2 px-3 text-xs font-semibold uppercase tracking-[0.08em]',
-            padFollowing && 'border-primary text-primary',
-            (loading || busy[`pad:${padRuleValue}`]) && 'pointer-events-none opacity-60'
-          )}
-          onClick={() => void togglePad()}
-          aria-pressed={padFollowing}
-          aria-label={padFollowing ? `Unfollow ${padFollowTarget}` : padFollowLabel}
-          title={padFollowing ? `Unfollow ${padFollowTarget}` : padFollowLabel}
-          disabled={loading || Boolean(busy[`pad:${padRuleValue}`])}
-        >
-          <StarIcon className="h-4 w-4" filled={padFollowing} />
-          {!padFollowing && <span>{padFollowLabel}</span>}
-        </button>
-      )}
-    </div>
+  async function toggleBasicLaunchFollow() {
+    if (!launchId) return;
+
+    setError('Launch alerts are managed in the native iOS or Android app. Open Notifications for the current setup.');
+    router.push('/me/preferences');
+  }
+}
+
+function hasAnyFollowableValue(values: {
+  launchId?: string | null;
+  providerKey?: string | null;
+  padRuleValue?: string | null;
+  rocketRuleValue?: string | null;
+  launchSiteRuleValue?: string | null;
+  stateRuleValue?: string | null;
+}) {
+  return Boolean(
+    normalizeText(values.launchId) ||
+      normalizeText(values.providerKey) ||
+      normalizeText(values.padRuleValue) ||
+      normalizeText(values.rocketRuleValue) ||
+      normalizeText(values.launchSiteRuleValue) ||
+      normalizeText(values.stateRuleValue)
   );
 }
 
-function findRuleId(rules: WatchlistRuleV1[], type: string, value: string) {
-  const t = type.trim().toLowerCase();
-  const v = String(value || '').trim();
-  if (!t || !v) return null;
-  const found = rules.find((rule) => String(rule.ruleType || '').trim().toLowerCase() === t && String(rule.ruleValue || '').trim() === v);
+function findRuleId(rules: WatchlistRuleV1[], type: FollowRuleType, value: string) {
+  const normalizedType = String(type || '').trim().toLowerCase();
+  const normalizedValue = String(value || '').trim();
+  if (!normalizedType || !normalizedValue) return null;
+  const found = rules.find(
+    (rule) =>
+      String(rule.ruleType || '').trim().toLowerCase() === normalizedType && String(rule.ruleValue || '').trim() === normalizedValue
+  );
   return found?.id ? String(found.id) : null;
 }
 
@@ -317,18 +459,56 @@ function buildPadRuleValue({ ll2PadId, padShortCode }: { ll2PadId?: number | nul
   if (typeof ll2PadId === 'number' && Number.isFinite(ll2PadId) && ll2PadId > 0) {
     return `ll2:${String(Math.trunc(ll2PadId))}`;
   }
-  const code = String(padShortCode || '').trim();
-  if (!code || code === 'Pad') return null;
+  const code = normalizeText(padShortCode);
+  if (!code || code.toLowerCase() === 'pad') return null;
   return `code:${code}`;
 }
 
+function buildRocketRuleValue({
+  ll2RocketConfigId,
+  rocketLabel
+}: {
+  ll2RocketConfigId?: number | null;
+  rocketLabel?: string | null;
+}) {
+  if (typeof ll2RocketConfigId === 'number' && Number.isFinite(ll2RocketConfigId) && ll2RocketConfigId > 0) {
+    return `ll2:${String(Math.trunc(ll2RocketConfigId))}`;
+  }
+  const label = normalizeText(rocketLabel);
+  return label ? label.toLowerCase() : null;
+}
+
+function formatRocketRuleLabel(value: string) {
+  const raw = normalizeText(value);
+  if (!raw) return 'Rocket';
+  return raw.toLowerCase().startsWith('ll2:') ? `Rocket ${raw.slice(4)}` : raw;
+}
+
+function buildLaunchSiteRuleValue(value?: string | null) {
+  const normalized = normalizeText(value);
+  return normalized ? normalized.toLowerCase() : null;
+}
+
+function buildStateRuleValue(value?: string | null) {
+  const normalized = normalizeText(value)?.toLowerCase();
+  if (!normalized || normalized === 'na' || normalized === 'n/a' || normalized === 'unknown') {
+    return null;
+  }
+  return normalized;
+}
+
 function resolvePadFollowTarget({ padLabel, padShortCode }: { padLabel?: string | null; padShortCode?: string | null }) {
-  const label = String(padLabel || '').trim();
-  const labelKey = label.toLowerCase();
-  if (label && labelKey !== 'unknown' && labelKey !== 'pad') return label;
-  const shortCode = String(padShortCode || '').trim();
+  const label = normalizeText(padLabel);
+  if (label && label.toLowerCase() !== 'unknown' && label.toLowerCase() !== 'pad') return label;
+  const shortCode = normalizeText(padShortCode);
   if (shortCode && shortCode.toLowerCase() !== 'pad') return shortCode;
   return 'Pad';
+}
+
+function normalizeText(value: unknown) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed || null;
 }
 
 function getErrorCode(error: unknown) {
@@ -337,18 +517,4 @@ function getErrorCode(error: unknown) {
 
 function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
-}
-
-function StarIcon({ className, filled }: { className?: string; filled?: boolean }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
-      <path
-        d="M12 3.5l2.2 5.1 5.5.5-4.2 3.7 1.3 5.4L12 15.8 7.2 18.2l1.3-5.4-4.2-3.7 5.5-.5L12 3.5Z"
-        fill={filled ? 'currentColor' : 'none'}
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
 }

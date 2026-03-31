@@ -187,63 +187,91 @@ export function SkyCompass({
       const corridorScale = latestCorridorMode === 'tight' ? 0.6 : latestCorridorMode === 'wide' ? 1.6 : 1.0;
       const crossTrackSigmaDegScaled = crossTrackSigmaDeg * corridorScale;
       const anisotropyRatio = clamp(alongTrackSigmaDeg / Math.max(1, crossTrackSigmaDeg), 0.65, 2.4);
+      const orderedTrackKinds: TrajectoryTrackKind[] = ['core_up', 'upper_stage_up', 'booster_down'];
+      const trackSeries = orderedTrackKinds
+        .map((trackKind) => ({
+          trackKind,
+          points: latestTrackPointsByKind[trackKind] ?? []
+        }))
+        .filter((entry) => entry.points.length >= 2);
 
-      if (latestPoints.length >= 2) {
+      if (trackSeries.length > 0) {
         const aimRadiusPx = clamp((crossTrackSigmaDegScaled / 90) * radius * 2, 6, radius * 0.85);
         const pastLineWidth = clamp(1.7 + (anisotropyRatio - 1) * 0.35, 1.4, 2.8);
         const futureLineWidth = clamp(2.6 + (anisotropyRatio - 1) * 0.65, 2.2, 4.1);
 
-        ctx.save();
-        ctx.lineJoin = 'round';
-        ctx.lineCap = 'round';
-        ctx.strokeStyle = 'rgba(255,255,255,0.14)';
-        ctx.lineWidth = aimRadiusPx;
-        ctx.beginPath();
-        for (let i = 0; i < latestPoints.length; i += 1) {
-          const point = latestPoints[i];
-          const { x, y } = toXY(point.azDeg, point.elDeg);
-          if (i === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
+        for (const { trackKind, points: trackPoints } of trackSeries) {
+          const pastColor =
+            trackKind === 'upper_stage_up'
+              ? 'rgba(120, 170, 255, 0.34)'
+              : trackKind === 'booster_down'
+                ? 'rgba(255, 190, 120, 0.34)'
+                : 'rgba(255,255,255,0.35)';
+          const futureColor =
+            trackKind === 'upper_stage_up'
+              ? 'rgba(120, 190, 255, 0.95)'
+              : trackKind === 'booster_down'
+                ? 'rgba(255, 170, 90, 0.95)'
+                : 'rgba(255,255,255,0.9)';
+          const corridorColor =
+            trackKind === 'upper_stage_up'
+              ? 'rgba(120, 170, 255, 0.08)'
+              : trackKind === 'booster_down'
+                ? 'rgba(255, 170, 90, 0.08)'
+                : 'rgba(255,255,255,0.14)';
+
+          ctx.save();
+          ctx.lineJoin = 'round';
+          ctx.lineCap = 'round';
+          ctx.strokeStyle = corridorColor;
+          ctx.lineWidth = aimRadiusPx;
+          ctx.beginPath();
+          for (let i = 0; i < trackPoints.length; i += 1) {
+            const point = trackPoints[i];
+            const { x, y } = toXY(point.azDeg, point.elDeg);
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+          ctx.stroke();
+          ctx.restore();
+
+          const splitIndex = trackPoints.findIndex((point) => point.tPlusSec > latestT);
+
+          ctx.save();
+          ctx.lineJoin = 'round';
+          ctx.lineCap = 'round';
+
+          ctx.strokeStyle = pastColor;
+          ctx.lineWidth = pastLineWidth;
+          ctx.beginPath();
+          const pastEnd = splitIndex === -1 ? trackPoints.length : splitIndex;
+          for (let i = 0; i < pastEnd; i += 1) {
+            const point = trackPoints[i];
+            const { x, y } = toXY(point.azDeg, point.elDeg);
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+          if (pastEnd > 1) ctx.stroke();
+
+          ctx.strokeStyle = futureColor;
+          ctx.lineWidth = futureLineWidth;
+          ctx.setLineDash(trackKind !== 'core_up' && anisotropyRatio >= 1.05 ? [8, 6] : []);
+          ctx.beginPath();
+          const futureStart = splitIndex === -1 ? trackPoints.length : splitIndex;
+          for (let i = futureStart; i < trackPoints.length; i += 1) {
+            const point = trackPoints[i];
+            const { x, y } = toXY(point.azDeg, point.elDeg);
+            if (i === futureStart) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+          if (trackPoints.length - futureStart > 1) ctx.stroke();
+          ctx.setLineDash([]);
+
+          ctx.restore();
         }
-        ctx.stroke();
-        ctx.restore();
-
-        const splitIndex = latestPoints.findIndex((p) => p.tPlusSec > latestT);
-
-        ctx.save();
-        ctx.lineJoin = 'round';
-        ctx.lineCap = 'round';
-
-        ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-        ctx.lineWidth = pastLineWidth;
-        ctx.beginPath();
-        const pastEnd = splitIndex === -1 ? latestPoints.length : splitIndex;
-        for (let i = 0; i < pastEnd; i += 1) {
-          const point = latestPoints[i];
-          const { x, y } = toXY(point.azDeg, point.elDeg);
-          if (i === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        }
-        if (pastEnd > 1) ctx.stroke();
-
-        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-        ctx.lineWidth = futureLineWidth;
-        ctx.setLineDash(anisotropyRatio >= 1.35 ? [8, 6] : []);
-        ctx.beginPath();
-        const futureStart = splitIndex === -1 ? latestPoints.length : splitIndex;
-        for (let i = futureStart; i < latestPoints.length; i += 1) {
-          const point = latestPoints[i];
-          const { x, y } = toXY(point.azDeg, point.elDeg);
-          if (i === futureStart) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        }
-        if (latestPoints.length - futureStart > 1) ctx.stroke();
-        ctx.setLineDash([]);
-
-        ctx.restore();
       }
 
-      if (latestShowMilestones && latestPoints.length >= 2 && latestEvents.length > 0) {
+      if (latestShowMilestones && trackSeries.length > 0 && latestEvents.length > 0) {
         const candidates = latestEvents
           .map((event) => {
             if (typeof event.tPlusSec !== 'number' || !Number.isFinite(event.tPlusSec) || !event.trackKind) return null;
