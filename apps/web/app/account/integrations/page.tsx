@@ -416,7 +416,7 @@ export default function IntegrationsPage() {
         <>
           <Section
             title="Calendar feeds"
-            description="Private, tokenized .ics subscriptions (live Premium schedule)."
+            description="Private, tokenized .ics subscriptions with adaptive Premium cadence."
             emptyLabel={loadingIntegrations ? 'Loading calendar feeds…' : 'No calendar feeds yet. Create one from Bulk export on the home page.'}
             items={calendarFeeds}
             renderItem={(feed) => {
@@ -501,7 +501,7 @@ export default function IntegrationsPage() {
 
           <Section
             title="RSS feeds"
-            description="Private RSS links (live Premium schedule)."
+            description="Private RSS links with adaptive Premium cadence."
             emptyLabel={loadingIntegrations ? 'Loading RSS feeds…' : 'No RSS feeds yet. Create one from the RSS button on the home page.'}
             items={rssFeeds}
             renderItem={(feed) => {

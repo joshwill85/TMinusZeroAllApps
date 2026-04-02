@@ -38,7 +38,7 @@ async function main() {
     mode: 'public',
     effectiveTierSource: 'free',
     adminAccessOverride: null,
-    refreshIntervalSeconds: 900,
+    refreshIntervalSeconds: 7200,
     capabilities: {
       canUseSavedItems: false,
       canUseLaunchFilters: true,
@@ -226,7 +226,7 @@ async function main() {
       nextCursor: null,
       hasMore: false,
       freshness: 'public-cache-db',
-      intervalMinutes: 15,
+      intervalMinutes: 120,
       intervalSeconds: null,
       tier: null,
       scope: 'public'
@@ -258,7 +258,10 @@ async function main() {
     launchFeedVersion: {
       scope: 'public',
       tier: 'anon',
-      intervalSeconds: 900,
+      intervalSeconds: 7200,
+      recommendedIntervalSeconds: 7200,
+      cadenceReason: 'default',
+      cadenceAnchorNet: null,
       matchCount: 1,
       updatedAt: '2026-03-08T11:59:00.000Z',
       version: 'public|2026-03-08T11:59:00.000Z|1'
@@ -324,9 +327,77 @@ async function main() {
       launchId,
       scope: 'public',
       tier: 'anon',
-      intervalSeconds: 900,
+      intervalSeconds: 7200,
+      recommendedIntervalSeconds: 7200,
+      cadenceReason: 'default',
+      cadenceAnchorNet: null,
       updatedAt: '2026-03-08T11:59:00.000Z',
       version: `${launchId}|public|2026-03-08T11:59:00.000Z`
+    },
+    launchFaaAirspaceMap: {
+      launchId,
+      generatedAt: '2026-03-08T11:58:00.000Z',
+      advisoryCount: 1,
+      hasRenderableGeometry: true,
+      pad: {
+        latitude: 28.5618571,
+        longitude: -80.577366,
+        label: 'SLC-40',
+        shortCode: 'SLC-40',
+        locationName: 'Cape Canaveral'
+      },
+      bounds: {
+        minLatitude: 28.49,
+        minLongitude: -80.7,
+        maxLatitude: 28.63,
+        maxLongitude: -80.47
+      },
+      advisories: [
+        {
+          matchId: 'faa-match-1',
+          launchId,
+          tfrRecordId: 'faa-record-1',
+          tfrShapeId: 'faa-shape-1',
+          matchStatus: 'matched',
+          matchConfidence: 99,
+          matchScore: 99,
+          matchStrategy: 'v1_time_shape_state',
+          matchedAt: '2026-03-08T11:57:00.000Z',
+          notamId: '6/5918',
+          title: 'SPACE OPERATIONS',
+          type: 'SPACE OPERATIONS',
+          facility: 'ZJX',
+          state: 'FL',
+          status: 'active',
+          validStart: '2026-03-08T11:42:00.000Z',
+          validEnd: '2026-03-08T16:34:00.000Z',
+          isActiveNow: true,
+          hasShape: true,
+          shapeCount: 1,
+          sourceGraphicUrl: 'https://tfr.faa.gov/tfr3/?page=detail_6_5918.html',
+          sourceRawUrl: 'https://tfr.faa.gov/tfrapi/getWebText?notamId=6%2F5918',
+          sourceUrl: 'https://tfr.faa.gov/tfr3/?page=detail_6_5918.html',
+          matchMeta: null,
+          polygons: [
+            {
+              polygonId: 'faa-shape-1:0',
+              outerRing: [
+                { latitude: 28.49, longitude: -80.68 },
+                { latitude: 28.57, longitude: -80.7 },
+                { latitude: 28.63, longitude: -80.56 },
+                { latitude: 28.54, longitude: -80.47 }
+              ],
+              holes: [],
+              bounds: {
+                minLatitude: 28.49,
+                minLongitude: -80.7,
+                maxLatitude: 28.63,
+                maxLongitude: -80.47
+              }
+            }
+          ]
+        }
+      ]
     },
     launchTrajectory: {
       launchId,
@@ -444,16 +515,12 @@ async function main() {
     notificationPreferences: {
       pushEnabled: false,
       emailEnabled: false,
-      smsEnabled: false,
       launchDayEmailEnabled: false,
       launchDayEmailProviders: [],
       launchDayEmailStates: [],
       quietHoursEnabled: false,
       quietStartLocal: null,
-      quietEndLocal: null,
-      smsVerified: false,
-      smsPhone: null,
-      smsSystemEnabled: false
+      quietEndLocal: null
     },
     privacyPreferences: {
       optOutSaleShare: false,
@@ -494,7 +561,6 @@ async function main() {
       notification_preferences: {
         email_enabled: true
       },
-      sms_consent_events: [],
       privacy_preferences: {
         opt_out_sale_share: false
       },
@@ -633,24 +699,6 @@ async function main() {
       pushStatus: {
         enabled: false,
         subscribed: false
-      }
-    },
-    retiredLaunchNotificationPreferenceSms: {
-      enabled: false,
-      preference: {
-        launchId,
-        channel: 'sms',
-        mode: 't_minus',
-        timezone: 'UTC',
-        tMinusMinutes: [],
-        localTimes: [],
-        notifyStatusChange: false,
-        notifyNetChange: false
-      },
-      smsStatus: {
-        enabled: false,
-        verified: false,
-        systemEnabled: false
       }
     },
     watchlists: {
@@ -862,6 +910,8 @@ async function main() {
       payload = payloads.launchDetail;
     } else if (url.pathname === `/api/v1/launches/${launchId}/version`) {
       payload = payloads.launchDetailVersion;
+    } else if (url.pathname === `/api/v1/launches/${launchId}/faa-airspace-map`) {
+      payload = payloads.launchFaaAirspaceMap;
     } else if (url.pathname === `/api/v1/launches/${launchId}/trajectory`) {
       payload = payloads.launchTrajectory;
     } else if (url.pathname === '/api/v1/search') {
@@ -967,21 +1017,11 @@ async function main() {
     } else if (url.pathname === '/api/v1/me/notification-preferences' && method === 'POST') {
       status = 410;
       payload = { error: 'native_mobile_push_only' };
-    } else if (url.pathname === '/api/v1/me/notification-preferences/sms/verify' && method === 'POST') {
-      status = 410;
-      payload = { error: 'native_mobile_push_only' };
-    } else if (url.pathname === '/api/v1/me/notification-preferences/sms/verify/check' && method === 'POST') {
-      status = 410;
-      payload = { error: 'native_mobile_push_only' };
     } else if (url.pathname === `/api/v1/me/launch-notifications/${launchId}` && method === 'POST') {
       status = 410;
       payload = { error: 'native_mobile_push_only' };
     } else if (url.pathname === `/api/v1/me/launch-notifications/${launchId}`) {
-      const channel = url.searchParams.get('channel') ?? 'push';
-      payload =
-        channel === 'sms'
-          ? payloads.retiredLaunchNotificationPreferenceSms
-          : payloads.retiredLaunchNotificationPreferencePush;
+      payload = payloads.retiredLaunchNotificationPreferencePush;
     } else if (
       url.pathname === '/api/v1/me/watchlists/22222222-2222-4222-8222-222222222222/rules/55555555-5555-4555-8555-555555555555' &&
       method === 'DELETE'
@@ -1068,6 +1108,7 @@ async function main() {
   assert.equal(typeof guestClient.getLaunchFeedVersion, 'function');
   assert.equal(typeof guestClient.getLaunchDetail, 'function');
   assert.equal(typeof guestClient.getLaunchDetailVersion, 'function');
+  assert.equal(typeof guestClient.getLaunchFaaAirspaceMap, 'function');
   assert.equal(typeof guestClient.getLaunchTrajectory, 'function');
   assert.equal(typeof guestClient.postArTelemetrySession, 'function');
   assert.equal(typeof guestClient.search, 'function');
@@ -1079,8 +1120,6 @@ async function main() {
   assert.equal(typeof cookieClient.updateProfile, 'function');
   assert.equal(typeof cookieClient.getMarketingEmail, 'function');
   assert.equal(typeof cookieClient.updateMarketingEmail, 'function');
-  assert.equal(typeof cookieClient.startSmsVerification, 'function');
-  assert.equal(typeof cookieClient.completeSmsVerification, 'function');
   assert.equal(typeof cookieClient.deleteAccount, 'function');
   assert.equal(typeof cookieClient.getWatchlists, 'function');
   assert.equal(typeof cookieClient.updateWatchlist, 'function');
@@ -1179,6 +1218,9 @@ async function main() {
     expectGuest(request, `/api/v1/launches/${launchId}/version`);
     assert.match(request.search, /\bscope=public\b/);
   }
+
+  await guestClient.getLaunchFaaAirspaceMap(launchId);
+  expectGuest(popLastRequest(), `/api/v1/launches/${launchId}/faa-airspace-map`);
 
   await bearerClient.getLaunchTrajectory(launchId);
   expectBearer(popLastRequest(), `/api/v1/launches/${launchId}/trajectory`);
@@ -1557,45 +1599,11 @@ async function main() {
     });
   }
 
-  await assert.rejects(
-    () =>
-      cookieClient.startSmsVerification({
-        phone: '(555) 555-5555',
-        smsConsent: true
-      }),
-    (error: unknown) => expectRetiredApiClientError(error)
-  );
-  {
-    const request = popLastRequest();
-    expectCookie(request, '/api/v1/me/notification-preferences/sms/verify', 'POST');
-    assert.deepEqual(request.body, {
-      phone: '(555) 555-5555',
-      smsConsent: true
-    });
-  }
-
-  await assert.rejects(
-    () =>
-      bearerClient.completeSmsVerification({
-        phone: '(555) 555-5555',
-        code: '123456'
-      }),
-    (error: unknown) => expectRetiredApiClientError(error)
-  );
-  {
-    const request = popLastRequest();
-    expectBearer(request, '/api/v1/me/notification-preferences/sms/verify/check', 'POST');
-    assert.deepEqual(request.body, {
-      phone: '(555) 555-5555',
-      code: '123456'
-    });
-  }
-
-  const retiredPushPreference = await cookieClient.getLaunchNotificationPreference(launchId, 'push');
+  const retiredPushPreference = await cookieClient.getLaunchNotificationPreference(launchId);
   {
     const request = popLastRequest();
     expectCookie(request, `/api/v1/me/launch-notifications/${launchId}`);
-    assert.match(request.search, /\bchannel=push\b/);
+    assert.equal(request.search, '');
     assert.equal(retiredPushPreference.enabled, false);
     assert.equal(retiredPushPreference.preference.launchId, launchId);
     assert.equal(retiredPushPreference.preference.channel, 'push');
@@ -1605,25 +1613,9 @@ async function main() {
     });
   }
 
-  const retiredSmsPreference = await bearerClient.getLaunchNotificationPreference(launchId, 'sms');
-  {
-    const request = popLastRequest();
-    expectBearer(request, `/api/v1/me/launch-notifications/${launchId}`);
-    assert.match(request.search, /\bchannel=sms\b/);
-    assert.equal(retiredSmsPreference.enabled, false);
-    assert.equal(retiredSmsPreference.preference.launchId, launchId);
-    assert.equal(retiredSmsPreference.preference.channel, 'sms');
-    assert.deepEqual(retiredSmsPreference.smsStatus, {
-      enabled: false,
-      verified: false,
-      systemEnabled: false
-    });
-  }
-
   await assert.rejects(
     () =>
       cookieClient.updateLaunchNotificationPreference(launchId, {
-        channel: 'push',
         mode: 't_minus',
         tMinusMinutes: [10],
         notifyStatusChange: true,
@@ -1635,7 +1627,6 @@ async function main() {
     const request = popLastRequest();
     expectCookie(request, `/api/v1/me/launch-notifications/${launchId}`, 'POST');
     assert.deepEqual(request.body, {
-      channel: 'push',
       mode: 't_minus',
       tMinusMinutes: [10],
       notifyStatusChange: true,

@@ -1,9 +1,40 @@
 import type { LaunchDetailV1 } from '@tminuszero/contracts';
-
-/**
- * Content organization helpers for each tab
- * These functions extract the relevant data for each tab from LaunchDetailV1
- */
+import {
+  getLaunchCrew,
+  getLaunchData,
+  getLaunchEvents,
+  getLaunchLocation,
+  getLaunchMedia,
+  getLaunchMissionDescription,
+  getLaunchMissionStats,
+  getLaunchMissionName,
+  getLaunchNews,
+  getLaunchObjectInventory,
+  getLaunchOrbit,
+  getLaunchPadName,
+  getLaunchPayloadManifest,
+  getLaunchPrograms,
+  getLaunchRecovery,
+  getLaunchResourceLinks,
+  getLaunchSocialPosts,
+  getLaunchUpdates,
+  getLaunchVehicle,
+  getLaunchWatchLinks,
+  getLaunchWeatherSummary,
+  type LaunchCrewSummary,
+  type LaunchEventSummary,
+  type LaunchMediaItem,
+  type LaunchMissionStatsSummary,
+  type LaunchNewsSummary,
+  type LaunchObjectInventorySummary,
+  type LaunchPayloadSummary,
+  type LaunchProgramSummary,
+  type LaunchRecoverySummary,
+  type LaunchResourceLinks,
+  type LaunchSocialPostSummary,
+  type LaunchUpdateSummary,
+  type LaunchWatchLinkSummary
+} from './detailModel';
 
 export interface OverviewTabData {
   missionBrief: {
@@ -36,7 +67,7 @@ export interface OverviewTabData {
     windowStart: string | null;
     windowEnd: string | null;
     orbit: string | null;
-    programs: Array<{ id: number; name: string; description?: string }>;
+    programs: LaunchProgramSummary[];
   };
   weather: {
     summary: string | null;
@@ -45,28 +76,17 @@ export interface OverviewTabData {
 }
 
 export interface LiveTabData {
+  launchId: string;
+  hasJepScore: boolean;
   webcastEmbed: {
     url: string | null;
     isLive: boolean;
   };
-  watchLinks: Array<{
-    title: string;
-    url: string;
-    image?: string;
-  }>;
-  socialPosts: Array<{
-    id: string;
-    platform: string;
-    url: string;
-  }>;
-  launchUpdates: Array<{
-    timestamp: string;
-    field: string;
-    oldValue: string | null;
-    newValue: string | null;
-  }>;
-  weatherDetail: any; // From weatherModule
-  faaAdvisories: any[]; // From enrichment.faaAdvisories
+  watchLinks: LaunchWatchLinkSummary[];
+  socialPosts: LaunchSocialPostSummary[];
+  launchUpdates: LaunchUpdateSummary[];
+  weatherDetail: LaunchDetailV1['weather'] | null;
+  faaAdvisories: NonNullable<LaunchDetailV1['enrichment']>['faaAdvisories'];
   jepScore: number | null;
 }
 
@@ -76,19 +96,14 @@ export interface MissionTabData {
     objectives: string | null;
     customer: string | null;
   };
-  payloadManifest: any[]; // From payloadManifest
-  objectInventory: any; // From objectInventory
-  crew: Array<{
-    name: string;
-    role: string;
-    nationality: string;
-  }>;
-  blueOriginDetails: any; // From blueOrigin module
-  programs: Array<{
-    id: number;
-    name: string;
-    description?: string;
-  }>;
+  payloadManifest: LaunchPayloadSummary[];
+  objectInventory: LaunchObjectInventorySummary | null;
+  crew: LaunchCrewSummary[];
+  blueOriginDetails: {
+    travelers: Array<{ name: string }>;
+    payloadNotes: string | null;
+  } | null;
+  programs: LaunchProgramSummary[];
 }
 
 export interface VehicleTabData {
@@ -96,167 +111,183 @@ export interface VehicleTabData {
     family: string | null;
     variant: string | null;
     manufacturer: string | null;
-    specs: Record<string, any>;
+    specs: {
+      length: number | null;
+      diameter: number | null;
+      leoCapacity: number | null;
+      gtoCapacity: number | null;
+    };
   };
-  stages: any[]; // From enrichment.firstStages
-  recovery: any; // From enrichment.recovery
-  boosterHistory: any[]; // If booster is reused
-  missionStats: any; // From missionStats
+  stages: Array<{
+    name: string;
+    serialNumber: string | null;
+    reused: boolean;
+    previousFlights: number;
+    engine: string | null;
+    fuel: string | null;
+  }>;
+  recovery: LaunchRecoverySummary | null;
+  boosterHistory: Array<{
+    date: string | null;
+  }>;
+  missionStats: LaunchMissionStatsSummary | null;
 }
 
 export interface RelatedTabData {
-  news: Array<{
-    title: string;
-    summary: string;
-    url: string;
-    image?: string;
-    source: string;
-    date: string;
+  news: LaunchNewsSummary[];
+  events: LaunchEventSummary[];
+  media: LaunchMediaItem[];
+  resources: LaunchResourceLinks | null;
+  vehicleTimeline: Array<{
+    mission: string;
+    date: string | null;
+    success?: boolean;
   }>;
-  events: any[]; // From relatedEvents
-  media: any[]; // From enrichment.externalContent
-  resources: any[]; // From resources module
-  vehicleTimeline: any[]; // Historical launches of same vehicle
 }
 
-/**
- * Extract Overview tab data from LaunchDetailV1
- */
 export function extractOverviewData(detail: LaunchDetailV1): OverviewTabData {
-  const launch = detail.launchData ?? detail.launch;
+  const launch = getLaunchData(detail);
   const rocket = launch?.rocket;
 
   return {
     missionBrief: {
-      name: launch?.mission?.name ?? launch?.name ?? null,
-      description: launch?.mission?.description ?? launch?.missionSummary ?? null,
-      objectives: null, // Not in current schema
+      name: getLaunchMissionName(detail),
+      description: getLaunchMissionDescription(detail),
+      objectives: null
     },
-    quickStats: buildQuickStats(launch),
+    quickStats: buildQuickStats(detail),
     rocketProfile: {
-      name: launch?.vehicle ?? launch?.rocketName ?? null,
+      name: getLaunchVehicle(detail) ?? launch?.rocketName ?? null,
       variant: rocket?.variant ?? null,
       manufacturer: rocket?.manufacturer ?? null,
-      image: launch?.image?.full ?? null,
+      image: rocket?.imageUrl ?? launch?.image?.full ?? launch?.image?.thumbnail ?? detail.launch.imageUrl ?? null,
       specs: {
         reusable: rocket?.reusable ?? null,
-        length: rocket?.length ?? null,
-        diameter: rocket?.diameter ?? null,
-        maidenFlight: rocket?.maidenFlight ?? null,
-      },
+        length: rocket?.lengthM ?? null,
+        diameter: rocket?.diameterM ?? null,
+        maidenFlight: rocket?.maidenFlight ?? null
+      }
     },
     launchInfo: {
-      provider: launch?.provider ?? null,
-      vehicle: launch?.vehicle ?? null,
-      pad: launch?.pad?.name ?? launch?.padName ?? null,
-      location: launch?.pad?.location ?? launch?.padLocation ?? null,
-      windowStart: launch?.windowStart ?? null,
-      windowEnd: launch?.windowEnd ?? null,
-      orbit: launch?.mission?.orbit ?? null,
-      programs: launch?.programs ?? [],
+      provider: launch?.provider ?? detail.launch.provider ?? null,
+      vehicle: getLaunchVehicle(detail),
+      pad: getLaunchPadName(detail),
+      location: getLaunchLocation(detail),
+      windowStart: launch?.windowStart ?? detail.launch.windowStart ?? null,
+      windowEnd: launch?.windowEnd ?? detail.launch.windowEnd ?? null,
+      orbit: getLaunchOrbit(detail),
+      programs: getLaunchPrograms(detail)
     },
     weather: {
-      summary: launch?.weatherSummary ?? null,
-      concerns: [], // Extract from weatherModule
-    },
+      summary: getLaunchWeatherSummary(detail),
+      concerns: detail.weather?.concerns ?? []
+    }
   };
 }
 
-/**
- * Extract Live tab data from LaunchDetailV1
- */
 export function extractLiveData(detail: LaunchDetailV1): LiveTabData {
-  const launch = detail.launchData ?? detail.launch;
-  const resources = detail.resources;
+  const watchLinks = getLaunchWatchLinks(detail);
 
   return {
+    launchId: detail.launch.id,
+    hasJepScore: detail.enrichment.hasJepScore,
     webcastEmbed: {
-      url: resources?.watchLinks?.[0]?.url ?? null,
-      isLive: Boolean(launch?.webcastLive),
+      url: watchLinks[0]?.url ?? null,
+      isLive: Boolean(getLaunchData(detail)?.webcastLive)
     },
-    watchLinks: resources?.watchLinks ?? [],
-    socialPosts: detail.social?.matchedPosts ?? [],
-    launchUpdates: detail.launchUpdates ?? [],
-    weatherDetail: detail.weather,
+    watchLinks,
+    socialPosts: getLaunchSocialPosts(detail),
+    launchUpdates: getLaunchUpdates(detail),
+    weatherDetail: detail.weather ?? null,
     faaAdvisories: detail.enrichment?.faaAdvisories ?? [],
-    jepScore: null, // Computed separately
+    jepScore: null
   };
 }
 
-/**
- * Extract Mission tab data from LaunchDetailV1
- */
 export function extractMissionData(detail: LaunchDetailV1): MissionTabData {
-  const launch = detail.launchData ?? detail.launch;
+  const launch = getLaunchData(detail);
+  const payloadNotes = detail.blueOrigin?.payloadNotes?.map((note) => `${note.name}: ${note.description}`).join('\n\n') ?? null;
 
   return {
     missionOverview: {
-      description: launch?.mission?.description ?? launch?.missionSummary ?? null,
+      description: getLaunchMissionDescription(detail),
       objectives: null,
-      customer: launch?.mission?.agencies?.[0]?.name ?? null,
+      customer: launch?.mission?.agencies?.[0]?.name ?? null
     },
-    payloadManifest: detail.payloadManifest ?? [],
-    objectInventory: detail.objectInventory ?? null,
-    crew: launch?.crew ?? [],
-    blueOriginDetails: detail.blueOrigin ?? null,
-    programs: launch?.programs ?? [],
+    payloadManifest: getLaunchPayloadManifest(detail),
+    objectInventory: getLaunchObjectInventory(detail),
+    crew: getLaunchCrew(detail),
+    blueOriginDetails: detail.blueOrigin
+      ? {
+          travelers: detail.blueOrigin.travelerProfiles.map((traveler) => ({ name: traveler.name })),
+          payloadNotes
+        }
+      : null,
+    programs: getLaunchPrograms(detail)
   };
 }
 
-/**
- * Extract Vehicle tab data from LaunchDetailV1
- */
 export function extractVehicleData(detail: LaunchDetailV1): VehicleTabData {
-  const launch = detail.launchData ?? detail.launch;
+  const launch = getLaunchData(detail);
   const rocket = launch?.rocket;
 
   return {
     vehicleConfig: {
-      family: rocket?.family ?? null,
+      family: rocket?.family ?? getLaunchVehicle(detail),
       variant: rocket?.variant ?? null,
       manufacturer: rocket?.manufacturer ?? null,
-      specs: rocket ?? {},
+      specs: {
+        length: rocket?.lengthM ?? null,
+        diameter: rocket?.diameterM ?? null,
+        leoCapacity: rocket?.leoCapacity ?? null,
+        gtoCapacity: rocket?.gtoCapacity ?? null
+      }
     },
-    stages: detail.enrichment?.firstStages ?? [],
-    recovery: detail.enrichment?.recovery ?? null,
-    boosterHistory: [], // Would need to query separately
-    missionStats: detail.missionStats ?? null,
+    stages: (detail.enrichment?.firstStages ?? []).map((stage) => ({
+      name: stage.title,
+      serialNumber: stage.serialNumber ?? null,
+      reused: typeof stage.totalMissions === 'number' ? stage.totalMissions > 1 : false,
+      previousFlights: typeof stage.totalMissions === 'number' ? Math.max(stage.totalMissions - 1, 0) : 0,
+      engine: null,
+      fuel: null
+    })),
+    recovery: getLaunchRecovery(detail),
+    boosterHistory: [],
+    missionStats: getLaunchMissionStats(detail)
   };
 }
 
-/**
- * Extract Related tab data from LaunchDetailV1
- */
 export function extractRelatedData(detail: LaunchDetailV1): RelatedTabData {
   return {
-    news: detail.relatedNews ?? [],
-    events: detail.relatedEvents ?? [],
-    media: detail.enrichment?.externalContent ?? [],
-    resources: detail.resources ?? null,
-    vehicleTimeline: [], // Would need to query separately
+    news: getLaunchNews(detail),
+    events: getLaunchEvents(detail),
+    media: getLaunchMedia(detail),
+    resources: getLaunchResourceLinks(detail),
+    vehicleTimeline: []
   };
 }
 
-/**
- * Helper to build quick stats from launch data
- */
-function buildQuickStats(launch: any): Array<{ label: string; value: string | number; icon?: string }> {
+function buildQuickStats(detail: LaunchDetailV1): Array<{ label: string; value: string | number; icon?: string }> {
+  const launch = getLaunchData(detail);
   const stats: Array<{ label: string; value: string | number; icon?: string }> = [];
 
-  if (launch?.provider) {
-    stats.push({ label: 'Provider', value: launch.provider, icon: '🚀' });
+  if (launch?.provider ?? detail.launch.provider) {
+    stats.push({ label: 'Provider', value: launch?.provider ?? detail.launch.provider ?? 'Unknown', icon: 'Provider' });
   }
 
-  if (launch?.vehicle) {
-    stats.push({ label: 'Vehicle', value: launch.vehicle, icon: '🛸' });
+  const vehicle = getLaunchVehicle(detail);
+  if (vehicle) {
+    stats.push({ label: 'Vehicle', value: vehicle, icon: 'Vehicle' });
   }
 
-  if (launch?.mission?.orbit) {
-    stats.push({ label: 'Orbit', value: launch.mission.orbit, icon: '🌍' });
+  const orbit = getLaunchOrbit(detail);
+  if (orbit) {
+    stats.push({ label: 'Orbit', value: orbit, icon: 'Orbit' });
   }
 
-  if (launch?.pad?.location) {
-    stats.push({ label: 'Location', value: launch.pad.location, icon: '📍' });
+  const location = getLaunchLocation(detail);
+  if (location) {
+    stats.push({ label: 'Location', value: location, icon: 'Pad' });
   }
 
   return stats;

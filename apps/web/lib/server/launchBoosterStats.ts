@@ -1,6 +1,5 @@
 import { cache } from 'react';
 import { isSupabaseConfigured } from '@/lib/server/env';
-import { fetchLl2LaunchDetail } from '@/lib/server/ll2Detail';
 import { createSupabasePublicClient } from '@/lib/server/supabaseServer';
 
 const MAX_BOOSTERS_PER_LAUNCH = 12;
@@ -70,11 +69,7 @@ export const fetchLaunchBoosterStats = cache(async (launchId: string, ll2LaunchU
     launchId: normalizedLaunchId,
     ll2LaunchUuid: normalizedLl2LaunchUuid
   });
-  let launcherIds = uniqueNumbers(launchJoinRows.map((row) => toFiniteNumber((row as LauncherLaunchJoinRow).ll2_launcher_id)));
-  const usingLl2DetailFallback = launcherIds.length === 0 && Boolean(normalizedLl2LaunchUuid);
-  if (usingLl2DetailFallback && normalizedLl2LaunchUuid) {
-    launcherIds = await fetchLl2LauncherIdsForLaunch(normalizedLl2LaunchUuid);
-  }
+  const launcherIds = uniqueNumbers(launchJoinRows.map((row) => toFiniteNumber((row as LauncherLaunchJoinRow).ll2_launcher_id)));
   if (launcherIds.length === 0) return [];
 
   const [launcherResult, launcherJoinResult] = await Promise.all([
@@ -97,15 +92,6 @@ export const fetchLaunchBoosterStats = cache(async (launchId: string, ll2LaunchU
   const launcherJoins = Array.isArray(launcherJoinResult.data)
     ? (launcherJoinResult.data as LauncherLaunchJoinRow[])
     : [];
-  const syntheticCurrentLaunchJoins =
-    usingLl2DetailFallback && (normalizedLaunchId || normalizedLl2LaunchUuid)
-      ? launcherIds.map((launcherId) => ({
-          ll2_launcher_id: launcherId,
-          launch_id: normalizedLaunchId || null,
-          ll2_launch_uuid: normalizedLl2LaunchUuid || null
-        }))
-      : [];
-  const allLauncherJoins = [...launcherJoins, ...syntheticCurrentLaunchJoins];
   const launcherSet = new Set(launcherIds);
 
   const statsByLauncherId = new Map<number, BoosterAccumulator>();
@@ -117,7 +103,7 @@ export const fetchLaunchBoosterStats = cache(async (launchId: string, ll2LaunchU
     });
   }
 
-  for (const row of allLauncherJoins) {
+  for (const row of launcherJoins) {
     const launcherId = toFiniteNumber(row.ll2_launcher_id);
     if (launcherId == null || !launcherSet.has(launcherId)) continue;
 
@@ -221,24 +207,6 @@ export const fetchLaunchBoosterStats = cache(async (launchId: string, ll2LaunchU
   });
 
   return results;
-});
-
-const fetchLl2LauncherIdsForLaunch = cache(async (ll2LaunchUuid: string): Promise<number[]> => {
-  const normalizedLl2LaunchUuid = normalizeText(ll2LaunchUuid);
-  if (!normalizedLl2LaunchUuid) return [];
-  const detail = await fetchLl2LaunchDetail(normalizedLl2LaunchUuid);
-  if (!detail || typeof detail !== 'object') return [];
-
-  const launcherStages = (detail as { rocket?: { launcher_stage?: unknown } }).rocket?.launcher_stage;
-  if (!Array.isArray(launcherStages)) return [];
-
-  const launcherIds = launcherStages.map((stage) => {
-    if (!stage || typeof stage !== 'object') return null;
-    const launcher = (stage as { launcher?: { id?: unknown } | null }).launcher;
-    return toFiniteNumber(launcher?.id);
-  });
-
-  return uniqueNumbers(launcherIds);
 });
 
 async function fetchLaunchJoinRows({

@@ -3,8 +3,10 @@
 import { ApiClientError } from '@tminuszero/api-client';
 import {
   buildPendingFeedRefreshMessage,
-  getNextAlignedRefreshMs,
+  getNextAdaptiveLaunchRefreshMs,
+  getRecommendedLaunchRefreshIntervalSeconds,
   getTierRefreshSeconds,
+  PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS,
   getVisibleFeedUpdatedAt,
   shouldPrimeVersionRefresh,
   tierToMode,
@@ -266,6 +268,10 @@ export function LaunchFeed({
   const [refreshApplying, setRefreshApplying] = useState(false);
   const [lastCheckedAtMs, setLastCheckedAtMs] = useState<number | null>(() => initialNowMsValue ?? null);
   const [nextRefreshAt, setNextRefreshAt] = useState<number | null>(null);
+  const [scheduledRefreshIntervalSeconds, setScheduledRefreshIntervalSeconds] = useState(() =>
+    initialViewerTier === 'premium' ? PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS : getTierRefreshSeconds(initialViewerTier ?? 'anon')
+  );
+  const [cadenceAnchorNet, setCadenceAnchorNet] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => initialNowMsValue ?? Date.now());
   const [userTz, setUserTz] = useState('UTC');
   const [upsellOpen, setUpsellOpen] = useState(false);
@@ -414,7 +420,11 @@ export function LaunchFeed({
   const myRocketRulesByValue = useMemo(() => extractRuleMap(selectedWatchlist?.rules, 'rocket'), [selectedWatchlist?.rules]);
   const myLaunchSiteRulesByValue = useMemo(() => extractRuleMap(selectedWatchlist?.rules, 'launch_site'), [selectedWatchlist?.rules]);
   const myStateRulesByValue = useMemo(() => extractRuleMap(selectedWatchlist?.rules, 'state'), [selectedWatchlist?.rules]);
-  const refreshIntervalSeconds = getTierRefreshSeconds(viewerTier);
+  const fallbackRefreshIntervalSeconds = viewerTier === 'premium' ? PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS : getTierRefreshSeconds(viewerTier);
+  const refreshIntervalSeconds = getRecommendedLaunchRefreshIntervalSeconds(
+    scheduledRefreshIntervalSeconds,
+    fallbackRefreshIntervalSeconds
+  );
   const refreshIntervalMs = refreshIntervalSeconds * 1000;
   const recentChanges = useMemo(() => changed.slice(0, 6), [changed]);
   useWhyDidYouUpdate(
@@ -544,6 +554,13 @@ export function LaunchFeed({
     myLaunchesEnabled,
     myWatchlistId
   };
+
+  useEffect(() => {
+    setScheduledRefreshIntervalSeconds(
+      viewerTier === 'premium' ? PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS : getTierRefreshSeconds(viewerTier)
+    );
+    setCadenceAnchorNet(null);
+  }, [viewerTier]);
 
   useEffect(() => {
     if (!debug) return;
@@ -1020,6 +1037,10 @@ export function LaunchFeed({
       try {
         const payload = await fetchLaunchFeedVersion(queryClient, versionRequest);
         setLastCheckedAtMs(Date.now());
+        setScheduledRefreshIntervalSeconds(
+          getRecommendedLaunchRefreshIntervalSeconds(payload.recommendedIntervalSeconds, fallbackRefreshIntervalSeconds)
+        );
+        setCadenceAnchorNet(typeof payload.cadenceAnchorNet === 'string' ? payload.cadenceAnchorNet : null);
         const nextVersion = typeof payload?.version === 'string' ? payload.version : null;
         const visibleUpdatedAt = getVisibleFeedUpdatedAt(launches, snapshot.mode);
         if (!nextVersion) {
@@ -1074,17 +1095,22 @@ export function LaunchFeed({
         return;
       }
       const now = Date.now();
-      const next = getNextAlignedRefreshMs(now, refreshIntervalMs);
+      const next = getNextAdaptiveLaunchRefreshMs({
+        nowMs: now,
+        intervalSeconds: refreshIntervalSeconds,
+        cadenceAnchorNet
+      });
       setNextRefreshAt(next);
       const delay = Math.max(0, next - now);
       debugLog('refresh_schedule', {
         viewerTier,
-        refreshIntervalMs,
+        refreshIntervalSeconds,
         now,
         next,
         delay,
         loading,
-        loadingMore
+        loadingMore,
+        cadenceAnchorNet
       });
       timeout = setTimeout(async () => {
         if (cancelled) return;
@@ -1134,7 +1160,10 @@ export function LaunchFeed({
     loadingMore,
     queryClient,
     refreshApplying,
+    fallbackRefreshIntervalSeconds,
+    refreshIntervalSeconds,
     refreshIntervalMs,
+    cadenceAnchorNet,
     viewerTier
   ]);
 
@@ -1253,12 +1282,16 @@ export function LaunchFeed({
   }, [filters]);
   const hasActiveFilters = activeFilterCount > 0;
 
-  const includeSeconds = viewerTier === 'premium';
+  const includeSeconds = viewerTier === 'premium' && refreshIntervalSeconds < 60;
   const lastCheckedLabel = lastCheckedAtMs ? formatRefreshTime(lastCheckedAtMs, includeSeconds) : null;
   const nextCheckLabel = nextRefreshAt ? formatRefreshTime(nextRefreshAt, includeSeconds) : null;
+  const premiumCadenceLabel =
+    refreshIntervalSeconds <= 15
+      ? 'Live checks every 15 seconds during the active launch window'
+      : 'Live checks every 2 minutes outside the active launch window';
   const premiumFreshnessLine =
     viewerTier === 'premium'
-      ? `Live checks every ${refreshIntervalSeconds}s${lastCheckedLabel ? ` • Last checked ${lastCheckedLabel}` : ''}${nextCheckLabel ? ` • Next check ${nextCheckLabel}` : ''}`
+      ? `${premiumCadenceLabel}${lastCheckedLabel ? ` • Last checked ${lastCheckedLabel}` : ''}${nextCheckLabel ? ` • Next check ${nextCheckLabel}` : ''}`
       : null;
   const nonPremiumPriceLine = 'Premium is $3.99/mo • cancel anytime';
   const homeSignInHref = buildAuthHref('sign-in', { returnTo: '/' });
@@ -1274,7 +1307,7 @@ export function LaunchFeed({
         : 'Browse publicly, then sign in when you want account ownership.';
   const modeStatusBody =
     viewerTier === 'premium'
-      ? premiumFreshnessLine || 'Premium keeps the feed on live checks with the fastest refresh cadence.'
+      ? premiumFreshnessLine || 'Premium keeps the feed on the live cadence while launches are active.'
       : isAuthed
         ? 'Signing in keeps account ownership, purchase restore, and billing access. Premium adds saved/default filters, follows, browser alerts, recurring feeds, and the live change log.'
         : 'Browse launches, filters, and the launch calendar publicly. Upgrade when you want live data, saved items, and recurring integrations.';
@@ -1339,12 +1372,8 @@ export function LaunchFeed({
     if (!pendingRefresh) {
       return null;
     }
-    return buildPendingFeedRefreshMessage({
-      matchCount: pendingRefresh.matchCount,
-      visibleCount: launches.length,
-      canCompareCount: !hasMore && !query
-    });
-  }, [hasMore, launches.length, pendingRefresh, query]);
+    return buildPendingFeedRefreshMessage();
+  }, [pendingRefresh]);
 
   const applyPreset = useCallback(
     (presetId: string) => {
@@ -1904,6 +1933,21 @@ export function LaunchFeed({
       const basicLaunchDescription = currentBasicLaunchActive
         ? 'This launch is already tracked on your account. Manage it in the native iOS or Android app.'
         : 'Manage launch push reminders for this launch in the native iOS or Android app.';
+      const providerLockedDescription = providerKey
+        ? `All launches from ${providerKey}. Premium unlocks recurring provider follows.`
+        : 'Provider follow unavailable for this card.';
+      const rocketLockedDescription = rocketRuleValue
+        ? `All launches for ${formatRocketRuleLabel(rocketRuleValue)}. Premium unlocks recurring rocket follows.`
+        : 'Rocket follow unavailable for this card.';
+      const padLockedDescription = padRuleValue
+        ? `Launches from ${formatPadRuleLabel(padRuleValue)}. Premium unlocks recurring pad follows.`
+        : 'Pad follow unavailable for this card.';
+      const launchSiteLockedDescription = launchSiteRuleValue
+        ? `Launches from ${launchSiteRuleValue}. Premium unlocks recurring launch-site follows.`
+        : 'Launch-site follow unavailable for this card.';
+      const stateLockedDescription = stateRuleValue
+        ? `Launches in ${stateRuleValue.toUpperCase()}. Premium unlocks state-wide follows.`
+        : 'State follow unavailable for this card.';
       const basicFollowOptions = [
         {
           key: 'launch',
@@ -1919,47 +1963,47 @@ export function LaunchFeed({
         {
           key: 'provider',
           label: 'This provider',
-          description: 'Premium adds recurring provider follows.',
+          description: providerLockedDescription,
           active: false,
-          disabled: false,
-          locked: true,
-          onPress: () => openUpsell('Follow')
+          disabled: !providerKey,
+          locked: Boolean(providerKey),
+          onPress: () => openUpsell('Provider follows')
         },
         {
           key: 'rocket',
           label: 'This rocket',
-          description: 'Premium adds recurring rocket follows.',
+          description: rocketLockedDescription,
           active: false,
-          disabled: false,
-          locked: true,
-          onPress: () => openUpsell('Follow')
+          disabled: !rocketRuleValue,
+          locked: Boolean(rocketRuleValue),
+          onPress: () => openUpsell('Rocket follows')
         },
         {
           key: 'pad',
           label: 'This pad',
-          description: 'Premium adds recurring pad follows.',
+          description: padLockedDescription,
           active: false,
-          disabled: false,
-          locked: true,
-          onPress: () => openUpsell('Follow')
+          disabled: !padRuleValue,
+          locked: Boolean(padRuleValue),
+          onPress: () => openUpsell('Pad follows')
         },
         {
           key: 'launch_site',
           label: 'This launch site',
-          description: 'Premium adds recurring launch-site follows.',
+          description: launchSiteLockedDescription,
           active: false,
-          disabled: false,
-          locked: true,
-          onPress: () => openUpsell('Follow')
+          disabled: !launchSiteRuleValue,
+          locked: Boolean(launchSiteRuleValue),
+          onPress: () => openUpsell('Launch-site follows')
         },
         {
           key: 'state',
           label: 'This state',
-          description: 'Premium adds state-wide launch alerts.',
+          description: stateLockedDescription,
           active: false,
-          disabled: false,
-          locked: true,
-          onPress: () => openUpsell('Follow')
+          disabled: !stateRuleValue,
+          locked: Boolean(stateRuleValue),
+          onPress: () => openUpsell('State follows')
         }
       ];
       const premiumFollowOptions = [
@@ -1975,18 +2019,6 @@ export function LaunchFeed({
           }
         },
         {
-          key: 'rocket',
-          label: 'This rocket',
-          description: rocketRuleValue ? `All launches for ${formatRocketRuleLabel(rocketRuleValue)}.` : 'Rocket follow unavailable.',
-          active: Boolean(rocketRuleValue && myRocketRulesByValue[rocketRuleValue]),
-          disabled: !rocketRuleValue,
-          locked: false,
-          onPress: () => {
-            if (!rocketRuleValue) return;
-            void toggleFollowRule('rocket', rocketRuleValue, formatRocketRuleLabel(rocketRuleValue));
-          }
-        },
-        {
           key: 'provider',
           label: 'This provider',
           description: providerKey ? `All launches from ${providerKey}.` : 'Provider follow unavailable.',
@@ -1996,6 +2028,18 @@ export function LaunchFeed({
           onPress: () => {
             if (!providerKey) return;
             void toggleFollowProvider(providerKey);
+          }
+        },
+        {
+          key: 'rocket',
+          label: 'This rocket',
+          description: rocketRuleValue ? `All launches for ${formatRocketRuleLabel(rocketRuleValue)}.` : 'Rocket follow unavailable.',
+          active: Boolean(rocketRuleValue && myRocketRulesByValue[rocketRuleValue]),
+          disabled: !rocketRuleValue,
+          locked: false,
+          onPress: () => {
+            if (!rocketRuleValue) return;
+            void toggleFollowRule('rocket', rocketRuleValue, formatRocketRuleLabel(rocketRuleValue));
           }
         },
         {
@@ -2073,7 +2117,6 @@ export function LaunchFeed({
       myStateRulesByValue,
       myWatchlistId,
       openUpsell,
-      router,
       showAlertsNudge,
       toggleBasicLaunchFollow,
       toggleFollowPad,

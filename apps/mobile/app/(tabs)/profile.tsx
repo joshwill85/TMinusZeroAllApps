@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Text, View } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
+import type { BillingCatalogOfferV1 } from '@tminuszero/api-client';
 import { getMobileViewerTier } from '@tminuszero/domain';
 import {
   useAdminAccessOverrideQuery,
@@ -42,6 +43,7 @@ export default function ProfileScreen() {
   const updateMarketingEmailMutation = useUpdateMarketingEmailMutation();
   const billing = useNativeBilling(sessionQuery.data?.viewerId ?? null);
   const billingSummary = billing.billingSummaryQuery.data ?? null;
+  const catalogOffers = billing.catalogProduct?.offers ?? [];
   const tier = getMobileViewerTier(entitlementsQuery.data?.tier ?? 'anon');
   const isAuthed = entitlementsQuery.data?.isAuthed ?? Boolean(accessToken);
   const profile = profileQuery.data ?? null;
@@ -294,6 +296,43 @@ export default function ProfileScreen() {
               <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
                 {billing.claim ? 'Claiming Premium links the verified purchase to a T-Minus Zero account for ownership, recovery, and restore.' : buildBillingMessage('none', false, billing.isStoreReady)}
               </Text>
+              {catalogOffers.length > 0 ? (
+                <View style={{ gap: 8 }}>
+                  <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>Active offers on this device</Text>
+                  {catalogOffers.map((offer) => (
+                    <View
+                      key={offer.offerKey}
+                      style={{
+                        gap: 6,
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        borderColor: theme.stroke,
+                        backgroundColor: 'rgba(255,255,255,0.03)',
+                        paddingHorizontal: 12,
+                        paddingVertical: 12
+                      }}
+                    >
+                      <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>{offer.label}</Text>
+                      {offer.eligibilityHint ? <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>{offer.eligibilityHint}</Text> : null}
+                      {offer.promotionCode ? <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>Code: {offer.promotionCode}</Text> : null}
+                      {offer.redemptionUrl ? (
+                        <CustomerShellActionButton
+                          label="Redeem App Store offer"
+                          variant="secondary"
+                          onPress={() => {
+                            void billing.openManagementLink(offer.redemptionUrl);
+                          }}
+                        />
+                      ) : null}
+                    </View>
+                  ))}
+                  {hasAutomaticGoogleOffer(catalogOffers) ? (
+                    <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
+                      Eligible Google Play offers are applied automatically when checkout starts on this device.
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
               {billing.claim ? (
                 <>
                   <CustomerShellActionButton
@@ -472,6 +511,43 @@ export default function ProfileScreen() {
               <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
                 {buildBillingMessage(billingSummary.provider, billingSummary.isPaid, billing.isStoreReady)}
               </Text>
+              {catalogOffers.length > 0 ? (
+                <View style={{ gap: 8 }}>
+                  <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>Active offers on this device</Text>
+                  {catalogOffers.map((offer) => (
+                    <View
+                      key={offer.offerKey}
+                      style={{
+                        gap: 6,
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        borderColor: theme.stroke,
+                        backgroundColor: 'rgba(255,255,255,0.03)',
+                        paddingHorizontal: 12,
+                        paddingVertical: 12
+                      }}
+                    >
+                      <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>{offer.label}</Text>
+                      {offer.eligibilityHint ? <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>{offer.eligibilityHint}</Text> : null}
+                      {offer.promotionCode ? <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>Code: {offer.promotionCode}</Text> : null}
+                      {offer.redemptionUrl ? (
+                        <CustomerShellActionButton
+                          label="Redeem App Store offer"
+                          variant="secondary"
+                          onPress={() => {
+                            void billing.openManagementLink(offer.redemptionUrl);
+                          }}
+                        />
+                      ) : null}
+                    </View>
+                  ))}
+                  {hasAutomaticGoogleOffer(catalogOffers) ? (
+                    <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
+                      Eligible Google Play offers are applied automatically when checkout starts on this device.
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
 
               {showStoreManagementAction || showPurchaseAction ? (
                 <CustomerShellActionButton
@@ -635,4 +711,8 @@ function buildClaimAuthHref(pathname: '/sign-in' | '/sign-up', claimToken: strin
   }
   params.set('intent', 'upgrade');
   return `${pathname}?${params.toString()}` as Href;
+}
+
+function hasAutomaticGoogleOffer(offers: BillingCatalogOfferV1[]) {
+  return offers.some((offer) => offer.provider === 'google_play' && Boolean(offer.offerToken));
 }

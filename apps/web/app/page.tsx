@@ -5,8 +5,8 @@ import { JsonLd } from '@/components/JsonLd';
 import { LaunchFeed } from '@/components/LaunchFeed';
 import { ProgramHubDock } from '@/components/ProgramHubDock';
 import { SkeletonLaunchCard } from '@/components/SkeletonLaunchCard';
-import { LAUNCH_FEED_PAGE_SIZE } from '@/lib/constants/launchFeed';
-import type { Launch } from '@/lib/types/launch';
+import { fetchArEligibleLaunches } from '@/lib/server/arEligibility';
+import { fetchHomeLaunchFeed } from '@/lib/server/homeLaunchFeed';
 import { buildSiteMeta } from '@/lib/server/siteMeta';
 import { getSiteUrl } from '@/lib/server/env';
 import { buildLaunchHref } from '@/lib/utils/launchLinks';
@@ -94,7 +94,11 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
   const page = parsePageParam(searchParams.page);
   const nowMs = Date.now();
   const siteUrl = getSiteUrl().replace(/\/$/, '');
-  const { launches, offset, hasMore } = await fetchHomepageLaunchFeed({ page, siteUrl });
+  const [{ launches, offset, hasMore }, arEligibleLaunches] = await Promise.all([
+    fetchHomeLaunchFeed({ page, nowMs }),
+    fetchArEligibleLaunches({ nowMs })
+  ]);
+  const initialArEligibleLaunchIds = arEligibleLaunches.map((launch) => launch.launchId);
   const rawQuery = typeof searchParams.q === 'string' ? searchParams.q.trim() : '';
   const canonical = rawQuery ? '/' : page > 1 ? `/?page=${page}` : '/';
 
@@ -177,6 +181,7 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
               initialOffset={offset}
               initialHasMore={hasMore}
               initialNowMs={nowMs}
+              initialArEligibleLaunchIds={initialArEligibleLaunchIds}
               initialViewerTier="anon"
               initialIsPaid={false}
               initialAuthStatus="guest"
@@ -187,39 +192,4 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
       </div>
     </div>
   );
-}
-
-async function fetchHomepageLaunchFeed({
-  page,
-  siteUrl
-}: {
-  page: number;
-  siteUrl: string;
-}): Promise<{ launches: Launch[]; offset: number; hasMore: boolean }> {
-  const safePage = Number.isFinite(page) ? Math.max(1, Math.trunc(page)) : 1;
-  const offset = (safePage - 1) * LAUNCH_FEED_PAGE_SIZE;
-
-  const qs = new URLSearchParams();
-  qs.set('range', 'year');
-  qs.set('sort', 'soonest');
-  qs.set('region', 'us');
-  qs.set('limit', String(LAUNCH_FEED_PAGE_SIZE));
-  qs.set('offset', String(offset));
-
-  try {
-    const res = await fetch(`${siteUrl}/api/public/launches?${qs.toString()}`, {
-      next: { revalidate: 60 }
-    });
-    const json = await res.json().catch(() => null);
-    if (!res.ok) {
-      console.error('homepage launch feed error', res.status, json);
-      return { launches: [], offset, hasMore: false };
-    }
-    const launches = Array.isArray(json?.launches) ? (json.launches as Launch[]) : [];
-    const hasMore = typeof json?.hasMore === 'boolean' ? json.hasMore : launches.length === LAUNCH_FEED_PAGE_SIZE;
-    return { launches, offset, hasMore };
-  } catch (error) {
-    console.error('homepage launch feed error', error);
-    return { launches: [], offset, hasMore: false };
-  }
 }

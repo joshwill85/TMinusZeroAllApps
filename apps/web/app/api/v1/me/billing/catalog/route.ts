@@ -15,8 +15,12 @@ function readPlatform(request: Request): BillingPlatformV1 {
 
 export async function GET(request: Request) {
   try {
-    await resolveViewerSession(request);
-    const payload = loadBillingCatalog(readPlatform(request));
+    const session = await resolveViewerSession(request);
+    const payload = await loadBillingCatalog({
+      platform: readPlatform(request),
+      userId: session.userId,
+      email: session.email
+    });
     return NextResponse.json(payload, {
       headers: {
         'Cache-Control': 'private, no-store'

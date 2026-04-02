@@ -1,0 +1,99 @@
+{
+  "generatedAt": "2026-04-01T00:00:00.000Z",
+  "source": {
+    "type": "file",
+    "path": "ar-surface-evidence-sessions.fixture.json"
+  },
+  "runs": [
+    {
+      "surface": "web",
+      "releaseProfile": "android_chrome_flagship",
+      "overrides": {
+        "notes": "Field capture from flagship Android Chrome on a high-confidence Cape family fixture."
+      }
+    },
+    {
+      "surface": "web",
+      "releaseProfile": "android_chrome_mid_tier",
+      "overrides": {
+        "notes": "Mid-tier Android Chrome remains guided but reaches a usable state within the gate."
+      }
+    },
+    {
+      "surface": "web",
+      "releaseProfile": "ios_safari_current",
+      "overrides": {
+        "notes": "Safari degrades to SkyCompass without claiming false precision."
+      }
+    },
+    {
+      "surface": "web",
+      "releaseProfile": "desktop_chrome_sanity",
+      "overrides": {
+        "notes": "Desktop sanity profile used for fast regression checks."
+      }
+    },
+    {
+      "surface": "ios",
+      "releaseProfile": "ios_native_pro",
+      "overrides": {
+        "notes": "ARKit localized quickly on the current Pro-class iPhone."
+      }
+    },
+    {
+      "surface": "ios",
+      "releaseProfile": "ios_native_non_pro",
+      "overrides": {
+        "notes": "Non-Pro iPhone remained stable with one relocalization budgeted."
+      }
+    },
+    {
+      "surface": "ios",
+      "releaseProfile": "ios_native_prev_gen",
+      "overrides": {
+        "notes": "Previous-generation iPhone stayed in guided mode while meeting readiness targets."
+      }
+    },
+    {
+      "surface": "android",
+      "releaseProfile": "android_native_pixel",
+      "overrides": {
+        "notes": "Pixel-class ARCore session met precision requirements."
+      }
+    },
+    {
+      "surface": "android",
+      "releaseProfile": "android_native_samsung",
+      "overrides": {
+        "notes": "Samsung flagship stayed within the tracking reset budget."
+      }
+    },
+    {
+      "surface": "android",
+      "releaseProfile": "android_native_mid_tier",
+      "overrides": {
+        "notes": "Mid-tier Android remains guided without over-claiming precision."
+      }
+    }
+  ],
+  "comparisons": [
+    {
+      "fixtureId": "cape-iss-family",
+      "observerId": "W15",
+      "tPlusSec": 30,
+      "divergenceDeg": 3.4
+    },
+    {
+      "fixtureId": "cape-starlink-mid",
+      "observerId": "SW15",
+      "tPlusSec": 60,
+      "divergenceDeg": 5.2
+    },
+    {
+      "fixtureId": "vandy-polar-sso",
+      "observerId": "S15",
+      "tPlusSec": 30,
+      "divergenceDeg": 4.8
+    }
+  ]
+}

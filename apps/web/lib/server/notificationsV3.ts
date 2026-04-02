@@ -95,7 +95,7 @@ export type NotificationRuleUpsertInput = NotificationOwner & {
   intent: 'follow' | 'notifications_only';
   visibleInFollowing?: boolean;
   enabled?: boolean;
-  channels?: Array<'push' | 'email' | 'sms'>;
+  channels?: Array<'push' | 'email'>;
   scope: NotificationRuleScope;
   settings?: NotificationRuleSettingsInput;
 };
@@ -527,13 +527,13 @@ export async function removeChannelsFromUnifiedRule(
   db: DbClient,
   owner: NotificationOwner,
   scope: NotificationRuleScope,
-  channelsToRemove: Array<'push' | 'email' | 'sms'>
+  channelsToRemove: Array<'push' | 'email'>
 ) {
   const existing = await loadUnifiedRuleByScope(db, owner, scope);
   if (!existing) return null;
 
   const remainingChannels = (Array.isArray(existing.channels) ? existing.channels : []).filter(
-    (channel: unknown) => !channelsToRemove.includes(channel as 'push' | 'email' | 'sms')
+    (channel: unknown) => !channelsToRemove.includes(channel as 'push' | 'email')
   );
   if (!remainingChannels.length && existing.intent !== 'follow') {
     const { error } = await db.from('notification_rules_v3').delete().eq('id', existing.id);
@@ -730,7 +730,7 @@ export function mapUnifiedRuleToPayload(row: NotificationRuleRow): NotificationR
     scopeKind: row.scope_kind,
     scopeKey: row.scope_key,
     channels: (Array.isArray(row.channels) ? row.channels : []).filter(
-      (channel): channel is 'push' | 'email' | 'sms' => channel === 'push' || channel === 'email' || channel === 'sms'
+      (channel): channel is 'push' | 'email' => channel === 'push' || channel === 'email'
     ),
     settings: {
       timezone: normalizeText(row.timezone) ?? 'UTC',

@@ -36,6 +36,10 @@ type LaunchRow = {
   pad_longitude: number | null;
 };
 
+type DirtyLaunchRow = {
+  launch_id: string;
+};
+
 type TfrRecordRow = {
   id: string;
   source_key: string;
@@ -91,6 +95,8 @@ serve(async (req) => {
 
   const stats: Record<string, unknown> = {
     launchesFetched: 0,
+    dirtyLaunchesFetched: 0,
+    dirtyLaunchesCleared: 0,
     recordsFetched: 0,
     shapesFetched: 0,
     recordsProcessed: 0,
@@ -136,7 +142,12 @@ serve(async (req) => {
     if (expiredError) throw expiredError;
     stats.expiredUpdated = (expiredRows || []).length;
 
-    const [launchesRes, recordsRes] = await Promise.all([
+    const [dirtyLaunchesRes, horizonLaunchesRes, recordsRes] = await Promise.all([
+      supabase
+        .from('faa_launch_match_dirty_launches')
+        .select('launch_id')
+        .order('last_queued_at', { ascending: true })
+        .limit(candidateLimit),
       supabase
         .from('launches')
         .select(
@@ -158,10 +169,48 @@ serve(async (req) => {
         .limit(recordLimit)
     ]);
 
-    if (launchesRes.error) throw launchesRes.error;
+    if (dirtyLaunchesRes.error) throw dirtyLaunchesRes.error;
+    if (horizonLaunchesRes.error) throw horizonLaunchesRes.error;
     if (recordsRes.error) throw recordsRes.error;
 
-    const launches = (launchesRes.data || []) as LaunchRow[];
+    const dirtyLaunchIds = Array.from(
+      new Set(((dirtyLaunchesRes.data || []) as DirtyLaunchRow[]).map((row) => String(row.launch_id)).filter(Boolean))
+    );
+    stats.dirtyLaunchesFetched = dirtyLaunchIds.length;
+
+    let dirtyLaunches: LaunchRow[] = [];
+    if (dirtyLaunchIds.length > 0) {
+      const { data, error } = await supabase
+        .from('launches')
+        .select(
+          'id, name, mission_name, provider, vehicle, net, window_start, window_end, pad_name, pad_short_code, pad_state, pad_country_code, pad_latitude, pad_longitude'
+        )
+        .eq('hidden', false)
+        .in('id', dirtyLaunchIds);
+      if (error) throw error;
+      dirtyLaunches = ((data || []) as LaunchRow[]).sort((a, b) => {
+        const aa = a.net ? Date.parse(a.net) : Number.POSITIVE_INFINITY;
+        const bb = b.net ? Date.parse(b.net) : Number.POSITIVE_INFINITY;
+        return aa - bb;
+      });
+    }
+
+    const launchesById = new Map<string, LaunchRow>();
+    const launches: LaunchRow[] = [];
+    for (const launch of dirtyLaunches) {
+      if (launchesById.has(launch.id)) continue;
+      launchesById.set(launch.id, launch);
+      launches.push(launch);
+      if (launches.length >= candidateLimit) break;
+    }
+
+    for (const launch of (horizonLaunchesRes.data || []) as LaunchRow[]) {
+      if (launches.length >= candidateLimit) break;
+      if (launchesById.has(launch.id)) continue;
+      launchesById.set(launch.id, launch);
+      launches.push(launch);
+    }
+
     const records = (recordsRes.data || []) as TfrRecordRow[];
 
     stats.launchesFetched = launches.length;
@@ -329,6 +378,16 @@ serve(async (req) => {
         }
         stats.insertedRows = insertedTotal;
       }
+    }
+
+    if (dirtyLaunchIds.length > 0) {
+      const { data: clearedRows, error: clearError } = await supabase
+        .from('faa_launch_match_dirty_launches')
+        .delete()
+        .in('launch_id', dirtyLaunchIds)
+        .select('launch_id');
+      if (clearError) throw clearError;
+      stats.dirtyLaunchesCleared = (clearedRows || []).length;
     }
 
     await upsertSetting(supabase, 'faa_match_last_success_at', new Date().toISOString());

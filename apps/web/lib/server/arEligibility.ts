@@ -1,17 +1,69 @@
-import { createSupabaseServerClient } from '@/lib/server/supabaseServer';
+import { unstable_cache } from 'next/cache';
 import { isSupabaseConfigured } from '@/lib/server/env';
+import { createSupabasePublicClient } from '@/lib/server/supabaseServer';
 import { parseIsoDurationToMs } from '@/lib/utils/launchMilestones';
 
 const AR_ELIGIBLE_LIMIT = 3;
 const AR_LOOKAHEAD_LIMIT = 50;
 const AR_LOOKBACK_MS = 24 * 60 * 60 * 1000;
 const AR_EXPIRY_MS = 3 * 60 * 60 * 1000;
+const AR_ELIGIBILITY_CACHE_REVALIDATE_SECONDS = 600;
+const AR_ELIGIBILITY_CACHE_BUCKET_MS = AR_ELIGIBILITY_CACHE_REVALIDATE_SECONDS * 1000;
 
 export type ArEligibleLaunch = {
   launchId: string;
   net: string | null;
   expiresAt: string;
 };
+
+const fetchCachedArEligibleLaunches = unstable_cache(
+  async (bucketNowMs: number, limit: number, lookahead: number): Promise<ArEligibleLaunch[]> => {
+    const supabase = createSupabasePublicClient();
+    const fromIso = new Date(bucketNowMs - AR_LOOKBACK_MS).toISOString();
+
+    const { data, error } = await supabase
+      .from('launches_public_cache')
+      .select('launch_id, net, status_name, timeline, pad_latitude, pad_longitude')
+      .gte('net', fromIso)
+      .order('net', { ascending: true })
+      .limit(Math.max(limit, lookahead));
+
+    if (error || !data) {
+      console.warn('ar eligibility query error', error);
+      return [];
+    }
+
+    const candidates: Array<{ launchId: string; net: string | null; expiresAtMs: number }> = [];
+    for (const row of data) {
+      if (!row?.launch_id) continue;
+      const expiresAtMs = computeExpiryMs(row);
+      if (expiresAtMs == null || expiresAtMs < bucketNowMs) continue;
+      const hasPad = typeof row.pad_latitude === 'number' && typeof row.pad_longitude === 'number';
+      if (!hasPad) continue;
+      candidates.push({
+        launchId: row.launch_id,
+        net: row.net ?? null,
+        expiresAtMs
+      });
+    }
+
+    if (candidates.length === 0) return [];
+
+    const eligible: ArEligibleLaunch[] = [];
+    for (const candidate of candidates) {
+      eligible.push({
+        launchId: candidate.launchId,
+        net: candidate.net,
+        expiresAt: new Date(candidate.expiresAtMs).toISOString()
+      });
+      if (eligible.length >= limit) break;
+    }
+
+    return eligible;
+  },
+  ['ar-eligible-launches-v2'],
+  { revalidate: AR_ELIGIBILITY_CACHE_REVALIDATE_SECONDS }
+);
 
 export async function fetchArEligibleLaunches({
   nowMs = Date.now(),
@@ -23,49 +75,10 @@ export async function fetchArEligibleLaunches({
   lookahead?: number;
 } = {}): Promise<ArEligibleLaunch[]> {
   if (!isSupabaseConfigured()) return [];
-
-  const supabase = createSupabaseServerClient();
-  const fromIso = new Date(nowMs - AR_LOOKBACK_MS).toISOString();
-
-  const { data, error } = await supabase
-    .from('launches_public_cache')
-    .select('launch_id, net, status_name, timeline, pad_latitude, pad_longitude')
-    .gte('net', fromIso)
-    .order('net', { ascending: true })
-    .limit(Math.max(limit, lookahead));
-
-  if (error || !data) {
-    console.warn('ar eligibility query error', error);
-    return [];
-  }
-
-  const candidates: Array<{ launchId: string; net: string | null; expiresAtMs: number }> = [];
-  for (const row of data) {
-    if (!row?.launch_id) continue;
-    const expiresAtMs = computeExpiryMs(row);
-    if (expiresAtMs == null || expiresAtMs < nowMs) continue;
-    const hasPad = typeof row.pad_latitude === 'number' && typeof row.pad_longitude === 'number';
-    if (!hasPad) continue;
-    candidates.push({
-      launchId: row.launch_id,
-      net: row.net ?? null,
-      expiresAtMs
-    });
-  }
-
-  if (candidates.length === 0) return [];
-
-  const eligible: ArEligibleLaunch[] = [];
-  for (const candidate of candidates) {
-    eligible.push({
-      launchId: candidate.launchId,
-      net: candidate.net,
-      expiresAt: new Date(candidate.expiresAtMs).toISOString()
-    });
-    if (eligible.length >= limit) break;
-  }
-
-  return eligible;
+  const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.trunc(limit)) : AR_ELIGIBLE_LIMIT;
+  const safeLookahead = Number.isFinite(lookahead) ? Math.max(safeLimit, Math.trunc(lookahead)) : AR_LOOKAHEAD_LIMIT;
+  const bucketNowMs = Math.floor(nowMs / AR_ELIGIBILITY_CACHE_BUCKET_MS) * AR_ELIGIBILITY_CACHE_BUCKET_MS;
+  return fetchCachedArEligibleLaunches(bucketNowMs, safeLimit, safeLookahead);
 }
 
 function computeExpiryMs(row: {

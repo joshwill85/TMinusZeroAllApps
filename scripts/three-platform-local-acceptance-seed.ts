@@ -167,33 +167,27 @@ async function main() {
         user_id,
         push_enabled,
         email_enabled,
-        sms_enabled,
         launch_day_email_enabled,
         launch_day_email_providers,
         launch_day_email_states,
         quiet_hours_enabled,
         quiet_start_local,
         quiet_end_local,
-        sms_verified,
-        sms_phone_e164,
         updated_at
       )
       values
-        ($1, false, true, false, false, '{}'::text[], '{}'::text[], false, null, null, false, null, timezone('utc', now())),
-        ($2, false, true, false, false, '{}'::text[], '{}'::text[], false, null, null, false, null, timezone('utc', now()))
+        ($1, false, true, false, '{}'::text[], '{}'::text[], false, null, null, timezone('utc', now())),
+        ($2, false, true, false, '{}'::text[], '{}'::text[], false, null, null, timezone('utc', now()))
       on conflict (user_id) do update
       set
         push_enabled = excluded.push_enabled,
         email_enabled = excluded.email_enabled,
-        sms_enabled = excluded.sms_enabled,
         launch_day_email_enabled = excluded.launch_day_email_enabled,
         launch_day_email_providers = excluded.launch_day_email_providers,
         launch_day_email_states = excluded.launch_day_email_states,
         quiet_hours_enabled = excluded.quiet_hours_enabled,
         quiet_start_local = excluded.quiet_start_local,
         quiet_end_local = excluded.quiet_end_local,
-        sms_verified = excluded.sms_verified,
-        sms_phone_e164 = excluded.sms_phone_e164,
         updated_at = timezone('utc', now())
       `,
       [anonUser.id, premiumUser.id]

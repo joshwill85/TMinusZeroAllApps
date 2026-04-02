@@ -39,7 +39,7 @@
 - Public: `GET /api/public/launches`, `GET /api/public/launches/changed`.
 - Paid: `GET /api/live/launches` (returns `live_activity` payload for future Live Activities), native mobile notification endpoints.
 - Billing: `/api/billing/checkout`, `/api/billing/portal`, `/api/webhooks/stripe`.
-- Legacy notification-preference routes remain readable for compatibility but retire writes in favor of native mobile push flows.
+- Notification-preference routes are limited to the current native mobile push flows.
 - Routes support mock fallback when Supabase/Stripe env vars are not configured; otherwise they read/write real Supabase tables (Stripe remains placeholder-safe until keys are provided).
 - Calendar ICS: `GET /api/launches/{id}/ics` returns a standards-compliant `.ics` (UTC timestamps; all-day when time is TBD).
 
@@ -52,12 +52,12 @@
 ## 9) Notifications & Safeguards
 - Channels: Native mobile push only for launch alerts.
 - Events: T-60, T-10, liftoff/window start, status change, NET change ≥ X, scrub special.
-- Legacy SMS/browser-push/notification-email paths are retired in place and no longer user-configurable.
+- Launch alerts no longer expose retired non-push user flows.
 
 ## 10) Phases & Status
 - [x] Phase 0 – Foundations: Next.js scaffold, dark theme, LaunchCard + skeletons, legal pages, FAQ, iOS prompt stub.
 - [x] Phase 1 – Data plumbing: Supabase migrations + settings seeds, LL2 ingestion with atomic rate limiting, public cache derivation (includes pad short code + timezone). Public cache now carries mission/rocket/provider metadata so detail pages avoid live LL2 calls.
-- [~] Phase 2 – Entitlements & Notifications: Supabase Auth UI, Stripe checkout + portal endpoints, Stripe webhook → `subscriptions`, live API gating, and native mobile push alert management. Legacy SMS, notification email, and browser/web push paths are retired in place. Remaining: entitlement wiring polish and verification hardening.
+- [~] Phase 2 – Entitlements & Notifications: Supabase Auth UI, Stripe checkout + portal endpoints, Stripe webhook → `subscriptions`, live API gating, and native mobile push alert management. Remaining: entitlement wiring polish and verification hardening.
 - [~] Phase 3 – Admin & Ops: Admin UI now reads and edits system_settings, shows ingestion/outbox stats, and displays `ops_alerts`. Supabase pg_cron now drives ingestion + monitoring Edge Functions. Remaining: log detail pages, manual sync wiring to actual jobs, image credit controls.
 - [ ] Phase 4 – QA & Launch: Load tests vs LL2 rate limits, CLS/LCP audit, legal review.
 

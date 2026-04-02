@@ -57,10 +57,12 @@ import { shouldAutoStartWebXr } from '@/lib/ar/runtimeStartupPolicy';
 import { deriveArSessionStatusView, deriveArTelemetryEntryState } from '@/lib/ar/sessionStatus';
 import { selectArRuntime, type ArRuntimeXrLaunchState } from '@/lib/ar/runtimeSelector';
 import {
+  deriveArTelemetryTimeToUsableMs,
   dedupeTrajectoryReasonLabels,
   formatTrajectoryAuthorityTierLabel,
   formatTrajectoryFieldConfidenceLabel,
   formatTrajectoryMilestoneOffsetLabel,
+  inferWebArReleaseProfile,
   TrajectoryAuthorityTier,
   TrajectoryContract,
   TrajectoryMilestonePayload,
@@ -399,6 +401,25 @@ function detectScreenBucket() {
   if (minDim < 400) return 'sm' as const;
   if (minDim < 480) return 'md' as const;
   return 'lg' as const;
+}
+
+function readArReleaseProfileOverride() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const params = new URL(window.location.href).searchParams;
+    const fromQuery = params.get('arReleaseProfile');
+    if (fromQuery) {
+      window.localStorage.setItem('tmz:ar:release-profile', fromQuery);
+      return fromQuery;
+    }
+  } catch {
+    // ignore
+  }
+  try {
+    return window.localStorage.getItem('tmz:ar:release-profile');
+  } catch {
+    return null;
+  }
 }
 
 function corridorModeForQuality(defaultOverlayMode: 'precision' | 'guided' | 'search'): 'tight' | 'normal' | 'wide' {
@@ -842,7 +863,9 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
   const telemetryEventTapCountRef = useRef(0);
   const telemetryClientEnvRef = useRef<ReturnType<typeof detectClientEnv> | null>(null);
   const telemetryClientProfileRef = useRef<ArClientProfile | null>(null);
+  const telemetryReleaseProfileRef = useRef<string | null>(null);
   const telemetryScreenBucketRef = useRef<ReturnType<typeof detectScreenBucket> | null>(null);
+  const telemetryUsableAtMsRef = useRef<number | null>(null);
   const telemetryXrUsedRef = useRef(false);
   const lastNonSkyPoseSourceRef = useRef<Exclude<PoseSource, 'sky_compass' | 'webxr'>>('deviceorientation');
   const telemetryRenderLoopRunningRef = useRef(false);
@@ -1541,8 +1564,21 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
 		  }, [advancedFusionEnabled]);
 
 	  useEffect(() => {
-	    telemetryClientEnvRef.current = detectClientEnv(typeof navigator !== 'undefined' ? navigator.userAgent : '');
-    telemetryClientProfileRef.current = detectArClientProfile(typeof navigator !== 'undefined' ? navigator.userAgent : '');
+	    const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+	    const clientEnv = detectClientEnv(userAgent);
+    const clientProfile = detectArClientProfile(userAgent);
+    const deviceMemoryGb =
+      typeof navigator !== 'undefined' && typeof (navigator as Navigator & { deviceMemory?: number }).deviceMemory === 'number'
+        ? (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? null
+        : null;
+	    telemetryClientEnvRef.current = clientEnv;
+    telemetryClientProfileRef.current = clientProfile;
+    telemetryReleaseProfileRef.current = inferWebArReleaseProfile({
+      clientEnv,
+      clientProfile,
+      deviceMemoryGb,
+      overrideProfile: readArReleaseProfileOverride()
+    });
 	    telemetryScreenBucketRef.current = detectScreenBucket();
 	  }, []);
 
@@ -4000,6 +4036,14 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
     [adjustedHeading, cameraError, motionPermission, showSensorAssistOverlay]
   );
 
+  useEffect(() => {
+    if (telemetryUsableAtMsRef.current != null) return;
+    if (!corridorModeInitialized) return;
+    if ((cameraActive && telemetryEntryState.modeEntered === 'ar') || telemetryEntryState.modeEntered === 'sky_compass') {
+      telemetryUsableAtMsRef.current = Date.now();
+    }
+  }, [cameraActive, corridorModeInitialized, telemetryEntryState.modeEntered]);
+
   const effectiveCorridorMode = useMemo(() => {
     if (showSensorAssistOverlay || !trajectoryRenderable) return 'wide' as const;
     return alignmentFeedback.recommendedCorridorMode;
@@ -4386,6 +4430,7 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
       sessionId,
       launchId,
       runtimeFamily: 'web',
+      releaseProfile: telemetryReleaseProfileRef.current ?? undefined,
 		    startedAt: telemetryStartedAtRef.current,
 	      clientEnv: telemetryClientEnvRef.current ?? 'unknown',
         clientProfile: telemetryClientProfileRef.current ?? 'unknown',
@@ -4405,11 +4450,12 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
       overlayMode,
       visionBackend: runtimeDecision.visionBackend,
       degradationTier: effectiveDegradationTier,
-      xrSupported: xrSupport === 'supported' ? true : xrSupport === 'unsupported' ? false : undefined,
-      xrUsed: telemetryXrUsedRef.current,
-      xrErrorBucket: bucketXrError(xrError),
+	      xrSupported: xrSupport === 'supported' ? true : xrSupport === 'unsupported' ? false : undefined,
+	      xrUsed: telemetryXrUsedRef.current,
+	      xrErrorBucket: bucketXrError(xrError),
 		      renderLoopRunning: telemetryRenderLoopRunningRef.current,
 		      canvasHidden: telemetryCanvasHiddenRef.current,
+      timeToUsableMs: deriveArTelemetryTimeToUsableMs(telemetryStartedAtRef.current, telemetryUsableAtMsRef.current),
 		      poseUpdateRateBucket,
       arLoopActiveMs: Math.round(loopTiming.arLoopActiveMs),
       skyCompassLoopActiveMs: Math.round(loopTiming.skyCompassLoopActiveMs),
@@ -4638,6 +4684,7 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
         sessionId,
         launchId,
         runtimeFamily: 'web',
+        releaseProfile: telemetryReleaseProfileRef.current ?? undefined,
         startedAt,
         durationMs,
         clientEnv: telemetryClientEnvRef.current ?? 'unknown',
@@ -4663,6 +4710,7 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
         xrErrorBucket: snapshot.xrErrorBucket,
         renderLoopRunning: telemetryRenderLoopRunningRef.current,
         canvasHidden: telemetryCanvasHiddenRef.current,
+        timeToUsableMs: deriveArTelemetryTimeToUsableMs(startedAt, telemetryUsableAtMsRef.current),
         poseUpdateRateBucket,
         arLoopActiveMs: Math.round(loopTiming.arLoopActiveMs),
         skyCompassLoopActiveMs: Math.round(loopTiming.skyCompassLoopActiveMs),
@@ -4783,6 +4831,7 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
         sessionId,
         launchId,
         runtimeFamily: 'web',
+        releaseProfile: telemetryReleaseProfileRef.current ?? undefined,
         startedAt: startedAtIso,
         endedAt: endedAtIso,
 	        durationMs,
@@ -4808,6 +4857,7 @@ export function ArSession({ launchId, launchName, pad, net, backHref, trajectory
 	        xrUsed: snapshot.xrUsed,
 	        xrErrorBucket: snapshot.xrErrorBucket,
 	        renderLoopRunning: telemetryRenderLoopRunningRef.current,
+        timeToUsableMs: deriveArTelemetryTimeToUsableMs(startedAtIso, telemetryUsableAtMsRef.current),
 	        canvasHidden: telemetryCanvasHiddenRef.current,
 	        poseUpdateRateBucket,
         arLoopActiveMs: Math.round(loopTiming.arLoopActiveMs),

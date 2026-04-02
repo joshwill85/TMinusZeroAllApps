@@ -11,6 +11,7 @@ export type CameraGuideTelemetryPayload = {
   endedAt?: string;
   durationMs?: number;
   runtimeFamily?: 'web' | 'ios_native' | 'android_native';
+  releaseProfile?: string;
   clientEnv?:
     | 'ios_safari'
     | 'ios_chrome'
@@ -27,7 +28,11 @@ export type CameraGuideTelemetryPayload = {
   clientProfile?: ArClientProfile;
   screenBucket?: 'xs' | 'sm' | 'md' | 'lg' | 'unknown';
   cameraStatus?: 'granted' | 'denied' | 'prompt' | 'error';
-  motionStatus?: 'granted' | 'denied' | 'prompt' | 'error';
+  motionStatus?: 'granted' | 'denied' | 'prompt' | 'error' | 'not_applicable';
+  locationPermission?: 'granted' | 'denied' | 'prompt' | 'error' | 'not_applicable';
+  locationAccuracy?: 'full' | 'reduced' | 'unknown';
+  locationFixState?: 'unavailable' | 'acquiring' | 'timeout' | 'coarse' | 'ready';
+  alignmentReady?: boolean;
   headingStatus?: 'ok' | 'unavailable' | 'noisy' | 'unknown';
   headingSource?:
     | 'webxr'
@@ -52,6 +57,7 @@ export type CameraGuideTelemetryPayload = {
   xrErrorBucket?: 'not_available' | 'unsupported' | 'webgl' | 'permission' | 'session_error' | 'unknown';
   renderLoopRunning?: boolean;
   canvasHidden?: boolean;
+  timeToUsableMs?: number;
   poseUpdateRateBucket?: string;
   arLoopActiveMs?: number;
   skyCompassLoopActiveMs?: number;

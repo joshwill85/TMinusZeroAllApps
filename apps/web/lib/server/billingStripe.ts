@@ -119,6 +119,36 @@ async function ensureStripeCustomer(admin: AdminClient, session: ResolvedViewerS
   return stripeCustomerId;
 }
 
+export async function resolveStripePromotionCodeId(promotionCode: string | null | undefined) {
+  const normalized = String(promotionCode || '').trim();
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized.startsWith('promo_')) {
+    return normalized;
+  }
+
+  try {
+    const promotionCodes = await stripe.promotionCodes.list({
+      code: normalized,
+      active: true,
+      limit: 1
+    });
+    const resolvedId = promotionCodes.data[0]?.id ?? null;
+    if (!resolvedId) {
+      throw new BillingStripeRouteError(400, 'invalid_promotion_code');
+    }
+    return resolvedId;
+  } catch (error) {
+    if (error instanceof BillingStripeRouteError) {
+      throw error;
+    }
+    console.error('stripe promotion code lookup error', error);
+    throw new BillingStripeRouteError(502, 'failed_to_init_billing');
+  }
+}
+
 async function listBillableStripeSubscriptions(stripeCustomerId: string) {
   try {
     const list = await stripe.subscriptions.list({
@@ -251,9 +281,11 @@ async function mutateStripeSubscription({
 export async function createStripeCheckoutSession(
   session: ResolvedViewerSession,
   {
-    returnTo
+    returnTo,
+    promotionCode
   }: {
     returnTo?: string | null;
+    promotionCode?: string | null;
   }
 ) {
   assertBillingPrereqs();
@@ -296,6 +328,7 @@ export async function createStripeCheckoutSession(
   }
 
   const ensuredStripeCustomerId = await ensureStripeCustomer(admin, session);
+  const stripePromotionCodeId = await resolveStripePromotionCodeId(promotionCode);
   const priceId = PRICE_PRO_MONTHLY;
   if (!priceId || priceId === 'price_placeholder') {
     throw new BillingStripeRouteError(501, 'stripe_price_missing');
@@ -310,6 +343,7 @@ export async function createStripeCheckoutSession(
       mode: 'subscription',
       customer: ensuredStripeCustomerId,
       line_items: [{ price: priceId, quantity: 1 }],
+      discounts: stripePromotionCodeId ? [{ promotion_code: stripePromotionCodeId }] : undefined,
       allow_promotion_codes: true,
       success_url: `${siteUrl}/upgrade?checkout=success&${checkoutReturnQuery}`,
       cancel_url: `${siteUrl}/upgrade?checkout=cancel&${checkoutReturnQuery}`,

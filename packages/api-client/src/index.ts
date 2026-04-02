@@ -51,6 +51,8 @@ import {
   filterPresetsSchemaV1,
   filterPresetUpdateSchemaV1,
   launchDetailSchemaV1,
+  launchFaaAirspaceMapSchemaV1,
+  launchJepScoreSchemaV1,
   launchDetailVersionSchemaV1,
   launchFilterOptionsSchemaV1,
   launchFeedSchemaV1,
@@ -79,9 +81,6 @@ import {
   pushDeviceRemovalSchemaV1,
   accountExportSchemaV1,
   searchResponseSchemaV1,
-  smsVerificationCheckSchemaV1,
-  smsVerificationRequestSchemaV1,
-  smsVerificationStatusSchemaV1,
   successResponseSchemaV1,
   trajectoryPublicV2ResponseSchemaV1,
   viewerSessionSchemaV1,
@@ -125,6 +124,7 @@ import {
   type BasicFollowsV1,
   type AppleBillingSyncRequestV1,
   type AuthContextUpsertV1,
+  type BillingCatalogOfferV1,
   type BillingCatalogProductV1,
   type BillingCatalogV1,
   type AdminAccessOverrideV1,
@@ -178,6 +178,8 @@ import {
   type FilterPresetsV1,
   type FilterPresetUpdateV1,
   type LaunchDetailV1,
+  type LaunchFaaAirspaceMapV1,
+  type LaunchJepScoreV1,
   type LaunchDetailVersionV1,
   type LaunchFilterOptionsV1,
   type LaunchFeedV1,
@@ -243,9 +245,6 @@ import {
   type AlertRulesV1,
   type ArTelemetrySessionEventV1,
   type SearchResponseV1,
-  type SmsVerificationCheckV1,
-  type SmsVerificationRequestV1,
-  type SmsVerificationStatusV1,
   type SuccessResponseV1,
   type ViewerSessionV1,
   type RssFeedCreateV1,
@@ -342,6 +341,11 @@ type SearchRequest = {
 type ChangedLaunchesRequest = {
   hours?: number;
   region?: 'us' | 'non-us' | 'all';
+};
+
+type LaunchJepRequest = {
+  observerLat?: number | null;
+  observerLon?: number | null;
 };
 
 type BlueOriginMissionFilterRequest = {
@@ -581,6 +585,20 @@ export class ApiClient {
 
   async getLaunchDetail(id: string) {
     return this.request(`/api/v1/launches/${encodeURIComponent(id)}`, launchDetailSchemaV1);
+  }
+
+  async getLaunchJep(id: string, options: LaunchJepRequest = {}) {
+    return this.request(
+      appendQuery(`/api/v1/launches/${encodeURIComponent(id)}/jep`, {
+        observer_lat: options.observerLat,
+        observer_lon: options.observerLon
+      }),
+      launchJepScoreSchemaV1
+    );
+  }
+
+  async getLaunchFaaAirspaceMap(id: string) {
+    return this.request(`/api/v1/launches/${encodeURIComponent(id)}/faa-airspace-map`, launchFaaAirspaceMapSchemaV1);
   }
 
   async getLaunchDetailVersion(id: string, options: LaunchDetailVersionRequest = {}) {
@@ -970,20 +988,6 @@ export class ApiClient {
     return this.request('/api/v1/me/calendar-token', calendarTokenSchemaV1);
   }
 
-  async startSmsVerification(payload: SmsVerificationRequestV1) {
-    return this.request('/api/v1/me/notification-preferences/sms/verify', smsVerificationStatusSchemaV1, {
-      method: 'POST',
-      body: smsVerificationRequestSchemaV1.parse(payload)
-    });
-  }
-
-  async completeSmsVerification(payload: SmsVerificationCheckV1) {
-    return this.request('/api/v1/me/notification-preferences/sms/verify/check', smsVerificationStatusSchemaV1, {
-      method: 'POST',
-      body: smsVerificationCheckSchemaV1.parse(payload)
-    });
-  }
-
   async deleteAccount(confirm: string) {
     return this.request('/api/v1/me/account/delete', successResponseSchemaV1, {
       method: 'POST',
@@ -1129,13 +1133,8 @@ export class ApiClient {
     });
   }
 
-  async getLaunchNotificationPreference(launchId: string, channel: 'sms' | 'push' = 'push') {
-    return this.request(
-      appendQuery(`/api/v1/me/launch-notifications/${encodeURIComponent(launchId)}`, {
-        channel
-      }),
-      launchNotificationPreferenceEnvelopeSchemaV1
-    );
+  async getLaunchNotificationPreference(launchId: string) {
+    return this.request(`/api/v1/me/launch-notifications/${encodeURIComponent(launchId)}`, launchNotificationPreferenceEnvelopeSchemaV1);
   }
 
   async updateLaunchNotificationPreference(launchId: string, payload: LaunchNotificationPreferenceUpdateV1) {
@@ -1299,6 +1298,7 @@ export type {
   AlertRulesV1,
   AppleBillingSyncRequestV1,
   AuthContextUpsertV1,
+  BillingCatalogOfferV1,
   BillingCatalogProductV1,
   BillingCatalogV1,
   AdminAccessOverrideV1,
@@ -1378,6 +1378,8 @@ export type {
   LocationDetailV1,
   PadDetailV1,
   LaunchDetailV1,
+  LaunchFaaAirspaceMapV1,
+  LaunchJepScoreV1,
   LaunchFilterOptionsV1,
   LaunchFeedV1,
   ChangedLaunchesV1,
@@ -1410,9 +1412,6 @@ export type {
   PushDeviceRegistrationV1,
   PushDeviceRemovalV1,
   SearchResponseV1,
-  SmsVerificationCheckV1,
-  SmsVerificationRequestV1,
-  SmsVerificationStatusV1,
   SuccessResponseV1,
   TrajectoryPublicV2ResponseV1,
   ViewerSessionV1,
@@ -1442,6 +1441,7 @@ export type {
   SatelliteOwnersRequest,
   CatalogCollectionRequest,
   ChangedLaunchesRequest,
+  LaunchJepRequest,
   LaunchDetailVersionRequest,
   LaunchDetailVersionV1,
   LaunchFeedRequest,

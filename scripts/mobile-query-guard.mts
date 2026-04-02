@@ -5,6 +5,7 @@ import { createApiClient } from '../packages/api-client/src/index.ts';
 import {
   createSharedQueryClient,
   filterPresetsQueryOptions,
+  launchFaaAirspaceMapQueryOptions,
   launchFeedQueryOptions,
   launchFeedVersionQueryOptions,
   launchDetailVersionQueryOptions,
@@ -75,7 +76,7 @@ const payloadByPath = new Map<string, MockResponseResolver>([
       mode: 'public',
       effectiveTierSource: 'free',
       adminAccessOverride: null,
-      refreshIntervalSeconds: 900,
+      refreshIntervalSeconds: 7200,
       capabilities: {
         canUseSavedItems: false,
         canUseLaunchFilters: true,
@@ -151,7 +152,7 @@ const payloadByPath = new Map<string, MockResponseResolver>([
       nextCursor: null,
       hasMore: false,
       freshness: 'public-cache-db',
-      intervalMinutes: 15
+      intervalMinutes: 120
     })
   ],
   [
@@ -159,7 +160,10 @@ const payloadByPath = new Map<string, MockResponseResolver>([
     () => ({
       scope: 'public',
       tier: 'anon',
-      intervalSeconds: 900,
+      intervalSeconds: 7200,
+      recommendedIntervalSeconds: 7200,
+      cadenceReason: 'default',
+      cadenceAnchorNet: null,
       matchCount: 1,
       updatedAt: '2026-03-08T12:00:00.000Z',
       version: 'public|2026-03-08T12:00:00.000Z|1'
@@ -171,7 +175,10 @@ const payloadByPath = new Map<string, MockResponseResolver>([
       launchId,
       scope: 'public',
       tier: 'anon',
-      intervalSeconds: 900,
+      intervalSeconds: 7200,
+      recommendedIntervalSeconds: 7200,
+      cadenceReason: 'default',
+      cadenceAnchorNet: null,
       updatedAt: '2026-03-08T12:00:00.000Z',
       version: `${launchId}|public|2026-03-08T12:00:00.000Z`
     })
@@ -224,16 +231,12 @@ const payloadByPath = new Map<string, MockResponseResolver>([
     () => ({
       pushEnabled: false,
       emailEnabled: false,
-      smsEnabled: false,
       launchDayEmailEnabled: false,
       launchDayEmailProviders: [],
       launchDayEmailStates: [],
       quietHoursEnabled: false,
       quietStartLocal: null,
-      quietEndLocal: null,
-      smsVerified: false,
-      smsPhone: null,
-      smsSystemEnabled: false
+      quietEndLocal: null
     })
   ],
   [
@@ -268,6 +271,74 @@ const payloadByPath = new Map<string, MockResponseResolver>([
           isDefault: true,
           createdAt: '2026-03-08T12:00:00.000Z',
           updatedAt: '2026-03-08T12:00:00.000Z'
+        }
+      ]
+    })
+  ],
+  [
+    `/api/v1/launches/${launchId}/faa-airspace-map`,
+    () => ({
+      launchId,
+      generatedAt: '2026-03-08T12:00:00.000Z',
+      advisoryCount: 1,
+      hasRenderableGeometry: true,
+      pad: {
+        latitude: 28.6084,
+        longitude: -80.6043,
+        label: '39A',
+        shortCode: '39A',
+        locationName: 'Kennedy Space Center'
+      },
+      bounds: {
+        minLatitude: 28.55,
+        minLongitude: -80.66,
+        maxLatitude: 28.67,
+        maxLongitude: -80.53
+      },
+      advisories: [
+        {
+          matchId: 'faa-match-1',
+          launchId,
+          tfrRecordId: 'faa-record-1',
+          tfrShapeId: 'faa-shape-1',
+          matchStatus: 'matched',
+          matchConfidence: 98,
+          matchScore: 98,
+          matchStrategy: 'v1_time_shape_state',
+          matchedAt: '2026-03-08T11:55:00.000Z',
+          notamId: '6/5918',
+          title: 'SPACE OPERATIONS',
+          type: 'SPACE OPERATIONS',
+          facility: 'ZJX',
+          state: 'FL',
+          status: 'active',
+          validStart: '2026-03-08T11:42:00.000Z',
+          validEnd: '2026-03-08T16:34:00.000Z',
+          isActiveNow: true,
+          hasShape: true,
+          shapeCount: 1,
+          sourceGraphicUrl: 'https://tfr.faa.gov/tfr3/?page=detail_6_5918.html',
+          sourceRawUrl: 'https://tfr.faa.gov/tfrapi/getWebText?notamId=6%2F5918',
+          sourceUrl: 'https://tfr.faa.gov/tfr3/?page=detail_6_5918.html',
+          matchMeta: null,
+          polygons: [
+            {
+              polygonId: 'faa-shape-1:0',
+              outerRing: [
+                { latitude: 28.55, longitude: -80.64 },
+                { latitude: 28.61, longitude: -80.66 },
+                { latitude: 28.67, longitude: -80.57 },
+                { latitude: 28.58, longitude: -80.53 }
+              ],
+              holes: [],
+              bounds: {
+                minLatitude: 28.55,
+                minLongitude: -80.66,
+                maxLatitude: 28.67,
+                maxLongitude: -80.53
+              }
+            }
+          ]
         }
       ]
     })
@@ -534,6 +605,32 @@ export async function collectMobileQueryGuardReport(): Promise<MobileQueryGuardR
       );
       const counts = summarizeRequests(requestLog);
       assert.equal(counts.requestsByPath['GET /api/v1/me/notification-preferences'] ?? 0, 1);
+      scenarios.push({ ...scenario, counts });
+    } finally {
+      cleanup();
+    }
+  }
+
+  {
+    const { client, queryClient, requestLog, cleanup } = createMockRuntime();
+    try {
+      const scenario = await runScenario(
+        'launch faa map cache',
+        async () => {
+          await Promise.all([
+            queryClient.fetchQuery(
+              launchFaaAirspaceMapQueryOptions(launchId, () => client.getLaunchFaaAirspaceMap(launchId))
+            ),
+            queryClient.fetchQuery(
+              launchFaaAirspaceMapQueryOptions(launchId, () => client.getLaunchFaaAirspaceMap(launchId))
+            )
+          ]);
+        },
+        ['launch FAA map geometry dedupes to one request and stays separate from launch detail payloads']
+      );
+      const counts = summarizeRequests(requestLog);
+      assert.equal(counts.requestsByPath[`GET /api/v1/launches/${launchId}/faa-airspace-map`] ?? 0, 1);
+      assert.equal(counts.requestsByPath[`GET /api/v1/launches/${launchId}`] ?? 0, 0);
       scenarios.push({ ...scenario, counts });
     } finally {
       cleanup();

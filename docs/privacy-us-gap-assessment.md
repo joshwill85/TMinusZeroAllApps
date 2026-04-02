@@ -6,7 +6,7 @@ This document is a best‑effort product/security review of privacy disclosures 
 
 - Next.js app (App Router) + API routes under `app/`.
 - Supabase Auth/DB schema and Edge Functions under `supabase/`.
-- Payment flows (Stripe) and messaging flows (Twilio).
+- Payment flows (Stripe) and launch-notification flows.
 - No network calls were made; this is based on repo contents and configuration patterns.
 
 ## What the product actually does today (data inventory)
@@ -15,7 +15,6 @@ This document is a best‑effort product/security review of privacy disclosures 
 
 - **Supabase**: authentication (email/password), session cookies, Postgres storage, Row Level Security (RLS).
 - **Stripe**: subscriptions and one‑time “Tip Jar” payments.
-- **Twilio**: SMS delivery + Twilio Verify for phone verification; inbound STOP/START/HELP handling.
 - **Optional CAPTCHA**: Cloudflare Turnstile or hCaptcha (enabled only if site keys are configured).
 - **Third‑party embeds**: YouTube/Vimeo if a user loads embedded “Live coverage” on a launch detail page.
 
@@ -28,25 +27,22 @@ This document is a best‑effort product/security review of privacy disclosures 
   - Processed by Stripe: payment card and billing details (not stored in your DB).
   - Tip Jar: donation amount + Stripe payment processing.
 - **Notifications**:
-  - Phone number in E.164 format, verification state, opt‑in/out timestamps (`notification_preferences`).
+  - Device registration metadata, quiet-hours preferences, and alert settings tied to an account.
   - Quiet hours preferences (`notification_preferences`).
   - Per‑launch alert preferences (`launch_notification_preferences`).
   - Outbox metadata and message content (“launch alerts”) tied to a user (`notifications_outbox.payload.message`).
-  - Inbound SMS keywords STOP/START/HELP are processed; the app updates opt‑in state but does not persist inbound message content.
-- **Web push** (if used): push subscription endpoint + keys + user agent (`push_subscriptions`).
 - **Operational / security data** (typical for web services):
   - App/server logs may include IP address, user agent, and request metadata (hosting dependent).
   - `ingestion_runs` and `webhook_events` tables store operational entries; Stripe webhook storage uses a payload hash rather than the full payload.
 
 ### Current user controls already present
 
-- **SMS opt‑out**: reply STOP (handled in `app/api/notifications/sms/inbound/route.ts`).
 - **In‑app controls**: notification preferences under `/me/preferences`.
 - **No marketing or analytics SDKs in the repo**: the current UI does not render third‑party marketing scripts.
 
 ## Where the current privacy disclosures are weak (gaps)
 
-The current `/legal/privacy` page is a short summary that does **not** meet industry‑standard expectations for a consumer web app serving US users, especially if you have paying subscribers and SMS alerts.
+The current `/legal/privacy` page is a short summary that does **not** meet industry‑standard expectations for a consumer web app serving US users, especially if you have paying subscribers and launch alerts.
 
 ### 1) Notice completeness and accuracy
 
@@ -69,7 +65,7 @@ For CPRA/CCPA (California) and other state consumer privacy laws (CO, CT, VA, UT
   - opt‑out of “sale” and “sharing” (CA) where applicable
   - appeal process (CO/CT/VA and others)
   - verification and authorized agent handling
-- **Sensitive data** treatment (e.g., account login credentials; payment details handled by Stripe; phone number for SMS alerts).
+- **Sensitive data** treatment (e.g., account login credentials and payment details handled by Stripe).
 - **Global Privacy Control (GPC)** recognition (commonly implemented for CA/CO) if you engage in “sale”/“sharing”.
 
 Today, the policy has only a single sentence about “Your Rights” and does not cover the above items.
@@ -82,10 +78,10 @@ Today, the policy has only a single sentence about “Your Rights” and does no
   - contract language and vendor configuration to disable personalization where opted out
   - GPC support (strongly recommended)
 
-### 4) Sensitive data rules and SMS compliance alignment
+### 4) Sensitive data rules and notification disclosure alignment
 
 - Login credentials are treated as **Sensitive Personal Information** under CPRA when paired with access credentials; the policy should explicitly cover how they’re used and limited.
-- SMS programs often require clear disclosures (frequency, STOP/HELP, carrier charges) and recordkeeping around opt‑in/out. Some of this exists in the FAQ and inbound handler, but it should be reflected in privacy disclosures and operational procedures.
+- Launch-notification disclosures should clearly match the current push-only product behavior, quiet-hours controls, and operational procedures.
 
 ### 5) Operational guardrails that should be documented
 

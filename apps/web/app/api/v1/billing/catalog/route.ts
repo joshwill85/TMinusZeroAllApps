@@ -14,7 +14,9 @@ function readPlatform(request: Request): BillingPlatformV1 {
 
 export async function GET(request: Request) {
   try {
-    const payload = loadBillingCatalog(readPlatform(request));
+    const payload = await loadBillingCatalog({
+      platform: readPlatform(request)
+    });
     return NextResponse.json(payload, {
       headers: {
         'Cache-Control': 'private, no-store'

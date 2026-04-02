@@ -1,5 +1,6 @@
 import type { ExpoConfig } from 'expo/config';
 import appJson from './app.json';
+import { normalizeEnvText, normalizeEnvUrl } from './plugins/normalizeEnv';
 
 const baseConfig = appJson.expo as ExpoConfig;
 const baseExtra = (baseConfig.extra ?? {}) as ExpoConfig['extra'] & {
@@ -25,8 +26,7 @@ function parseCsvList(value: string | undefined) {
 }
 
 function normalizeUrl(value: string | undefined) {
-  const trimmed = String(value || '').trim();
-  return trimmed ? trimmed.replace(/\/+$/, '') : null;
+  return normalizeEnvUrl(value);
 }
 
 function assertSecureReleaseUrl(name: string, value: string | null) {
@@ -56,8 +56,7 @@ function assertRequiredReleaseValue(name: string, value: string | null) {
 }
 
 function normalizeEnv(value: string | undefined) {
-  const trimmed = String(value || '').trim();
-  return trimmed || null;
+  return normalizeEnvText(value);
 }
 
 function getAssociatedDomainHosts() {
@@ -107,6 +106,9 @@ export default (): ExpoConfig => {
       'EXPO_PUBLIC_EAS_PROJECT_ID or EAS_PROJECT_ID',
       normalizeEnv(process.env.EXPO_PUBLIC_EAS_PROJECT_ID) || normalizeEnv(process.env.EAS_PROJECT_ID) || normalizeEnv(baseExtra.eas?.projectId)
     );
+    if (buildPlatform === 'android') {
+      assertRequiredReleaseValue('GOOGLE_MAPS_ANDROID_API_KEY', normalizeEnv(process.env.GOOGLE_MAPS_ANDROID_API_KEY));
+    }
     if (buildPlatform !== 'android' && !hasAppleAppLinkConfiguration()) {
       throw new Error('APPLE_APP_LINK_APP_IDS or APPLE_DEVELOPER_TEAM_ID is required for preview and production mobile builds.');
     }

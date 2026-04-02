@@ -1,0 +1,16 @@
+{
+  "name": "tmz-launch-map",
+  "version": "0.0.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "sideEffects": false,
+  "description": "Local Expo module for native launch map rendering on iOS and Android.",
+  "homepage": "https://docs.expo.dev/modules/",
+  "license": "UNLICENSED",
+  "peerDependencies": {
+    "expo": "*",
+    "react": "*",
+    "react-native": "*"
+  }
+}

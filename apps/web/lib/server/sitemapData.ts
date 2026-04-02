@@ -89,7 +89,6 @@ const STATIC_PATHS: Array<{
   { path: '/docs/about', changeFrequency: 'monthly', priority: 0.6 },
   { path: '/docs/faq', changeFrequency: 'monthly', priority: 0.6 },
   { path: '/docs/roadmap', changeFrequency: 'weekly', priority: 0.6 },
-  { path: '/docs/sms-opt-in', changeFrequency: 'monthly', priority: 0.4 },
   { path: '/legal/privacy', changeFrequency: 'yearly', priority: 0.2 },
   { path: '/legal/terms', changeFrequency: 'yearly', priority: 0.2 },
   { path: '/legal/data', changeFrequency: 'yearly', priority: 0.2 },

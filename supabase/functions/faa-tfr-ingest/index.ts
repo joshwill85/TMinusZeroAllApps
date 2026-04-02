@@ -86,6 +86,42 @@ type DraftShape = {
   raw: Record<string, unknown>;
 };
 
+type ExistingRecordRow = {
+  id: string;
+  source_key: string;
+  notam_id: string | null;
+  notam_key: string | null;
+  gid: string | null;
+  facility: string | null;
+  state: string | null;
+  type: string | null;
+  legal: string | null;
+  title: string | null;
+  description: string | null;
+  is_new: boolean | null;
+  mod_date: string | null;
+  mod_abs_time: string | null;
+  mod_at: string | null;
+  valid_start: string | null;
+  valid_end: string | null;
+  has_shape: boolean;
+  status: 'active' | 'expired' | 'manual';
+  raw: Record<string, unknown> | null;
+};
+
+type ExistingShapeRow = {
+  id: string;
+  faa_tfr_record_id: string;
+  source_shape_id: string;
+  geometry: Record<string, unknown> | null;
+  bbox_min_lat: number | null;
+  bbox_min_lon: number | null;
+  bbox_max_lat: number | null;
+  bbox_max_lon: number | null;
+  point_count: number | null;
+  raw: Record<string, unknown> | null;
+};
+
 serve(async (req) => {
   const supabase = createSupabaseAdminClient();
 
@@ -101,8 +137,10 @@ serve(async (req) => {
     shapeFeaturesFetched: 0,
     recordsPrepared: 0,
     recordsUpserted: 0,
+    recordsSkippedUnchanged: 0,
     shapesPrepared: 0,
     shapesUpserted: 0,
+    shapesSkippedUnchanged: 0,
     recordsWithoutSourceKey: 0,
     recordsWithoutNotamId: 0,
     cursorBefore: null as string | null,
@@ -313,24 +351,82 @@ serve(async (req) => {
     });
 
     stats.recordsPrepared = preparedRecords.length;
-    const recordRows = preparedRecords.slice(0, hourlyLimit).map((record) => ({
-      ...record,
-      fetched_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    }));
+    const ingestionIso = new Date().toISOString();
+    const recordDrafts = preparedRecords.slice(0, hourlyLimit);
+    const recordSourceKeys = recordDrafts.map((record) => record.source_key).filter(Boolean);
 
     let recordRowsBySourceKey = new Map<string, { id: string; notamId: string | null }>();
-    if (recordRows.length > 0) {
+    const existingRecordsBySourceKey = new Map<string, ExistingRecordRow>();
+    if (recordSourceKeys.length > 0) {
       const { data, error } = await supabase
         .from('faa_tfr_records')
-        .upsert(recordRows, { onConflict: 'source,source_key' })
-        .select('id, source_key, notam_id');
+        .select(
+          'id, source_key, notam_id, notam_key, gid, facility, state, type, legal, title, description, is_new, mod_date, mod_abs_time, mod_at, valid_start, valid_end, has_shape, status, raw'
+        )
+        .eq('source', 'faa_tfr')
+        .in('source_key', recordSourceKeys);
       if (error) throw error;
 
-      recordRowsBySourceKey = new Map(
-        (data || []).map((row: any) => [String(row.source_key), { id: String(row.id), notamId: parseNotamId(row.notam_id) }])
-      );
-      stats.recordsUpserted = (data || []).length;
+      for (const row of (data || []) as ExistingRecordRow[]) {
+        existingRecordsBySourceKey.set(String(row.source_key), row);
+        recordRowsBySourceKey.set(String(row.source_key), {
+          id: String(row.id),
+          notamId: parseNotamId(row.notam_id)
+        });
+      }
+    }
+
+    const recordRows = recordDrafts.map((record) => ({
+      ...record,
+      fetched_at: ingestionIso,
+      updated_at: ingestionIso
+    }));
+    const recordRowsToUpsert = recordRows.filter((row) => hasDraftRecordChanged(row, existingRecordsBySourceKey.get(row.source_key)));
+    stats.recordsSkippedUnchanged = recordRows.length - recordRowsToUpsert.length;
+
+    if (recordRowsToUpsert.length > 0) {
+      const { data: mergeData, error: mergeError } = await supabase.rpc('upsert_faa_tfr_records_if_changed', {
+        rows_in: recordRowsToUpsert
+      });
+
+      if (!mergeError) {
+        const mergeStats = asPlainObject(mergeData);
+        stats.recordsUpserted = readInt(mergeStats.inserted) + readInt(mergeStats.updated);
+        stats.recordsSkippedUnchanged = Number(stats.recordsSkippedUnchanged || 0) + readInt(mergeStats.skipped);
+
+        const { data, error } = await supabase
+          .from('faa_tfr_records')
+          .select('id, source_key, notam_id')
+          .eq('source', 'faa_tfr')
+          .in(
+            'source_key',
+            recordRowsToUpsert.map((row) => row.source_key).filter((value): value is string => Boolean(value))
+          );
+        if (error) throw error;
+
+        for (const row of data || []) {
+          recordRowsBySourceKey.set(String((row as any).source_key), {
+            id: String((row as any).id),
+            notamId: parseNotamId((row as any).notam_id)
+          });
+        }
+      } else {
+        console.warn('upsert_faa_tfr_records_if_changed failed; falling back to upsert', mergeError);
+
+        const { data, error } = await supabase
+          .from('faa_tfr_records')
+          .upsert(recordRowsToUpsert, { onConflict: 'source,source_key' })
+          .select('id, source_key, notam_id');
+        if (error) throw error;
+
+        for (const row of data || []) {
+          recordRowsBySourceKey.set(String((row as any).source_key), {
+            id: String((row as any).id),
+            notamId: parseNotamId((row as any).notam_id)
+          });
+        }
+        stats.recordsUpserted = (data || []).length;
+      }
     }
 
     const shapeRows: Array<Record<string, unknown>> = [];
@@ -354,19 +450,51 @@ serve(async (req) => {
         bbox_max_lon: bbox?.maxLon ?? null,
         point_count: geometryPointCount(shape.geometry),
         raw: shape.raw,
-        fetched_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        fetched_at: ingestionIso,
+        updated_at: ingestionIso
       });
     }
 
     stats.shapesPrepared = shapeRows.length;
-    if (shapeRows.length > 0) {
+    const shapeRecordIds = Array.from(new Set(shapeRows.map((row) => String(row.faa_tfr_record_id || '')).filter(Boolean)));
+    const existingShapesByKey = new Map<string, ExistingShapeRow>();
+    if (shapeRecordIds.length > 0) {
       const { data, error } = await supabase
         .from('faa_tfr_shapes')
-        .upsert(shapeRows, { onConflict: 'faa_tfr_record_id,source_shape_id' })
-        .select('id');
+        .select(
+          'id, faa_tfr_record_id, source_shape_id, geometry, bbox_min_lat, bbox_min_lon, bbox_max_lat, bbox_max_lon, point_count, raw'
+        )
+        .in('faa_tfr_record_id', shapeRecordIds);
       if (error) throw error;
-      stats.shapesUpserted = (data || []).length;
+
+      for (const row of (data || []) as ExistingShapeRow[]) {
+        existingShapesByKey.set(`${row.faa_tfr_record_id}::${row.source_shape_id}`, row);
+      }
+    }
+
+    const shapeRowsToUpsert = shapeRows.filter((row) =>
+      hasDraftShapeChanged(row, existingShapesByKey.get(`${row.faa_tfr_record_id}::${row.source_shape_id}`))
+    );
+    stats.shapesSkippedUnchanged = shapeRows.length - shapeRowsToUpsert.length;
+
+    if (shapeRowsToUpsert.length > 0) {
+      const { data: mergeData, error: mergeError } = await supabase.rpc('upsert_faa_tfr_shapes_if_changed', {
+        rows_in: shapeRowsToUpsert
+      });
+      if (!mergeError) {
+        const mergeStats = asPlainObject(mergeData);
+        stats.shapesUpserted = readInt(mergeStats.inserted) + readInt(mergeStats.updated);
+        stats.shapesSkippedUnchanged = Number(stats.shapesSkippedUnchanged || 0) + readInt(mergeStats.skipped);
+      } else {
+        console.warn('upsert_faa_tfr_shapes_if_changed failed; falling back to upsert', mergeError);
+
+        const { data, error } = await supabase
+          .from('faa_tfr_shapes')
+          .upsert(shapeRowsToUpsert, { onConflict: 'faa_tfr_record_id,source_shape_id' })
+          .select('id');
+        if (error) throw error;
+        stats.shapesUpserted = (data || []).length;
+      }
     }
 
     const newestCursor =
@@ -447,6 +575,85 @@ function mergeDraftRecord(store: Map<string, DraftRecord>, patch: DraftRecord) {
   store.set(patch.source_key, merged);
 }
 
+function hasDraftRecordChanged(
+  draft: DraftRecord & { fetched_at?: string; updated_at?: string },
+  existing: ExistingRecordRow | undefined
+) {
+  if (!existing) return true;
+
+  return !(
+    normalizeNonEmptyString(draft.notam_id) === normalizeNonEmptyString(existing.notam_id) &&
+    normalizeNonEmptyString(draft.notam_key) === normalizeNonEmptyString(existing.notam_key) &&
+    normalizeNonEmptyString(draft.gid) === normalizeNonEmptyString(existing.gid) &&
+    normalizeNonEmptyString(draft.facility) === normalizeNonEmptyString(existing.facility) &&
+    normalizeNonEmptyString(draft.state) === normalizeNonEmptyString(existing.state) &&
+    normalizeNonEmptyString(draft.type) === normalizeNonEmptyString(existing.type) &&
+    normalizeNonEmptyString(draft.legal) === normalizeNonEmptyString(existing.legal) &&
+    normalizeNonEmptyString(draft.title) === normalizeNonEmptyString(existing.title) &&
+    normalizeNonEmptyString(draft.description) === normalizeNonEmptyString(existing.description) &&
+    normalizeNullableBoolean(draft.is_new) === normalizeNullableBoolean(existing.is_new) &&
+    normalizeNonEmptyString(draft.mod_date) === normalizeNonEmptyString(existing.mod_date) &&
+    normalizeNonEmptyString(draft.mod_abs_time) === normalizeNonEmptyString(existing.mod_abs_time) &&
+    normalizeNonEmptyString(draft.mod_at) === normalizeNonEmptyString(existing.mod_at) &&
+    normalizeNonEmptyString(draft.valid_start) === normalizeNonEmptyString(existing.valid_start) &&
+    normalizeNonEmptyString(draft.valid_end) === normalizeNonEmptyString(existing.valid_end) &&
+    Boolean(draft.has_shape) === Boolean(existing.has_shape) &&
+    draft.status === existing.status &&
+    stableJsonString(draft.raw) === stableJsonString(existing.raw)
+  );
+}
+
+function hasDraftShapeChanged(row: Record<string, unknown>, existing: ExistingShapeRow | undefined) {
+  if (!existing) return true;
+
+  return !(
+    normalizeNonEmptyString(row.source_shape_id) === normalizeNonEmptyString(existing.source_shape_id) &&
+    normalizeNonEmptyString(row.faa_tfr_record_id) === normalizeNonEmptyString(existing.faa_tfr_record_id) &&
+    toFiniteNumber(row.bbox_min_lat) === toFiniteNumber(existing.bbox_min_lat) &&
+    toFiniteNumber(row.bbox_min_lon) === toFiniteNumber(existing.bbox_min_lon) &&
+    toFiniteNumber(row.bbox_max_lat) === toFiniteNumber(existing.bbox_max_lat) &&
+    toFiniteNumber(row.bbox_max_lon) === toFiniteNumber(existing.bbox_max_lon) &&
+    normalizeNullableInt(row.point_count) === normalizeNullableInt(existing.point_count) &&
+    stableJsonString(row.geometry) === stableJsonString(existing.geometry) &&
+    stableJsonString(row.raw) === stableJsonString(existing.raw)
+  );
+}
+
+function normalizeNullableBoolean(value: boolean | null | undefined) {
+  if (value == null) return null;
+  return value === true;
+}
+
+function normalizeNullableInt(value: unknown) {
+  const parsed = toFiniteNumber(value);
+  return parsed == null ? null : Math.trunc(parsed);
+}
+
+function toFiniteNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function stableJsonString(value: unknown) {
+  return JSON.stringify(normalizeJsonValue(value));
+}
+
+function normalizeJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizeJsonValue(entry));
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.keys(value as Record<string, unknown>)
+      .sort()
+      .reduce<Record<string, unknown>>((acc, key) => {
+        acc[key] = normalizeJsonValue((value as Record<string, unknown>)[key]);
+        return acc;
+      }, {});
+  }
+
+  return value ?? null;
+}
+
 function pickString(a: string | null, b: string | null) {
   return normalizeNonEmptyString(a) || normalizeNonEmptyString(b);
 }
@@ -495,6 +702,14 @@ async function fetchJson<T>(url: string): Promise<T> {
 function clampInt(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) return min;
   return Math.min(max, Math.max(min, Math.trunc(value)));
+}
+
+function asPlainObject(value: unknown) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function readInt(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.trunc(value) : 0;
 }
 
 async function upsertSetting(supabase: ReturnType<typeof createSupabaseAdminClient>, key: string, value: unknown) {

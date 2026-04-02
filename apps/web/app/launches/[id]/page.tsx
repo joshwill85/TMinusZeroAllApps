@@ -22,13 +22,21 @@ import { Ws45ForecastPanel, type Ws45Forecast } from '@/components/Ws45ForecastP
 import { NwsForecastPanel, type NwsLaunchWeather } from '@/components/NwsForecastPanel';
 import { PadSatellitePreviewImage } from '@/components/PadSatellitePreviewImage';
 import { JepScoreClient } from '@/components/JepScoreClient';
+import { LaunchFaaMapClient } from '@/components/LaunchFaaMapClient';
 import type { TimelineNode } from '@/components/ChronoHelixTimeline';
 import { RocketPhotoGallery } from '@/components/RocketPhotoGallery';
 import { XTimelineEmbed } from '@/components/XTimelineEmbed';
 import { XTweetEmbed } from '@/components/XTweetEmbed';
 import { mapLiveLaunchRow, mapPublicCacheRow } from '@/lib/server/transformers';
 import { isCountdownEligible, isDateOnlyNet } from '@/lib/time';
-import { getGoogleMapsStaticApiKey, getOgImageVersion, getSiteUrl, isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
+import {
+  getGoogleMapsStaticApiKey,
+  getGoogleMapsWebApiKey,
+  getOgImageVersion,
+  getSiteUrl,
+  isSupabaseAdminConfigured,
+  isSupabaseConfigured
+} from '@/lib/server/env';
 import { buildOgVersionSegment } from '@/lib/server/og';
 import { fetchArEligibleLaunches } from '@/lib/server/arEligibility';
 import { US_PAD_COUNTRY_CODES } from '@/lib/server/us';
@@ -63,7 +71,7 @@ import { buildGoogleMapsSatelliteUrl, buildPadSatellitePreviewPath, formatCoordi
 import { buildSatelliteHref, buildSatelliteOwnerHref, formatSatelliteOwnerLabel } from '@/lib/utils/satelliteLinks';
 import { getLaunchStatusTone, type LaunchStatusTone } from '@/lib/utils/launchStatusTone';
 import { getEffectivePrivacyPreferences } from '@/lib/server/privacyPreferences';
-import { fetchLaunchFaaAirspace, type LaunchFaaAirspaceAdvisory } from '@/lib/server/faaAirspace';
+import { fetchLaunchFaaAirspace, fetchLaunchFaaAirspaceMap, type LaunchFaaAirspaceAdvisory } from '@/lib/server/faaAirspace';
 import { fetchBlueOriginPassengersDatabaseOnly, fetchBlueOriginPayloads } from '@/lib/server/blueOriginPeoplePayloads';
 import { fetchLaunchBoosterStats, type LaunchBoosterStats } from '@/lib/server/launchBoosterStats';
 import { fetchLaunchDetailEnrichment } from '@/lib/server/launchDetailEnrichment';
@@ -2248,6 +2256,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
   const primaryWatchLink = watchLinks[0] || null;
   const primaryWatchUrl = primaryWatchLink?.url;
   const hasGoogleMapsStaticApiKey = Boolean(getGoogleMapsStaticApiKey());
+  const googleMapsWebApiKey = getGoogleMapsWebApiKey();
   const googleMapsPadHref = buildGoogleMapsSatelliteUrl(launch.pad, { zoom: 18 });
   const googleMapsPadPreviewUrl =
     googleMapsPadHref && hasGoogleMapsStaticApiKey
@@ -2311,6 +2320,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
   const nwsForecastPromise = fetchNwsForecast(launch.id, isUsPad, within14Days);
   const jepScorePromise = fetchLaunchJepScore(launch.id, { observer: jepObserver, viewerIsAdmin: viewer.isAdmin });
   const faaAirspacePromise = fetchLaunchFaaAirspace({ launchId: launch.id, limit: 4 });
+  const faaAirspaceMapPromise = fetchLaunchFaaAirspaceMap({ launchId: launch.id, limit: 8 });
   const refreshVersion = viewer.tier === 'premium' ? launch.lastUpdated : launch.cacheGeneratedAt;
 
   const siteUrl = getSiteUrl();
@@ -2470,7 +2480,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
         </Link>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(380px,1fr)]">
         <div className="relative overflow-hidden rounded-2xl border border-stroke bg-surface-1 md:col-span-2">
           {heroImage && (
             <div className="absolute inset-0">
@@ -2537,6 +2547,9 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
               <div className="mt-4 w-full rounded-2xl border border-stroke bg-[rgba(255,255,255,0.06)] p-4">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex flex-col items-start gap-2">
+                    <span className="rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-text3">
+                      {dateOnly ? 'Launch window' : 'Countdown'}
+                    </span>
                     <div className="whitespace-nowrap">
                       {dateOnly ? (
                         <span className="rounded-full bg-[rgba(234,240,255,0.05)] px-3 py-1 text-xs font-semibold text-text2">Time TBD</span>
@@ -2568,16 +2581,18 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
                         <CameraGuideButton
                           href={arHref}
                           launchId={launch.id}
-                          className="rounded-lg border border-primary/40 bg-primary/10 px-4 py-2 text-sm text-primary transition hover:border-primary"
+                          className="inline-flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-4 py-2 text-sm text-primary transition hover:border-primary"
                         >
+                          <TrajectoryBadgeIcon className="h-4 w-4" />
                           AR trajectory
                         </CameraGuideButton>
                       ) : (
                         <PremiumGateButton
                           isAuthed={isAuthed}
                           featureLabel="AR trajectory"
-                          className="rounded-lg border border-primary/40 bg-primary/10 px-4 py-2 text-sm text-primary transition hover:border-primary"
+                          className="inline-flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-4 py-2 text-sm text-primary transition hover:border-primary"
                         >
+                          <TrajectoryBadgeIcon className="h-4 w-4" />
                           AR trajectory
                         </PremiumGateButton>
                       )
@@ -2621,44 +2636,70 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
             )}
           </div>
         </div>
-        <div className="flex flex-col gap-4">
-          <div className="rounded-2xl border border-stroke bg-surface-1 p-4">
-            <div className="text-xs uppercase tracking-[0.08em] text-text3">Rocket profile</div>
-            <div className="mt-1 text-base font-semibold text-text1">
-              <Link href={rocketHref} className="transition hover:text-primary">
-                {rocket.fullName || launch.vehicle}
+        <section className="rounded-2xl border border-stroke bg-surface-1 p-4 lg:p-5">
+          <div className="flex h-full flex-col gap-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-xs uppercase tracking-[0.08em] text-text3">Launch vehicle</div>
+                <div className="mt-1 text-xl font-semibold text-text1">
+                  <Link href={rocketHref} className="transition hover:text-primary">
+                    {rocket.fullName || launch.vehicle}
+                  </Link>
+                </div>
+                <p className="mt-1 text-sm text-text3">
+                  Vehicle profile, dimensions, and quick hardware context for this mission.
+                </p>
+              </div>
+              <Link
+                href={rocketHref}
+                className="inline-flex items-center gap-2 rounded-full border border-stroke bg-[rgba(255,255,255,0.03)] px-3 py-1.5 text-xs uppercase tracking-[0.08em] text-text2 transition hover:border-primary hover:text-primary"
+              >
+                Vehicle data
+                <ArrowUpRightIcon className="h-3.5 w-3.5" />
               </Link>
             </div>
-            {primaryPhoto?.url && (
-              <div className="mt-3">
-                <div className="overflow-hidden rounded-xl border border-stroke bg-black/20">
-                  <img
-                    src={primaryPhoto.url}
-                    alt={`${rocket.fullName || launch.vehicle} photo`}
-                    className="h-40 w-full object-cover"
-                    loading="lazy"
-                    decoding="async"
+
+            <div className="flex flex-1 flex-col gap-4 xl:flex-row xl:items-stretch">
+              {primaryPhoto?.url ? (
+                <div className="xl:w-[44%] xl:min-w-[210px]">
+                  <div className="overflow-hidden rounded-2xl border border-stroke bg-black/20">
+                    <img
+                      src={primaryPhoto.url}
+                      alt={`${rocket.fullName || launch.vehicle} photo`}
+                      className="h-48 w-full object-cover xl:h-full xl:min-h-[220px]"
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  </div>
+                  <ImageCreditLine
+                    credit={primaryPhoto.credit}
+                    license={primaryPhoto.license}
+                    licenseUrl={primaryPhoto.licenseUrl}
+                    singleUse={primaryPhoto.singleUse}
                   />
                 </div>
-                <ImageCreditLine
-                  credit={primaryPhoto.credit}
-                  license={primaryPhoto.license}
-                  licenseUrl={primaryPhoto.licenseUrl}
-                  singleUse={primaryPhoto.singleUse}
-                />
+              ) : null}
+
+              <div className="flex min-w-0 flex-1 flex-col gap-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {rocket.variant && <Info label="Variant" value={rocket.variant} />}
+                  {rocket.family && <Info label="Family" value={rocket.family} />}
+                  {rocket.lengthM != null && <Info label="Length" value={`${rocket.lengthM} m`} />}
+                  {rocket.diameterM != null && <Info label="Diameter" value={`${rocket.diameterM} m`} />}
+                  {rocket.reusable !== undefined && <Info label="Reusable" value={rocket.reusable ? 'Yes' : 'No'} />}
+                  {rocket.launchMass != null && <Info label="Launch mass" value={`${rocket.launchMass} t`} />}
+                </div>
+
+                {extraPhotos.length > 0 && (
+                  <div className="rounded-2xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3">
+                    <div className="mb-2 text-[11px] uppercase tracking-[0.08em] text-text3">Vehicle gallery</div>
+                    <RocketPhotoGallery photos={extraPhotos} launchName={launch.name} />
+                  </div>
+                )}
               </div>
-            )}
-            <div className="mt-3 space-y-2 text-xs text-text3">
-              {rocket.variant && <div>Variant: {rocket.variant}</div>}
-              {rocket.lengthM != null && <div>Length: {rocket.lengthM} m</div>}
-              {rocket.diameterM != null && <div>Diameter: {rocket.diameterM} m</div>}
-              {rocket.reusable !== undefined && <div>Reusable: {rocket.reusable ? 'Yes' : 'No'}</div>}
             </div>
-            {extraPhotos.length > 0 && (
-              <RocketPhotoGallery photos={extraPhotos} launchName={launch.name} />
-            )}
           </div>
-        </div>
+        </section>
       </div>
 
       {timelineEvents.length > 0 && (
@@ -2670,7 +2711,13 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
       </Suspense>
 
       <Suspense fallback={<LoadingPanel label="Loading FAA airspace..." />}>
-        <LaunchFaaAirspaceSection faaAirspacePromise={faaAirspacePromise} padTimezone={padTimezone} />
+        <LaunchFaaAirspaceSection
+          faaAirspacePromise={faaAirspacePromise}
+          faaAirspaceMapPromise={faaAirspaceMapPromise}
+          googleMapsWebApiKey={googleMapsWebApiKey}
+          googleMapsPadHref={googleMapsPadHref}
+          padTimezone={padTimezone}
+        />
       </Suspense>
 
       <Suspense fallback={<LoadingPanel label="Loading stages and recovery..." />}>
@@ -2834,9 +2881,9 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="text-xs uppercase tracking-[0.1em] text-text3">{launch.provider || 'Provider'}</div>
-              <h2 className="text-xl font-semibold text-text1">Matched post on X</h2>
+              <h2 className="text-xl font-semibold text-text1">Launch social post</h2>
               <p className="text-sm text-text3">
-                Official {matchedHandle || 'provider'} post matched to this launch.
+                Official {matchedHandle || 'provider'} social post tied to this launch.
               </p>
             </div>
             <a
@@ -2868,7 +2915,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
             </div>
           ) : (
             <div className="mt-4 rounded-xl border border-dashed border-stroke bg-[rgba(255,255,255,0.02)] p-4 text-sm text-text3">
-              Matched post URL is available, but no status ID could be extracted for embed rendering.
+              A source post URL is available, but no status ID could be extracted for embed rendering.
             </div>
           )}
         </div>
@@ -3989,7 +4036,17 @@ async function LaunchJepScoreSection({
   padTimezone: string;
 }) {
   const score = await jepScorePromise;
-  if (!score) return null;
+  if (!score) {
+    return (
+      <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
+        <div className="text-xs uppercase tracking-[0.1em] text-text3">Jellyfish effect</div>
+        <h2 className="mt-1 text-xl font-semibold text-text1">JEP visibility score</h2>
+        <p className="mt-2 text-sm text-text3">
+          Visibility scoring is not available for this launch yet. Check back as launch timing and forecast inputs refresh.
+        </p>
+      </section>
+    );
+  }
 
   return (
     <JepScoreClient launchId={score.launchId} initialScore={score} padTimezone={padTimezone} />
@@ -3998,14 +4055,21 @@ async function LaunchJepScoreSection({
 
 async function LaunchFaaAirspaceSection({
   faaAirspacePromise,
+  faaAirspaceMapPromise,
+  googleMapsWebApiKey,
+  googleMapsPadHref,
   padTimezone
 }: {
   faaAirspacePromise: ReturnType<typeof fetchLaunchFaaAirspace>;
+  faaAirspaceMapPromise: ReturnType<typeof fetchLaunchFaaAirspaceMap>;
+  googleMapsWebApiKey: string | null;
+  googleMapsPadHref: string | null;
   padTimezone: string | null;
 }) {
-  const data = await faaAirspacePromise;
+  const [data, mapData] = await Promise.all([faaAirspacePromise, faaAirspaceMapPromise]);
   const advisories = data?.advisories || [];
   if (advisories.length === 0) return null;
+  const canRenderInteractiveMap = Boolean(googleMapsWebApiKey && mapData?.hasRenderableGeometry);
 
   return (
     <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
@@ -4020,6 +4084,14 @@ async function LaunchFaaAirspaceSection({
         </span>
       </div>
 
+      {canRenderInteractiveMap && mapData && googleMapsWebApiKey ? (
+        <LaunchFaaMapClient apiKey={googleMapsWebApiKey} data={mapData} padMapsHref={googleMapsPadHref} />
+      ) : mapData?.advisoryCount ? (
+        <div className="mt-4 rounded-xl border border-dashed border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-3 text-sm text-text3">
+          FAA launch-day geometry is available for this launch, but the interactive map is not configured in this environment.
+        </div>
+      ) : null}
+
       <div className="mt-4 space-y-3">
         {advisories.map((advisory) => {
           const confidence = advisory.matchConfidence != null ? `${Math.round(advisory.matchConfidence)}%` : 'n/a';
@@ -4030,8 +4102,6 @@ async function LaunchFaaAirspaceSection({
               ? 'Expired'
               : 'Scheduled';
           const primarySourceUrl = advisory.sourceGraphicUrl || advisory.sourceUrl;
-          const rawSourceUrl = advisory.sourceRawUrl;
-          const showRawSecondary = Boolean(rawSourceUrl && rawSourceUrl !== primarySourceUrl);
 
           return (
             <article
@@ -4078,28 +4148,16 @@ async function LaunchFaaAirspaceSection({
                 )}
               </div>
 
-              {(primarySourceUrl || rawSourceUrl) && (
+              {primarySourceUrl && (
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
-                  {primarySourceUrl && (
-                    <a
-                      href={primarySourceUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex text-primary hover:text-primary/80"
-                    >
-                      {advisory.sourceGraphicUrl ? 'Open FAA graphic page' : 'View FAA source'}
-                    </a>
-                  )}
-                  {showRawSecondary && rawSourceUrl && (
-                    <a
-                      href={rawSourceUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex text-text3 hover:text-text2"
-                    >
-                      View raw NOTAM text
-                    </a>
-                  )}
+                  <a
+                    href={primarySourceUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex text-primary hover:text-primary/80"
+                  >
+                    {advisory.sourceGraphicUrl ? 'Open FAA graphic page' : 'View FAA source'}
+                  </a>
                 </div>
               )}
             </article>
@@ -4114,12 +4172,59 @@ async function LaunchFaaAirspaceSection({
 }
 
 function formatFaaWindow(advisory: LaunchFaaAirspaceAdvisory, timezone: string | null) {
+  if (isDateOnlyUtcWindow(advisory.validStart, advisory.validEnd)) {
+    return formatFaaDateOnlyWindow(advisory.validStart, advisory.validEnd);
+  }
   const start = advisory.validStart ? formatDate(advisory.validStart, timezone) : null;
   const end = advisory.validEnd ? formatDate(advisory.validEnd, timezone) : null;
   if (start && end) return `${start} to ${end}`;
   if (start) return `Starts ${start}`;
   if (end) return `Ends ${end}`;
   return null;
+}
+
+function formatFaaDateOnlyWindow(validStart: string | null, validEnd: string | null) {
+  if (!validStart) return null;
+
+  const startLabel = formatUtcDateOnly(validStart);
+  if (!validEnd) return startLabel;
+
+  const endMs = Date.parse(validEnd);
+  if (!Number.isFinite(endMs)) return startLabel;
+
+  const lastDayLabel = formatUtcDateOnly(new Date(endMs - 1).toISOString());
+  return startLabel === lastDayLabel ? startLabel : `${startLabel} to ${lastDayLabel}`;
+}
+
+function formatUtcDateOnly(value: string) {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'UTC',
+    month: 'short',
+    day: '2-digit',
+    year: 'numeric'
+  }).format(new Date(value));
+}
+
+function isDateOnlyUtcWindow(validStart: string | null, validEnd: string | null) {
+  if (!validStart || !validEnd) return false;
+  const start = new Date(validStart);
+  const end = new Date(validEnd);
+  const startMs = start.getTime();
+  const endMs = end.getTime();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return false;
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  return (
+    start.getUTCHours() === 0 &&
+    start.getUTCMinutes() === 0 &&
+    start.getUTCSeconds() === 0 &&
+    start.getUTCMilliseconds() === 0 &&
+    end.getUTCHours() === 0 &&
+    end.getUTCMinutes() === 0 &&
+    end.getUTCSeconds() === 0 &&
+    end.getUTCMilliseconds() === 0 &&
+    (endMs - startMs) % dayMs === 0
+  );
 }
 
 async function LaunchStagesAndRecoverySection({
@@ -6788,6 +6893,33 @@ function buildExternalLinks({
   infoLinks.forEach(add);
   vidLinks.forEach(add);
   return [...links.values()];
+}
+
+function ArrowUpRightIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" className={className} aria-hidden="true" fill="none">
+      <path d="M6 14 14 6" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      <path d="M8 6h6v6" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function TrajectoryBadgeIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true" fill="none">
+      <path
+        d="M4.5 8.5V5.5h3M19.5 8.5V5.5h-3M4.5 15.5v3h3M19.5 15.5v3h-3"
+        stroke="currentColor"
+        strokeWidth="1.55"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        opacity="0.9"
+      />
+      <path d="M7.5 15.5c2.1-5.2 5-8 8.8-8.6 1.1-.2 2.3-.2 3.7.1" stroke="currentColor" strokeWidth="1.55" strokeLinecap="round" />
+      <path d="m18.25 5.85 2.2 1.35-1.45 2.15" stroke="currentColor" strokeWidth="1.55" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="11.2" cy="11.9" r="1.45" fill="currentColor" />
+    </svg>
+  );
 }
 
 function buildTimelineNodes(rows: Array<Record<string, any>>, currentLaunch: Launch): TimelineNode[] {

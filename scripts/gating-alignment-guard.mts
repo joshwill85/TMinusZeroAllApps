@@ -71,7 +71,7 @@ async function main() {
 
   assertNoPattern(
     'apps/mobile/app/(tabs)/preferences.tsx',
-    /launchDayEmail|useUpdateNotificationPreferencesMutation|useStartSmsVerificationMutation|useCompleteSmsVerificationMutation/,
+    /launchDayEmail|useUpdateNotificationPreferencesMutation/,
     'mobile preferences removes launch-day email and dormant account-setting mutations from the native screen'
   );
   sourceAssertions.push('mobile preferences no longer carries launch-day email or dormant account-settings code');

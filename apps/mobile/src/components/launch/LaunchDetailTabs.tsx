@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Text, Pressable, ScrollView, View } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -6,6 +6,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
+import type { MobileTheme } from '@tminuszero/design-tokens';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import { ANIMATION_CONSTANTS } from '@tminuszero/launch-animations';
 import type { LaunchTab, TabDefinition } from '@tminuszero/launch-detail-ui';
@@ -72,7 +73,7 @@ function TabPill({
   isActive: boolean;
   showBadge?: boolean;
   onPress: () => void;
-  theme: any;
+  theme: MobileTheme;
 }) {
   const scale = useSharedValue(1);
 

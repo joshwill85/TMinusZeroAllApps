@@ -8,7 +8,8 @@ export const dynamic = 'force-dynamic';
 
 const bodySchema = z
   .object({
-    returnTo: z.string().optional()
+    returnTo: z.string().optional(),
+    promotionCode: z.string().trim().min(1).optional()
   })
   .passthrough()
   .optional();
@@ -23,9 +24,13 @@ export async function POST(request: Request) {
     const session = await resolveViewerSession(request);
     const payload = session.userId
       ? await createStripeCheckoutSession(session, {
-          returnTo: parsed.data?.returnTo
+          returnTo: parsed.data?.returnTo,
+          promotionCode: parsed.data?.promotionCode
         })
-      : await createGuestPremiumCheckoutSession(parsed.data?.returnTo);
+      : await createGuestPremiumCheckoutSession({
+          returnTo: parsed.data?.returnTo,
+          promotionCode: parsed.data?.promotionCode
+        });
     return NextResponse.json(payload);
   } catch (error) {
     if (error instanceof BillingStripeRouteError || error instanceof PremiumClaimRouteError || error instanceof BillingApiRouteError) {

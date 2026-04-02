@@ -4,14 +4,6 @@ import { requireJobAuth } from '../_shared/jobAuth.ts';
 import { getSettings, readBooleanSetting, readNumberSetting } from '../_shared/settings.ts';
 
 type Settings = {
-  sms_enabled: boolean;
-  sms_monthly_cap_per_user: number;
-  sms_daily_cap_per_user: number;
-  sms_daily_cap_per_user_per_launch: number;
-  sms_min_gap_minutes: number;
-  sms_batch_window_minutes: number;
-  sms_max_chars: number;
-
   push_enabled: boolean;
   push_monthly_cap_per_user: number;
   push_daily_cap_per_user: number;
@@ -24,8 +16,6 @@ type Settings = {
 type PrefsRow = {
   user_id: string;
   email_enabled?: boolean | null;
-  sms_enabled: boolean;
-  sms_verified: boolean;
   push_enabled?: boolean | null;
   notify_t_minus_60?: boolean | null;
   notify_t_minus_10?: boolean | null;
@@ -61,7 +51,7 @@ type LaunchRow = {
 type LaunchPrefRow = {
   user_id: string;
   launch_id: string;
-  channel: 'sms' | 'push';
+  channel: 'push';
   mode: 't_minus' | 'local_time';
   timezone: string | null;
   t_minus_minutes: number[] | null;
@@ -151,14 +141,6 @@ type DispatchResult = {
 };
 
 const DEFAULT_SETTINGS: Settings = {
-  sms_enabled: true,
-  sms_monthly_cap_per_user: 20,
-  sms_daily_cap_per_user: 10,
-  sms_daily_cap_per_user_per_launch: 3,
-  sms_min_gap_minutes: 10,
-  sms_batch_window_minutes: 10,
-  sms_max_chars: 160,
-
   push_enabled: true,
   push_monthly_cap_per_user: 400,
   push_daily_cap_per_user: 80,
@@ -168,13 +150,13 @@ const DEFAULT_SETTINGS: Settings = {
   push_max_chars: 240
 };
 
-const SMS_BRAND_NAME = Deno.env.get('BRAND_NAME') || 'T-Minus Zero';
+const NOTIFICATION_BRAND_NAME = Deno.env.get('BRAND_NAME') || 'T-Minus Zero';
 
-function prefixSmsWithBrand(body: string) {
+function prefixNotificationWithBrand(body: string) {
   const trimmed = String(body || '').trim();
-  if (!trimmed) return `${SMS_BRAND_NAME}:`;
-  const prefix = `${SMS_BRAND_NAME}: `;
-  if (trimmed.startsWith(prefix) || trimmed === `${SMS_BRAND_NAME}:`) return trimmed;
+  if (!trimmed) return `${NOTIFICATION_BRAND_NAME}:`;
+  const prefix = `${NOTIFICATION_BRAND_NAME}: `;
+  if (trimmed.startsWith(prefix) || trimmed === `${NOTIFICATION_BRAND_NAME}:`) return trimmed;
   return `${prefix}${trimmed}`;
 }
 
@@ -214,7 +196,7 @@ async function dispatchNotifications(supabase: ReturnType<typeof createSupabaseA
       ? supabase
           .from('notification_preferences')
           .select(
-            'user_id, email_enabled, sms_enabled, sms_verified, push_enabled, notify_t_minus_60, notify_t_minus_10, notify_t_minus_5, notify_status_change, notify_net_change, quiet_hours_enabled, quiet_start_local, quiet_end_local, launch_day_email_enabled, launch_day_email_providers, launch_day_email_states'
+            'user_id, email_enabled, push_enabled, notify_t_minus_60, notify_t_minus_10, notify_t_minus_5, notify_status_change, notify_net_change, quiet_hours_enabled, quiet_start_local, quiet_end_local, launch_day_email_enabled, launch_day_email_providers, launch_day_email_states'
           )
           .in('user_id', notificationUserIds)
       : Promise.resolve({ data: [], error: null }),
@@ -245,10 +227,6 @@ async function dispatchNotifications(supabase: ReturnType<typeof createSupabaseA
     if (row?.user_id) timeZoneByUser.set(String(row.user_id), String(row.timezone || '').trim() || 'UTC');
   });
 
-  const smsEligibleUserIds = (prefs || [])
-    .filter((row: PrefsRow) => premiumUserIdSet.has(row.user_id) && row.sms_enabled && row.sms_verified)
-    .map((row: PrefsRow) => row.user_id);
-
   const pushEligibleUserIds = (prefs || [])
     .filter((row: PrefsRow) => row.push_enabled === true)
     .map((row: PrefsRow) => row.user_id);
@@ -256,16 +234,6 @@ async function dispatchNotifications(supabase: ReturnType<typeof createSupabaseA
   const emailEligiblePrefs = (prefs || []).filter(
     (row: PrefsRow) => premiumUserIdSet.has(row.user_id) && row.email_enabled !== false && row.launch_day_email_enabled === true
   );
-
-  const smsResult = await dispatchSmsNotifications(supabase, {
-    settings,
-    now,
-    dayStart,
-    monthStart,
-    smsEligibleUserIds,
-    quietByUser,
-    timeZoneByUser
-  });
 
   const pushResult = await dispatchPushNotifications(supabase, {
     settings,
@@ -289,10 +257,9 @@ async function dispatchNotifications(supabase: ReturnType<typeof createSupabaseA
     : { queued: 0, updated: 0, usageUpdates: 0, reason: 'push_disabled' };
 
   return {
-    queued: smsResult.queued + emailResult.queued + pushResult.queued + mobilePushV2Result.queued,
-    updated: smsResult.updated + emailResult.updated + pushResult.updated + mobilePushV2Result.updated,
-    usageUpdates: smsResult.usageUpdates + emailResult.usageUpdates + pushResult.usageUpdates + mobilePushV2Result.usageUpdates,
-    sms: smsResult,
+    queued: emailResult.queued + pushResult.queued + mobilePushV2Result.queued,
+    updated: emailResult.updated + pushResult.updated + mobilePushV2Result.updated,
+    usageUpdates: emailResult.usageUpdates + pushResult.usageUpdates + mobilePushV2Result.usageUpdates,
     push: pushResult,
     email: emailResult,
     mobilePushV2: mobilePushV2Result
@@ -325,37 +292,6 @@ async function loadActiveMobilePushUserIds(supabase: ReturnType<typeof createSup
   if (error) throw error;
 
   return Array.from(new Set((data || []).map((row: any) => String(row.user_id || '').trim()).filter(Boolean)));
-}
-
-async function dispatchSmsNotifications(
-  supabase: ReturnType<typeof createSupabaseAdminClient>,
-  {
-    settings,
-    now,
-    dayStart,
-    monthStart,
-    smsEligibleUserIds,
-    quietByUser,
-    timeZoneByUser
-  }: {
-    settings: Settings;
-    now: Date;
-    dayStart: string;
-    monthStart: string;
-    smsEligibleUserIds: string[];
-    quietByUser: Map<string, { enabled: boolean; start: string | null; end: string | null }>;
-    timeZoneByUser: Map<string, string>;
-  }
-): Promise<DispatchResult> {
-  void supabase;
-  void settings;
-  void now;
-  void dayStart;
-  void monthStart;
-  void smsEligibleUserIds;
-  void quietByUser;
-  void timeZoneByUser;
-  return { queued: 0, updated: 0, usageUpdates: 0, reason: 'retired_native_mobile_push_only' };
 }
 
 async function dispatchPushNotifications(
@@ -861,7 +797,7 @@ function buildMobileDailyDigestPayload(launches: LaunchRow[], timeZone: string, 
     launchCount === 1 && firstLaunch
       ? `${firstLaunch.name} matches your alert rule today. Launch at ${firstTime}.`
       : `${launchCount} launches match your alert rule today. First launch at ${firstTime}.`;
-  message = prefixSmsWithBrand(message);
+  message = prefixNotificationWithBrand(message);
   if (maxChars && message.length > maxChars) {
     message = message.slice(0, maxChars - 3) + '...';
   }
@@ -1327,7 +1263,7 @@ function buildLaunchDayDigestPayload({
   siteUrl: string;
 }): Record<string, unknown> {
   const subjectDate = formatLocalDateLabel(launches[0]?.net || new Date().toISOString(), timeZone);
-  const subject = `${SMS_BRAND_NAME} launches today • ${subjectDate}`;
+  const subject = `${NOTIFICATION_BRAND_NAME} launches today • ${subjectDate}`;
 
   const providersLabel = providers.length ? providers.join(', ') : 'All providers';
   const statesLabel = states.length ? states.join(', ') : 'All locations';
@@ -1442,7 +1378,7 @@ function buildLaunchDayDigestHtml({
   return `
     <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.45;color:#EAF0FF;background:#05060A;padding:24px">
       <div style="max-width:560px;margin:0 auto">
-        <h1 style="margin:0 0 8px 0;font-size:18px">${escapeHtml(SMS_BRAND_NAME)} launches today</h1>
+        <h1 style="margin:0 0 8px 0;font-size:18px">${escapeHtml(NOTIFICATION_BRAND_NAME)} launches today</h1>
         <p style="margin:0 0 12px 0;color:#B9C6E8">${escapeHtml(subjectDate)}</p>
         <p style="margin:0 0 16px 0;color:#B9C6E8">Filters: ${escapeHtml(providersLabel)} • ${escapeHtml(statesLabel)}</p>
         <ul style="padding-left:18px;margin:0">${listItems}</ul>
@@ -1464,7 +1400,7 @@ function getSiteUrl() {
 function makeOutboxRow(
   userId: string,
   launchId: string,
-  channel: 'email' | 'sms' | 'push',
+  channel: 'email' | 'push',
   evt: LaunchEvent,
   scheduledFor: Date,
   launch: LaunchRow,
@@ -1541,7 +1477,7 @@ function buildMessage(launch: LaunchRow, evt: LaunchEvent, timeZone: string, max
     message = `${launch.name} alert. Launch at ${netLabel}. Status: ${status}`;
   }
 
-  message = prefixSmsWithBrand(message);
+  message = prefixNotificationWithBrand(message);
 
   if (maxChars && message.length > maxChars) {
     message = message.slice(0, maxChars - 3) + '...';
@@ -1585,7 +1521,7 @@ function buildChangeMessage(launch: LaunchRow, eventType: string, timeZone: stri
     message = `${launch.name} update. Launch at ${netLabel}. Status: ${statusNow}.`;
   }
 
-  message = prefixSmsWithBrand(message);
+  message = prefixNotificationWithBrand(message);
 
   if (maxChars && message.length > maxChars) {
     message = message.slice(0, maxChars - 3) + '...';
@@ -1620,62 +1556,6 @@ function formatNetTime(netIso: string, timeZone = 'UTC') {
     timeZone,
     timeZoneName: 'short'
   }).format(date);
-}
-
-function buildSmsCounters(existing: any[], usageByUser: Map<string, number>, dayStartIso: string) {
-  const dayCounts = new Map<string, number>();
-  const perLaunchCounts = new Map<string, number>();
-  const lastGapEventAt = new Map<string, Date>();
-  const dayStartMs = new Date(dayStartIso).getTime();
-
-  existing
-    .filter((r) => r.channel === 'sms')
-    .forEach((row) => {
-      const key = `${row.user_id}`;
-      const launchKey = `${row.user_id}:${row.launch_id}`;
-      const at = new Date(row.scheduled_for);
-      if (Number.isFinite(at.getTime()) && at.getTime() >= dayStartMs) {
-        dayCounts.set(key, (dayCounts.get(key) || 0) + 1);
-        perLaunchCounts.set(launchKey, (perLaunchCounts.get(launchKey) || 0) + 1);
-      }
-      const eventType = String(row.event_type || '').trim();
-      if (eventType && !isScheduledEventType(eventType)) {
-        if (!lastGapEventAt.has(row.user_id) || lastGapEventAt.get(row.user_id)! < at) {
-          lastGapEventAt.set(row.user_id, at);
-        }
-      }
-    });
-
-  return {
-    canSend(userId: string, launchId: string, scheduledAt: Date, eventType: string, settings: Settings) {
-      const monthCount = usageByUser.get(userId) || 0;
-      if (monthCount >= settings.sms_monthly_cap_per_user) return false;
-      const dayCount = dayCounts.get(userId) || 0;
-      if (dayCount >= settings.sms_daily_cap_per_user) return false;
-      const perLaunch = perLaunchCounts.get(`${userId}:${launchId}`) || 0;
-      const perLaunchCap = Math.max(4, settings.sms_daily_cap_per_user_per_launch);
-      if (perLaunch >= perLaunchCap) return false;
-
-      const normalizedType = String(eventType || '').trim();
-      if (normalizedType && !isScheduledEventType(normalizedType)) {
-        const minGapMinutes = Math.max(0, settings.sms_min_gap_minutes);
-        if (minGapMinutes > 0) {
-          const last = lastGapEventAt.get(userId);
-          if (last && Math.abs(scheduledAt.getTime() - last.getTime()) < minGapMinutes * 60 * 1000) return false;
-        }
-      }
-      return true;
-    },
-    increment(userId: string, launchId: string, scheduledAt: Date, eventType: string) {
-      dayCounts.set(userId, (dayCounts.get(userId) || 0) + 1);
-      perLaunchCounts.set(`${userId}:${launchId}`, (perLaunchCounts.get(`${userId}:${launchId}`) || 0) + 1);
-      const normalizedType = String(eventType || '').trim();
-      if (normalizedType && !isScheduledEventType(normalizedType)) {
-        lastGapEventAt.set(userId, scheduledAt);
-      }
-      usageByUser.set(userId, (usageByUser.get(userId) || 0) + 1);
-    }
-  };
 }
 
 function buildPushCounters(existing: any[], usageByUser: Map<string, number>, dayStartIso: string) {
@@ -1739,22 +1619,10 @@ function isScheduledEventType(eventType: string) {
 }
 
 async function loadSettings(supabase: ReturnType<typeof createSupabaseAdminClient>): Promise<Settings> {
-  const { data, error } = await supabase.from('system_settings').select('key, value').in('key', [
-    'sms_enabled',
-    'sms_monthly_cap_per_user',
-    'sms_daily_cap_per_user',
-    'sms_daily_cap_per_user_per_launch',
-    'sms_min_gap_minutes',
-    'sms_batch_window_minutes',
-    'sms_max_chars',
-    'push_enabled',
-    'push_monthly_cap_per_user',
-    'push_daily_cap_per_user',
-    'push_daily_cap_per_user_per_launch',
-    'push_min_gap_minutes',
-    'push_batch_window_minutes',
-    'push_max_chars'
-  ]);
+  const { data, error } = await supabase
+    .from('system_settings')
+    .select('key, value')
+    .in('key', ['push_enabled', 'push_monthly_cap_per_user', 'push_daily_cap_per_user', 'push_daily_cap_per_user_per_launch', 'push_min_gap_minutes', 'push_batch_window_minutes', 'push_max_chars']);
   if (error) {
     console.warn('loadSettings fallback to defaults', error.message);
     return DEFAULT_SETTINGS;
@@ -1765,17 +1633,6 @@ async function loadSettings(supabase: ReturnType<typeof createSupabaseAdminClien
   });
 
   return {
-    sms_enabled: readBooleanSetting(merged.sms_enabled, DEFAULT_SETTINGS.sms_enabled),
-    sms_monthly_cap_per_user: readNumberSetting(merged.sms_monthly_cap_per_user, DEFAULT_SETTINGS.sms_monthly_cap_per_user),
-    sms_daily_cap_per_user: readNumberSetting(merged.sms_daily_cap_per_user, DEFAULT_SETTINGS.sms_daily_cap_per_user),
-    sms_daily_cap_per_user_per_launch: readNumberSetting(
-      merged.sms_daily_cap_per_user_per_launch,
-      DEFAULT_SETTINGS.sms_daily_cap_per_user_per_launch
-    ),
-    sms_min_gap_minutes: readNumberSetting(merged.sms_min_gap_minutes, DEFAULT_SETTINGS.sms_min_gap_minutes),
-    sms_batch_window_minutes: readNumberSetting(merged.sms_batch_window_minutes, DEFAULT_SETTINGS.sms_batch_window_minutes),
-    sms_max_chars: readNumberSetting(merged.sms_max_chars, DEFAULT_SETTINGS.sms_max_chars),
-
     push_enabled: readBooleanSetting(merged.push_enabled, DEFAULT_SETTINGS.push_enabled),
     push_monthly_cap_per_user: readNumberSetting(merged.push_monthly_cap_per_user, DEFAULT_SETTINGS.push_monthly_cap_per_user),
     push_daily_cap_per_user: readNumberSetting(merged.push_daily_cap_per_user, DEFAULT_SETTINGS.push_daily_cap_per_user),

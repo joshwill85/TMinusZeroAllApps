@@ -3,7 +3,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
-import { buildDetailVersionToken, getNextAlignedRefreshMs, getTierRefreshSeconds, hasVersionChanged, tierToMode, type ViewerTier } from '@tminuszero/domain';
+import {
+  buildDetailVersionToken,
+  getNextAdaptiveLaunchRefreshMs,
+  getRecommendedLaunchRefreshIntervalSeconds,
+  getTierRefreshSeconds,
+  hasVersionChanged,
+  PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS,
+  tierToMode,
+  type ViewerTier
+} from '@tminuszero/domain';
 import { fetchLaunchDetailVersion } from '@/lib/api/queries';
 
 const LAUNCH_ROUTE_TRACE_KEY = '__tmzBlueOriginRouteTrace';
@@ -109,7 +118,14 @@ export function LaunchDetailAutoRefresh({
     debugToken === 'trace';
   const debugTrace = debugEnabled && debugToken === 'trace';
 
-  const refreshIntervalSeconds = getTierRefreshSeconds(tier);
+  const [scheduledRefreshIntervalSeconds, setScheduledRefreshIntervalSeconds] = useState(() =>
+    tier === 'premium' ? PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS : getTierRefreshSeconds(tier)
+  );
+  const [cadenceAnchorNet, setCadenceAnchorNet] = useState<string | null>(null);
+  const refreshIntervalSeconds = getRecommendedLaunchRefreshIntervalSeconds(
+    scheduledRefreshIntervalSeconds,
+    tier === 'premium' ? PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS : getTierRefreshSeconds(tier)
+  );
   const refreshIntervalMs = refreshIntervalSeconds * 1000;
   const scope = tierToMode(tier);
   const [nextRefreshAt, setNextRefreshAt] = useState<number | null>(null);
@@ -174,6 +190,11 @@ export function LaunchDetailAutoRefresh({
   }, [lastUpdated, launchId, scope]);
 
   useEffect(() => {
+    setScheduledRefreshIntervalSeconds(tier === 'premium' ? PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS : getTierRefreshSeconds(tier));
+    setCadenceAnchorNet(null);
+  }, [tier]);
+
+  useEffect(() => {
     if (!Number.isFinite(refreshIntervalMs) || refreshIntervalMs <= 0) return;
     let timeout: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
@@ -203,6 +224,13 @@ export function LaunchDetailAutoRefresh({
         const startedAt = Date.now();
         const payload = await fetchLaunchDetailVersion(queryClient, launchId, { scope });
         if (debugEnabled) console.log(`[${debugName}] version_check_response`, { scope, ms: Date.now() - startedAt, version: payload.version });
+        setScheduledRefreshIntervalSeconds(
+          getRecommendedLaunchRefreshIntervalSeconds(
+            payload.recommendedIntervalSeconds,
+            tier === 'premium' ? PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS : getTierRefreshSeconds(tier)
+          )
+        );
+        setCadenceAnchorNet(typeof payload.cadenceAnchorNet === 'string' ? payload.cadenceAnchorNet : null);
         const nextVersion = typeof payload?.version === 'string'
           ? payload.version
           : buildDetailVersionToken(launchId, scope, payload?.updatedAt ?? null);
@@ -238,10 +266,14 @@ export function LaunchDetailAutoRefresh({
         return;
       }
       const now = Date.now();
-      const next = getNextAlignedRefreshMs(now, refreshIntervalMs);
+      const next = getNextAdaptiveLaunchRefreshMs({
+        nowMs: now,
+        intervalSeconds: refreshIntervalSeconds,
+        cadenceAnchorNet
+      });
       setNextRefreshAt(next);
       const delay = Math.max(0, next - now);
-      if (debugEnabled) console.log(`[${debugName}] schedule`, { now, next, delayMs: delay, tier });
+      if (debugEnabled) console.log(`[${debugName}] schedule`, { now, next, delayMs: delay, tier, refreshIntervalSeconds, cadenceAnchorNet });
       timeout = setTimeout(async () => {
         if (cancelled) return;
         if (debugEnabled) console.log(`[${debugName}] tick`, { tier, now: Date.now() });
@@ -282,18 +314,22 @@ export function LaunchDetailAutoRefresh({
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('focus', handleFocus);
     };
-  }, [debugEnabled, debugName, debugTrace, launchId, queryClient, refreshIntervalMs, router, scope, tier]);
+  }, [cadenceAnchorNet, debugEnabled, debugName, debugTrace, launchId, queryClient, refreshIntervalMs, refreshIntervalSeconds, router, scope, tier]);
 
   const summary = useMemo(() => {
-    if (tier === 'premium') return 'Checks for updates every 15 seconds.';
+    if (tier === 'premium') {
+      return refreshIntervalSeconds <= 15
+        ? 'Checks for updates every 15 seconds during the active launch window.'
+        : 'Checks for updates every 2 minutes outside the active launch window.';
+    }
     return 'Updates every 2 hours.';
-  }, [tier]);
+  }, [refreshIntervalSeconds, tier]);
 
   const cadence =
     tier === 'premium'
-      ? 'Aligned to :00, :15, :30, :45 each minute.'
+      ? 'Refresh timing adapts to the site-wide launch window.'
       : 'Aligned to 12:00am, 2:00am, 4:00am, … local time.';
-  const nextLabel = nextRefreshAt ? formatRefreshTime(nextRefreshAt, tier === 'premium') : null;
+  const nextLabel = nextRefreshAt ? formatRefreshTime(nextRefreshAt, tier === 'premium' && refreshIntervalSeconds < 60) : null;
 
   return (
     <div className="mt-2 text-xs text-text3">

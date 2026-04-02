@@ -2,7 +2,8 @@ import Link from 'next/link';
 import clsx from 'clsx';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { JsonLd } from '@/components/JsonLd';
-import { getSiteUrl, isSupabaseConfigured } from '@/lib/server/env';
+import { getSiteUrl } from '@/lib/server/env';
+import { fetchCatalogCollection } from '@/lib/server/catalogCollection';
 import { normalizeImageUrl } from '@/lib/utils/imageUrl';
 import {
   CATALOG_PAGE_SIZE,
@@ -14,27 +15,7 @@ import {
   type CatalogEntityType,
   type CatalogRegion
 } from '@/lib/utils/catalog';
-
-type CatalogItem = {
-  entity_type: CatalogEntityType;
-  entity_id: string;
-  name: string;
-  slug?: string | null;
-  description?: string | null;
-  country_codes?: string[] | null;
-  image_url?: string | null;
-  data?: Record<string, unknown> | null;
-  fetched_at?: string | null;
-  launch_count?: number | null;
-};
-
-type CatalogResponse = {
-  entity: CatalogEntityType;
-  region: CatalogRegion;
-  limit: number;
-  offset: number;
-  items: CatalogItem[];
-};
+import type { CatalogCollectionItem } from '@/lib/server/catalogCollection';
 
 export async function CatalogCollectionView({
   activeEntity,
@@ -52,30 +33,21 @@ export async function CatalogCollectionView({
   const collectionPath = buildCatalogCollectionPath(activeEntity);
   const pageUrl = `${siteUrl}${collectionPath}`;
   const activeMeta = getCatalogEntityOption(activeEntity);
-  const supabaseReady = isSupabaseConfigured();
 
-  let items: CatalogItem[] = [];
+  let items: CatalogCollectionItem[] = [];
   let errorMessage: string | null = null;
 
-  if (supabaseReady) {
-    const params = new URLSearchParams({
-      entity: activeEntity,
-      region,
-      limit: String(CATALOG_PAGE_SIZE),
-      offset: String(offset),
-      include_counts: 'true'
-    });
-    if (query) params.set('q', query);
-
-    const url = `${siteUrl}/api/public/catalog?${params.toString()}`;
-    const res = await fetch(url, { cache: 'no-store' });
-    if (!res.ok) {
-      errorMessage = `Catalog request failed (${res.status})`;
-    } else {
-      const data = (await res.json()) as CatalogResponse;
-      items = data.items || [];
-    }
-  }
+  const result = await fetchCatalogCollection({
+    entity: activeEntity,
+    region,
+    query,
+    limit: CATALOG_PAGE_SIZE,
+    offset,
+    includeCounts: true
+  });
+  items = result.items;
+  errorMessage = result.errorMessage;
+  const supabaseReady = result.supabaseReady;
 
   const hasNext = items.length === CATALOG_PAGE_SIZE;
   const hasPrev = page > 1;
@@ -301,7 +273,7 @@ export async function CatalogCollectionView({
   );
 }
 
-function buildMeta(item: CatalogItem) {
+function buildMeta(item: CatalogCollectionItem) {
   const data = item.data || {};
   const meta: string[] = [];
 

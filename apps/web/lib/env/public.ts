@@ -1,4 +1,5 @@
 import { BRAND_FACEBOOK_URL, BRAND_X_URL } from '@/lib/brand';
+import { normalizeEnvText } from '@/lib/env/normalize';
 
 const STRIPE_PUBLISHABLE_PLACEHOLDERS = [
   'pk_test_placeholder',
@@ -7,8 +8,7 @@ const STRIPE_PUBLISHABLE_PLACEHOLDERS = [
 ];
 
 function isPlaceholder(value: string | undefined, placeholders: string[]) {
-  if (!value) return true;
-  const trimmed = value.trim();
+  const trimmed = normalizeEnvText(value);
   if (!trimmed) return true;
   return placeholders.some((placeholder) => trimmed === placeholder || trimmed.includes(placeholder));
 }
@@ -16,12 +16,11 @@ function isPlaceholder(value: string | undefined, placeholders: string[]) {
 export function getStripePublishableKey() {
   const key = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
   if (isPlaceholder(key, STRIPE_PUBLISHABLE_PLACEHOLDERS)) return null;
-  return key?.trim() || null;
+  return normalizeEnvText(key);
 }
 
 function normalizeHttpsUrl(raw: string | undefined) {
-  if (!raw) return null;
-  const trimmed = raw.trim();
+  const trimmed = normalizeEnvText(raw);
   if (!trimmed) return null;
   if (trimmed.startsWith('/')) return null;
 

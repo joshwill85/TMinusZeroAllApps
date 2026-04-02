@@ -29,4 +29,6 @@ export * from './viewer';
 export * from './viewerExperience';
 export * from './search';
 export * from './launchFilters';
+export * from './jepPresentation';
+export * from './arTelemetryEvidence';
 export * from './trajectory';

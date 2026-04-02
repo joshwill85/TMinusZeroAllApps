@@ -11,8 +11,9 @@ import type { LaunchFilter } from '@/lib/types/launch';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-const TOKEN_CACHE_CONTROL = 'public, s-maxage=15, stale-while-revalidate=60';
-const FEED_CACHE_TTL_MS = 60_000;
+const TOKEN_CACHE_CONTROL = 'public, max-age=0, must-revalidate';
+const CDN_CACHE_CONTROL = 'public, s-maxage=900, stale-while-revalidate=900';
+const FEED_CACHE_TTL_MS = 15 * 60 * 1000;
 const MAX_ITEMS = 100;
 const MAX_LOOKAHEAD_DAYS = 365;
 const MAX_LOOKBACK_DAYS = 30;
@@ -77,6 +78,7 @@ export async function GET(request: Request, { params }: { params: { token: strin
   const ifNoneMatch = request.headers.get('if-none-match');
   const headers: Record<string, string> = {
     'Cache-Control': TOKEN_CACHE_CONTROL,
+    'CDN-Cache-Control': CDN_CACHE_CONTROL,
     'Content-Type': format === 'atom' ? 'application/atom+xml; charset=utf-8' : 'application/rss+xml; charset=utf-8'
   };
 

@@ -45,11 +45,11 @@ export const FAQ_REGISTRY: readonly FaqCanonicalEntry[] = [
     surfaces: ['docs-faq'],
     question: 'How often is the data refreshed?',
     answer:
-      'Public visitors and signed-in non-Premium accounts refresh every 2 hours (aligned to local clock boundaries such as 12:00am, 2:00am, and 4:00am). Premium checks for updates every 15 seconds and refreshes when source data changes.',
+      'Public visitors and signed-in non-Premium accounts refresh every 2 hours (aligned to local clock boundaries such as 12:00am, 2:00am, and 4:00am). Premium checks adapt to launch timing and refresh when source data changes.',
     verificationSources: [
       internal('lib/tiers.ts', 'Defines tier refresh intervals and alignment math.'),
       internal('components/LaunchDetailAutoRefresh.tsx', 'Implements polling behavior per tier.'),
-      internal('components/SocialReferrerDisclaimer.tsx', 'Public copy mirrors 2h/15m/15s cadence.')
+      internal('components/SocialReferrerDisclaimer.tsx', 'Public copy mirrors the current refresh cadence messaging.')
     ]
   }),
   faqEntry({
@@ -111,7 +111,7 @@ export const FAQ_REGISTRY: readonly FaqCanonicalEntry[] = [
     question: 'What timezone are launch times shown in?',
     answer:
       'Launch times in the web UI render in your local timezone. The native mobile app uses the same launch timing data for push alerts and device-aware presentation.',
-    verificationSources: [internal('components/TimeDisplay.tsx'), internal('app/docs/sms-opt-in/page.tsx')]
+    verificationSources: [internal('components/TimeDisplay.tsx')]
   }),
   faqEntry({
     id: 'docs-status-changes',
@@ -143,7 +143,7 @@ export const FAQ_REGISTRY: readonly FaqCanonicalEntry[] = [
       'Launch alerts are push-only and managed in the native mobile app. The web surface no longer manages legacy notification subscriptions.',
     verificationSources: [
       internal('app/me/preferences/page.tsx'),
-      internal('app/api/me/notifications/preferences/route.ts')
+      internal('app/api/v1/me/notification-preferences/route.ts')
     ]
   }),
   faqEntry({
@@ -162,26 +162,26 @@ export const FAQ_REGISTRY: readonly FaqCanonicalEntry[] = [
   faqEntry({
     id: 'docs-notification-policy',
     order: 180,
-    topic: 'sms-terms',
+    topic: 'notification-guidance',
     claimClass: 'policy',
     verificationStatus: 'verified',
     risk: 'high',
     surfaces: ['docs-faq'],
     question: 'Where can I read the notification guidance?',
-    answer: 'See /legal/sms and /docs/sms-opt-in for the current native push notification guidance.',
-    verificationSources: [internal('app/legal/terms/page.tsx'), internal('app/docs/sms-opt-in/page.tsx')]
+    answer: 'Use /preferences to manage alerts, and see /legal/privacy plus /legal/terms for the current policy and legal guidance.',
+    verificationSources: [internal('app/me/preferences/page.tsx'), internal('app/legal/privacy/page.tsx'), internal('app/legal/terms/page.tsx')]
   }),
   faqEntry({
     id: 'docs-notification-guardrails',
     order: 190,
-    topic: 'sms-guardrails',
+    topic: 'notification-guardrails',
     claimClass: 'code_behavior',
     verificationStatus: 'verified',
     risk: 'high',
     surfaces: ['docs-faq'],
     question: 'How is launch notification delivery controlled now?',
     answer:
-      'Legacy SMS cost controls are retired with the push-only cutover. Current notification delivery is governed by mobile push registration and app-level settings.',
+      'Current notification delivery is governed by mobile push registration and app-level settings.',
     verificationSources: [internal('supabase/functions/notifications-dispatch/index.ts')]
   }),
   faqEntry({
@@ -707,8 +707,8 @@ export const FAQ_SURFACE_REQUIREMENTS: Readonly<Record<FaqSurfaceId, readonly Fa
     'location-coverage',
     'net-time-precision',
     'notification-availability',
-    'sms-terms',
-    'sms-guardrails'
+    'notification-guidance',
+    'notification-guardrails'
   ],
   home: ['net-definition', 'launch-time-variability', 'launch-window-definition', 'alerts-access'],
   'artemis-program': ['artemis-overview', 'artemis-vs-apollo', 'artemis-schedule-tracking'],

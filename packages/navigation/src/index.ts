@@ -179,9 +179,7 @@ function normalizeNativeStaticCustomerHref(pathname: string, suffix: string) {
   if (pathname === '/docs/about') return `/docs/about${suffix}`;
   if (pathname === '/docs/faq') return `/docs/faq${suffix}`;
   if (pathname === '/docs/roadmap') return `/docs/roadmap${suffix}`;
-  if (pathname === '/docs/sms-opt-in') return `/docs/sms-opt-in${suffix}`;
   if (pathname === '/legal/data') return `/legal/data${suffix}`;
-  if (pathname === '/legal/sms') return `/legal/sms${suffix}`;
   if (pathname === '/account' || pathname === '/profile') return `/profile${suffix}`;
   if (pathname === '/account/saved' || pathname === '/saved') return `/saved${suffix}`;
   if (pathname === '/me/preferences' || pathname === '/preferences') return `/preferences${suffix}`;

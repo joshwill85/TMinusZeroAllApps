@@ -1,0 +1,28 @@
+{
+  "familyMatrix": {
+    "policyVersion": "ar_trajectory_three_surface_policy_v1",
+    "updatedAt": "2026-04-01T00:00:00.000Z",
+    "requiredObserverIds": ["W15", "SW15", "S15", "W30", "N20", "E15"],
+    "requiredTimeSamplesSec": [-30, 10, 30, 60, 120],
+    "capeEastboundObserverIds": ["W15", "SW15", "S15", "W30"],
+    "capeEastboundEarlyTimeSamplesSec": [10, 30, 60],
+    "maxFlightAzimuthErrorDeg": 1.0,
+    "maxInclinationBranchCenterOffsetDeg": 15.0,
+    "maxCapeEastboundPadBearingDivergenceDeg": 90.0,
+    "maxCrossSurfaceDivergenceDeg": 12.0,
+    "topConfidenceBadges": ["A", "B"]
+  },
+  "surfaceEvidence": {
+    "requiredWebProfiles": [
+      "android_chrome_flagship",
+      "android_chrome_mid_tier",
+      "ios_safari_current",
+      "desktop_chrome_sanity"
+    ],
+    "requiredIosProfiles": ["ios_native_pro", "ios_native_non_pro", "ios_native_prev_gen"],
+    "requiredAndroidProfiles": ["android_native_pixel", "android_native_samsung", "android_native_mid_tier"],
+    "maxTimeToUsableSeconds": 5,
+    "maxRelocalizationCount": 1,
+    "maxTrackingResetCount": 1
+  }
+}

@@ -9,7 +9,7 @@ import { BRAND_NAME } from '@/lib/brand';
 const PREMIUM_PRICE_LABEL = '$3.99/mo';
 
 const PREMIUM_FEATURES = [
-  'Live updates every 15 seconds',
+  'Adaptive live updates',
   'Full change log (see what changed)',
   'Saved/default filters + follows (“My Launches”)',
   'Advanced alerts + native push notifications',

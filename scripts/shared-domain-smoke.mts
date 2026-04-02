@@ -39,6 +39,12 @@ import {
 import { deriveTrajectoryEvidenceView } from '../packages/domain/src/trajectory/evidence.ts';
 import { deriveTrajectoryFieldAuthorityProfile } from '../packages/domain/src/trajectory/fieldAuthority.ts';
 import { deriveTrajectoryPublishPolicy } from '../packages/domain/src/trajectory/publishPolicy.ts';
+import {
+  deriveArTelemetryTimeToUsableMs,
+  inferMobileArReleaseProfile,
+  inferWebArReleaseProfile,
+  isNativeArTelemetryUsable
+} from '../packages/domain/src/arTelemetryEvidence.ts';
 import { trajectoryPublicV2ResponseSchemaV1 } from '../packages/contracts/src/index.ts';
 
 const launchId = '11111111-1111-4111-8111-111111111111';
@@ -178,6 +184,60 @@ const authorityProfile = deriveTrajectoryFieldAuthorityProfile({
 });
 assert.equal(authorityProfile.confidenceLabel, 'strong');
 assert.equal(authorityProfile.precisionEligible, true);
+
+assert.equal(
+  inferWebArReleaseProfile({
+    clientEnv: 'android_chrome',
+    clientProfile: 'android_chrome',
+    deviceMemoryGb: 8
+  }),
+  'android_chrome_flagship'
+);
+assert.equal(
+  inferWebArReleaseProfile({
+    clientEnv: 'android_chrome',
+    clientProfile: 'android_chrome',
+    deviceMemoryGb: 4
+  }),
+  'android_chrome_mid_tier'
+);
+assert.equal(
+  inferMobileArReleaseProfile({
+    runtimeFamily: 'ios_native',
+    modelName: 'iPhone 17 Pro',
+    deviceYearClass: 2025
+  }),
+  'ios_native_pro'
+);
+assert.equal(
+  inferMobileArReleaseProfile({
+    runtimeFamily: 'android_native',
+    manufacturer: 'Google',
+    modelName: 'Pixel 9 Pro'
+  }),
+  'android_native_pixel'
+);
+assert.equal(
+  isNativeArTelemetryUsable({
+    runtimeFamily: 'ios_native',
+    sessionRunning: true,
+    status: 'running',
+    trackingState: 'normal',
+    locationFixState: 'ready',
+    alignmentReady: true
+  }),
+  true
+);
+assert.equal(
+  isNativeArTelemetryUsable({
+    runtimeFamily: 'android_native',
+    sessionRunning: true,
+    status: 'running',
+    trackingState: 'normal'
+  }),
+  true
+);
+assert.equal(deriveArTelemetryTimeToUsableMs('2026-04-01T00:00:00.000Z', Date.parse('2026-04-01T00:00:03.400Z')), 3400);
 
 const trajectoryRow = {
   launch_id: launchId,

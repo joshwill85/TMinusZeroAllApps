@@ -1,0 +1,515 @@
+import { Pressable, Text, View } from 'react-native';
+import type { LaunchJepScoreV1 } from '@tminuszero/api-client';
+import type { MobileTheme } from '@tminuszero/design-tokens';
+import { buildJepPresentation, type JepPresentationTone } from '@tminuszero/domain';
+import { useLaunchJepQuery } from '@/src/api/queries';
+import { CollapsibleCard } from '@/src/components/launch/CollapsibleSection';
+
+type JepPanelProps = {
+  launchId: string;
+  hasJepScore: boolean;
+  theme: MobileTheme;
+};
+
+export function JepPanel({ launchId, hasJepScore, theme }: JepPanelProps) {
+  const query = useLaunchJepQuery(launchId, {}, { enabled: hasJepScore });
+
+  if (!hasJepScore) {
+    return null;
+  }
+
+  if (query.isPending && !query.data) {
+    return (
+      <Card theme={theme}>
+        <Text style={eyebrowStyle(theme)}>Jellyfish Exposure Potential</Text>
+        <Text style={titleStyle(theme)}>Calculating your viewing setup</Text>
+        <Text style={bodyStyle(theme)}>
+          Loading the current JEP score, factor readout, and ranked change guidance.
+        </Text>
+      </Card>
+    );
+  }
+
+  if (!query.data) {
+    return (
+      <Card theme={theme}>
+        <Text style={eyebrowStyle(theme)}>Jellyfish Exposure Potential</Text>
+        <Text style={titleStyle(theme)}>JEP is temporarily unavailable</Text>
+        <Text style={bodyStyle(theme)}>
+          The launch detail is available, but the JEP explanation could not be loaded right now.
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => {
+            void query.refetch();
+          }}
+          style={({ pressed }) => ({
+            marginTop: 4,
+            alignSelf: 'flex-start',
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: theme.accent,
+            backgroundColor: 'rgba(34, 211, 238, 0.1)',
+            paddingHorizontal: 14,
+            paddingVertical: 10,
+            opacity: pressed ? 0.82 : 1
+          })}
+        >
+          <Text style={{ color: theme.accent, fontSize: 13, fontWeight: '700' }}>Try again</Text>
+        </Pressable>
+      </Card>
+    );
+  }
+
+  const score = query.data;
+  const presentation = buildJepPresentation(score);
+  const probability = clampProbability(score.probability);
+  const isProbabilityMode = score.mode === 'probability';
+  const primaryValue = isProbabilityMode && probability != null ? formatProbability(probability) : `${score.score}/100`;
+  const primaryLabel = isProbabilityMode ? 'Chance to see it' : 'Visibility score';
+  const scaleSummary = isProbabilityMode
+    ? '0% = almost no chance. 100% = very likely.'
+    : '0 = very unlikely to see it. 100 = best setup.';
+  const locationLabel =
+    score.observer.personalized && !score.observer.usingPadFallback ? 'Using your location' : 'Using launch pad (fallback)';
+  const updatedLabel = formatDateTime(score.computedAt);
+  const hasGuidance =
+    score.bestWindow != null || score.directionBand != null || score.elevationBand != null || score.solarWindowRange != null;
+
+  return (
+    <View style={{ gap: 16 }}>
+      <Card theme={theme} accent>
+        <View style={{ gap: 12 }}>
+          <View style={{ gap: 6 }}>
+            <Text style={eyebrowStyle(theme)}>Jellyfish Exposure Potential</Text>
+            <Text style={titleStyle(theme)}>Why this launch is scoring this way</Text>
+          </View>
+
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            <TonePill label={locationLabel} tone={score.observer.usingPadFallback ? 'neutral' : 'success'} theme={theme} />
+            <TonePill label={isProbabilityMode ? 'Chance mode' : 'Score mode'} tone={isProbabilityMode ? 'info' : 'neutral'} theme={theme} />
+            {score.isSnapshot ? <TonePill label="Snapshot" tone="info" theme={theme} /> : null}
+            {score.isStale ? <TonePill label="Stale" tone="warning" theme={theme} /> : null}
+            {query.isFetching ? <TonePill label="Refreshing" tone="info" theme={theme} /> : null}
+          </View>
+
+          <View style={{ gap: 6 }}>
+            <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase' }}>
+              {primaryLabel}
+            </Text>
+            <Text style={{ color: theme.accent, fontSize: 42, fontWeight: '800', lineHeight: 48 }}>{primaryValue}</Text>
+            <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '600', lineHeight: 21 }}>
+              {primaryInterpretation(isProbabilityMode, score.score, probability)}
+            </Text>
+            <Text style={bodyStyle(theme)}>{presentation.summary}</Text>
+            <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>{scaleSummary}</Text>
+            {updatedLabel ? <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>Updated {updatedLabel}</Text> : null}
+          </View>
+
+          {hasGuidance ? (
+            <View style={{ gap: 10 }}>
+              <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>If conditions line up</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                {score.bestWindow ? <MetricTile label="Best window" value={score.bestWindow.label} caption={score.bestWindow.reason} theme={theme} /> : null}
+                {score.directionBand ? (
+                  <MetricTile
+                    label="Look toward"
+                    value={score.directionBand.label}
+                    caption={`${formatDegrees(score.directionBand.fromAzDeg)} to ${formatDegrees(score.directionBand.toAzDeg)}`}
+                    theme={theme}
+                  />
+                ) : null}
+                {score.elevationBand ? (
+                  <MetricTile
+                    label="Height"
+                    value={score.elevationBand.label}
+                    caption="Usually needs about 5°+ above your local horizon."
+                    theme={theme}
+                  />
+                ) : null}
+                {score.solarWindowRange ? (
+                  <MetricTile
+                    label="NET sun angle"
+                    value={formatSolarWindowRange(score.solarWindowRange)}
+                    caption={formatSolarWindowRangeNote(score.solarWindowRange)}
+                    theme={theme}
+                  />
+                ) : null}
+              </View>
+            </View>
+          ) : null}
+        </View>
+      </Card>
+
+      <Card theme={theme}>
+        <View style={{ gap: 6 }}>
+          <Text style={titleStyle(theme)}>Factor readout</Text>
+          <Text style={bodyStyle(theme)}>Each factor shows what the model sees right now and the range or condition it wants.</Text>
+        </View>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+          {presentation.factorAssessments.map((item) => (
+            <FactorCard key={item.key} item={item} theme={theme} />
+          ))}
+        </View>
+      </Card>
+
+      <Card theme={theme}>
+        <View style={{ gap: 6 }}>
+          <Text style={titleStyle(theme)}>What would need to change</Text>
+          <Text style={bodyStyle(theme)}>Ranked by which lever would improve the current setup the most.</Text>
+        </View>
+        <View style={{ gap: 12 }}>
+          {presentation.changeOpportunities.map((item, index) => (
+            <ChangeRow key={item.key} index={index} item={item} theme={theme} />
+          ))}
+        </View>
+      </Card>
+
+      <CollapsibleCard title="Technical breakdown" defaultExpanded={false}>
+        <View style={{ gap: 12 }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+            <MetricTile label="Sky clarity" value={formatFactor(score.factors.weather)} caption={buildWeatherCaption(score)} theme={theme} />
+            <MetricTile label="Twilight timing" value={formatFactor(score.factors.darkness)} caption={formatSolarAngle(score.factors.solarDepressionDeg)} theme={theme} />
+            <MetricTile label="Visible path" value={formatFactor(score.factors.lineOfSight)} caption={`${formatProbability(score.losVisibleFraction)} of useful path clears`} theme={theme} />
+            <MetricTile label="Sunlit plume" value={formatFactor(score.factors.illumination)} caption={score.sunlitMarginKm != null ? `Margin ${formatKm(score.sunlitMarginKm)}` : 'Modeled ascent in sunlight'} theme={theme} />
+            <MetricTile label="Total cloud" value={formatPct(score.factors.cloudCoverPct)} caption="All layers combined" theme={theme} />
+            <MetricTile label="Low cloud" value={formatPct(score.factors.cloudCoverLowPct)} caption="Weighted most heavily" theme={theme} />
+            <MetricTile label="Mid cloud" value={formatPct(score.factors.cloudCoverMidPct)} caption="Secondary weather drag" theme={theme} />
+            <MetricTile label="High cloud" value={formatPct(score.factors.cloudCoverHighPct)} caption="Contrast drag more than hard block" theme={theme} />
+          </View>
+          <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
+            Weather source: {formatWeatherSource(score.source.weather)}.
+          </Text>
+        </View>
+      </CollapsibleCard>
+    </View>
+  );
+}
+
+function Card({ children, theme, accent = false }: { children: React.ReactNode; theme: MobileTheme; accent?: boolean }) {
+  return (
+    <View
+      style={{
+        gap: 14,
+        borderRadius: 22,
+        borderWidth: 1,
+        borderColor: accent ? 'rgba(34, 211, 238, 0.22)' : theme.stroke,
+        backgroundColor: accent ? 'rgba(13, 34, 48, 0.78)' : 'rgba(255, 255, 255, 0.03)',
+        paddingHorizontal: 18,
+        paddingVertical: 18
+      }}
+    >
+      {children}
+    </View>
+  );
+}
+
+function FactorCard({
+  item,
+  theme
+}: {
+  item: ReturnType<typeof buildJepPresentation>['factorAssessments'][number];
+  theme: MobileTheme;
+}) {
+  return (
+    <View
+      style={{
+        flexBasis: '47%',
+        flexGrow: 1,
+        minWidth: 0,
+        gap: 10,
+        borderRadius: 18,
+        borderWidth: 1,
+        borderColor: 'rgba(234, 240, 255, 0.1)',
+        backgroundColor: 'rgba(255, 255, 255, 0.025)',
+        paddingHorizontal: 14,
+        paddingVertical: 14
+      }}
+    >
+      <View style={{ gap: 8 }}>
+        <Text style={eyebrowStyle(theme)}>{item.label}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <Text style={{ color: theme.foreground, fontSize: 22, fontWeight: '800' }}>{item.value}</Text>
+          <TonePill label={item.status} tone={item.tone} theme={theme} />
+        </View>
+      </View>
+      <Text style={bodyStyle(theme)}>{item.detail}</Text>
+      {item.rangeNote ? <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>{item.rangeNote}</Text> : null}
+    </View>
+  );
+}
+
+function ChangeRow({
+  index,
+  item,
+  theme
+}: {
+  index: number;
+  item: ReturnType<typeof buildJepPresentation>['changeOpportunities'][number];
+  theme: MobileTheme;
+}) {
+  return (
+    <View
+      style={{
+        gap: 8,
+        borderRadius: 18,
+        borderWidth: 1,
+        borderColor: 'rgba(234, 240, 255, 0.1)',
+        backgroundColor: 'rgba(255, 255, 255, 0.025)',
+        paddingHorizontal: 14,
+        paddingVertical: 14
+      }}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+          <View
+            style={{
+              width: 26,
+              height: 26,
+              borderRadius: 13,
+              borderWidth: 1,
+              borderColor: theme.stroke,
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+          >
+            <Text style={{ color: theme.foreground, fontSize: 12, fontWeight: '700' }}>{index + 1}</Text>
+          </View>
+          <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700', flex: 1 }}>{item.title}</Text>
+        </View>
+        <TonePill label={item.rankLabel} tone={item.tone} theme={theme} />
+      </View>
+      <Text style={bodyStyle(theme)}>{item.detail}</Text>
+    </View>
+  );
+}
+
+function MetricTile({
+  label,
+  value,
+  caption,
+  theme
+}: {
+  label: string;
+  value: string;
+  caption?: string | null;
+  theme: MobileTheme;
+}) {
+  return (
+    <View
+      style={{
+        flexBasis: '47%',
+        flexGrow: 1,
+        minWidth: 0,
+        gap: 6,
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: 'rgba(234, 240, 255, 0.1)',
+        backgroundColor: 'rgba(255, 255, 255, 0.025)',
+        paddingHorizontal: 12,
+        paddingVertical: 12
+      }}
+    >
+      <Text style={eyebrowStyle(theme)}>{label}</Text>
+      <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700', lineHeight: 18 }}>{value}</Text>
+      {caption ? <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 17 }}>{caption}</Text> : null}
+    </View>
+  );
+}
+
+function TonePill({ label, tone, theme }: { label: string; tone: JepPresentationTone; theme: MobileTheme }) {
+  const style = toneStyle(tone, theme);
+  return (
+    <View
+      style={{
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: style.borderColor,
+        backgroundColor: style.backgroundColor,
+        paddingHorizontal: 10,
+        paddingVertical: 6
+      }}
+    >
+      <Text
+        style={{
+          color: style.color,
+          fontSize: 10,
+          fontWeight: '700',
+          letterSpacing: 1,
+          textTransform: 'uppercase'
+        }}
+      >
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+function toneStyle(tone: JepPresentationTone, theme: MobileTheme) {
+  if (tone === 'success') {
+    return {
+      borderColor: 'rgba(52, 211, 153, 0.24)',
+      backgroundColor: 'rgba(52, 211, 153, 0.12)',
+      color: '#7ff0bc'
+    };
+  }
+  if (tone === 'warning') {
+    return {
+      borderColor: 'rgba(251, 191, 36, 0.24)',
+      backgroundColor: 'rgba(251, 191, 36, 0.12)',
+      color: '#ffd36e'
+    };
+  }
+  if (tone === 'danger') {
+    return {
+      borderColor: 'rgba(251, 113, 133, 0.26)',
+      backgroundColor: 'rgba(251, 113, 133, 0.12)',
+      color: '#ff9aab'
+    };
+  }
+  if (tone === 'info') {
+    return {
+      borderColor: 'rgba(96, 165, 250, 0.24)',
+      backgroundColor: 'rgba(96, 165, 250, 0.12)',
+      color: '#9dc4ff'
+    };
+  }
+  if (tone === 'primary') {
+    return {
+      borderColor: 'rgba(34, 211, 238, 0.24)',
+      backgroundColor: 'rgba(34, 211, 238, 0.1)',
+      color: theme.accent
+    };
+  }
+  return {
+    borderColor: 'rgba(234, 240, 255, 0.12)',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    color: theme.foreground
+  };
+}
+
+function eyebrowStyle(theme: MobileTheme) {
+  return {
+    color: theme.muted,
+    fontSize: 11,
+    fontWeight: '700' as const,
+    letterSpacing: 1.1,
+    textTransform: 'uppercase' as const
+  };
+}
+
+function titleStyle(theme: MobileTheme) {
+  return {
+    color: theme.foreground,
+    fontSize: 18,
+    fontWeight: '700' as const
+  };
+}
+
+function bodyStyle(theme: MobileTheme) {
+  return {
+    color: theme.muted,
+    fontSize: 14,
+    lineHeight: 21
+  };
+}
+
+function primaryInterpretation(isProbabilityMode: boolean, score: number, probability: number | null) {
+  if (isProbabilityMode) {
+    if ((probability ?? 0) >= 0.7) return 'Good setup for a visible jellyfish plume.';
+    if ((probability ?? 0) >= 0.3) return 'You may see it, but conditions are mixed.';
+    return 'A visible jellyfish plume is unlikely from this location.';
+  }
+
+  if (score >= 70) return 'Good setup for a visible jellyfish plume.';
+  if (score >= 30) return 'You may see it, but conditions are mixed.';
+  return 'A visible jellyfish plume is unlikely from this location.';
+}
+
+function buildWeatherCaption(score: LaunchJepScoreV1 | undefined) {
+  if (!score) return null;
+  return `Low ${formatPct(score.factors.cloudCoverLowPct)} • Mid ${formatPct(score.factors.cloudCoverMidPct)} • High ${formatPct(score.factors.cloudCoverHighPct)}`;
+}
+
+function clampProbability(value: number | null) {
+  if (value == null || !Number.isFinite(value)) return null;
+  return Math.max(0, Math.min(1, value));
+}
+
+function formatProbability(value: number | null) {
+  const bounded = clampProbability(value);
+  if (bounded == null) return '-';
+  return `${Math.round(bounded * 100)}%`;
+}
+
+function formatFactor(value: number) {
+  return `${Math.round(value * 100)}%`;
+}
+
+function formatPct(value: number | null) {
+  if (value == null || !Number.isFinite(value)) return '-';
+  return `${Math.max(0, Math.min(100, Math.round(value)))}%`;
+}
+
+function formatKm(value: number | null) {
+  if (value == null || !Number.isFinite(value)) return '-';
+  return `${(Math.round(value * 10) / 10).toFixed(1)} km`;
+}
+
+function formatDegrees(value: number | null) {
+  if (value == null || !Number.isFinite(value)) return '-';
+  const rounded = Math.round(value * 10) / 10;
+  return `${rounded.toFixed(1)}°`;
+}
+
+function formatSolarAngle(value: number | null) {
+  if (value == null || !Number.isFinite(value)) return '-';
+  const rounded = Math.round(Math.abs(value) * 10) / 10;
+  if (rounded < 0.05) return '0.0° on the horizon';
+  return value >= 0 ? `${rounded.toFixed(1)}° below the horizon` : `${rounded.toFixed(1)}° above the horizon`;
+}
+
+function formatSolarWindowRange(
+  range: LaunchJepScoreV1['solarWindowRange']
+) {
+  if (!range) return '-';
+  if (range.windowStartDeg != null && range.windowEndDeg != null) {
+    return `${formatSolarAngle(range.windowStartDeg)} to ${formatSolarAngle(range.windowEndDeg)}`;
+  }
+  if (range.netDeg != null) return formatSolarAngle(range.netDeg);
+  if (range.minDeg != null && range.maxDeg != null) {
+    return `${formatSolarAngle(range.minDeg)} to ${formatSolarAngle(range.maxDeg)}`;
+  }
+  return '-';
+}
+
+function formatSolarWindowRangeNote(
+  range: LaunchJepScoreV1['solarWindowRange']
+) {
+  if (!range) return null;
+  if (range.crossesTwilightSweetSpot) {
+    return 'This NET window reaches the strongest twilight band at roughly 6° to 12° below the horizon.';
+  }
+  return 'Best contrast usually needs the Sun about 6° to 12° below the horizon.';
+}
+
+function formatDateTime(value: string | null) {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return null;
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: '2-digit',
+    hour: 'numeric',
+    minute: '2-digit'
+  }).format(new Date(parsed));
+}
+
+function formatWeatherSource(source: string | null) {
+  const normalized = (source || '').trim().toLowerCase();
+  if (normalized === 'open_meteo') return 'Open-Meteo';
+  if (normalized === 'nws') return 'NOAA NWS';
+  if (normalized === 'mixed') return 'NOAA NWS + Open-Meteo';
+  if (normalized === 'none') return 'None (geometry only)';
+  return source || 'Unknown';
+}

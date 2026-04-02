@@ -94,7 +94,7 @@ async function verifyQueryReuse() {
         mode: 'public',
         effectiveTierSource: 'free',
         adminAccessOverride: null,
-        refreshIntervalSeconds: 900,
+        refreshIntervalSeconds: 7200,
         capabilities: {
           canUseSavedItems: false,
           canUseLaunchFilters: true,
@@ -146,7 +146,7 @@ async function verifyQueryReuse() {
         mode: 'public',
         effectiveTierSource: 'free',
         adminAccessOverride: null,
-        refreshIntervalSeconds: 900,
+        refreshIntervalSeconds: 7200,
         capabilities: {
           canUseSavedItems: false,
           canUseLaunchFilters: true,
@@ -194,7 +194,7 @@ async function verifyQueryReuse() {
           nextCursor: null,
           hasMore: false,
           freshness: 'public-cache-db',
-          intervalMinutes: 15
+          intervalMinutes: 120
         }),
         { scope: 'public' }
       )
@@ -220,16 +220,12 @@ async function verifyQueryReuse() {
         count('notificationPreferences', {
           pushEnabled: false,
           emailEnabled: false,
-          smsEnabled: false,
           launchDayEmailEnabled: false,
           launchDayEmailProviders: [],
           launchDayEmailStates: [],
           quietHoursEnabled: false,
           quietStartLocal: null,
-          quietEndLocal: null,
-          smsVerified: false,
-          smsPhone: null,
-          smsSystemEnabled: false
+          quietEndLocal: null
         })
       )
     ),

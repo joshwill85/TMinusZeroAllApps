@@ -51,6 +51,15 @@ export type JepScenarioWindow = {
   label: string;
 };
 
+export type JepSolarWindowRange = {
+  netDeg: number | null;
+  windowStartDeg: number | null;
+  windowEndDeg: number | null;
+  minDeg: number | null;
+  maxDeg: number | null;
+  crossesTwilightSweetSpot: boolean;
+};
+
 export type JepReadinessReason =
   | 'public_release_disabled'
   | 'validation_incomplete'
@@ -181,6 +190,7 @@ export type LaunchJepScore = {
     personalized: boolean;
     usingPadFallback: boolean;
   };
+  solarWindowRange: JepSolarWindowRange | null;
   bestWindow: JepBestWindow | null;
   directionBand: JepDirectionBand | null;
   elevationBand: JepElevationBand | null;

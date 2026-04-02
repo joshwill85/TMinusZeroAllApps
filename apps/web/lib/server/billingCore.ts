@@ -20,6 +20,7 @@ import type {
 } from '@tminuszero/contracts';
 import { PRICE_PRO_MONTHLY } from '@/lib/api/stripe';
 import { normalizeSubscriptionStatus } from '@/lib/billing/shared';
+import { loadBillingCatalogOffers } from '@/lib/server/discountCampaigns';
 import {
   getAppleAppStoreAppId,
   getGooglePlayNotificationAudience,
@@ -273,7 +274,15 @@ async function loadProviderRecord(userId: string) {
   return entitlement;
 }
 
-function buildCatalogProduct(platform: BillingPlatformV1, config: BillingProductConfig): BillingCatalogProductV1 {
+function buildCatalogProduct({
+  platform,
+  config,
+  offers
+}: {
+  platform: BillingPlatformV1;
+  config: BillingProductConfig;
+  offers: BillingCatalogProductV1['offers'];
+}): BillingCatalogProductV1 {
   if (platform === 'web') {
     return {
       productKey: config.productKey,
@@ -283,7 +292,8 @@ function buildCatalogProduct(platform: BillingPlatformV1, config: BillingProduct
       displayName: config.displayName,
       priceLabel: config.priceLabel,
       providerProductId: config.stripePriceId,
-      stripePriceId: config.stripePriceId
+      stripePriceId: config.stripePriceId,
+      offers
     };
   }
 
@@ -295,20 +305,24 @@ function buildCatalogProduct(platform: BillingPlatformV1, config: BillingProduct
       available: Boolean(isAppleBillingConfigured() && config.appleProductId),
       displayName: config.displayName,
       priceLabel: config.priceLabel,
-      providerProductId: config.appleProductId
+      providerProductId: config.appleProductId,
+      offers
     };
   }
+
+  const projectedGoogleOfferToken = offers.find((offer) => offer.provider === 'google_play' && offer.offerToken)?.offerToken ?? null;
 
   return {
     productKey: config.productKey,
     platform,
     provider: 'google_play',
     available: Boolean(isGoogleBillingConfigured() && config.googleProductId),
-    displayName: config.displayName,
-    priceLabel: config.priceLabel,
-    providerProductId: config.googleProductId,
-    googleBasePlanId: config.googleBasePlanId,
-    googleOfferToken: config.googleOfferToken
+      displayName: config.displayName,
+      priceLabel: config.priceLabel,
+      providerProductId: config.googleProductId,
+      googleBasePlanId: config.googleBasePlanId,
+    googleOfferToken: projectedGoogleOfferToken ?? config.googleOfferToken,
+    offers
   };
 }
 
@@ -495,12 +509,31 @@ export async function loadBillingSummary(session: ResolvedViewerSession, request
   });
 }
 
-export function loadBillingCatalog(platform: BillingPlatformV1): BillingCatalogV1 {
+export async function loadBillingCatalog({
+  platform,
+  userId,
+  email
+}: {
+  platform: BillingPlatformV1;
+  userId?: string | null;
+  email?: string | null;
+}): Promise<BillingCatalogV1> {
   const config = getBillingProductConfig();
+  const offers = await loadBillingCatalogOffers({
+    platform,
+    userId,
+    email
+  });
   return {
     platform,
     generatedAt: new Date().toISOString(),
-    products: [buildCatalogProduct(platform, config)]
+    products: [
+      buildCatalogProduct({
+        platform,
+        config,
+        offers
+      })
+    ]
   };
 }
 

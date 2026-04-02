@@ -1,45 +1,53 @@
+import { normalizeEnvText, normalizeEnvUrl } from '@/lib/env/normalize';
+
 function isPlaceholder(value: string | undefined, placeholders: string[]) {
-  if (!value) return true;
-  const trimmed = value.trim();
+  const trimmed = normalizeEnvText(value);
   if (!trimmed) return true;
   return placeholders.some((p) => trimmed === p || trimmed.includes(p));
 }
 
 function parseCsvSecretList(value: string | undefined) {
-  return String(value || '')
+  return String(normalizeEnvText(value) || '')
     .split(',')
     .map((entry) => entry.trim())
     .filter(Boolean);
 }
 
 function readConfiguredValue(value: string | undefined, placeholders: string[]) {
-  return isPlaceholder(value, placeholders) ? null : value?.trim() || null;
+  const normalized = normalizeEnvText(value);
+  return isPlaceholder(normalized ?? undefined, placeholders) ? null : normalized;
+}
+
+function parseBooleanEnv(value: string | undefined) {
+  const normalized = normalizeEnvText(value)?.toLowerCase();
+  if (!normalized) return false;
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 }
 
 export function getSiteUrl() {
-  const explicit = process.env.NEXT_PUBLIC_SITE_URL?.trim();
-  if (explicit) return explicit.replace(/\/+$/, '');
+  const explicit = normalizeEnvUrl(process.env.NEXT_PUBLIC_SITE_URL);
+  if (explicit) return explicit;
 
-  const vercelUrl = process.env.VERCEL_URL?.trim();
-  if (vercelUrl) return `https://${vercelUrl.replace(/\/+$/, '')}`;
+  const vercelUrl = normalizeEnvUrl(process.env.VERCEL_URL);
+  if (vercelUrl) return `https://${vercelUrl}`;
 
   return 'http://localhost:3000';
 }
 
 export function getOgImageVersion() {
-  const explicit = process.env.NEXT_PUBLIC_OG_IMAGE_VERSION?.trim();
+  const explicit = normalizeEnvText(process.env.NEXT_PUBLIC_OG_IMAGE_VERSION);
   if (explicit) return explicit;
-  const deploymentId = process.env.VERCEL_DEPLOYMENT_ID?.trim();
+  const deploymentId = normalizeEnvText(process.env.VERCEL_DEPLOYMENT_ID);
   if (deploymentId) return deploymentId;
-  const commitSha = process.env.VERCEL_GIT_COMMIT_SHA?.trim();
+  const commitSha = normalizeEnvText(process.env.VERCEL_GIT_COMMIT_SHA);
   if (commitSha) return commitSha.slice(0, 12);
   return '2026-01-08-2';
 }
 
 export function getGoogleSiteVerification() {
-  const direct = process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION?.trim();
+  const direct = normalizeEnvText(process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION);
   if (direct) return direct;
-  const serverOnly = process.env.GOOGLE_SITE_VERIFICATION?.trim();
+  const serverOnly = normalizeEnvText(process.env.GOOGLE_SITE_VERIFICATION);
   if (serverOnly) return serverOnly;
   return null;
 }
@@ -47,7 +55,13 @@ export function getGoogleSiteVerification() {
 export function getGoogleMapsStaticApiKey() {
   const key = process.env.GOOGLE_MAPS_STATIC_API_KEY;
   if (isPlaceholder(key, ['GOOGLE_MAPS_STATIC_API_KEY', 'google_maps_static_api_key'])) return null;
-  return key?.trim() || null;
+  return normalizeEnvText(key);
+}
+
+export function getGoogleMapsWebApiKey() {
+  const key = process.env.GOOGLE_MAPS_WEB_API_KEY;
+  if (isPlaceholder(key, ['GOOGLE_MAPS_WEB_API_KEY', 'google_maps_web_api_key'])) return null;
+  return normalizeEnvText(key);
 }
 
 export function getInternalBlueOriginRevalidateTokens() {
@@ -78,6 +92,10 @@ export function isSupabaseAdminConfigured() {
     !isPlaceholder(url, ['your-supabase-url.supabase.co', 'https://your-supabase-url.supabase.co']) &&
     !isPlaceholder(serviceRole, ['SUPABASE_SERVICE_ROLE_KEY', 'service_role_key', 'service_role_placeholder'])
   );
+}
+
+export function isJepPublicVisibilityForced() {
+  return parseBooleanEnv(process.env.JEP_FORCE_PUBLIC_VISIBLE);
 }
 
 export function isStripeConfigured() {

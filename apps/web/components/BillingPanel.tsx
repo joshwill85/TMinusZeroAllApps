@@ -6,6 +6,7 @@ import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-
 import { isPaidSubscriptionStatus, normalizeSubscriptionStatus } from '@/lib/billing/shared';
 import { WebBillingAdapterError } from '@/lib/api/webBillingAdapters';
 import {
+  useBillingCatalogQuery,
   useBillingSummaryQuery,
   useCancelBillingSubscriptionMutation,
   useOpenBillingPortalMutation,
@@ -64,6 +65,7 @@ function readCheckoutParam() {
 export function BillingPanel() {
   const viewerSessionQuery = useViewerSessionQuery();
   const billingSummaryQuery = useBillingSummaryQuery();
+  const billingCatalogQuery = useBillingCatalogQuery('web');
   const startBillingCheckoutMutation = useStartBillingCheckoutMutation();
   const openBillingPortalMutation = useOpenBillingPortalMutation();
   const startBillingSetupIntentMutation = useStartBillingSetupIntentMutation();
@@ -103,16 +105,22 @@ export function BillingPanel() {
   const renewalLabel = currentPeriodEnd ? formatDate(currentPeriodEnd) : 'Next period end';
   const isExternalProvider = provider === 'apple_app_store' || provider === 'google_play';
   const canManageStripeBilling = summary?.managementMode === 'stripe_portal';
+  const webOffers = (billingCatalogQuery.data?.products[0]?.offers ?? []).filter(
+    (offer) => offer.provider === 'stripe' && Boolean(offer.promotionCode)
+  );
 
   async function refreshBilling() {
     await billingSummaryQuery.refetch();
   }
 
-  const startCheckout = async () => {
+  const startCheckout = async (promotionCode?: string | null) => {
     setBusyAction('checkout');
     setNotice(null);
     try {
-      const payload = await startBillingCheckoutMutation.mutateAsync('/account');
+      const payload = await startBillingCheckoutMutation.mutateAsync({
+        returnTo: '/account',
+        promotionCode: promotionCode ?? undefined
+      });
       if (!payload?.url) {
         throw new Error('checkout_failed');
       }
@@ -283,10 +291,38 @@ export function BillingPanel() {
             <div className="space-y-2">
               <div className="text-xs text-text3">Signing in keeps account ownership and billing access. Premium unlocks live data, alerts, and saved tools.</div>
               <div className="flex flex-wrap gap-2">
-                <button className="btn rounded-lg px-3 py-2 text-xs" onClick={startCheckout} disabled={busyAction === 'checkout'}>
+                <button
+                  className="btn rounded-lg px-3 py-2 text-xs"
+                  onClick={() => void startCheckout(webOffers.length === 1 ? webOffers[0]?.promotionCode ?? null : null)}
+                  disabled={busyAction === 'checkout'}
+                >
                   {busyAction === 'checkout' ? 'Starting…' : 'Upgrade to Premium'}
                 </button>
+                {webOffers.map((offer) => (
+                  <button
+                    key={offer.offerKey}
+                    className="btn-secondary rounded-lg px-3 py-2 text-xs"
+                    onClick={() => void startCheckout(offer.promotionCode)}
+                    disabled={busyAction === 'checkout'}
+                  >
+                    {busyAction === 'checkout' ? 'Starting…' : `Use ${offer.promotionCode}`}
+                  </button>
+                ))}
               </div>
+              {webOffers.length > 0 ? (
+                <div className="rounded-lg border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-2 text-xs text-text2">
+                  <div className="text-text1">Active web offers</div>
+                  <div className="mt-1 space-y-1">
+                    {webOffers.map((offer) => (
+                      <div key={offer.offerKey}>
+                        <span>{offer.label}</span>
+                        {offer.eligibilityHint ? <span className="text-text3"> · {offer.eligibilityHint}</span> : null}
+                        {offer.promotionCode ? <span className="font-mono text-text3"> · {offer.promotionCode}</span> : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
           )}
 

@@ -44,7 +44,6 @@
         "npm:three@0.182",
         "npm:ts-node@^10.9.2",
         "npm:tsconfig-paths@^4.2.0",
-        "npm:twilio@^5.11.1",
         "npm:typescript@5.9.3",
         "npm:zod@^3.22.4"
       ]

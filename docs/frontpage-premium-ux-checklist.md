@@ -13,7 +13,7 @@ Goal: make Premium value obvious without degrading the Free experience (no popup
 ## Guardrails (non‑negotiable)
 
 - No auto popups. All prompts are inline, lightweight, and dismissible with TTL.
-- Avoid “SMS/text” marketing language until A2P/10DLC is fully approved. New upsell surfaces should describe alerts as **email + browser notifications**.
+- Avoid retired alert-channel marketing language. New upsell surfaces should describe alerts as **native mobile push notifications**.
 - Weather positioning: **NWS forecast is available to everyone** when available; Premium adds **enhanced forecast insights (select launches)**. Do not market the provider name.
 - No new tracking pixels or third‑party calls for these prompts. Local persistence is via `localStorage` only.
 
@@ -77,7 +77,7 @@ Goal: make Premium value obvious without degrading the Free experience (no popup
 - **Who sees it**: anon + free (not premium), on the next upcoming launch only
 - **What it does**
   - Temporarily labels the alerts bell as “Alerts” to reduce icon ambiguity and prompt setup.
-  - Click opens the existing alerts panel. New copy avoids SMS language.
+  - Click opens the existing alerts panel. New copy uses native push language.
 - **Persistence**
   - Dismissed on click with TTL (`HOME_UPSELL_KEYS.alertsNudgeDismissedAt`, 7 days).
 
@@ -94,7 +94,7 @@ Goal: make Premium value obvious without degrading the Free experience (no popup
 - **Who sees it**: triggered by free users’ “try it” actions (and optionally anon flows)
 - **What it does**
   - Uses `featureLabel` to contextualize “why Premium” without shouting.
-  - Copy intentionally describes alerts as **email + browser notifications** (no SMS marketing).
+  - Copy intentionally describes alerts as **native mobile push notifications**.
 
 ### 9) Premium entry in DockingBay manifest (always discoverable, not pushy)
 
@@ -128,4 +128,4 @@ Goal: make Premium value obvious without degrading the Free experience (no popup
 - As **anon** on `/`: confirm only Data freshness + sign-in banner + DockingBay Premium link (no heavy upsell stack).
 - As **free** on `/`: confirm unlocks card, why-premium card behavior, recently-changed teaser, locked controls, alerts nudge.
 - As **premium** on `/`: confirm no upgrade prompts, live mode text, and premium-only controls are enabled.
-- Confirm new upsell surfaces do **not** say “SMS/text” and do **not** mention the enhanced forecast provider name.
+- Confirm new upsell surfaces use push-only language and do **not** mention the enhanced forecast provider name.

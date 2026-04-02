@@ -1407,6 +1407,7 @@ export const launchFeedSchemaV1 = z.object({
 });
 
 const launchRefreshScopeSchemaV1 = z.enum(['public', 'live']);
+const launchRefreshCadenceReasonSchemaV1 = z.enum(['default', 'site_hot_window']);
 
 export const launchFeedVersionSchemaV1 = z.object({
   scope: launchRefreshScopeSchemaV1,
@@ -1414,7 +1415,10 @@ export const launchFeedVersionSchemaV1 = z.object({
   intervalSeconds: z.number().int().nonnegative(),
   matchCount: z.number().int().nonnegative(),
   updatedAt: z.string().nullable(),
-  version: z.string()
+  version: z.string(),
+  recommendedIntervalSeconds: z.number().int().nonnegative().optional(),
+  cadenceReason: launchRefreshCadenceReasonSchemaV1.optional(),
+  cadenceAnchorNet: z.string().nullable().optional()
 });
 
 const changedLaunchEntrySchemaV1 = z.object({
@@ -1869,24 +1873,18 @@ export const padDetailSchemaV1 = coreEntityDetailBaseSchemaV1.extend({
 export const notificationPreferencesSchemaV1 = z.object({
   pushEnabled: z.boolean(),
   emailEnabled: z.boolean(),
-  smsEnabled: z.boolean(),
   launchDayEmailEnabled: z.boolean(),
   launchDayEmailProviders: z.array(z.string()),
   launchDayEmailStates: z.array(z.string()),
   quietHoursEnabled: z.boolean(),
   quietStartLocal: z.string().nullable(),
-  quietEndLocal: z.string().nullable(),
-  smsVerified: z.boolean(),
-  smsPhone: z.string().nullable(),
-  smsSystemEnabled: z.boolean().nullable()
+  quietEndLocal: z.string().nullable()
 });
 
 export const notificationPreferencesUpdateSchemaV1 = z
   .object({
     pushEnabled: z.boolean().optional(),
     emailEnabled: z.boolean().optional(),
-    smsEnabled: z.boolean().optional(),
-    smsConsent: z.boolean().optional(),
     launchDayEmailEnabled: z.boolean().optional(),
     launchDayEmailProviders: z.array(z.string().trim().min(1).max(120)).max(80).optional(),
     launchDayEmailStates: z.array(z.string().trim().min(1).max(40)).max(80).optional(),
@@ -1954,6 +1952,33 @@ export const billingSummarySchemaV1 = z.object({
   providerProductId: z.string().nullable()
 });
 
+export const billingCatalogOfferArtifactKindSchemaV1 = z.enum([
+  'stripe_coupon',
+  'stripe_promotion_code',
+  'apple_offer_code',
+  'apple_promotional_offer',
+  'apple_win_back_offer',
+  'google_offer',
+  'google_promo_code'
+]);
+
+export const billingCatalogOfferSchemaV1 = z.object({
+  offerKey: z.string(),
+  provider: z.enum(['stripe', 'apple_app_store', 'google_play']),
+  artifactKind: billingCatalogOfferArtifactKindSchemaV1,
+  label: z.string(),
+  eligibilityHint: z.string().nullable().optional(),
+  startsAt: z.string().nullable().optional(),
+  endsAt: z.string().nullable().optional(),
+  isCodeBased: z.boolean(),
+  offerIdentifier: z.string().nullable().optional(),
+  redemptionUrl: z.string().url().nullable().optional(),
+  basePlanId: z.string().nullable().optional(),
+  offerId: z.string().nullable().optional(),
+  offerToken: z.string().nullable().optional(),
+  promotionCode: z.string().nullable().optional()
+});
+
 export const billingCatalogProductSchemaV1 = z.object({
   productKey: billingProductKeySchemaV1,
   platform: billingPlatformSchemaV1,
@@ -1964,7 +1989,8 @@ export const billingCatalogProductSchemaV1 = z.object({
   providerProductId: z.string().nullable(),
   stripePriceId: z.string().nullable().optional(),
   googleBasePlanId: z.string().nullable().optional(),
-  googleOfferToken: z.string().nullable().optional()
+  googleOfferToken: z.string().nullable().optional(),
+  offers: z.array(billingCatalogOfferSchemaV1).default([])
 });
 
 export const billingCatalogSchemaV1 = z.object({
@@ -2041,23 +2067,6 @@ export const premiumClaimAttachResponseSchemaV1 = z
   })
   .strict();
 
-export const smsVerificationRequestSchemaV1 = z.object({
-  phone: z.string().trim().min(1),
-  smsConsent: z.boolean().optional()
-});
-
-export const smsVerificationCheckSchemaV1 = z.object({
-  phone: z.string().trim().min(1),
-  code: z
-    .string()
-    .trim()
-    .regex(/^\d{4,10}$/)
-});
-
-export const smsVerificationStatusSchemaV1 = z.object({
-  status: z.enum(['sent', 'verified'])
-});
-
 export const launchFilterValueSchemaV1 = z
   .object({
     range: z.enum(['today', '7d', 'month', 'year', 'past', 'all']).optional(),
@@ -2117,8 +2126,8 @@ export const mobilePushOwnerKindSchemaV1 = z.enum(['guest', 'user']);
 export const mobilePushScopeKindSchemaV1 = z.enum(['all_us', 'state', 'launch', 'all_launches', 'preset', 'follow']);
 export const mobilePushStatusChangeTypeSchemaV1 = z.enum(['any', 'go', 'hold', 'scrubbed', 'tbd']);
 export const notificationOwnerKindSchemaV2 = z.enum(['guest', 'user']);
-export const notificationChannelSchemaV2 = z.enum(['push', 'email', 'sms']);
-export const notificationDeliveryKindSchemaV2 = z.enum(['web_push', 'mobile_push', 'email', 'sms']);
+export const notificationChannelSchemaV2 = z.enum(['push', 'email']);
+export const notificationDeliveryKindSchemaV2 = z.enum(['web_push', 'mobile_push', 'email']);
 export const notificationRuleIntentSchemaV2 = z.enum(['follow', 'notifications_only']);
 export const notificationScopeKindSchemaV2 = z.enum([
   'launch',
@@ -2339,8 +2348,6 @@ export const notificationCapabilitiesSchemaV2 = z.object({
 export const notificationPreferencesSchemaV2 = z.object({
   pushEnabled: z.boolean(),
   emailEnabled: z.boolean(),
-  smsEnabled: z.boolean(),
-  smsVerified: z.boolean(),
   quietHoursEnabled: z.boolean(),
   quietStartLocal: z.string().nullable(),
   quietEndLocal: z.string().nullable(),
@@ -2599,7 +2606,6 @@ export const accountExportSchemaV1 = z
       .passthrough(),
     profile: z.record(z.unknown()).nullable(),
     notification_preferences: z.record(z.unknown()).nullable(),
-    sms_consent_events: z.array(z.record(z.unknown())).default([]),
     privacy_preferences: z.record(z.unknown()).nullable(),
     launch_notification_preferences: z.array(z.record(z.unknown())).default([]),
     notification_alert_rules: z.array(z.record(z.unknown())).default([]),
@@ -2837,7 +2843,7 @@ export const embedWidgetEnvelopeSchemaV1 = z.object({
 
 export const launchNotificationPreferenceSchemaV1 = z.object({
   launchId: z.string().uuid(),
-  channel: z.enum(['sms', 'push']),
+  channel: z.literal('push'),
   mode: z.enum(['t_minus', 'local_time']),
   timezone: z.string(),
   tMinusMinutes: z.array(z.number().int()),
@@ -2847,7 +2853,6 @@ export const launchNotificationPreferenceSchemaV1 = z.object({
 });
 
 export const launchNotificationPreferenceUpdateSchemaV1 = z.object({
-  channel: z.enum(['sms', 'push']).optional(),
   mode: z.enum(['t_minus', 'local_time']),
   timezone: z.string().trim().min(1).max(64).optional(),
   tMinusMinutes: z.array(z.number().int()).max(2).optional(),
@@ -2861,17 +2866,10 @@ export const pushChannelStatusSchemaV1 = z.object({
   subscribed: z.boolean()
 });
 
-export const smsChannelStatusSchemaV1 = z.object({
-  enabled: z.boolean(),
-  verified: z.boolean(),
-  systemEnabled: z.boolean().nullable().optional()
-});
-
 export const launchNotificationPreferenceEnvelopeSchemaV1 = z.object({
   preference: launchNotificationPreferenceSchemaV1,
   enabled: z.boolean(),
-  pushStatus: pushChannelStatusSchemaV1.optional(),
-  smsStatus: smsChannelStatusSchemaV1.optional()
+  pushStatus: pushChannelStatusSchemaV1.optional()
 });
 
 export const alertRuleKindSchemaV1 = z.enum(['region_us', 'state', 'filter_preset', 'follow']);
@@ -3047,6 +3045,47 @@ const launchFaaAirspaceAdvisorySchemaV1 = z.object({
   matchMeta: z.record(z.unknown()).nullable()
 });
 
+const launchFaaAirspaceMapPointSchemaV1 = z.object({
+  latitude: z.number(),
+  longitude: z.number()
+});
+
+const launchFaaAirspaceMapBoundsSchemaV1 = z.object({
+  minLatitude: z.number(),
+  minLongitude: z.number(),
+  maxLatitude: z.number(),
+  maxLongitude: z.number()
+});
+
+const launchFaaAirspaceMapPolygonSchemaV1 = z.object({
+  polygonId: z.string(),
+  outerRing: z.array(launchFaaAirspaceMapPointSchemaV1),
+  holes: z.array(z.array(launchFaaAirspaceMapPointSchemaV1)).default([]),
+  bounds: launchFaaAirspaceMapBoundsSchemaV1.nullable().default(null)
+});
+
+const launchFaaAirspaceMapPadSchemaV1 = z.object({
+  latitude: z.number().nullable(),
+  longitude: z.number().nullable(),
+  label: z.string().nullable(),
+  shortCode: z.string().nullable(),
+  locationName: z.string().nullable()
+});
+
+export const launchFaaAirspaceMapSchemaV1 = z.object({
+  launchId: z.string(),
+  generatedAt: z.string(),
+  advisoryCount: z.number().int().nonnegative(),
+  hasRenderableGeometry: z.boolean(),
+  pad: launchFaaAirspaceMapPadSchemaV1,
+  bounds: launchFaaAirspaceMapBoundsSchemaV1.nullable(),
+  advisories: z.array(
+    launchFaaAirspaceAdvisorySchemaV1.extend({
+      polygons: z.array(launchFaaAirspaceMapPolygonSchemaV1).default([])
+    })
+  )
+});
+
 export const launchDetailEnrichmentSchemaV1 = z.object({
   firstStageCount: z.number().int().nonnegative(),
   recoveryCount: z.number().int().nonnegative(),
@@ -3139,8 +3178,147 @@ export const launchDetailVersionSchemaV1 = z.object({
   tier: z.enum(['anon', 'premium']),
   intervalSeconds: z.number().int().nonnegative(),
   updatedAt: z.string().nullable(),
-  version: z.string()
+  version: z.string(),
+  recommendedIntervalSeconds: z.number().int().nonnegative().optional(),
+  cadenceReason: launchRefreshCadenceReasonSchemaV1.optional(),
+  cadenceAnchorNet: z.string().nullable().optional()
 });
+
+const jepCalibrationBandSchemaV1 = z.enum(['VERY_LOW', 'LOW', 'MEDIUM', 'HIGH', 'VERY_HIGH', 'UNKNOWN']);
+const jepWeatherMainBlockerSchemaV1 = z.enum([
+  'observer_low_ceiling',
+  'observer_sky_cover',
+  'path_low_ceiling',
+  'path_sky_cover',
+  'observer_low_clouds',
+  'observer_mid_clouds',
+  'observer_high_clouds',
+  'mixed',
+  'unknown'
+]);
+
+const jepReadinessSchemaV1 = z
+  .object({
+    publicVisible: z.boolean(),
+    probabilityReady: z.boolean(),
+    probabilityPublicEligible: z.boolean(),
+    reasons: z.array(z.string()).default([])
+  })
+  .passthrough();
+
+const jepFactorsSchemaV1 = z.object({
+  illumination: z.number(),
+  darkness: z.number(),
+  lineOfSight: z.number(),
+  weather: z.number(),
+  solarDepressionDeg: z.number().nullable(),
+  cloudCoverPct: z.number().nullable(),
+  cloudCoverLowPct: z.number().nullable(),
+  cloudCoverMidPct: z.number().nullable(),
+  cloudCoverHighPct: z.number().nullable()
+});
+
+const jepWeatherPointSummarySchemaV1 = z
+  .object({
+    note: z.string().nullable().optional()
+  })
+  .passthrough();
+
+const jepWeatherPathSummarySchemaV1 = z
+  .object({
+    note: z.string().nullable().optional()
+  })
+  .passthrough();
+
+const jepWeatherDetailsSchemaV1 = z
+  .object({
+    sourceUsed: z.string().nullable().optional(),
+    mainBlocker: jepWeatherMainBlockerSchemaV1,
+    observer: jepWeatherPointSummarySchemaV1.nullable().optional(),
+    alongPath: jepWeatherPathSummarySchemaV1.nullable().optional()
+  })
+  .passthrough();
+
+const jepSolarWindowRangeSchemaV1 = z.object({
+  netDeg: z.number().nullable(),
+  windowStartDeg: z.number().nullable(),
+  windowEndDeg: z.number().nullable(),
+  minDeg: z.number().nullable(),
+  maxDeg: z.number().nullable(),
+  crossesTwilightSweetSpot: z.boolean()
+});
+
+const jepBestWindowSchemaV1 = z.object({
+  startTPlusSec: z.number(),
+  endTPlusSec: z.number(),
+  label: z.string(),
+  reason: z.string()
+});
+
+const jepDirectionBandSchemaV1 = z.object({
+  fromAzDeg: z.number(),
+  toAzDeg: z.number(),
+  label: z.string()
+});
+
+const jepElevationBandSchemaV1 = z.object({
+  minDeg: z.number(),
+  maxDeg: z.number(),
+  label: z.string()
+});
+
+const jepScenarioWindowSchemaV1 = z.object({
+  offsetMinutes: z.number(),
+  score: z.number(),
+  delta: z.number(),
+  trend: z.enum(['better', 'similar', 'worse']),
+  label: z.string()
+});
+
+export const launchJepScoreSchemaV1 = z
+  .object({
+    launchId: z.string(),
+    mode: z.enum(['watchability', 'probability']),
+    readiness: jepReadinessSchemaV1,
+    score: z.number(),
+    probability: z.number(),
+    calibrationBand: jepCalibrationBandSchemaV1,
+    modelVersion: z.string(),
+    computedAt: z.string().nullable(),
+    expiresAt: z.string().nullable(),
+    isStale: z.boolean(),
+    isSnapshot: z.boolean(),
+    snapshotAt: z.string().nullable(),
+    sunlitMarginKm: z.number().nullable(),
+    losVisibleFraction: z.number().nullable(),
+    weatherFreshnessMinutes: z.number().int().nonnegative().nullable().optional(),
+    factors: jepFactorsSchemaV1,
+    source: z
+      .object({
+        weather: z.string().nullable(),
+        azimuth: z.string().nullable().optional(),
+        geometryOnlyFallback: z.boolean()
+      })
+      .passthrough(),
+    weatherDetails: jepWeatherDetailsSchemaV1.nullable(),
+    observer: z
+      .object({
+        locationHash: z.string(),
+        latBucket: z.number().nullable().optional(),
+        lonBucket: z.number().nullable().optional(),
+        personalized: z.boolean(),
+        usingPadFallback: z.boolean()
+      })
+      .passthrough(),
+    solarWindowRange: jepSolarWindowRangeSchemaV1.nullable(),
+    bestWindow: jepBestWindowSchemaV1.nullable(),
+    directionBand: jepDirectionBandSchemaV1.nullable(),
+    elevationBand: jepElevationBandSchemaV1.nullable(),
+    scenarioWindows: z.array(jepScenarioWindowSchemaV1).default([])
+  })
+  .passthrough();
+
+export type LaunchJepScoreV1 = z.infer<typeof launchJepScoreSchemaV1>;
 
 const trajectoryCovarianceSchemaV1 = z.object({
   alongTrackDeg: z.number(),
@@ -3263,6 +3441,9 @@ const arTelemetryWorldMappingStatusSchemaV1 = z.enum(['not_available', 'limited'
 const arTelemetryGeoTrackingStateSchemaV1 = z.enum(['not_available', 'initializing', 'localizing', 'localized']);
 const arTelemetryGeoTrackingAccuracySchemaV1 = z.enum(['unknown', 'low', 'medium', 'high']);
 const arTelemetryOcclusionModeSchemaV1 = z.enum(['none', 'scene_depth', 'mesh']);
+const arTelemetryPermissionStateSchemaV1 = z.enum(['granted', 'denied', 'prompt', 'error', 'not_applicable']);
+const arTelemetryLocationAccuracySchemaV1 = z.enum(['full', 'reduced', 'unknown']);
+const arTelemetryLocationFixStateSchemaV1 = z.enum(['unavailable', 'acquiring', 'timeout', 'coarse', 'ready']);
 
 export const arTelemetrySessionEventSchemaV1 = z.object({
   type: z.enum(['start', 'update', 'end']),
@@ -3294,10 +3475,15 @@ export const arTelemetrySessionEventSchemaV1 = z.object({
     clientProfile: z
       .enum(['android_chrome', 'android_samsung_internet', 'ios_webkit', 'android_fallback', 'desktop_debug', 'unknown'])
       .optional(),
+    releaseProfile: z.string().max(64).optional(),
     screenBucket: z.enum(['xs', 'sm', 'md', 'lg', 'unknown']).optional(),
 
     cameraStatus: z.enum(['granted', 'denied', 'prompt', 'error']).optional(),
-    motionStatus: z.enum(['granted', 'denied', 'prompt', 'error', 'not_applicable']).optional(),
+    motionStatus: arTelemetryPermissionStateSchemaV1.optional(),
+    locationPermission: arTelemetryPermissionStateSchemaV1.optional(),
+    locationAccuracy: arTelemetryLocationAccuracySchemaV1.optional(),
+    locationFixState: arTelemetryLocationFixStateSchemaV1.optional(),
+    alignmentReady: z.boolean().optional(),
     headingStatus: z.enum(['ok', 'unavailable', 'noisy', 'unknown']).optional(),
     headingSource: z
       .enum([
@@ -3344,6 +3530,7 @@ export const arTelemetrySessionEventSchemaV1 = z.object({
 
     renderLoopRunning: z.boolean().optional(),
     canvasHidden: z.boolean().optional(),
+    timeToUsableMs: z.number().int().nonnegative().max(6 * 60 * 60 * 1000).optional(),
     poseUpdateRateBucket: z.string().max(32).optional(),
     arLoopActiveMs: z.number().int().nonnegative().max(6 * 60 * 60 * 1000).optional(),
     skyCompassLoopActiveMs: z.number().int().nonnegative().max(6 * 60 * 60 * 1000).optional(),
@@ -3441,6 +3628,7 @@ export type ArTrajectorySummaryV1 = z.infer<typeof arTrajectorySummarySchemaV1>;
 export type LaunchDetailEnrichmentV1 = z.infer<typeof launchDetailEnrichmentSchemaV1>;
 export type LaunchDetailV1 = z.infer<typeof launchDetailSchemaV1>;
 export type LaunchDetailVersionV1 = z.infer<typeof launchDetailVersionSchemaV1>;
+export type LaunchFaaAirspaceMapV1 = z.infer<typeof launchFaaAirspaceMapSchemaV1>;
 export type TrajectoryPublicV2ResponseV1 = z.infer<typeof trajectoryPublicV2ResponseSchemaV1>;
 export type ArTelemetrySessionEventV1 = z.infer<typeof arTelemetrySessionEventSchemaV1>;
 export type SearchResponseV1 = z.infer<typeof searchResponseSchemaV1>;
@@ -3479,6 +3667,7 @@ export type BillingProductKeyV1 = z.infer<typeof billingProductKeySchemaV1>;
 export type BillingManagementModeV1 = z.infer<typeof billingManagementModeSchemaV1>;
 export type BillingSummaryV1 = z.infer<typeof billingSummarySchemaV1>;
 export type BillingCatalogProductV1 = z.infer<typeof billingCatalogProductSchemaV1>;
+export type BillingCatalogOfferV1 = z.infer<typeof billingCatalogOfferSchemaV1>;
 export type BillingCatalogV1 = z.infer<typeof billingCatalogSchemaV1>;
 export type AppleBillingSyncRequestV1 = z.infer<typeof appleBillingSyncRequestSchemaV1>;
 export type GoogleBillingSyncRequestV1 = z.infer<typeof googleBillingSyncRequestSchemaV1>;
@@ -3489,9 +3678,6 @@ export type PremiumClaimEnvelopeV1 = z.infer<typeof premiumClaimEnvelopeSchemaV1
 export type PremiumClaimPasswordSignUpV1 = z.infer<typeof premiumClaimPasswordSignUpSchemaV1>;
 export type PremiumClaimPasswordSignUpResponseV1 = z.infer<typeof premiumClaimPasswordSignUpResponseSchemaV1>;
 export type PremiumClaimAttachResponseV1 = z.infer<typeof premiumClaimAttachResponseSchemaV1>;
-export type SmsVerificationRequestV1 = z.infer<typeof smsVerificationRequestSchemaV1>;
-export type SmsVerificationCheckV1 = z.infer<typeof smsVerificationCheckSchemaV1>;
-export type SmsVerificationStatusV1 = z.infer<typeof smsVerificationStatusSchemaV1>;
 export type LaunchFilterValueV1 = z.infer<typeof launchFilterValueSchemaV1>;
 export type LaunchFilterOptionsV1 = z.infer<typeof launchFilterOptionsSchemaV1>;
 export type PushDeviceRegistrationV1 = z.infer<typeof pushDeviceRegistrationSchemaV1>;
@@ -3585,7 +3771,6 @@ export type EmbedWidgetEnvelopeV1 = z.infer<typeof embedWidgetEnvelopeSchemaV1>;
 export type LaunchNotificationPreferenceV1 = z.infer<typeof launchNotificationPreferenceSchemaV1>;
 export type LaunchNotificationPreferenceUpdateV1 = z.infer<typeof launchNotificationPreferenceUpdateSchemaV1>;
 export type PushChannelStatusV1 = z.infer<typeof pushChannelStatusSchemaV1>;
-export type SmsChannelStatusV1 = z.infer<typeof smsChannelStatusSchemaV1>;
 export type LaunchNotificationPreferenceEnvelopeV1 = z.infer<typeof launchNotificationPreferenceEnvelopeSchemaV1>;
 export type AlertRuleKindV1 = z.infer<typeof alertRuleKindSchemaV1>;
 export type AlertRuleV1 = z.infer<typeof alertRuleSchemaV1>;

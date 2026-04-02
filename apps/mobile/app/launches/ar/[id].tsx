@@ -2,9 +2,15 @@ import { startTransition, useEffect, useEffectEvent, useMemo, useRef, useState }
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
+import * as Device from 'expo-device';
 import { AppState, Linking, PermissionsAndroid, Platform, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { ArTelemetrySessionEventV1, TrajectoryPublicV2ResponseV1 } from '@tminuszero/contracts';
+import {
+  deriveArTelemetryTimeToUsableMs,
+  inferMobileArReleaseProfile,
+  isNativeArTelemetryUsable
+} from '@tminuszero/domain';
 import { EmptyStateCard, ErrorStateCard, LoadingStateCard, SectionCard } from '@/src/components/SectionCard';
 import { CollapsibleCard } from '@/src/components/launch/CollapsibleSection';
 import {
@@ -31,6 +37,13 @@ function getLaunchId(value: string | string[] | undefined) {
     return value[0] ?? '';
   }
   return value ?? '';
+}
+
+function getOptionalParam(value: string | string[] | undefined) {
+  if (Array.isArray(value)) {
+    return value[0] ?? undefined;
+  }
+  return value ?? undefined;
 }
 
 function createSessionId() {
@@ -239,6 +252,8 @@ function buildTelemetryEvent({
   launchId,
   runtimeFamily,
   startedAt,
+  releaseProfile,
+  timeToUsableMs,
   nativeUpdate,
   trajectory,
   endedAt
@@ -248,6 +263,8 @@ function buildTelemetryEvent({
   launchId: string;
   runtimeFamily: 'ios_native' | 'android_native';
   startedAt: string;
+  releaseProfile?: string | null;
+  timeToUsableMs?: number;
   nativeUpdate: TmzArTrajectorySessionUpdate;
   trajectory: TrajectoryPublicV2ResponseV1;
   endedAt?: string;
@@ -271,8 +288,13 @@ function buildTelemetryEvent({
       ...(endedAt ? { endedAt } : {}),
       ...(typeof durationMs === 'number' ? { durationMs } : {}),
       runtimeFamily,
+      releaseProfile: releaseProfile ?? undefined,
       cameraStatus,
       motionStatus,
+      locationPermission: normalizePermissionState(nativeUpdate.locationPermission, runtimeFamily === 'ios_native' ? 'prompt' : 'granted'),
+      locationAccuracy: nativeUpdate.locationAccuracy,
+      locationFixState: nativeUpdate.locationFixState,
+      alignmentReady: nativeUpdate.alignmentReady,
       headingStatus,
       headingSource,
       poseSource,
@@ -293,6 +315,7 @@ function buildTelemetryEvent({
       highResCaptureAttempted: nativeUpdate.highResCaptureAttempted,
       highResCaptureSucceeded: nativeUpdate.highResCaptureSucceeded,
       renderLoopRunning: nativeUpdate.renderLoopRunning,
+      ...(typeof timeToUsableMs === 'number' ? { timeToUsableMs } : {}),
       zoomSupported: nativeUpdate.zoomSupported,
       zoomRatioBucket: nativeUpdate.zoomRatioBucket ?? bucketZoomRatio(nativeUpdate.zoomRatio, nativeUpdate.zoomSupported),
       zoomControlPath: nativeUpdate.zoomControlPath,
@@ -316,8 +339,22 @@ export default function LaunchArTrajectoryScreen() {
   const insets = useSafeAreaInsets();
   const { theme } = useMobileBootstrap();
   const runtimeFamily: 'ios_native' | 'android_native' = Platform.OS === 'android' ? 'android_native' : 'ios_native';
-  const params = useLocalSearchParams<{ id?: string | string[] }>();
+  const params = useLocalSearchParams<{ id?: string | string[]; arReleaseProfile?: string | string[] }>();
   const launchId = getLaunchId(params.id);
+  const releaseProfileOverride = getOptionalParam(params.arReleaseProfile);
+  const releaseProfile = useMemo(
+    () =>
+      inferMobileArReleaseProfile({
+        runtimeFamily,
+        brand: Device.brand,
+        manufacturer: Device.manufacturer,
+        modelName: Device.modelName,
+        deviceYearClass: Device.deviceYearClass,
+        totalMemoryBytes: Device.totalMemory,
+        overrideProfile: releaseProfileOverride
+      }),
+    [releaseProfileOverride, runtimeFamily]
+  );
   const detailQuery = useLaunchDetailQuery(launchId);
   const entitlementsQuery = useViewerEntitlementsQuery();
   const telemetryMutation = useArTelemetrySessionMutation();
@@ -337,6 +374,7 @@ export default function LaunchArTrajectoryScreen() {
   const [androidLocationPermission, setAndroidLocationPermission] = useState<'prompt' | 'granted' | 'denied'>(
     Platform.OS === 'android' ? 'prompt' : 'granted'
   );
+  const sessionUsableAtMsRef = useRef<number | null>(null);
 
   const detail = detailQuery.data ?? null;
   const launch = detail?.launchData ?? detail?.launch ?? null;
@@ -413,6 +451,7 @@ export default function LaunchArTrajectoryScreen() {
     setNativeViewKey(0);
     sessionIdRef.current = null;
     sessionStartedAtRef.current = null;
+    sessionUsableAtMsRef.current = null;
     lastNativeUpdateRef.current = null;
     lastTelemetrySignatureRef.current = null;
     lastTelemetryUpdateAtRef.current = 0;
@@ -621,6 +660,7 @@ export default function LaunchArTrajectoryScreen() {
 
     const { sessionId, startedAt } = getOrCreateSession();
     const endedAt = type === 'end' ? new Date().toISOString() : undefined;
+    const timeToUsableMs = deriveArTelemetryTimeToUsableMs(startedAt, sessionUsableAtMsRef.current);
     telemetryMutation.mutate(
       buildTelemetryEvent({
         type,
@@ -628,6 +668,8 @@ export default function LaunchArTrajectoryScreen() {
         launchId,
         runtimeFamily,
         startedAt,
+        releaseProfile,
+        timeToUsableMs,
         nativeUpdate,
         trajectory,
         endedAt
@@ -692,6 +734,16 @@ export default function LaunchArTrajectoryScreen() {
 
   const handleNativeSessionUpdate = useEffectEvent((event: TmzArTrajectorySessionUpdateEvent) => {
     const update = event.nativeEvent;
+    if (sessionUsableAtMsRef.current == null && isNativeArTelemetryUsable({
+      runtimeFamily,
+      sessionRunning: update.sessionRunning,
+      status: update.status,
+      trackingState: update.trackingState,
+      locationFixState: update.locationFixState,
+      alignmentReady: update.alignmentReady
+    })) {
+      sessionUsableAtMsRef.current = Date.now();
+    }
     lastNativeUpdateRef.current = update;
     startTransition(() => {
       setLastNativeUpdate(update);

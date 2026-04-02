@@ -1,14 +1,17 @@
 import React from 'react';
 import { View, Text, ScrollView, Pressable, Linking } from 'react-native';
+import type { MobileTheme } from '@tminuszero/design-tokens';
 import type { LiveTabData } from '@tminuszero/launch-detail-ui';
+import { JepPanel } from '@/src/components/launch/JepPanel';
 
 type LiveTabProps = {
   data: LiveTabData;
-  theme: any;
+  theme: MobileTheme;
 };
 
 export function LiveTab({ data, theme }: LiveTabProps) {
   const hasContent =
+    data.hasJepScore ||
     data.watchLinks.length > 0 ||
     data.launchUpdates.length > 0 ||
     data.socialPosts.length > 0 ||
@@ -18,7 +21,7 @@ export function LiveTab({ data, theme }: LiveTabProps) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 60 }}>
         <Text style={{ fontSize: 48, marginBottom: 16 }}>🔴</Text>
-        <Text style={{ fontSize: 16, fontWeight: '600', color: theme.text, marginBottom: 8 }}>
+        <Text style={{ fontSize: 16, fontWeight: '600', color: theme.foreground, marginBottom: 8 }}>
           No Live Coverage Yet
         </Text>
         <Text style={{ fontSize: 14, color: theme.muted, textAlign: 'center', paddingHorizontal: 40 }}>
@@ -30,6 +33,8 @@ export function LiveTab({ data, theme }: LiveTabProps) {
 
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 24 }}>
+      <JepPanel launchId={data.launchId} hasJepScore={data.hasJepScore} theme={theme} />
+
       {/* Webcast Embed / Primary Watch Link */}
       {data.webcastEmbed.url && (
         <SectionCard theme={theme}>
@@ -59,7 +64,7 @@ export function LiveTab({ data, theme }: LiveTabProps) {
                 </Text>
               </View>
             )}
-            <Text style={{ fontSize: 16, fontWeight: '700', color: theme.text, flex: 1 }}>
+            <Text style={{ fontSize: 16, fontWeight: '700', color: theme.foreground, flex: 1 }}>
               {data.webcastEmbed.isLive ? 'Live Webcast' : 'Primary Stream'}
             </Text>
           </View>
@@ -101,7 +106,7 @@ export function LiveTab({ data, theme }: LiveTabProps) {
                 }}
               >
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 14, fontWeight: '600', color: theme.text }}>
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: theme.foreground }}>
                     {link.title || link.label}
                   </Text>
                   {link.meta && (
@@ -138,7 +143,7 @@ export function LiveTab({ data, theme }: LiveTabProps) {
                 <Text style={{ fontSize: 11, color: theme.muted, marginBottom: 4 }}>
                   {update.timestamp}
                 </Text>
-                <Text style={{ fontSize: 13, color: theme.text, fontWeight: '600' }}>
+                <Text style={{ fontSize: 13, color: theme.foreground, fontWeight: '600' }}>
                   {update.field}
                 </Text>
                 <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
@@ -183,7 +188,7 @@ export function LiveTab({ data, theme }: LiveTabProps) {
                   {post.platform === 'twitter' || post.platform === 'x' ? '𝕏' : '📱'}
                 </Text>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 13, color: theme.text }}>
+                  <Text style={{ fontSize: 13, color: theme.foreground }}>
                     View on {post.platform === 'x' ? 'X' : post.platform}
                   </Text>
                 </View>
@@ -226,28 +231,13 @@ export function LiveTab({ data, theme }: LiveTabProps) {
           </View>
         </SectionCard>
       )}
-
-      {/* JEP Score */}
-      {data.jepScore !== null && (
-        <SectionCard theme={theme}>
-          <SectionTitle theme={theme}>Launch Probability</SectionTitle>
-          <View style={{ alignItems: 'center', paddingVertical: 20 }}>
-            <Text style={{ fontSize: 48, fontWeight: '800', color: theme.accent }}>
-              {Math.round(data.jepScore * 100)}%
-            </Text>
-            <Text style={{ fontSize: 14, color: theme.muted, marginTop: 8 }}>
-              JEP Visibility Score
-            </Text>
-          </View>
-        </SectionCard>
-      )}
     </ScrollView>
   );
 }
 
 // Helper Components
 
-function SectionCard({ children, theme }: { children: React.ReactNode; theme: any }) {
+function SectionCard({ children, theme }: { children: React.ReactNode; theme: MobileTheme }) {
   return (
     <View
       style={{
@@ -263,13 +253,13 @@ function SectionCard({ children, theme }: { children: React.ReactNode; theme: an
   );
 }
 
-function SectionTitle({ children, theme }: { children: React.ReactNode; theme: any }) {
+function SectionTitle({ children, theme }: { children: React.ReactNode; theme: MobileTheme }) {
   return (
     <Text
       style={{
         fontSize: 16,
         fontWeight: '700',
-        color: theme.text,
+        color: theme.foreground,
         marginBottom: 16,
         textTransform: 'uppercase',
         letterSpacing: 0.5,

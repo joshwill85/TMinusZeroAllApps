@@ -14,9 +14,11 @@ import {
   countActiveLaunchFilters,
   formatLaunchFilterLocationOptionLabel,
   formatLaunchFilterStatusLabel,
-  getNextAlignedRefreshMs,
+  getNextAdaptiveLaunchRefreshMs,
+  getRecommendedLaunchRefreshIntervalSeconds,
   getVisibleFeedUpdatedAt,
   normalizeLaunchFilterValue,
+  PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS,
   shouldPrimeVersionRefresh,
   type LaunchFilterOptions,
   type LaunchFilterValue
@@ -75,6 +77,14 @@ type PendingFeedRefresh = {
   updatedAt: string | null;
 };
 
+type FeedNotice = {
+  tone: 'info' | 'warning';
+  message: string;
+  kind?: 'anon_refresh';
+  actionLabel?: string;
+  onAction?: () => void;
+};
+
 export default function FeedScreen() {
   const router = useRouter();
   const segments = useSegments();
@@ -104,7 +114,7 @@ export default function FeedScreen() {
   const [feedMode, setFeedMode] = useState<'for-you' | 'following'>('for-you');
   const [followBusy, setFollowBusy] = useState<Record<string, boolean>>({});
   const [didAttemptEnsureWatchlist, setDidAttemptEnsureWatchlist] = useState(false);
-  const [notice, setNotice] = useState<{ tone: 'info' | 'warning'; message: string } | null>(null);
+  const [notice, setNotice] = useState<FeedNotice | null>(null);
   const [pendingRefresh, setPendingRefresh] = useState<PendingFeedRefresh | null>(null);
   const [refreshApplying, setRefreshApplying] = useState(false);
   const [appStateStatus, setAppStateStatus] = useState(AppState.currentState);
@@ -121,8 +131,16 @@ export default function FeedScreen() {
   const canUseAllUsLaunchAlerts = entitlementsQuery.data?.capabilities.canUseAllUsLaunchAlerts ?? false;
   const watchlistRuleLimit = entitlementsQuery.data?.limits.watchlistRuleLimit ?? null;
   const singleLaunchFollowLimit = Math.max(1, entitlementsQuery.data?.limits.singleLaunchFollowLimit ?? 1);
-  const refreshIntervalMs = (entitlementsQuery.data?.refreshIntervalSeconds ?? 7200) * 1000;
   const feedScope = entitlementsQuery.data?.mode === 'live' ? 'live' : 'public';
+  const launchFeedQueryStaleTimeMs = (entitlementsQuery.data?.refreshIntervalSeconds ?? 7200) * 1000;
+  const fallbackRefreshIntervalSeconds =
+    feedScope === 'live' ? PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS : (entitlementsQuery.data?.refreshIntervalSeconds ?? 7200);
+  const [scheduledRefreshIntervalSeconds, setScheduledRefreshIntervalSeconds] = useState<number>(fallbackRefreshIntervalSeconds);
+  const [cadenceAnchorNet, setCadenceAnchorNet] = useState<string | null>(null);
+  const refreshIntervalSeconds = getRecommendedLaunchRefreshIntervalSeconds(
+    scheduledRefreshIntervalSeconds,
+    fallbackRefreshIntervalSeconds
+  );
   const isAuthed = entitlementsQuery.data?.isAuthed ?? Boolean(accessToken);
   const watchlists = useMemo(() => watchlistsQuery.data?.watchlists ?? [], [watchlistsQuery.data?.watchlists]);
   const primaryWatchlist = useMemo(() => resolvePrimaryWatchlist(watchlists), [watchlists]);
@@ -259,8 +277,9 @@ export default function FeedScreen() {
   const activeFilterCount = countActiveLaunchFilters(filters);
   const showsInternationalLaunches = (filters.region ?? DEFAULT_LAUNCH_FILTERS.region) !== 'us';
   const launchFeedQuery = useLaunchFeedQuery(feedRequest, {
-    staleTimeMs: refreshIntervalMs
+    staleTimeMs: launchFeedQueryStaleTimeMs
   });
+  const refetchLaunchFeed = launchFeedQuery.refetch;
   const launches = useMemo(() => launchFeedQuery.data?.pages.flatMap((page) => page.launches) ?? [], [launchFeedQuery.data?.pages]);
   const shouldHydratePublicSnapshot = feedRequest.scope === 'public';
   const feedSnapshotKey = useMemo(
@@ -334,12 +353,8 @@ export default function FeedScreen() {
     if (!pendingRefresh) {
       return null;
     }
-    return buildPendingFeedRefreshMessage({
-      matchCount: pendingRefresh.matchCount,
-      visibleCount: renderedLaunches.length,
-      canCompareCount: !launchFeedQuery.hasNextPage
-    });
-  }, [launchFeedQuery.hasNextPage, pendingRefresh, renderedLaunches.length]);
+    return buildPendingFeedRefreshMessage();
+  }, [pendingRefresh]);
   const canAutoRefreshFeed = canAutoRefreshActiveSurface({
     isFocused,
     appStateStatus,
@@ -364,6 +379,17 @@ export default function FeedScreen() {
     lastSeenVersionRef.current = null;
     setPendingRefresh(null);
   }, [feedMode, feedScope, filters, isFollowingFeed, primaryWatchlistId]);
+
+  useEffect(() => {
+    if (feedScope === 'live' && notice?.kind === 'anon_refresh') {
+      setNotice(null);
+    }
+  }, [feedScope, notice]);
+
+  useEffect(() => {
+    setScheduledRefreshIntervalSeconds(fallbackRefreshIntervalSeconds);
+    setCadenceAnchorNet(null);
+  }, [fallbackRefreshIntervalSeconds]);
 
   useEffect(() => {
     if (canUseLaunchFilters) return;
@@ -571,22 +597,44 @@ export default function FeedScreen() {
         throw error;
       }
 
+      setScheduledRefreshIntervalSeconds(
+        getRecommendedLaunchRefreshIntervalSeconds(payload.recommendedIntervalSeconds, fallbackRefreshIntervalSeconds)
+      );
+      setCadenceAnchorNet(typeof payload.cadenceAnchorNet === 'string' ? payload.cadenceAnchorNet : null);
+
       const nextVersion = payload.version;
       const visibleUpdatedAt = getVisibleFeedUpdatedAt(snapshot.launches, snapshot.feedScope);
-      if (!lastSeenVersionRef.current) {
+      const autoApplyPublicRefresh = async () => {
+        await refetchLaunchFeed();
         lastSeenVersionRef.current = nextVersion;
+        setPendingRefresh(null);
+        setNotice((current) => (current?.kind === 'anon_refresh' ? null : current));
+      };
+
+      if (!lastSeenVersionRef.current) {
         const shouldPrimePending = shouldPrimeVersionRefresh(payload.updatedAt, visibleUpdatedAt);
         if (shouldPrimePending) {
+          if (snapshot.feedScope === 'public') {
+            await autoApplyPublicRefresh();
+            return;
+          }
+          lastSeenVersionRef.current = nextVersion;
           setPendingRefresh({
             version: nextVersion,
             matchCount: payload.matchCount,
             updatedAt: payload.updatedAt
           });
+          return;
         }
+        lastSeenVersionRef.current = nextVersion;
         return;
       }
 
       if (nextVersion !== lastSeenVersionRef.current) {
+        if (snapshot.feedScope === 'public') {
+          await autoApplyPublicRefresh();
+          return;
+        }
         lastSeenVersionRef.current = nextVersion;
         setPendingRefresh({
           version: nextVersion,
@@ -604,7 +652,11 @@ export default function FeedScreen() {
         clearTimeout(timeout);
         timeout = null;
       }
-      const nextRefreshAt = getNextAlignedRefreshMs(Date.now(), refreshIntervalMs);
+      const nextRefreshAt = getNextAdaptiveLaunchRefreshMs({
+        nowMs: Date.now(),
+        intervalSeconds: refreshIntervalSeconds,
+        cadenceAnchorNet
+      });
       timeout = setTimeout(() => {
         void runVersionCheck().catch((error) => {
           console.error('mobile feed refresh check failed', error);
@@ -630,16 +682,48 @@ export default function FeedScreen() {
     launchFeedQuery.isFetchingNextPage,
     launchFeedQuery.isPending,
     queryClient,
+    refetchLaunchFeed,
     refreshApplying,
-    refreshIntervalMs
+    cadenceAnchorNet,
+    fallbackRefreshIntervalSeconds,
+    refreshIntervalSeconds
   ]);
 
   async function applyFeedRefresh() {
+    if (feedScope !== 'live') {
+      const nextRefreshAt = getNextAdaptiveLaunchRefreshMs({
+        nowMs: Date.now(),
+        intervalSeconds: refreshIntervalSeconds,
+        cadenceAnchorNet
+      });
+      setNotice({
+        tone: 'info',
+        kind: 'anon_refresh',
+        message: `Public launch data refreshes next around ${formatRefreshTimeLabel(nextRefreshAt)}.`,
+        actionLabel: 'Go Premium for near-live data',
+        onAction: openPremiumGate
+      });
+      return;
+    }
+
+    if (!pendingRefresh) {
+      const nextRefreshAt = getNextAdaptiveLaunchRefreshMs({
+        nowMs: Date.now(),
+        intervalSeconds: refreshIntervalSeconds,
+        cadenceAnchorNet
+      });
+      showToast({
+        message: `No newer live data yet. Next live check around ${formatRefreshTimeLabel(nextRefreshAt)}.`
+      });
+      return;
+    }
+
     setRefreshApplying(true);
     try {
-      await launchFeedQuery.refetch();
+      await refetchLaunchFeed();
       lastSeenVersionRef.current = pendingRefresh?.version ?? null;
       setPendingRefresh(null);
+      setNotice((current) => (current?.kind === 'anon_refresh' ? null : current));
     } catch (error) {
       setNotice({
         tone: 'warning',
@@ -1344,6 +1428,13 @@ export default function FeedScreen() {
           <Text style={{ color: notice.tone === 'warning' ? theme.foreground : theme.accent, fontSize: 14, lineHeight: 20 }}>
             {notice.message}
           </Text>
+          {notice.actionLabel && notice.onAction ? (
+            <Pressable onPress={notice.onAction} hitSlop={8} style={{ marginTop: 8, alignSelf: 'flex-start' }}>
+              <Text style={{ color: theme.foreground, fontSize: 13, fontWeight: '700', textDecorationLine: 'underline' }}>
+                {notice.actionLabel}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
 
@@ -1391,26 +1482,8 @@ export default function FeedScreen() {
             {pendingRefreshMessage}
           </Text>
           <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>
-            New feed data is available without interrupting the list you are reading.
+            Pull down and release to refresh this list.
           </Text>
-          <Pressable
-            onPress={() => {
-              void applyFeedRefresh();
-            }}
-            style={({ pressed }) => ({
-              alignSelf: 'flex-start',
-              borderRadius: 999,
-              backgroundColor: theme.accent,
-              paddingHorizontal: 16,
-              paddingVertical: 10,
-              opacity: pressed || refreshApplying ? 0.85 : 1
-            })}
-            disabled={refreshApplying}
-          >
-            <Text style={{ color: theme.background, fontSize: 13, fontWeight: '800' }}>
-              {refreshApplying ? 'Refreshing…' : 'Refresh'}
-            </Text>
-          </Pressable>
         </View>
       ) : null}
 
@@ -1745,6 +1818,17 @@ function ModeButton({
       <Text style={{ color: active ? theme.background : theme.foreground, fontSize: 12, fontWeight: '700' }}>{label}</Text>
     </Pressable>
   );
+}
+
+function formatRefreshTimeLabel(timestampMs: number) {
+  if (!Number.isFinite(timestampMs)) {
+    return 'the next scheduled refresh';
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit'
+  }).format(new Date(timestampMs));
 }
 
 function buildWatchlistRuleErrorMessage(error: unknown, label: string, ruleLimit: number | null) {

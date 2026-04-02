@@ -1,10 +1,11 @@
 import React from 'react';
 import { View, Text, ScrollView } from 'react-native';
+import type { MobileTheme } from '@tminuszero/design-tokens';
 import type { MissionTabData } from '@tminuszero/launch-detail-ui';
 
 type MissionTabProps = {
   data: MissionTabData;
-  theme: any;
+  theme: MobileTheme;
 };
 
 export function MissionTab({ data, theme }: MissionTabProps) {
@@ -19,7 +20,7 @@ export function MissionTab({ data, theme }: MissionTabProps) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 60 }}>
         <Text style={{ fontSize: 48, marginBottom: 16 }}>🛰️</Text>
-        <Text style={{ fontSize: 16, fontWeight: '600', color: theme.text, marginBottom: 8 }}>
+        <Text style={{ fontSize: 16, fontWeight: '600', color: theme.foreground, marginBottom: 8 }}>
           No Mission Details
         </Text>
         <Text style={{ fontSize: 14, color: theme.muted, textAlign: 'center', paddingHorizontal: 40 }}>
@@ -73,7 +74,7 @@ export function MissionTab({ data, theme }: MissionTabProps) {
                   backgroundColor: 'rgba(255, 255, 255, 0.03)',
                 }}
               >
-                <Text style={{ fontSize: 15, fontWeight: '700', color: theme.text, marginBottom: 8 }}>
+                <Text style={{ fontSize: 15, fontWeight: '700', color: theme.foreground, marginBottom: 8 }}>
                   {payload.name || `Payload ${idx + 1}`}
                 </Text>
 
@@ -139,7 +140,7 @@ export function MissionTab({ data, theme }: MissionTabProps) {
                 <Text style={{ fontSize: 14, color: theme.muted }}>
                   Tracked Objects
                 </Text>
-                <Text style={{ fontSize: 14, fontWeight: '700', color: theme.text }}>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: theme.foreground }}>
                   {data.objectInventory.trackedCount}
                 </Text>
               </View>
@@ -185,7 +186,7 @@ export function MissionTab({ data, theme }: MissionTabProps) {
 
                 {/* Crew Info */}
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 15, fontWeight: '700', color: theme.text }}>
+                  <Text style={{ fontSize: 15, fontWeight: '700', color: theme.foreground }}>
                     {member.name}
                   </Text>
                   <Text style={{ fontSize: 13, color: theme.accent, marginTop: 2 }}>
@@ -210,10 +211,10 @@ export function MissionTab({ data, theme }: MissionTabProps) {
           <View style={{ gap: 12 }}>
             {data.blueOriginDetails.travelers?.length > 0 && (
               <View>
-                <Text style={{ fontSize: 14, fontWeight: '600', color: theme.text, marginBottom: 8 }}>
+                <Text style={{ fontSize: 14, fontWeight: '600', color: theme.foreground, marginBottom: 8 }}>
                   Travelers ({data.blueOriginDetails.travelers.length})
                 </Text>
-                {data.blueOriginDetails.travelers.map((traveler: any, idx: number) => (
+                {data.blueOriginDetails.travelers.map((traveler, idx) => (
                   <View
                     key={idx}
                     style={{
@@ -223,7 +224,7 @@ export function MissionTab({ data, theme }: MissionTabProps) {
                       marginBottom: 8,
                     }}
                   >
-                    <Text style={{ fontSize: 14, fontWeight: '600', color: theme.text }}>
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: theme.foreground }}>
                       {traveler.name}
                     </Text>
                   </View>
@@ -233,7 +234,7 @@ export function MissionTab({ data, theme }: MissionTabProps) {
 
             {data.blueOriginDetails.payloadNotes && (
               <View>
-                <Text style={{ fontSize: 14, fontWeight: '600', color: theme.text, marginBottom: 8 }}>
+                <Text style={{ fontSize: 14, fontWeight: '600', color: theme.foreground, marginBottom: 8 }}>
                   Payload Notes
                 </Text>
                 <Text style={{ fontSize: 13, color: theme.muted, lineHeight: 18 }}>
@@ -261,7 +262,7 @@ export function MissionTab({ data, theme }: MissionTabProps) {
                   backgroundColor: 'rgba(255, 255, 255, 0.03)',
                 }}
               >
-                <Text style={{ fontSize: 15, fontWeight: '700', color: theme.text, marginBottom: 4 }}>
+                <Text style={{ fontSize: 15, fontWeight: '700', color: theme.foreground, marginBottom: 4 }}>
                   {program.name}
                 </Text>
                 {program.description && (
@@ -280,7 +281,7 @@ export function MissionTab({ data, theme }: MissionTabProps) {
 
 // Helper Components
 
-function SectionCard({ children, theme }: { children: React.ReactNode; theme: any }) {
+function SectionCard({ children, theme }: { children: React.ReactNode; theme: MobileTheme }) {
   return (
     <View
       style={{
@@ -296,13 +297,13 @@ function SectionCard({ children, theme }: { children: React.ReactNode; theme: an
   );
 }
 
-function SectionTitle({ children, theme }: { children: React.ReactNode; theme: any }) {
+function SectionTitle({ children, theme }: { children: React.ReactNode; theme: MobileTheme }) {
   return (
     <Text
       style={{
         fontSize: 16,
         fontWeight: '700',
-        color: theme.text,
+        color: theme.foreground,
         marginBottom: 16,
         textTransform: 'uppercase',
         letterSpacing: 0.5,
@@ -313,13 +314,13 @@ function SectionTitle({ children, theme }: { children: React.ReactNode; theme: a
   );
 }
 
-function PayloadDetail({ label, value, theme }: { label: string; value: string; theme: any }) {
+function PayloadDetail({ label, value, theme }: { label: string; value: string; theme: MobileTheme }) {
   return (
     <View style={{ flexDirection: 'row', gap: 8 }}>
       <Text style={{ fontSize: 12, color: theme.muted, minWidth: 60 }}>
         {label}:
       </Text>
-      <Text style={{ fontSize: 12, color: theme.text, fontWeight: '600', flex: 1 }}>
+      <Text style={{ fontSize: 12, color: theme.foreground, fontWeight: '600', flex: 1 }}>
         {value}
       </Text>
     </View>

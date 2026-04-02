@@ -1,7 +1,8 @@
 import { MobileAuthChallengeClient } from '@/components/MobileAuthChallengeClient';
+import { normalizeEnvText } from '@/lib/env/normalize';
 
 function getCaptchaConfig() {
-  const turnstile = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim();
+  const turnstile = normalizeEnvText(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
   if (turnstile) {
     return {
       provider: 'turnstile' as const,
@@ -9,7 +10,7 @@ function getCaptchaConfig() {
     };
   }
 
-  const hcaptcha = process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY?.trim();
+  const hcaptcha = normalizeEnvText(process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY);
   if (hcaptcha) {
     return {
       provider: 'hcaptcha' as const,

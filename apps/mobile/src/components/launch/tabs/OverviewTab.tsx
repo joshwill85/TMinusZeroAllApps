@@ -1,10 +1,11 @@
 import React from 'react';
 import { View, Text, Image, ScrollView } from 'react-native';
+import type { MobileTheme } from '@tminuszero/design-tokens';
 import type { OverviewTabData } from '@tminuszero/launch-detail-ui';
 
 type OverviewTabProps = {
   data: OverviewTabData;
-  theme: any;
+  theme: MobileTheme;
 };
 
 export function OverviewTab({ data, theme }: OverviewTabProps) {
@@ -15,7 +16,7 @@ export function OverviewTab({ data, theme }: OverviewTabProps) {
         <SectionCard theme={theme}>
           <SectionTitle theme={theme}>Mission Brief</SectionTitle>
           {data.missionBrief.name && (
-            <Text style={{ fontSize: 18, fontWeight: '700', color: theme.text, marginBottom: 8 }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', color: theme.foreground, marginBottom: 8 }}>
               {data.missionBrief.name}
             </Text>
           )}
@@ -50,7 +51,7 @@ export function OverviewTab({ data, theme }: OverviewTabProps) {
                     {stat.label}
                   </Text>
                 </View>
-                <Text style={{ fontSize: 14, fontWeight: '700', color: theme.text }}>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: theme.foreground }}>
                   {stat.value}
                 </Text>
               </View>
@@ -85,7 +86,7 @@ export function OverviewTab({ data, theme }: OverviewTabProps) {
           )}
 
           {/* Vehicle Name */}
-          <Text style={{ fontSize: 18, fontWeight: '700', color: theme.text, marginBottom: 4 }}>
+          <Text style={{ fontSize: 18, fontWeight: '700', color: theme.foreground, marginBottom: 4 }}>
             {data.rocketProfile.name}
           </Text>
 
@@ -228,7 +229,7 @@ export function OverviewTab({ data, theme }: OverviewTabProps) {
 
 // Helper Components
 
-function SectionCard({ children, theme }: { children: React.ReactNode; theme: any }) {
+function SectionCard({ children, theme }: { children: React.ReactNode; theme: MobileTheme }) {
   return (
     <View
       style={{
@@ -244,13 +245,13 @@ function SectionCard({ children, theme }: { children: React.ReactNode; theme: an
   );
 }
 
-function SectionTitle({ children, theme }: { children: React.ReactNode; theme: any }) {
+function SectionTitle({ children, theme }: { children: React.ReactNode; theme: MobileTheme }) {
   return (
     <Text
       style={{
         fontSize: 16,
         fontWeight: '700',
-        color: theme.text,
+        color: theme.foreground,
         marginBottom: 16,
         textTransform: 'uppercase',
         letterSpacing: 0.5,
@@ -261,7 +262,7 @@ function SectionTitle({ children, theme }: { children: React.ReactNode; theme: a
   );
 }
 
-function SpecRow({ label, value, theme }: { label: string; value: string; theme: any }) {
+function SpecRow({ label, value, theme }: { label: string; value: string; theme: MobileTheme }) {
   return (
     <View
       style={{
@@ -271,12 +272,12 @@ function SpecRow({ label, value, theme }: { label: string; value: string; theme:
       }}
     >
       <Text style={{ fontSize: 13, color: theme.muted }}>{label}</Text>
-      <Text style={{ fontSize: 13, fontWeight: '600', color: theme.text }}>{value}</Text>
+      <Text style={{ fontSize: 13, fontWeight: '600', color: theme.foreground }}>{value}</Text>
     </View>
   );
 }
 
-function InfoRow({ label, value, theme }: { label: string; value: string; theme: any }) {
+function InfoRow({ label, value, theme }: { label: string; value: string; theme: MobileTheme }) {
   return (
     <View
       style={{
@@ -286,7 +287,7 @@ function InfoRow({ label, value, theme }: { label: string; value: string; theme:
       }}
     >
       <Text style={{ fontSize: 12, color: theme.muted, marginBottom: 4 }}>{label}</Text>
-      <Text style={{ fontSize: 14, fontWeight: '600', color: theme.text }}>{value}</Text>
+      <Text style={{ fontSize: 14, fontWeight: '600', color: theme.foreground }}>{value}</Text>
     </View>
   );
 }

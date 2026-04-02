@@ -1074,7 +1074,7 @@ export function useDeleteAccountMutation() {
 
 export function useStartBillingCheckoutMutation() {
   return useMutation({
-    mutationFn: (returnTo: string) => startBillingCheckout(returnTo)
+    mutationFn: (input: { returnTo: string; promotionCode?: string | null }) => startBillingCheckout(input)
   });
 }
 

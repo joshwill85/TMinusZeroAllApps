@@ -2,7 +2,9 @@ import type { TrajectoryContract } from '@/lib/server/trajectoryContract';
 
 const JEP_GUIDANCE_START_T_PLUS_SEC = 60;
 const JEP_GUIDANCE_DEFAULT_END_T_PLUS_SEC = 600;
-const JEP_LOS_ELEVATION_THRESHOLD_DEG = 5;
+export const JEP_LOS_ELEVATION_THRESHOLD_DEG = 5;
+export const JEP_TWILIGHT_SWEET_SPOT_MIN_DEG = 6;
+export const JEP_TWILIGHT_SWEET_SPOT_MAX_DEG = 12;
 const EARTH_RADIUS_KM = 6371;
 const EARTH_RADIUS_M = 6378137;
 const EARTH_FLATTENING = 1 / 298.257223563;
@@ -38,6 +40,15 @@ export type JepScenarioWindow = {
   delta: number;
   trend: 'better' | 'similar' | 'worse';
   label: string;
+};
+
+export type JepSolarWindowRange = {
+  netDeg: number | null;
+  windowStartDeg: number | null;
+  windowEndDeg: number | null;
+  minDeg: number | null;
+  maxDeg: number | null;
+  crossesTwilightSweetSpot: boolean;
 };
 
 type GuidanceSample = {
@@ -98,6 +109,38 @@ export function deriveJepGuidanceTrackSamples({
       } satisfies GuidanceSample;
     })
     .filter((sample) => sample.tPlusSec >= JEP_GUIDANCE_START_T_PLUS_SEC && sample.tPlusSec <= endTPlusSec);
+}
+
+export function deriveJepSolarWindowRange({
+  observer,
+  launchNetIso,
+  launchWindowStartIso,
+  launchWindowEndIso
+}: {
+  observer: JepGuidanceObserver | null;
+  launchNetIso: string | null;
+  launchWindowStartIso: string | null;
+  launchWindowEndIso: string | null;
+}): JepSolarWindowRange | null {
+  if (!observer) return null;
+
+  const netDeg = resolveSolarDepressionForIso(observer, launchNetIso);
+  const windowStartDeg = resolveSolarDepressionForIso(observer, launchWindowStartIso ?? launchNetIso);
+  const windowEndDeg = resolveSolarDepressionForIso(observer, launchWindowEndIso ?? launchWindowStartIso ?? launchNetIso);
+  const finiteValues = [windowStartDeg, windowEndDeg, netDeg].filter((value): value is number => Number.isFinite(value));
+
+  if (finiteValues.length === 0) return null;
+
+  const minDeg = round(Math.min(...finiteValues), 1);
+  const maxDeg = round(Math.max(...finiteValues), 1);
+  return {
+    netDeg: netDeg != null ? round(netDeg, 1) : null,
+    windowStartDeg: windowStartDeg != null ? round(windowStartDeg, 1) : null,
+    windowEndDeg: windowEndDeg != null ? round(windowEndDeg, 1) : null,
+    minDeg,
+    maxDeg,
+    crossesTwilightSweetSpot: minDeg <= JEP_TWILIGHT_SWEET_SPOT_MAX_DEG && maxDeg >= JEP_TWILIGHT_SWEET_SPOT_MIN_DEG
+  };
 }
 
 export function deriveJepGuidance({
@@ -286,6 +329,13 @@ function deriveScenarioWindow({
   };
 }
 
+function resolveSolarDepressionForIso(observer: JepGuidanceObserver, isoValue: string | null) {
+  if (!isoValue) return null;
+  const date = new Date(isoValue);
+  if (!Number.isFinite(date.getTime())) return null;
+  return solarDepressionDegrees(observer.latDeg, observer.lonDeg, date);
+}
+
 function computeIlluminationFactor(samples: GuidanceSample[], solarDepressionDeg: number) {
   const shadowHeightKm = computeShadowHeightKm(solarDepressionDeg);
   let litWeight = 0;
@@ -302,7 +352,7 @@ function computeIlluminationFactor(samples: GuidanceSample[], solarDepressionDeg
 function computeDarknessFactor(depressionDeg: number) {
   if (depressionDeg > 18) return 0.1;
   if (depressionDeg >= 12 && depressionDeg <= 18) return 0.6;
-  if (depressionDeg >= 6 && depressionDeg < 12) return 1;
+  if (depressionDeg >= JEP_TWILIGHT_SWEET_SPOT_MIN_DEG && depressionDeg < JEP_TWILIGHT_SWEET_SPOT_MAX_DEG) return 1;
   if (depressionDeg >= 3 && depressionDeg < 6) return 0.8;
   if (depressionDeg >= 0 && depressionDeg < 3) return 0.3;
   return 0;

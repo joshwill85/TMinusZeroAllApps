@@ -43,11 +43,17 @@ export class WebBillingAdapterError extends Error {
   }
 }
 
-export async function startBillingCheckout(returnTo: string) {
+export async function startBillingCheckout({
+  returnTo,
+  promotionCode
+}: {
+  returnTo: string;
+  promotionCode?: string | null;
+}) {
   const path = '/api/billing/checkout';
   return requestWebBilling(path, checkoutSuccessSchema, {
     method: 'POST',
-    body: JSON.stringify({ returnTo })
+    body: JSON.stringify({ returnTo, promotionCode })
   });
 }
 

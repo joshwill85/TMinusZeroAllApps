@@ -26,6 +26,7 @@ import type {
   FilterPresetsV1,
   FilterPresetUpdateV1,
   LaunchDetailVersionRequest,
+  LaunchJepRequest,
   LaunchFeedRequest,
   LaunchFeedV1,
   LaunchFeedVersionRequest,
@@ -80,10 +81,12 @@ import {
   filterPresetsQueryOptions,
   locationDetailQueryOptions,
   launchDetailVersionQueryOptions,
+  launchJepQueryOptions,
   launchFeedQueryOptions,
   launchFeedVersionQueryOptions,
   launchFilterOptionsQueryOptions,
   launchDetailQueryOptions,
+  launchFaaAirspaceMapQueryOptions,
   launchTrajectoryQueryOptions,
   marketingEmailQueryOptions,
   mobilePushLaunchPreferenceQueryOptions,
@@ -610,6 +613,24 @@ export function useLaunchDetailQuery(id: string | null) {
   return useQuery({
     ...launchDetailQueryOptions(id || 'missing', () => client.getLaunchDetail(String(id))),
     enabled: Boolean(id),
+  });
+}
+
+export function useLaunchJepQuery(id: string | null, request: LaunchJepRequest = {}, options?: { enabled?: boolean }) {
+  const client = useMobileApiClient();
+
+  return useQuery({
+    ...launchJepQueryOptions(id || 'missing', () => client.getLaunchJep(String(id), request), request),
+    enabled: Boolean(id) && (options?.enabled ?? true)
+  });
+}
+
+export function useLaunchFaaAirspaceMapQuery(id: string | null, options?: { enabled?: boolean }) {
+  const client = useMobileApiClient();
+
+  return useQuery({
+    ...launchFaaAirspaceMapQueryOptions(id || 'missing', () => client.getLaunchFaaAirspaceMap(String(id))),
+    enabled: Boolean(id) && (options?.enabled ?? true)
   });
 }
 

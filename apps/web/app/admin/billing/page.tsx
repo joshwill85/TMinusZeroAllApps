@@ -91,15 +91,51 @@ type WebhookFailure = {
   error: string | null;
 };
 
+type ClaimSummary = {
+  pending: number;
+  verified: number;
+  claimed: number;
+  unattached: number;
+};
+
+type MappingSummary = {
+  providerCustomerMappings: number;
+  unmappedPurchaseEvents: number;
+};
+
+type CampaignSummary = {
+  totalCampaigns: number;
+  activeCampaigns: number;
+  specificUserCampaigns: number;
+  activeArtifacts: number;
+  stripeArtifacts: number;
+  appleArtifacts: number;
+  googleArtifacts: number;
+};
+
+type PremiumClaim = {
+  user_id: string | null;
+  provider: 'stripe' | 'apple_app_store' | 'google_play';
+  status: string;
+  provider_product_id: string | null;
+  current_period_end: string | null;
+  updated_at: string | null;
+  created_at: string | null;
+};
+
 type BillingResponse = {
   config: BillingConfig | null;
   summary: BillingSummary | null;
   providerSummary: ProviderSummary | null;
+  claimSummary: ClaimSummary | null;
+  mappingSummary: MappingSummary | null;
+  campaignSummary: CampaignSummary | null;
   webhooks: {
     stripe: BillingWebhook;
     apple_app_store: BillingWebhook;
     google_play: BillingWebhook;
   } | null;
+  recentClaims: PremiumClaim[];
   recentPurchaseEvents: PurchaseEvent[];
   recentWebhookFailures: WebhookFailure[];
   customers: BillingCustomer[];
@@ -128,7 +164,11 @@ export default function AdminBillingPage() {
           config: json.config || null,
           summary: json.summary || null,
           providerSummary: json.providerSummary || null,
+          claimSummary: json.claimSummary || null,
+          mappingSummary: json.mappingSummary || null,
+          campaignSummary: json.campaignSummary || null,
           webhooks: json.webhooks || null,
+          recentClaims: Array.isArray(json.recentClaims) ? (json.recentClaims as PremiumClaim[]) : [],
           recentPurchaseEvents: Array.isArray(json.recentPurchaseEvents) ? (json.recentPurchaseEvents as PurchaseEvent[]) : [],
           recentWebhookFailures: Array.isArray(json.recentWebhookFailures) ? (json.recentWebhookFailures as WebhookFailure[]) : [],
           customers: Array.isArray(json.customers) ? (json.customers as BillingCustomer[]) : []
@@ -302,6 +342,76 @@ export default function AdminBillingPage() {
                 )}
               </div>
             ))}
+          </div>
+        )}
+      </SectionCard>
+
+      <SectionCard
+        title="Claims & Campaigns"
+        description="Admin recovery visibility for cross-platform purchases plus imported discount campaign health."
+      >
+        {billingStatus === 'ready' && (
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-4">
+              <InfoCard label="Pending claims" value={billingData?.claimSummary?.pending ?? 0} />
+              <InfoCard label="Verified claims" value={billingData?.claimSummary?.verified ?? 0} />
+              <InfoCard label="Claimed" value={billingData?.claimSummary?.claimed ?? 0} />
+              <InfoCard label="Unattached claims" value={billingData?.claimSummary?.unattached ?? 0} />
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-4">
+              <InfoCard label="Provider mappings" value={billingData?.mappingSummary?.providerCustomerMappings ?? 0} />
+              <InfoCard label="Unmapped purchase events" value={billingData?.mappingSummary?.unmappedPurchaseEvents ?? 0} />
+              <InfoCard label="Discount campaigns" value={billingData?.campaignSummary?.totalCampaigns ?? 0} />
+              <InfoCard label="Active campaigns" value={billingData?.campaignSummary?.activeCampaigns ?? 0} />
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-4">
+              <InfoCard label="Active artifacts" value={billingData?.campaignSummary?.activeArtifacts ?? 0} />
+              <InfoCard label="Specific-user campaigns" value={billingData?.campaignSummary?.specificUserCampaigns ?? 0} />
+              <InfoCard label="App Store artifacts" value={billingData?.campaignSummary?.appleArtifacts ?? 0} />
+              <InfoCard label="Google artifacts" value={billingData?.campaignSummary?.googleArtifacts ?? 0} />
+            </div>
+          </div>
+        )}
+      </SectionCard>
+
+      <SectionCard title="Recent Claims" description="Latest premium claim and account-attach state for store purchases made before sign-in.">
+        {billingStatus === 'ready' && (
+          <div className="rounded-xl border border-stroke bg-surface-0">
+            <div className="max-h-[280px] overflow-auto">
+              <table className="w-full text-left text-xs text-text2">
+                <thead className="sticky top-0 bg-surface-0 text-[11px] uppercase tracking-[0.08em] text-text3">
+                  <tr>
+                    <th className="px-3 py-2">Updated</th>
+                    <th className="px-3 py-2">Provider</th>
+                    <th className="px-3 py-2">Status</th>
+                    <th className="px-3 py-2">User</th>
+                    <th className="px-3 py-2">Product</th>
+                    <th className="px-3 py-2">Period end</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(billingData?.recentClaims ?? []).length === 0 && (
+                    <tr>
+                      <td className="px-3 py-3 text-text3" colSpan={6}>
+                        No premium claims yet.
+                      </td>
+                    </tr>
+                  )}
+                  {(billingData?.recentClaims ?? []).map((claim, index) => (
+                    <tr key={`${claim.provider}-${claim.updated_at || index}`} className="border-t border-stroke">
+                      <td className="px-3 py-2">{claim.updated_at ? new Date(claim.updated_at).toLocaleString() : '—'}</td>
+                      <td className="px-3 py-2 text-text1">{formatProvider(claim.provider)}</td>
+                      <td className="px-3 py-2">{formatSubscriptionStatus(claim.status)}</td>
+                      <td className="px-3 py-2 break-all">{claim.user_id || '—'}</td>
+                      <td className="px-3 py-2 break-all font-mono text-text3">{claim.provider_product_id || '—'}</td>
+                      <td className="px-3 py-2">{claim.current_period_end ? new Date(claim.current_period_end).toLocaleDateString() : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </SectionCard>

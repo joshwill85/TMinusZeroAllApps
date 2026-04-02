@@ -189,7 +189,7 @@ export function EmbedNextLaunchCard({
                   <div className="text-xs uppercase tracking-[0.1em] text-text3">Embed</div>
                   <div className="text-base font-semibold text-text1">Next launch card</div>
                   <div className="mt-1 text-xs text-text3">
-                    Uses the live Premium schedule (cached ~15 seconds). Keep the token private.
+                    Uses the adaptive Premium schedule. Keep the token private.
                   </div>
                 </div>
                 <button className="text-sm text-text3 hover:text-text1" onClick={() => setOpen(false)}>

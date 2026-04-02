@@ -1,10 +1,11 @@
 import React from 'react';
 import { View, Text, ScrollView } from 'react-native';
+import type { MobileTheme } from '@tminuszero/design-tokens';
 import type { VehicleTabData } from '@tminuszero/launch-detail-ui';
 
 type VehicleTabProps = {
   data: VehicleTabData;
-  theme: any;
+  theme: MobileTheme;
 };
 
 export function VehicleTab({ data, theme }: VehicleTabProps) {
@@ -18,7 +19,7 @@ export function VehicleTab({ data, theme }: VehicleTabProps) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 60 }}>
         <Text style={{ fontSize: 48, marginBottom: 16 }}>🚀</Text>
-        <Text style={{ fontSize: 16, fontWeight: '600', color: theme.text, marginBottom: 8 }}>
+        <Text style={{ fontSize: 16, fontWeight: '600', color: theme.foreground, marginBottom: 8 }}>
           No Vehicle Details
         </Text>
         <Text style={{ fontSize: 14, color: theme.muted, textAlign: 'center', paddingHorizontal: 40 }}>
@@ -37,7 +38,7 @@ export function VehicleTab({ data, theme }: VehicleTabProps) {
 
           {data.vehicleConfig.family && (
             <View style={{ marginBottom: 16 }}>
-              <Text style={{ fontSize: 20, fontWeight: '700', color: theme.text }}>
+              <Text style={{ fontSize: 20, fontWeight: '700', color: theme.foreground }}>
                 {data.vehicleConfig.family}
               </Text>
               {data.vehicleConfig.variant && (
@@ -53,7 +54,7 @@ export function VehicleTab({ data, theme }: VehicleTabProps) {
               <Text style={{ fontSize: 12, color: theme.muted, marginBottom: 4 }}>
                 Manufacturer
               </Text>
-              <Text style={{ fontSize: 14, fontWeight: '600', color: theme.text }}>
+              <Text style={{ fontSize: 14, fontWeight: '600', color: theme.foreground }}>
                 {data.vehicleConfig.manufacturer}
               </Text>
             </View>
@@ -112,7 +113,7 @@ export function VehicleTab({ data, theme }: VehicleTabProps) {
                       {idx + 1}
                     </Text>
                   </View>
-                  <Text style={{ fontSize: 15, fontWeight: '700', color: theme.text }}>
+                  <Text style={{ fontSize: 15, fontWeight: '700', color: theme.foreground }}>
                     {stage.name || `Stage ${idx + 1}`}
                   </Text>
                 </View>
@@ -120,7 +121,7 @@ export function VehicleTab({ data, theme }: VehicleTabProps) {
                 {stage.serialNumber && (
                   <View style={{ marginBottom: 8 }}>
                     <Text style={{ fontSize: 12, color: theme.muted }}>
-                      Serial: <Text style={{ fontWeight: '600', color: theme.text }}>{stage.serialNumber}</Text>
+                      Serial: <Text style={{ fontWeight: '600', color: theme.foreground }}>{stage.serialNumber}</Text>
                     </Text>
                   </View>
                 )}
@@ -169,7 +170,7 @@ export function VehicleTab({ data, theme }: VehicleTabProps) {
 
           {data.recovery.booster && (
             <View style={{ marginBottom: 16 }}>
-              <Text style={{ fontSize: 14, fontWeight: '600', color: theme.text, marginBottom: 8 }}>
+              <Text style={{ fontSize: 14, fontWeight: '600', color: theme.foreground, marginBottom: 8 }}>
                 Booster
               </Text>
               <View
@@ -181,7 +182,7 @@ export function VehicleTab({ data, theme }: VehicleTabProps) {
                   borderColor: getRecoveryColor(data.recovery.booster.type).border,
                 }}
               >
-                <Text style={{ fontSize: 14, fontWeight: '700', color: theme.text }}>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: theme.foreground }}>
                   {data.recovery.booster.type || 'Unknown'}
                 </Text>
                 {data.recovery.booster.location && (
@@ -195,7 +196,7 @@ export function VehicleTab({ data, theme }: VehicleTabProps) {
 
           {data.recovery.fairing && (
             <View>
-              <Text style={{ fontSize: 14, fontWeight: '600', color: theme.text, marginBottom: 8 }}>
+              <Text style={{ fontSize: 14, fontWeight: '600', color: theme.foreground, marginBottom: 8 }}>
                 Fairing
               </Text>
               <View
@@ -207,7 +208,7 @@ export function VehicleTab({ data, theme }: VehicleTabProps) {
                   borderColor: theme.stroke,
                 }}
               >
-                <Text style={{ fontSize: 14, fontWeight: '700', color: theme.text }}>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: theme.foreground }}>
                   {data.recovery.fairing.recovery ? 'Recovery Attempted' : 'Expended'}
                 </Text>
               </View>
@@ -234,7 +235,7 @@ export function VehicleTab({ data, theme }: VehicleTabProps) {
                   backgroundColor: 'rgba(255, 255, 255, 0.02)',
                 }}
               >
-                <Text style={{ fontSize: 13, color: theme.text }}>
+                <Text style={{ fontSize: 13, color: theme.foreground }}>
                   Flight {idx + 1}
                 </Text>
                 <Text style={{ fontSize: 12, color: theme.muted }}>
@@ -282,7 +283,7 @@ export function VehicleTab({ data, theme }: VehicleTabProps) {
 
 // Helper Components
 
-function SectionCard({ children, theme }: { children: React.ReactNode; theme: any }) {
+function SectionCard({ children, theme }: { children: React.ReactNode; theme: MobileTheme }) {
   return (
     <View
       style={{
@@ -298,13 +299,13 @@ function SectionCard({ children, theme }: { children: React.ReactNode; theme: an
   );
 }
 
-function SectionTitle({ children, theme }: { children: React.ReactNode; theme: any }) {
+function SectionTitle({ children, theme }: { children: React.ReactNode; theme: MobileTheme }) {
   return (
     <Text
       style={{
         fontSize: 16,
         fontWeight: '700',
-        color: theme.text,
+        color: theme.foreground,
         marginBottom: 16,
         textTransform: 'uppercase',
         letterSpacing: 0.5,
@@ -315,7 +316,7 @@ function SectionTitle({ children, theme }: { children: React.ReactNode; theme: a
   );
 }
 
-function SpecRow({ label, value, theme }: { label: string; value: string; theme: any }) {
+function SpecRow({ label, value, theme }: { label: string; value: string; theme: MobileTheme }) {
   return (
     <View
       style={{
@@ -327,25 +328,25 @@ function SpecRow({ label, value, theme }: { label: string; value: string; theme:
       }}
     >
       <Text style={{ fontSize: 13, color: theme.muted }}>{label}</Text>
-      <Text style={{ fontSize: 13, fontWeight: '600', color: theme.text }}>{value}</Text>
+      <Text style={{ fontSize: 13, fontWeight: '600', color: theme.foreground }}>{value}</Text>
     </View>
   );
 }
 
-function StageDetail({ label, value, theme }: { label: string; value: string; theme: any }) {
+function StageDetail({ label, value, theme }: { label: string; value: string; theme: MobileTheme }) {
   return (
     <View style={{ flexDirection: 'row', gap: 8 }}>
       <Text style={{ fontSize: 12, color: theme.muted, minWidth: 110 }}>
         {label}:
       </Text>
-      <Text style={{ fontSize: 12, color: theme.text, fontWeight: '600', flex: 1 }}>
+      <Text style={{ fontSize: 12, color: theme.foreground, fontWeight: '600', flex: 1 }}>
         {value}
       </Text>
     </View>
   );
 }
 
-function StatCard({ label, value, theme }: { label: string; value: string; theme: any }) {
+function StatCard({ label, value, theme }: { label: string; value: string; theme: MobileTheme }) {
   return (
     <View style={{ alignItems: 'center', padding: 16, backgroundColor: 'rgba(255, 255, 255, 0.03)', borderRadius: 12 }}>
       <Text style={{ fontSize: 28, fontWeight: '800', color: theme.accent }}>

@@ -4,15 +4,17 @@ import { NEXT_LAUNCH_RETENTION_MS } from '@/lib/constants/launchTimeline';
 import { isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
 import { attachNextLaunchEvents } from '@/lib/server/ll2Events';
 import { buildStatusFilterOrClause, parseLaunchStatusFilter } from '@/lib/server/launchStatus';
-import { createSupabaseAdminClient, createSupabaseServerClient } from '@/lib/server/supabaseServer';
-import { mapLiveLaunchRow, mapPublicCacheRow } from '@/lib/server/transformers';
+import { createSupabaseAdminClient, createSupabasePublicClient, createSupabaseServerClient } from '@/lib/server/supabaseServer';
+import { loadPublicLaunchPage } from '@/lib/server/publicLaunchFeed';
+import { resolveLaunchRefreshCadenceHint } from '@/lib/server/launchRefreshCadence';
+import { mapLiveLaunchRow } from '@/lib/server/transformers';
 import { parseLaunchRegion, US_PAD_COUNTRY_CODES } from '@/lib/server/us';
 import { buildPublicStateFilterOrClause } from '@/lib/server/usStates';
 import { getViewerTier, type ViewerTierInfo } from '@/lib/server/viewerTier';
 import { isLaunchWithinMilestoneWindow } from '@/lib/utils/launchMilestones';
 
 const DEFAULT_PUBLIC_FRESHNESS = 'public-cache-db';
-const DEFAULT_PUBLIC_INTERVAL_MINUTES = 15;
+const DEFAULT_PUBLIC_INTERVAL_MINUTES = 120;
 const BOOSTER_QUERY_CHUNK_SIZE = 200;
 const STATUS_FIELDS = new Set(['status_abbrev', 'status_name', 'status_id']);
 const TIMING_FIELDS = new Set(['net', 'net_precision', 'window_start', 'window_end']);
@@ -76,7 +78,7 @@ export class LaunchFeedApiRouteError extends Error {
   }
 }
 
-export async function loadVersionedLaunchFeedPayload(request: Request) {
+export async function loadVersionedLaunchFeedPayload(request: Request, options: { viewer?: ViewerTierInfo } = {}) {
   const feedRequest = parseFeedRequest(request);
 
   if (!isSupabaseConfigured()) {
@@ -100,7 +102,7 @@ export async function loadVersionedLaunchFeedPayload(request: Request) {
     return loadPublicFeed(feedRequest);
   }
 
-  const viewer = await getViewerTier({ request, reconcileStripe: false });
+  const viewer = options.viewer ?? (await getViewerTier({ request, reconcileStripe: false }));
   if (feedRequest.scope === 'live') {
     return loadLiveFeed(feedRequest, viewer);
   }
@@ -108,9 +110,9 @@ export async function loadVersionedLaunchFeedPayload(request: Request) {
   return loadWatchlistFeed(feedRequest, viewer);
 }
 
-export async function loadVersionedLaunchFeedVersionPayload(request: Request) {
+export async function loadVersionedLaunchFeedVersionPayload(request: Request, options: { viewer?: ViewerTierInfo } = {}) {
   const feedRequest = parseFeedRequest(request);
-  const viewer = await getViewerTier({ request, reconcileStripe: false });
+  const viewer = options.viewer ?? (await getViewerTier({ request, reconcileStripe: false }));
 
   if (feedRequest.scope === 'watchlist') {
     throw new LaunchFeedApiRouteError(400, 'unsupported_scope');
@@ -254,30 +256,33 @@ export async function loadVersionedChangedLaunchesPayload(request: Request) {
 }
 
 async function loadPublicFeed(feedRequest: FeedRequest) {
-  const queryResult = await executePublicLaunchQuery(createSupabaseServerClient(), feedRequest);
-  const { data, error, client } = queryResult;
-  if (error || !data) {
-    console.error('public cache query error', error);
-    throw new LaunchFeedApiRouteError(500, 'failed_to_load');
-  }
-
-  const launches = data.map(mapPublicCacheRow);
-  const launchesWithBoosters = await attachFirstStageBoosterLabels(client, launches);
-  const launchesWithEvents = await attachNextLaunchEvents(client, launchesWithBoosters);
-  const shouldFilterByMilestones = feedRequest.range !== 'past' && feedRequest.range !== 'all';
-  const nowMs = Date.now();
-  const launchesInWindow = shouldFilterByMilestones
-    ? launchesWithEvents.filter((launch) =>
-        isLaunchWithinMilestoneWindow(launch, nowMs, NEXT_LAUNCH_RETENTION_MS, {
-          ignoreTimeline: true
-        })
-      )
-    : launchesWithEvents;
+  const launchesResult = await loadPublicLaunchPage(
+    {
+      from: feedRequest.from,
+      to: feedRequest.to,
+      location: feedRequest.location,
+      state: feedRequest.state,
+      pad: feedRequest.pad,
+      padId: feedRequest.padId,
+      provider: feedRequest.provider,
+      providerId: feedRequest.providerId,
+      rocketId: feedRequest.rocketId,
+      status: feedRequest.status,
+      sort: feedRequest.sort,
+      region: feedRequest.region,
+      limit: feedRequest.limit,
+      offset: feedRequest.offset
+    },
+    {
+      nowMs: Date.now(),
+      filterMilestones: feedRequest.range !== 'past' && feedRequest.range !== 'all'
+    }
+  );
 
   return launchFeedSchemaV1.parse({
-    launches: launchesInWindow,
-    nextCursor: data.length === feedRequest.limit ? String(feedRequest.offset + launchesInWindow.length) : null,
-    hasMore: data.length === feedRequest.limit,
+    launches: launchesResult.launches,
+    nextCursor: launchesResult.hasMore ? String(feedRequest.offset + launchesResult.launches.length) : null,
+    hasMore: launchesResult.hasMore,
     freshness: DEFAULT_PUBLIC_FRESHNESS,
     intervalMinutes: DEFAULT_PUBLIC_INTERVAL_MINUTES,
     intervalSeconds: null,
@@ -287,7 +292,7 @@ async function loadPublicFeed(feedRequest: FeedRequest) {
 }
 
 async function loadPublicFeedVersion(feedRequest: FeedRequest, viewer: ViewerTierInfo) {
-  const client = createSupabaseServerClient();
+  const client = createSupabasePublicClient();
   let countQuery = client.from('launches_public_cache').select('launch_id', { count: 'exact', head: true });
   countQuery = applyPublicLaunchFilters(countQuery, feedRequest);
 
@@ -316,7 +321,10 @@ async function loadPublicFeedVersion(feedRequest: FeedRequest, viewer: ViewerTie
     intervalSeconds: viewer.refreshIntervalSeconds,
     matchCount,
     updatedAt,
-    version: buildFeedVersionToken(matchCount, updatedAt)
+    version: buildFeedVersionToken(matchCount, updatedAt),
+    recommendedIntervalSeconds: viewer.refreshIntervalSeconds,
+    cadenceReason: 'default',
+    cadenceAnchorNet: null
   });
 }
 
@@ -394,6 +402,7 @@ async function loadLiveFeedVersion(feedRequest: FeedRequest, viewer: ViewerTierI
 
   const updatedAt = typeof latestRow?.last_updated_source === 'string' ? latestRow.last_updated_source : null;
   const matchCount = count ?? 0;
+  const cadenceHint = await resolveLaunchRefreshCadenceHint({ client, scope: 'live' });
 
   return launchFeedVersionSchemaV1.parse({
     scope: 'live',
@@ -401,7 +410,10 @@ async function loadLiveFeedVersion(feedRequest: FeedRequest, viewer: ViewerTierI
     intervalSeconds: viewer.refreshIntervalSeconds,
     matchCount,
     updatedAt,
-    version: buildFeedVersionToken(matchCount, updatedAt)
+    version: buildFeedVersionToken(matchCount, updatedAt),
+    recommendedIntervalSeconds: cadenceHint.recommendedIntervalSeconds,
+    cadenceReason: cadenceHint.cadenceReason,
+    cadenceAnchorNet: cadenceHint.cadenceAnchorNet
   });
 }
 

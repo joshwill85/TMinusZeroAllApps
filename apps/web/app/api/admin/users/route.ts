@@ -72,6 +72,14 @@ type AdminUserSummary = {
   avatar_url: string | null;
   identity_display_name: string | null;
   email_is_private_relay: boolean;
+  billing: {
+    provider: 'stripe' | 'apple_app_store' | 'google_play' | null;
+    status: string | null;
+    provider_product_id: string | null;
+    current_period_end: string | null;
+    cancel_at_period_end: boolean;
+    source: 'provider_entitlement' | 'legacy_subscription' | 'none';
+  };
   recent_auth_events: Array<{
     provider: string;
     platform: string;
@@ -79,6 +87,11 @@ type AdminUserSummary = {
     created_at: string | null;
   }>;
 };
+
+function isMissingRelationError(error: unknown) {
+  const message = String((error as { message?: unknown })?.message || '').toLowerCase();
+  return message.includes('relation') && message.includes('does not exist');
+}
 
 function normalizeProviderLabel(value: unknown) {
   const normalized = String(value || '')
@@ -160,7 +173,10 @@ function matchesQueryFilter(user: AdminUserSummary, filters: z.infer<typeof quer
     user.status,
     user.role,
     ...user.providers,
-    ...user.platforms
+    ...user.platforms,
+    user.billing.provider,
+    user.billing.status,
+    user.billing.provider_product_id
   ]
     .filter(Boolean)
     .join(' ')
@@ -175,10 +191,20 @@ async function loadAdminUserBatch(admin: ReturnType<typeof createSupabaseAdminCl
   }
 
   const userIds = authUsers.map((user) => user.id);
-  const [{ data: profiles, error: profilesError }, { data: subscriptions, error: subscriptionsError }, { data: summaries, error: summariesError }, { data: recentEvents, error: recentEventsError }] =
+  const [
+    { data: profiles, error: profilesError },
+    { data: subscriptions, error: subscriptionsError },
+    providerEntitlementsRes,
+    { data: summaries, error: summariesError },
+    { data: recentEvents, error: recentEventsError }
+  ] =
     await Promise.all([
       admin.from('profiles').select('user_id, role, email, created_at, first_name, last_name').in('user_id', userIds),
       admin.from('subscriptions').select('user_id, status, current_period_end').in('user_id', userIds),
+      admin
+        .from('purchase_entitlements')
+        .select('user_id, provider, status, is_active, cancel_at_period_end, current_period_end, provider_product_id')
+        .in('user_id', userIds),
       admin
         .from('user_surface_summary')
         .select('user_id, last_sign_in_platform, last_mobile_sign_in_at, ever_used_web, ever_used_ios, ever_used_android')
@@ -195,6 +221,9 @@ async function loadAdminUserBatch(admin: ReturnType<typeof createSupabaseAdminCl
   }
   if (subscriptionsError) {
     console.error('admin subscriptions fetch error', subscriptionsError);
+  }
+  if (providerEntitlementsRes.error && !isMissingRelationError(providerEntitlementsRes.error)) {
+    console.error('admin purchase entitlements fetch error', providerEntitlementsRes.error);
   }
   if (summariesError) {
     console.error('admin user surface summary fetch error', summariesError);
@@ -228,6 +257,30 @@ async function loadAdminUserBatch(admin: ReturnType<typeof createSupabaseAdminCl
     subscriptionMap.set(subscription.user_id, {
       status: subscription.status ?? null,
       current_period_end: subscription.current_period_end ?? null
+    });
+  });
+
+  const providerEntitlementMap = new Map<
+    string,
+    {
+      provider: 'stripe' | 'apple_app_store' | 'google_play';
+      status: string | null;
+      is_active: boolean;
+      cancel_at_period_end: boolean;
+      current_period_end: string | null;
+      provider_product_id: string | null;
+    }
+  >();
+  (providerEntitlementsRes.data || []).forEach((entitlement) => {
+    const provider =
+      entitlement.provider === 'apple_app_store' || entitlement.provider === 'google_play' ? entitlement.provider : 'stripe';
+    providerEntitlementMap.set(entitlement.user_id, {
+      provider,
+      status: entitlement.status ?? null,
+      is_active: Boolean(entitlement.is_active),
+      cancel_at_period_end: Boolean(entitlement.cancel_at_period_end),
+      current_period_end: entitlement.current_period_end ?? null,
+      provider_product_id: entitlement.provider_product_id ?? null
     });
   });
 
@@ -267,8 +320,9 @@ async function loadAdminUserBatch(admin: ReturnType<typeof createSupabaseAdminCl
   return authUsers.map((user) => {
     const profile = profileMap.get(user.id);
     const subscription = subscriptionMap.get(user.id);
+    const providerEntitlement = providerEntitlementMap.get(user.id);
     const summary = summaryMap.get(user.id);
-    const isPaid = isSubscriptionActive(subscription);
+    const isPaid = typeof providerEntitlement?.is_active === 'boolean' ? providerEntitlement.is_active : isSubscriptionActive(subscription);
     const { providers, primaryProvider } = extractProviders(user);
     const userMeta = (user.user_metadata || {}) as Record<string, unknown>;
     const role: AdminUserSummary['role'] = profile?.role === 'admin' ? 'admin' : 'user';
@@ -276,6 +330,13 @@ async function loadAdminUserBatch(admin: ReturnType<typeof createSupabaseAdminCl
     const email = profile?.email ?? user.email ?? null;
     const firstName = profile?.first_name ?? (typeof userMeta.first_name === 'string' ? userMeta.first_name : null);
     const lastName = profile?.last_name ?? (typeof userMeta.last_name === 'string' ? userMeta.last_name : null);
+    const billingProvider = providerEntitlement?.provider ?? (subscription ? 'stripe' : null);
+    const billingStatus = providerEntitlement?.status ?? subscription?.status ?? null;
+    const billingSource: AdminUserSummary['billing']['source'] = providerEntitlement
+      ? 'provider_entitlement'
+      : subscription
+        ? 'legacy_subscription'
+        : 'none';
 
     return {
       user_id: user.id,
@@ -296,6 +357,14 @@ async function loadAdminUserBatch(admin: ReturnType<typeof createSupabaseAdminCl
       avatar_url: extractAvatarUrl(user),
       identity_display_name: extractIdentityDisplayName(user, { first_name: firstName, last_name: lastName }),
       email_is_private_relay: typeof email === 'string' && email.toLowerCase().endsWith('privaterelay.appleid.com'),
+      billing: {
+        provider: billingProvider,
+        status: billingStatus,
+        provider_product_id: providerEntitlement?.provider_product_id ?? null,
+        current_period_end: providerEntitlement?.current_period_end ?? subscription?.current_period_end ?? null,
+        cancel_at_period_end: providerEntitlement?.cancel_at_period_end ?? false,
+        source: billingSource
+      },
       recent_auth_events: recentEventMap.get(user.id) ?? []
     };
   });

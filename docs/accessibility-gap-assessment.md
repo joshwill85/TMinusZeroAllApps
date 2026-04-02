@@ -146,7 +146,7 @@ Severity legend:
 **WCAG 2.1 SC:** commonly 1.1.1 and 2.1.1; also usability implications under 3.3.1/3.3.3 depending on failure handling.
 
 **Recommended remediation:**
-- Provide an accessible alternative verification path (email link, SMS OTP, rate limiting, “magic link”, or server-side risk scoring) so CAPTCHA is not a hard gate.
+- Provide an accessible alternative verification path (email link, magic link, passkey, rate limiting, or server-side risk scoring) so CAPTCHA is not a hard gate.
 - Ensure the CAPTCHA iframe has appropriate titles (vendor-dependent) and document the supported accessibility modes.
 
 ### 8) Auto-refreshing/live-updating pages may need user control (Medium; validate with UX testing)

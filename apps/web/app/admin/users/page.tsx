@@ -22,6 +22,14 @@ type AdminUser = {
   avatar_url: string | null;
   identity_display_name: string | null;
   email_is_private_relay: boolean;
+  billing: {
+    provider: 'stripe' | 'apple_app_store' | 'google_play' | null;
+    status: string | null;
+    provider_product_id: string | null;
+    current_period_end: string | null;
+    cancel_at_period_end: boolean;
+    source: 'provider_entitlement' | 'legacy_subscription' | 'none';
+  };
   recent_auth_events: Array<{
     provider: string;
     platform: string;
@@ -360,6 +368,16 @@ export default function AdminUsersPage() {
                             <Badge key={`${user.user_id}-${platform}`} label={formatPlatformLabel(platform)} />
                           ))}
                         </div>
+                        <div className="mt-2 space-y-1 text-[11px] text-text3">
+                          <div>{formatBillingSummary(user)}</div>
+                          {user.billing.provider_product_id ? <div className="break-all">Product: {user.billing.provider_product_id}</div> : null}
+                          {user.billing.current_period_end ? (
+                            <div>
+                              {user.billing.cancel_at_period_end ? 'Ends' : 'Renews'} {formatDateTime(user.billing.current_period_end)}
+                            </div>
+                          ) : null}
+                          {user.billing.source === 'legacy_subscription' ? <div>Legacy Stripe fallback</div> : null}
+                        </div>
                         {isSuspended && suspendedUntil ? <div className="mt-1 text-[10px] text-text3">Until {suspendedUntil}</div> : null}
                       </td>
 
@@ -547,6 +565,13 @@ function formatLastLogin(value?: string | null) {
   return date.toLocaleString();
 }
 
+function formatDateTime(value?: string | null) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleString();
+}
+
 function formatSuspendedUntil(value?: string | null) {
   if (!value) return null;
   const date = new Date(value);
@@ -556,6 +581,8 @@ function formatSuspendedUntil(value?: string | null) {
 }
 
 function formatProviderLabel(value: string) {
+  if (value === 'apple_app_store') return 'App Store';
+  if (value === 'google_play') return 'Google Play';
   if (value === 'email' || value === 'email_password') return 'Email';
   if (value === 'twitter') return 'X';
   if (value === 'unknown') return 'Unknown';
@@ -573,4 +600,11 @@ function formatRelativeEvent(event: AdminUser['recent_auth_events'][number]) {
     return event.event_type.replace(/_/g, ' ');
   }
   return `${event.event_type.replace(/_/g, ' ')} · ${date.toLocaleString()}`;
+}
+
+function formatBillingSummary(user: AdminUser) {
+  if (!user.billing.provider || !user.billing.status) {
+    return 'Billing: free account';
+  }
+  return `Billing: ${formatProviderLabel(user.billing.provider)} · ${user.billing.status.replace(/_/g, ' ')}`;
 }

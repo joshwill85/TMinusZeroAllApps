@@ -15,6 +15,7 @@ import {
   upsertProviderEntitlement,
   type PurchaseProvider
 } from '@/lib/server/providerEntitlements';
+import { resolveStripePromotionCodeId } from '@/lib/server/billingStripe';
 import { createSupabaseAdminClient, createSupabasePublicClient } from '@/lib/server/supabaseServer';
 import type { ResolvedViewerSession } from '@/lib/server/viewerSession';
 import { assertPasswordPolicy } from '@tminuszero/domain';
@@ -348,12 +349,19 @@ function mapSupabaseSession(session: {
   };
 }
 
-export async function createGuestPremiumCheckoutSession(returnTo?: string | null) {
+export async function createGuestPremiumCheckoutSession({
+  returnTo,
+  promotionCode
+}: {
+  returnTo?: string | null;
+  promotionCode?: string | null;
+} = {}) {
   if (!isStripeConfigured() || !isStripePriceConfigured() || PRICE_PRO_MONTHLY === 'price_placeholder') {
     throw new BillingApiRouteError(501, 'billing_not_configured');
   }
 
   const sanitizedReturnTo = sanitizeReturnToPath(returnTo, '/account');
+  const stripePromotionCodeId = await resolveStripePromotionCodeId(promotionCode);
   const claim = await insertClaim({
     provider: 'stripe',
     product_key: 'premium_monthly',
@@ -378,6 +386,7 @@ export async function createGuestPremiumCheckoutSession(returnTo?: string | null
     checkoutSession = await stripe.checkout.sessions.create({
       mode: 'subscription',
       line_items: [{ price: PRICE_PRO_MONTHLY, quantity: 1 }],
+      discounts: stripePromotionCodeId ? [{ promotion_code: stripePromotionCodeId }] : undefined,
       allow_promotion_codes: true,
       success_url: `${siteUrl}/upgrade?${claimQuery}`,
       cancel_url: `${siteUrl}/upgrade?${cancelQuery}`,

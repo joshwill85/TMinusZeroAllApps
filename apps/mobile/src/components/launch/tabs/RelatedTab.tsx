@@ -1,10 +1,11 @@
 import React from 'react';
 import { View, Text, ScrollView, Pressable, Linking, Image } from 'react-native';
+import type { MobileTheme } from '@tminuszero/design-tokens';
 import type { RelatedTabData } from '@tminuszero/launch-detail-ui';
 
 type RelatedTabProps = {
   data: RelatedTabData;
-  theme: any;
+  theme: MobileTheme;
 };
 
 export function RelatedTab({ data, theme }: RelatedTabProps) {
@@ -18,7 +19,7 @@ export function RelatedTab({ data, theme }: RelatedTabProps) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 60 }}>
         <Text style={{ fontSize: 48, marginBottom: 16 }}>📰</Text>
-        <Text style={{ fontSize: 16, fontWeight: '600', color: theme.text, marginBottom: 8 }}>
+        <Text style={{ fontSize: 16, fontWeight: '600', color: theme.foreground, marginBottom: 8 }}>
           No Related Content
         </Text>
         <Text style={{ fontSize: 14, color: theme.muted, textAlign: 'center', paddingHorizontal: 40 }}>
@@ -72,7 +73,7 @@ export function RelatedTab({ data, theme }: RelatedTabProps) {
                     style={{
                       fontSize: 16,
                       fontWeight: '700',
-                      color: theme.text,
+                      color: theme.foreground,
                       lineHeight: 22,
                       marginBottom: 8,
                     }}
@@ -155,7 +156,7 @@ export function RelatedTab({ data, theme }: RelatedTabProps) {
 
                   {/* Event Details */}
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 15, fontWeight: '700', color: theme.text, marginBottom: 4 }}>
+                    <Text style={{ fontSize: 15, fontWeight: '700', color: theme.foreground, marginBottom: 4 }}>
                       {event.name || `Event ${idx + 1}`}
                     </Text>
 
@@ -218,10 +219,10 @@ export function RelatedTab({ data, theme }: RelatedTabProps) {
                 }}
               >
                 <Text style={{ fontSize: 24 }}>
-                  {getMediaIcon(item.type)}
+                  {getMediaIcon(item.type ?? undefined)}
                 </Text>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 14, fontWeight: '600', color: theme.text }}>
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: theme.foreground }}>
                     {item.title || item.name}
                   </Text>
                   {item.description && (
@@ -246,7 +247,11 @@ export function RelatedTab({ data, theme }: RelatedTabProps) {
           <View style={{ gap: 12 }}>
             {data.resources.pressKit && (
               <Pressable
-                onPress={() => Linking.openURL(data.resources.pressKit)}
+                onPress={() => {
+                  if (data.resources?.pressKit) {
+                    Linking.openURL(data.resources.pressKit);
+                  }
+                }}
                 style={{
                   padding: 16,
                   borderRadius: 12,
@@ -260,7 +265,7 @@ export function RelatedTab({ data, theme }: RelatedTabProps) {
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                   <Text style={{ fontSize: 20 }}>📄</Text>
-                  <Text style={{ fontSize: 14, fontWeight: '600', color: theme.text }}>
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: theme.foreground }}>
                     Press Kit
                   </Text>
                 </View>
@@ -270,7 +275,11 @@ export function RelatedTab({ data, theme }: RelatedTabProps) {
 
             {data.resources.missionPage && (
               <Pressable
-                onPress={() => Linking.openURL(data.resources.missionPage)}
+                onPress={() => {
+                  if (data.resources?.missionPage) {
+                    Linking.openURL(data.resources.missionPage);
+                  }
+                }}
                 style={{
                   padding: 16,
                   borderRadius: 12,
@@ -284,7 +293,7 @@ export function RelatedTab({ data, theme }: RelatedTabProps) {
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                   <Text style={{ fontSize: 20 }}>🌐</Text>
-                  <Text style={{ fontSize: 14, fontWeight: '600', color: theme.text }}>
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: theme.foreground }}>
                     Mission Page
                   </Text>
                 </View>
@@ -313,7 +322,7 @@ export function RelatedTab({ data, theme }: RelatedTabProps) {
                   borderLeftColor: launch.success ? '#7ff0bc' : theme.stroke,
                 }}
               >
-                <Text style={{ fontSize: 14, fontWeight: '600', color: theme.text, marginBottom: 4 }}>
+                <Text style={{ fontSize: 14, fontWeight: '600', color: theme.foreground, marginBottom: 4 }}>
                   {launch.mission}
                 </Text>
                 <Text style={{ fontSize: 12, color: theme.muted }}>
@@ -336,13 +345,13 @@ export function RelatedTab({ data, theme }: RelatedTabProps) {
 
 // Helper Components
 
-function SectionTitle({ children, theme }: { children: React.ReactNode; theme: any }) {
+function SectionTitle({ children, theme }: { children: React.ReactNode; theme: MobileTheme }) {
   return (
     <Text
       style={{
         fontSize: 16,
         fontWeight: '700',
-        color: theme.text,
+        color: theme.foreground,
         marginBottom: 16,
         textTransform: 'uppercase',
         letterSpacing: 0.5,

@@ -68,6 +68,10 @@ export function useNativeBilling(viewerId: string | null): NativeBillingResult {
   });
 
   const productId = catalogProduct?.providerProductId ?? null;
+  const googleOfferToken =
+    catalogProduct?.offers?.find((offer) => offer.provider === 'google_play' && offer.offerToken)?.offerToken ??
+    catalogProduct?.googleOfferToken ??
+    null;
   const isStoreReady = Boolean(catalogProduct?.available && productId);
 
   useEffect(() => {
@@ -223,8 +227,8 @@ export function useNativeBilling(viewerId: string | null): NativeBillingResult {
             google: {
               skus: [productId],
               obfuscatedAccountId: viewerId || undefined,
-              subscriptionOffers: catalogProduct.googleOfferToken
-                ? [{ sku: productId, offerToken: catalogProduct.googleOfferToken }]
+              subscriptionOffers: googleOfferToken
+                ? [{ sku: productId, offerToken: googleOfferToken }]
                 : undefined
             }
           },

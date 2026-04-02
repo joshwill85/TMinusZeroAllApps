@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { loadDiscountCampaigns, summarizeDiscountCampaigns } from '@/lib/server/discountCampaigns';
 import { createSupabaseAdminClient, createSupabaseServerClient } from '@/lib/server/supabaseServer';
 import {
   isAppleBillingConfigured,
@@ -87,6 +88,16 @@ type WebhookFailureRow = {
   received_at: string | null;
   processed: boolean;
   error: string | null;
+};
+
+type PremiumClaimRow = {
+  user_id: string | null;
+  provider: ProviderKey;
+  status: string;
+  provider_product_id: string | null;
+  current_period_end: string | null;
+  updated_at: string | null;
+  created_at: string | null;
 };
 
 function isMissingRelationError(error: unknown) {
@@ -261,7 +272,15 @@ export async function GET() {
     providerEntitlements,
     recentPurchaseEvents,
     recentWebhookFailures,
-    webhookHealth
+    webhookHealth,
+    recentClaims,
+    providerCustomerMappingsCount,
+    unmappedPurchaseEventsCount,
+    pendingClaimsCount,
+    verifiedClaimsCount,
+    claimedClaimsCount,
+    unattachedClaimsCount,
+    discountCampaignsResult
   ] = await Promise.all([
     loadOptionalRows<ProfileRow>(
       admin.from('profiles').select('user_id,email,role,created_at').order('created_at', { ascending: false }).limit(500),
@@ -297,7 +316,44 @@ export async function GET() {
         .limit(20),
       'admin billing webhook failures'
     ),
-    Promise.all(WEBHOOK_SOURCES.map((source) => loadWebhookHealth(admin, source, cutoffIso)))
+    Promise.all(WEBHOOK_SOURCES.map((source) => loadWebhookHealth(admin, source, cutoffIso))),
+    loadOptionalRows<PremiumClaimRow>(
+      admin
+        .from('premium_claims')
+        .select('user_id,provider,status,provider_product_id,current_period_end,updated_at,created_at')
+        .order('updated_at', { ascending: false })
+        .limit(20),
+      'admin billing premium claims'
+    ),
+    loadOptionalCount(
+      admin.from('purchase_provider_customers').select('id', { count: 'exact', head: true }),
+      'admin billing purchase provider customers count'
+    ),
+    loadOptionalCount(
+      admin.from('purchase_events').select('id', { count: 'exact', head: true }).is('user_id', null),
+      'admin billing unmapped purchase events count'
+    ),
+    loadOptionalCount(
+      admin.from('premium_claims').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+      'admin billing pending claims count'
+    ),
+    loadOptionalCount(
+      admin.from('premium_claims').select('id', { count: 'exact', head: true }).eq('status', 'verified'),
+      'admin billing verified claims count'
+    ),
+    loadOptionalCount(
+      admin.from('premium_claims').select('id', { count: 'exact', head: true }).eq('status', 'claimed'),
+      'admin billing claimed claims count'
+    ),
+    loadOptionalCount(
+      admin
+        .from('premium_claims')
+        .select('id', { count: 'exact', head: true })
+        .in('status', ['pending', 'verified'])
+        .is('user_id', null),
+      'admin billing unattached claims count'
+    ),
+    loadDiscountCampaigns(admin)
   ]);
 
   const subscriptionMap = new Map(subscriptions.map((sub) => [sub.user_id, sub]));
@@ -431,12 +487,34 @@ export async function GET() {
     google_play: webhookHealth.find((item) => item.source === 'google_play') ?? createEmptyWebhookHealth('google_play')
   };
 
+  if (discountCampaignsResult.loadError) {
+    console.error('admin billing discount campaigns load error', discountCampaignsResult.loadError);
+  }
+
+  const claimSummary = {
+    pending: pendingClaimsCount,
+    verified: verifiedClaimsCount,
+    claimed: claimedClaimsCount,
+    unattached: unattachedClaimsCount
+  };
+
+  const mappingSummary = {
+    providerCustomerMappings: providerCustomerMappingsCount,
+    unmappedPurchaseEvents: unmappedPurchaseEventsCount
+  };
+
+  const campaignSummary = summarizeDiscountCampaigns(discountCampaignsResult.campaigns);
+
   return NextResponse.json(
     {
       config,
       summary,
       providerSummary,
+      claimSummary,
+      mappingSummary,
+      campaignSummary,
       webhooks,
+      recentClaims,
       recentPurchaseEvents,
       recentWebhookFailures,
       customers: billingCustomers

@@ -119,36 +119,54 @@ export function FollowMenuButton({
 
           {view === 'following' || !notificationsContent ? (
             <div className="space-y-1">
-              {options.map((option) => (
-                <button
-                  key={option.key}
-                  type="button"
-                  className={clsx(
-                    'flex w-full items-start justify-between gap-3 rounded-xl px-3 py-3 text-left transition',
-                    option.active ? 'bg-primary/10 text-primary' : 'text-text2 hover:bg-white/5',
-                    option.disabled && 'opacity-50',
-                    option.locked && !option.active && 'text-text3'
-                  )}
-                  onClick={() => {
-                    option.onPress();
-                    setOpen(false);
-                  }}
-                  disabled={option.disabled}
-                >
-                  <div>
-                    <div className="text-sm font-semibold text-current">{option.label}</div>
-                    <div className="mt-1 text-xs leading-5 text-text3">{option.description}</div>
-                  </div>
-                  <div
+              {options.map((option) => {
+                const locked = option.locked && !option.active;
+                return (
+                  <button
+                    key={option.key}
+                    type="button"
                     className={clsx(
-                      'mt-0.5 rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em]',
-                      option.active ? 'bg-primary/15 text-primary' : 'bg-white/[0.04] text-text3'
+                      'flex w-full items-start justify-between gap-3 rounded-xl border px-3 py-3 text-left transition',
+                      option.active
+                        ? 'border-primary/35 bg-primary/10 text-primary'
+                        : locked
+                          ? 'border-white/8 bg-white/[0.02] text-text3 hover:border-primary/30 hover:bg-white/[0.04]'
+                          : 'border-transparent text-text2 hover:bg-white/5',
+                      option.disabled && 'opacity-50'
                     )}
+                    onClick={() => {
+                      option.onPress();
+                      setOpen(false);
+                    }}
+                    disabled={option.disabled}
                   >
-                    {option.active ? 'On' : option.locked ? 'Premium' : 'Off'}
-                  </div>
-                </button>
-              ))}
+                    <div>
+                      <div className="flex items-center gap-2 text-sm font-semibold text-current">
+                        <span>{option.label}</span>
+                        {locked ? <LockIcon className="h-3.5 w-3.5 text-text3" /> : null}
+                      </div>
+                      <div className={clsx('mt-1 text-xs leading-5', locked ? 'text-text4' : 'text-text3')}>{option.description}</div>
+                    </div>
+                    <div
+                      className={clsx(
+                        'mt-0.5 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em]',
+                        option.active ? 'bg-primary/15 text-primary' : locked ? 'bg-white/[0.05] text-text3' : 'bg-white/[0.04] text-text3'
+                      )}
+                    >
+                      {option.active ? (
+                        'On'
+                      ) : locked ? (
+                        <>
+                          <LockIcon className="h-3 w-3" />
+                          <span>Premium</span>
+                        </>
+                      ) : (
+                        'Off'
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           ) : (
             <div className="px-2 pb-2">{notificationsContent}</div>
@@ -212,6 +230,15 @@ function ChevronDownIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" className={className} aria-hidden="true" fill="none">
       <path d="m6 9 6 6 6-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function LockIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" className={className} aria-hidden="true" fill="none">
+      <rect x="4.5" y="9" width="11" height="8" rx="2" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M7 9V7a3 3 0 0 1 6 0v2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   );
 }

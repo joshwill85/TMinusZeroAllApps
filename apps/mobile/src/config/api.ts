@@ -13,7 +13,13 @@ function isDevelopmentRuntime() {
 }
 
 function normalizeUrl(value: string | null | undefined) {
-  const trimmed = String(value || '').trim();
+  let trimmed = String(value || '').trim();
+  while (
+    trimmed.length >= 2 &&
+    ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'")))
+  ) {
+    trimmed = trimmed.slice(1, -1).trim();
+  }
   return trimmed ? trimmed.replace(/\/+$/, '') : null;
 }
 

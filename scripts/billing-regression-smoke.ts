@@ -110,7 +110,7 @@ async function verifyWebBillingAdapters() {
   }) as typeof fetch;
 
   try {
-    const checkout = await startBillingCheckout('/account');
+    const checkout = await startBillingCheckout({ returnTo: '/account' });
     assert.equal(checkout.url.includes('checkout.stripe.com'), true);
 
     const portal = await openBillingPortal();
@@ -142,7 +142,7 @@ async function verifyWebBillingAdapters() {
 
     let adapterError: WebBillingAdapterError | null = null;
     try {
-      await startBillingCheckout('/account');
+      await startBillingCheckout({ returnTo: '/account' });
     } catch (error) {
       adapterError = error as WebBillingAdapterError;
     }

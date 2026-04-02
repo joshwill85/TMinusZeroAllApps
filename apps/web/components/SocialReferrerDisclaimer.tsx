@@ -201,8 +201,7 @@ export function SocialReferrerDisclaimer() {
           Since you&apos;re visiting from {sourceLabel}: public (not signed in) data can be up to <span className="font-semibold text-text1">2 hours</span> behind.
         </p>
         <p className="mt-2 text-sm text-text2">
-          Sign in when you want account ownership and purchase restore. Premium refreshes every{' '}
-          <span className="font-semibold text-text1">15 seconds</span>.
+          Sign in when you want account ownership and purchase restore. Premium uses the live refresh cadence and moves faster near active launches.
         </p>
 
         <div className="mt-4 flex items-center justify-between gap-3">

@@ -46,10 +46,11 @@ export function CalendarPageClient() {
   const localTimeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', []);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const canUseRecurringCalendarFeeds = viewer?.capabilities.canUseRecurringCalendarFeeds === true;
+  const calendarScope = viewer?.capabilities.canUseLiveFeed ? 'live' : 'public';
 
   const monthQuery = useLaunchFeedPageQuery(
     {
-      scope: 'live',
+      scope: calendarScope,
       from: monthBounds.from.toISOString(),
       to: monthBounds.to.toISOString(),
       sort: 'soonest',

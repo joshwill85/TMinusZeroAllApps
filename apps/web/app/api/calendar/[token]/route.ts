@@ -12,8 +12,9 @@ import type { Launch, LaunchFilter } from '@/lib/types/launch';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-const TOKEN_CACHE_CONTROL = 'public, s-maxage=15, stale-while-revalidate=60';
-const FEED_CACHE_TTL_MS = 30_000;
+const TOKEN_CACHE_CONTROL = 'public, max-age=0, must-revalidate';
+const CDN_CACHE_CONTROL = 'public, s-maxage=900, stale-while-revalidate=900';
+const FEED_CACHE_TTL_MS = 15 * 60 * 1000;
 const MAX_ITEMS = 1000;
 const MAX_LOOKAHEAD_DAYS = 365;
 const MAX_LOOKBACK_DAYS = 365;
@@ -74,6 +75,7 @@ export async function GET(request: Request, { params }: { params: { token: strin
 
   const headers: Record<string, string> = {
     'Cache-Control': TOKEN_CACHE_CONTROL,
+    'CDN-Cache-Control': CDN_CACHE_CONTROL,
     'Content-Type': 'text/calendar; charset=utf-8',
     'Content-Disposition': `inline; filename="${buildFilename((feed as any).name)}"`
   };

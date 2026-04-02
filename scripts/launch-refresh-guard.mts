@@ -5,9 +5,12 @@ import {
   buildDetailVersionToken,
   buildPendingFeedRefreshMessage,
   canAutoRefreshActiveSurface,
+  getNextAdaptiveLaunchRefreshMs,
   getVisibleDetailUpdatedAt,
   getVisibleFeedUpdatedAt,
   hasVersionChanged,
+  isLaunchRefreshHotWindow,
+  PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS,
   shouldPrimeVersionRefresh
 } from '../packages/domain/src/launchRefresh.ts';
 
@@ -64,23 +67,22 @@ async function main() {
   assert.equal(hasVersionChanged(null, null), false);
   behaviorAssertions.push('version comparisons avoid false-positive refreshes');
 
+  assert.equal(buildPendingFeedRefreshMessage(), 'Launch schedule updated.');
+  behaviorAssertions.push('pending feed messaging uses the generic launch schedule update copy');
+
+  assert.equal(isLaunchRefreshHotWindow('2026-03-08T13:00:00.000Z', Date.parse('2026-03-08T12:00:00.000Z')), true);
+  assert.equal(isLaunchRefreshHotWindow('2026-03-08T13:00:00.000Z', Date.parse('2026-03-08T13:30:00.000Z')), false);
+  behaviorAssertions.push('adaptive cadence enters at T-60 minutes and exits at T+30 minutes');
+
   assert.equal(
-    buildPendingFeedRefreshMessage({
-      matchCount: 5,
-      visibleCount: 3,
-      canCompareCount: true
+    getNextAdaptiveLaunchRefreshMs({
+      nowMs: Date.parse('2026-03-08T12:00:10.000Z'),
+      intervalSeconds: PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS,
+      cadenceAnchorNet: '2026-03-08T13:01:00.000Z'
     }),
-    '2 new launches are ready.'
+    Date.parse('2026-03-08T12:01:00.000Z')
   );
-  assert.equal(
-    buildPendingFeedRefreshMessage({
-      matchCount: 3,
-      visibleCount: 3,
-      canCompareCount: false
-    }),
-    'Launch schedule updated.'
-  );
-  behaviorAssertions.push('pending feed messaging preserves delta copy and generic fallback copy');
+  behaviorAssertions.push('adaptive cadence wakes at the start of the hot window even when the default interval would skip past it');
 
   assert.equal(canAutoRefreshActiveSurface({ isFocused: true, appStateStatus: 'active' }), true);
   assert.equal(canAutoRefreshActiveSurface({ isFocused: false, appStateStatus: 'active' }), false);
@@ -100,10 +102,24 @@ async function main() {
 
   assertPattern(
     'apps/mobile/app/(tabs)/feed.tsx',
-    /setPendingRefresh\(null\);[\s\S]*<RefreshControl[\s\S]*void applyFeedRefresh\(\);/s,
-    'mobile feed pull-to-refresh clears pending refresh state through the manual refresh path'
+    /if \(feedScope !== 'live'\) \{[\s\S]*kind:\s*'anon_refresh'[\s\S]*Go Premium for near-live data[\s\S]*return;\s*\}/s,
+    'mobile feed anon pull-to-refresh stays local and surfaces the scheduled refresh/upgrade notice'
   );
-  sourceAssertions.push('mobile feed pull-to-refresh keeps pending-refresh state coherent');
+  sourceAssertions.push('mobile feed anon pull-to-refresh avoids network fetches');
+
+  assertPattern(
+    'apps/mobile/app/(tabs)/feed.tsx',
+    /if \(snapshot\.feedScope === 'public'\) \{[\s\S]*await autoApplyPublicRefresh\(\);[\s\S]*return;\s*\}/s,
+    'mobile feed auto-applies scheduled public updates instead of leaving anon users stranded on stale UI'
+  );
+  sourceAssertions.push('mobile feed public cadence auto-applies fresh public snapshots');
+
+  assertPattern(
+    'apps/mobile/app/(tabs)/feed.tsx',
+    /getNextAdaptiveLaunchRefreshMs\(\{\s*nowMs:\s*Date\.now\(\),\s*intervalSeconds:\s*refreshIntervalSeconds,\s*cadenceAnchorNet\s*\}\)/s,
+    'mobile feed schedules version checks with the adaptive cadence helper'
+  );
+  sourceAssertions.push('mobile feed uses adaptive cadence scheduling');
 
   assertPattern(
     'apps/mobile/app/launches/[id].tsx',
@@ -121,14 +137,28 @@ async function main() {
 
   assertPattern(
     'apps/mobile/app/launches/[id].tsx',
-    /<RefreshControl[\s\S]*void refreshDetail\(null\);/s,
-    'mobile detail exposes pull-to-refresh for manual reloads'
+    /if \(detailVersionScope !== 'live'\) \{[\s\S]*kind:\s*'anon_refresh'[\s\S]*Go Premium for near-live data[\s\S]*return;\s*\}/s,
+    'mobile detail anon pull-to-refresh stays local and surfaces the scheduled refresh/upgrade notice'
   );
-  sourceAssertions.push('mobile detail keeps manual refresh available');
+  sourceAssertions.push('mobile detail anon pull-to-refresh avoids network fetches');
+
+  assertPattern(
+    'apps/mobile/app/launches/[id].tsx',
+    /if \(detailVersionScope === 'public'\) \{[\s\S]*await applyResolvedDetailRefresh\(nextVersion\);[\s\S]*return;\s*\}/s,
+    'mobile detail auto-applies scheduled public updates when the public version changes'
+  );
+  sourceAssertions.push('mobile detail public cadence auto-applies fresh public detail');
+
+  assertPattern(
+    'apps/mobile/app/launches/[id].tsx',
+    /getNextAdaptiveLaunchRefreshMs\(\{\s*nowMs:\s*Date\.now\(\),\s*intervalSeconds:\s*refreshIntervalSeconds,\s*cadenceAnchorNet\s*\}\)/s,
+    'mobile detail schedules version checks with the adaptive cadence helper'
+  );
+  sourceAssertions.push('mobile detail uses adaptive cadence scheduling');
 
   assertPattern(
     'apps/web/components/LaunchFeed.tsx',
-    /buildPendingFeedRefreshMessage\(\{\s*matchCount:\s*pendingRefresh\.matchCount,\s*visibleCount:\s*launches\.length,\s*canCompareCount:\s*!hasMore && !query\s*\}\)/s,
+    /buildPendingFeedRefreshMessage\(\)/,
     'web feed refresh banner copy uses the shared helper'
   );
   sourceAssertions.push('web feed banner messaging is sourced from the shared helper');
@@ -142,8 +172,8 @@ async function main() {
 
   assertPattern(
     'apps/web/lib/server/v1/mobileApi.ts',
-    /const wantsLiveDetail = entitlement\.isAuthed && \(entitlement\.isAdmin \|\| entitlement\.tier === 'premium'\);/,
-    'mobile detail payload chooses live data for premium and admin viewers'
+    /const wantsLiveDetail = entitlement\.isAuthed && entitlement\.tier === 'premium';/,
+    'mobile detail payload chooses live data for premium viewers'
   );
   sourceAssertions.push('premium mobile detail is wired to prefer the live launch row');
 
@@ -167,6 +197,41 @@ async function main() {
     'detail version route supports bearer-auth live checks'
   );
   sourceAssertions.push('detail version route supports bearer-auth live refresh checks');
+
+  assertPattern(
+    'apps/web/app/api/v1/launches/route.ts',
+    /enforceLaunchFeedPayloadRateLimit\(request,\s*\{\s*scope,\s*viewerId:\s*viewer\?\.userId \?\? null\s*\}\)/s,
+    'feed payload route applies durable rate limiting before loading the feed'
+  );
+  sourceAssertions.push('feed payload route is rate limited');
+
+  assertPattern(
+    'apps/web/app/api/v1/launches/version/route.ts',
+    /enforceLaunchFeedVersionRateLimit\(request,\s*\{\s*scope,\s*viewerId:\s*viewer\?\.userId \?\? null\s*\}\)/s,
+    'feed version route applies durable rate limiting before returning versions'
+  );
+  sourceAssertions.push('feed version route is rate limited');
+
+  assertPattern(
+    'apps/web/app/api/v1/launches/[id]/route.ts',
+    /enforceLaunchDetailPayloadRateLimit\(request,\s*\{[\s\S]*scope:\s*entitlement\.mode === 'live' \? 'live' : 'public',[\s\S]*viewerId:\s*entitlement\.userId/s,
+    'detail payload route applies durable rate limiting before loading launch detail'
+  );
+  sourceAssertions.push('detail payload route is rate limited');
+
+  assertPattern(
+    'apps/web/app/api/v1/launches/[id]/version/route.ts',
+    /enforceLaunchDetailVersionRateLimit\(request,\s*\{\s*scope,\s*viewerId:\s*viewer\.userId\s*\}\)/s,
+    'detail version route applies durable rate limiting before returning versions'
+  );
+  sourceAssertions.push('detail version route is rate limited');
+
+  assertPattern(
+    'apps/web/lib/server/launchBoosterStats.ts',
+    /^((?!fetchLl2LaunchDetail).)*$/s,
+    'launch booster stats never trigger LL2 detail fetches on customer request paths'
+  );
+  sourceAssertions.push('launch booster stats stay DB-only on customer request paths');
 
   console.log(`launch-refresh-guard: ok (${behaviorAssertions.length + sourceAssertions.length} assertions)`);
 }

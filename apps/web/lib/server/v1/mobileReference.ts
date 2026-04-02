@@ -1,6 +1,6 @@
 import { createSupabaseServerClient } from '@/lib/server/supabaseServer';
 import { isSupabaseConfigured } from '@/lib/server/env';
-import { BRAND_NAME, SUPPORT_EMAIL } from '@/lib/brand';
+import { BRAND_NAME } from '@/lib/brand';
 import {
   catalogCollectionSchemaV1,
   catalogDetailSchemaV1,
@@ -110,33 +110,6 @@ const CONTENT_PAGES: ContentPageDefinition[] = [
       {
         title: 'Phase 3 - Admin and ops',
         body: 'Internal tooling remains web-first and is excluded from the mobile parity work.'
-      }
-    ]
-  },
-  {
-    slug: 'docs/sms-opt-in',
-    aliases: ['docs/sms-opt-in', 'legal/sms'],
-    eyebrow: 'Docs',
-    title: 'Notifications',
-    description: 'Native push notification guidance and operational notes for launch alerts.',
-    lastUpdated: '2026-03-20',
-    actions: [
-      { label: 'Preferences', href: '/preferences' },
-      { label: 'Privacy', href: '/legal/privacy' },
-      { label: 'Terms', href: '/legal/terms' }
-    ],
-    sections: [
-      {
-        title: 'Program description',
-        body: `${BRAND_NAME} delivers launch alerts through native push notifications on iOS and Android.`
-      },
-      {
-        title: 'Setup',
-        body: 'Users open notification settings, register a device, and enable the launch alert scopes they want.'
-      },
-      {
-        title: 'Help and support',
-        body: `Contact ${SUPPORT_EMAIL} if you need help with the notification setup.`
       }
     ]
   },

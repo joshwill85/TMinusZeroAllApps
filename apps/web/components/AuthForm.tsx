@@ -8,6 +8,7 @@ import { assertPasswordPolicy, PASSWORD_POLICY_HINT } from '@tminuszero/domain';
 import { buildAuthCallbackHref, readAuthIntent, readReturnTo } from '@tminuszero/navigation';
 import { browserApiClient } from '@/lib/api/client';
 import { getBrowserClient } from '@/lib/api/supabase';
+import { normalizeEnvText, normalizeEnvUrl } from '@/lib/env/normalize';
 import { CaptchaWidget } from './CaptchaWidget';
 
 const PENDING_PREMIUM_CLAIM_STORAGE_KEY = 'tmn_auth_pending_claim_token';
@@ -46,16 +47,18 @@ export function AuthForm({
       .toLowerCase();
     return normalized || null;
   }, [claimEmail, isSignUp]);
+  const turnstileSiteKey = useMemo(() => normalizeEnvText(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY), []);
+  const hcaptchaSiteKey = useMemo(() => normalizeEnvText(process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY), []);
   const captchaProvider = useMemo(() => {
-    if (process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY) return 'turnstile' as const;
-    if (process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY) return 'hcaptcha' as const;
+    if (turnstileSiteKey) return 'turnstile' as const;
+    if (hcaptchaSiteKey) return 'hcaptcha' as const;
     return null;
-  }, []);
+  }, [hcaptchaSiteKey, turnstileSiteKey]);
   const captchaSiteKey = useMemo(() => {
-    if (captchaProvider === 'turnstile') return process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || '';
-    if (captchaProvider === 'hcaptcha') return process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY || '';
+    if (captchaProvider === 'turnstile') return turnstileSiteKey || '';
+    if (captchaProvider === 'hcaptcha') return hcaptchaSiteKey || '';
     return '';
-  }, [captchaProvider]);
+  }, [captchaProvider, hcaptchaSiteKey, turnstileSiteKey]);
   const formId = useId();
   const emailId = `${formId}-email`;
   const passwordId = `${formId}-password`;
@@ -65,8 +68,7 @@ export function AuthForm({
 
   const baseUrl = useMemo(() => {
     if (typeof window !== 'undefined') return window.location.origin.replace(/\/+$/, '');
-    const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || '').trim();
-    return siteUrl ? siteUrl.replace(/\/+$/, '') : '';
+    return normalizeEnvUrl(process.env.NEXT_PUBLIC_SITE_URL) || '';
   }, []);
 
   const emailRedirectTo = useMemo(() => {

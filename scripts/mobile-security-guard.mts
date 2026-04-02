@@ -39,6 +39,7 @@ function main() {
   const resetPasswordContent = read('apps/mobile/app/auth/reset-password.tsx');
   const appConfigContent = read('apps/mobile/app.config.ts');
   const apiConfigContent = read('apps/mobile/src/config/api.ts');
+  const googleMapsPluginContent = read('apps/mobile/plugins/withGoogleMapsAndroidApiKey.js');
   const authStorageContent = read('apps/mobile/src/auth/storage.ts');
   const mobileSupabaseAuthContent = read('apps/mobile/src/auth/supabaseAuth.ts');
   const authVerifyContent = read('apps/web/app/auth/verify/route.ts');
@@ -53,6 +54,12 @@ function main() {
   assertIncludes(appConfigContent, 'tminuszero.app', 'app config includes the apex host for verified auth links', checks);
   assertIncludes(appConfigContent, "autoVerify: true", 'android auth links remain auto-verified', checks);
   assertIncludes(appConfigContent, "pathPrefix: '/auth/'", 'verified mobile app links stay scoped to auth routes', checks);
+  assertIncludes(
+    googleMapsPluginContent,
+    'normalizeEnvText(process.env.GOOGLE_MAPS_ANDROID_API_KEY)',
+    'android maps plugin normalizes quoted Google Maps API keys before manifest injection',
+    checks
+  );
 
   assertIncludes(apiConfigContent, 'assertSecureHttpsUrl', 'mobile config enforces https in non-development builds', checks);
   assertExcludes(

@@ -5,7 +5,7 @@ import {
   createSupabaseAdminClient,
   createSupabaseServerClient
 } from '@/lib/server/supabaseServer';
-import { loadProviderEntitlement } from '@/lib/server/providerEntitlements';
+import { loadProviderEntitlement, type ProviderEntitlementRecord } from '@/lib/server/providerEntitlements';
 import { isSubscriptionActive } from '@/lib/server/subscription';
 import { resolveViewerSession, type ResolvedViewerSession } from '@/lib/server/viewerSession';
 import {
@@ -68,6 +68,9 @@ export type UserAccessEntitlement = {
   userId: string;
   role: string | null;
   status: string | null;
+  billingProvider: ProviderEntitlementRecord['provider'] | 'none';
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
   isAdmin: boolean;
   isPaid: boolean;
   billingIsPaid: boolean;
@@ -252,23 +255,26 @@ export async function getUserAccessEntitlementById({
   }
 
   const client = admin ?? createSupabaseAdminClient();
-  const [profileRes, subscriptionRes, adminAccessOverrideRes] = await Promise.all([
+  const [profileRes, providerEntitlementRes, subscriptionRes, adminAccessOverrideRes] = await Promise.all([
     client.from('profiles').select('role').eq('user_id', normalizedUserId).maybeSingle(),
+    loadProviderEntitlement(client, normalizedUserId),
     client.from('subscriptions').select('status').eq('user_id', normalizedUserId).maybeSingle(),
     loadAdminAccessOverrideByUserId({ userId: normalizedUserId, client })
   ]);
 
-  if (profileRes.error || subscriptionRes.error || adminAccessOverrideRes.loadError) {
+  if (profileRes.error || subscriptionRes.error || adminAccessOverrideRes.loadError || providerEntitlementRes.loadError) {
     if (profileRes.error) console.error('profile entitlement lookup error', profileRes.error);
     if (subscriptionRes.error) console.error('subscription entitlement lookup error', subscriptionRes.error);
     if (adminAccessOverrideRes.loadError) console.error('admin access override lookup error', adminAccessOverrideRes.loadError);
+    if (providerEntitlementRes.loadError) console.error('provider entitlement lookup error', providerEntitlementRes.loadError);
     return { entitlement: null, loadError: 'failed_to_load_entitlement' };
   }
 
   const role = profileRes.data?.role ?? null;
-  const status = subscriptionRes.data?.status ?? null;
+  const providerEntitlement = providerEntitlementRes.entitlement;
+  const status = providerEntitlement?.status ?? subscriptionRes.data?.status ?? null;
   const isAdmin = role === 'admin';
-  const billingIsPaid = isSubscriptionActive({ status });
+  const billingIsPaid = Boolean(providerEntitlement?.isActive || isSubscriptionActive({ status }));
   const adminAccessOverride = isAdmin ? adminAccessOverrideRes.override?.adminAccessOverride ?? null : null;
   const effectiveTier = resolveEffectiveTier({
     isAuthed: true,
@@ -281,6 +287,9 @@ export async function getUserAccessEntitlementById({
       userId: normalizedUserId,
       role,
       status,
+      billingProvider: providerEntitlement?.provider ?? 'none',
+      currentPeriodEnd: providerEntitlement?.currentPeriodEnd ?? null,
+      cancelAtPeriodEnd: providerEntitlement?.cancelAtPeriodEnd ?? false,
       isAdmin,
       isPaid: effectiveTier.tier === 'premium',
       billingIsPaid,

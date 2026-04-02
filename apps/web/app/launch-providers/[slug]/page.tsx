@@ -4,6 +4,7 @@ import { notFound, permanentRedirect } from 'next/navigation';
 import { JsonLd } from '@/components/JsonLd';
 import { getSiteUrl, isSupabaseConfigured } from '@/lib/server/env';
 import { fetchProviderBySlug, type ProviderSummary } from '@/lib/server/providers';
+import { fetchProviderSchedule } from '@/lib/server/providerSchedule';
 import type { Launch } from '@/lib/types/launch';
 import { buildSiteMeta, SITE_META } from '@/lib/server/siteMeta';
 import { buildLaunchHref, toProviderSlug } from '@/lib/utils/launchLinks';
@@ -146,7 +147,7 @@ export default async function ProviderSchedulePage({ params }: { params: { slug:
   const canonicalSlug = provider.slug;
   if (params.slug !== canonicalSlug) permanentRedirect(`/launch-providers/${canonicalSlug}`);
 
-  const { upcoming, recent } = await fetchProviderSchedule(provider.slug);
+  const { upcoming, recent } = await fetchProviderSchedule({ providerName: provider.name });
 
   const siteUrl = getSiteUrl().replace(/\/$/, '');
   const pageUrl = `${siteUrl}/launch-providers/${provider.slug}`;
@@ -238,29 +239,6 @@ export default async function ProviderSchedulePage({ params }: { params: { slug:
       <LaunchList title="Recent launches" launches={recent} emptyLabel={`No recent ${provider.name} launch history available yet.`} />
     </div>
   );
-}
-
-async function fetchProviderSchedule(providerSlug: string): Promise<Pick<ProviderScheduleData, 'upcoming' | 'recent'>> {
-  const siteUrl = getSiteUrl().replace(/\/$/, '');
-  const url = new URL(`${siteUrl}/api/public/provider-schedule`);
-  url.searchParams.set('slug', providerSlug);
-
-  try {
-    const res = await fetch(url.toString(), { next: { revalidate } });
-    const json = await res.json().catch(() => null);
-    if (!res.ok) {
-      console.error('provider schedule api error', res.status, json);
-      return { upcoming: [], recent: [] };
-    }
-
-    return {
-      upcoming: Array.isArray(json?.upcoming) ? (json.upcoming as Launch[]) : [],
-      recent: Array.isArray(json?.recent) ? (json.recent as Launch[]) : []
-    };
-  } catch (error) {
-    console.error('provider schedule api error', error);
-    return { upcoming: [], recent: [] };
-  }
 }
 
 function LaunchList({ title, launches, emptyLabel }: { title: string; launches: Launch[]; emptyLabel: string }) {

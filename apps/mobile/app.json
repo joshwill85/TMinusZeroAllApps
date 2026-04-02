@@ -43,6 +43,7 @@
           }
         }
       ],
+      "./plugins/withGoogleMapsAndroidApiKey",
       "./plugins/withIosUserScriptSandboxDisabled",
       "expo-iap"
     ],

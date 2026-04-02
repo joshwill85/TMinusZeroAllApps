@@ -69,27 +69,21 @@ async function sendNotifications(supabase: ReturnType<typeof createSupabaseAdmin
   const emailStats = resendConfig.enabled
     ? await sendEmailNotifications(supabase, resendConfig)
     : await reportResendNotConfigured(supabase, resendConfig);
-  const smsStats = await sendSmsNotifications(supabase);
   const pushStats = await sendPushNotifications(supabase);
   const mobilePushV2Stats = pushEnabled
     ? await sendMobilePushNotificationsV2(supabase)
     : { processed: 0, sent: 0, skipped: 0, failed: 0, requeued: 0, reason: 'push_disabled' };
 
   return {
-    processed: emailStats.processed + smsStats.processed + pushStats.processed + mobilePushV2Stats.processed,
-    sent: emailStats.sent + smsStats.sent + pushStats.sent + mobilePushV2Stats.sent,
-    skipped: emailStats.skipped + smsStats.skipped + pushStats.skipped + mobilePushV2Stats.skipped,
-    failed: emailStats.failed + smsStats.failed + pushStats.failed + mobilePushV2Stats.failed,
-    requeued: emailStats.requeued + smsStats.requeued + pushStats.requeued + mobilePushV2Stats.requeued,
+    processed: emailStats.processed + pushStats.processed + mobilePushV2Stats.processed,
+    sent: emailStats.sent + pushStats.sent + mobilePushV2Stats.sent,
+    skipped: emailStats.skipped + pushStats.skipped + mobilePushV2Stats.skipped,
+    failed: emailStats.failed + pushStats.failed + mobilePushV2Stats.failed,
+    requeued: emailStats.requeued + pushStats.requeued + mobilePushV2Stats.requeued,
     email: emailStats,
-    sms: smsStats,
     push: pushStats,
     mobilePushV2: mobilePushV2Stats
   };
-}
-
-async function sendSmsNotifications(supabase: ReturnType<typeof createSupabaseAdminClient>) {
-  return retireLegacyNotificationOutboxChannel(supabase, 'sms');
 }
 
 function getPushBrandName() {
@@ -573,7 +567,7 @@ async function sendEmailNotifications(supabase: ReturnType<typeof createSupabase
 
 async function retireLegacyNotificationOutboxChannel(
   supabase: ReturnType<typeof createSupabaseAdminClient>,
-  channel: 'email' | 'sms' | 'push'
+  channel: 'email' | 'push'
 ) {
   const now = new Date().toISOString();
   const { data, error } = await supabase

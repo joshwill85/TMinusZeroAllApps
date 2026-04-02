@@ -1,10 +1,10 @@
-import { isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
+import { isJepPublicVisibilityForced, isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
 import { createSupabaseAdminClient, createSupabasePublicClient } from '@/lib/server/supabaseServer';
 import type { JepObserver } from '@/lib/server/jepObserver';
 import { deriveJepCalibrationBand } from '@/lib/jep/calibration';
 import { applyJepObserverGuidancePolicy } from '@/lib/jep/fallbackPolicy';
 import { deriveJepForecastHorizon } from '@/lib/jep/forecastHorizon';
-import { deriveJepGuidance } from '@/lib/jep/guidance';
+import { deriveJepGuidance, deriveJepSolarWindowRange } from '@/lib/jep/guidance';
 import { deriveJepReadiness } from '@/lib/jep/readiness';
 import {
   computeJepScoreRecord,
@@ -101,6 +101,8 @@ type JepGateState = {
 type JepLaunchContext = {
   net: string | null;
   netPrecision: string | null;
+  windowStart: string | null;
+  windowEnd: string | null;
   padLat: number | null;
   padLon: number | null;
   padCountryCode: string | null;
@@ -139,7 +141,7 @@ export async function fetchLaunchJepScore(
   if (!launchId) return null;
 
   const gate = await loadJepVisibilityGate();
-  if (!gate.publicVisible && options.viewerIsAdmin !== true) return null;
+  if (!gate.publicVisible && options.viewerIsAdmin !== true && !isJepPublicVisibilityForced()) return null;
 
   const requestedObserver = options.observer ?? null;
   const requestedHash = requestedObserver?.locationHash || PAD_OBSERVER_HASH;
@@ -222,11 +224,12 @@ async function mapRowToLaunchJepScore({
   const isSnapshot = snapshotAt != null;
   const expiresAtMs = row.expires_at ? Date.parse(row.expires_at) : Number.NaN;
   const isStale = !isSnapshot && Number.isFinite(expiresAtMs) ? expiresAtMs <= Date.now() : false;
+  const normalizedWeatherFactor = normalizeLegacyWeatherFactor(row);
   const factors = {
     illumination: clamp(normalizeNumber(row.illumination_factor, 0), 0, 1),
     darkness: clamp(normalizeNumber(row.darkness_factor, 0), 0, 1),
     lineOfSight: clamp(normalizeNumber(row.los_factor, 0), 0, 1),
-    weather: clamp(normalizeNumber(row.weather_factor, 0), 0, 1),
+    weather: normalizedWeatherFactor,
     solarDepressionDeg: toNumber(row.solar_depression_deg),
     cloudCoverPct: toNumberInt(row.cloud_cover_pct),
     cloudCoverLowPct: toNumberInt(row.cloud_cover_low_pct),
@@ -269,6 +272,20 @@ async function mapRowToLaunchJepScore({
           }
         : null)
     : null;
+  const solarRangeObserver =
+    guidanceObserver ??
+    (launchContext?.padLat != null && launchContext?.padLon != null
+      ? {
+          latDeg: launchContext.padLat,
+          lonDeg: launchContext.padLon
+        }
+      : null);
+  const solarWindowRange = deriveJepSolarWindowRange({
+    observer: solarRangeObserver,
+    launchNetIso: launchContext?.net ?? null,
+    launchWindowStartIso: launchContext?.windowStart ?? null,
+    launchWindowEndIso: launchContext?.windowEnd ?? null
+  });
   const guidance = applyJepObserverGuidancePolicy(
     deriveJepGuidance({
       trajectory: trajectoryContract,
@@ -326,6 +343,7 @@ async function mapRowToLaunchJepScore({
       personalized: rowObserverHash !== PAD_OBSERVER_HASH,
       usingPadFallback: requestedObserver != null && (usingPadFallback || rowObserverHash === PAD_OBSERVER_HASH)
     },
+    solarWindowRange,
     bestWindow: guidance.bestWindow,
     directionBand: guidance.directionBand,
     elevationBand: guidance.elevationBand,
@@ -781,7 +799,7 @@ async function fetchJepLaunchContext(launchId: string): Promise<JepLaunchContext
     const admin = createSupabaseAdminClient();
     const { data, error } = await admin
       .from('launches')
-      .select('net,net_precision,pad_latitude,pad_longitude,pad_country_code')
+      .select('net,net_precision,window_start,window_end,pad_latitude,pad_longitude,pad_country_code')
       .eq('id', launchId)
       .maybeSingle();
 
@@ -793,6 +811,8 @@ async function fetchJepLaunchContext(launchId: string): Promise<JepLaunchContext
     return {
       net: normalizeText(data?.net) || null,
       netPrecision: normalizeText(data?.net_precision) || null,
+      windowStart: normalizeText(data?.window_start) || null,
+      windowEnd: normalizeText(data?.window_end) || null,
       padLat: toNumber(data?.pad_latitude),
       padLon: toNumber(data?.pad_longitude),
       padCountryCode: normalizeText(data?.pad_country_code) || null
@@ -801,6 +821,17 @@ async function fetchJepLaunchContext(launchId: string): Promise<JepLaunchContext
     console.warn('jep launch context fetch exception', error);
     return null;
   }
+}
+
+function normalizeLegacyWeatherFactor(row: LaunchJepScoreRow) {
+  const rawFactor = clamp(normalizeNumber(row.weather_factor, 0), 0, 1);
+  const hasWeatherSignal =
+    normalizeText(row.weather_source) !== 'none' ||
+    [row.cloud_cover_pct, row.cloud_cover_low_pct, row.cloud_cover_mid_pct, row.cloud_cover_high_pct].some((value) =>
+      Number.isFinite(toNumber(value))
+    );
+  if (hasWeatherSignal && rawFactor <= 0) return 0.08;
+  return rawFactor;
 }
 
 function mapTrajectoryContractToJepEvidence(contract: TrajectoryContract): LaunchJepScore['trajectory'] {
@@ -831,9 +862,17 @@ function mapTrajectoryContractToJepEvidence(contract: TrajectoryContract): Launc
 }
 
 async function loadJepVisibilityGate(): Promise<JepGateState> {
+  const forcePublicVisible = isJepPublicVisibilityForced();
   const nowMs = Date.now();
   if (gateCache && gateCache.expiresAtMs > nowMs) {
-    return gateCache.value;
+    if (!forcePublicVisible) {
+      return gateCache.value;
+    }
+    return {
+      ...gateCache.value,
+      publicEnabled: true,
+      publicVisible: true
+    };
   }
 
   if (!isSupabaseAdminConfigured()) {
@@ -850,7 +889,7 @@ async function loadJepVisibilityGate(): Promise<JepGateState> {
     });
     const fallback: JepGateState = {
       publicEnabled: true,
-      publicVisible: readiness.publicVisible,
+      publicVisible: forcePublicVisible ? true : readiness.publicVisible,
       readiness,
       transientPersonalizationEnabled: false
     };
@@ -889,8 +928,8 @@ async function loadJepVisibilityGate(): Promise<JepGateState> {
       maxBrier: null
     });
     const fallback: JepGateState = {
-      publicEnabled: false,
-      publicVisible: readiness.publicVisible,
+      publicEnabled: forcePublicVisible ? true : false,
+      publicVisible: forcePublicVisible ? true : readiness.publicVisible,
       readiness,
       transientPersonalizationEnabled: false
     };
@@ -918,8 +957,8 @@ async function loadJepVisibilityGate(): Promise<JepGateState> {
     maxBrier: readRatioSetting(map.jep_probability_max_brier)
   });
   const value: JepGateState = {
-    publicEnabled,
-    publicVisible: readiness.publicVisible,
+    publicEnabled: forcePublicVisible ? true : publicEnabled,
+    publicVisible: forcePublicVisible ? true : readiness.publicVisible,
     readiness,
     transientPersonalizationEnabled: readBooleanSetting(map.jep_transient_personalization_enabled, false)
   };

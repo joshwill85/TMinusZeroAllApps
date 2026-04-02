@@ -1,0 +1,667 @@
+{
+  "schemaVersion": 1,
+  "seed": "ar-three-surface-family-matrix-v1",
+  "notes": "Deterministic family and observer matrix fixture for shared-truth AR gating across web, iOS, and Android.",
+  "cases": [
+    {
+      "id": "cape-iss-family",
+      "label": "Cape ISS / crew family",
+      "familyId": "cape_iss_family",
+      "site": "cape",
+      "pad": { "latDeg": 28.561857, "lonDeg": -80.577366 },
+      "expectedWindow": { "minAzDeg": 44, "maxAzDeg": 46 },
+      "familyCenterAzDeg": 45,
+      "eastboundFamily": true,
+      "targetOrbit": { "inclinationDeg": 51.6 },
+      "selection": {
+        "directionSource": "inclination_derived",
+        "selectedAzimuthDeg": 45.0,
+        "alternateAzimuthDeg": 135.0,
+        "preferredAzimuthDeg": 50.0,
+        "confidenceBadge": "A",
+        "qualityState": "precision",
+        "guidanceSemantics": "constraint_backed",
+        "authorityTier": "supplemental_ephemeris"
+      },
+      "observers": [
+        {
+          "id": "W15",
+          "label": "15 mi west",
+          "padBearingDeg": 90,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 90, "elDeg": 0.2 },
+            { "tPlusSec": 10, "azDeg": 84, "elDeg": 7.1 },
+            { "tPlusSec": 30, "azDeg": 79, "elDeg": 10.8 },
+            { "tPlusSec": 60, "azDeg": 73, "elDeg": 14.9 },
+            { "tPlusSec": 120, "azDeg": 66, "elDeg": 18.1 }
+          ]
+        },
+        {
+          "id": "SW15",
+          "label": "15 mi southwest",
+          "padBearingDeg": 45,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 45, "elDeg": 0.2 },
+            { "tPlusSec": 10, "azDeg": 49, "elDeg": 6.6 },
+            { "tPlusSec": 30, "azDeg": 54, "elDeg": 10.2 },
+            { "tPlusSec": 60, "azDeg": 59, "elDeg": 14.4 },
+            { "tPlusSec": 120, "azDeg": 65, "elDeg": 17.8 }
+          ]
+        },
+        {
+          "id": "S15",
+          "label": "15 mi south",
+          "padBearingDeg": 0,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 0, "elDeg": 0.3 },
+            { "tPlusSec": 10, "azDeg": 14, "elDeg": 6.4 },
+            { "tPlusSec": 30, "azDeg": 23, "elDeg": 10.3 },
+            { "tPlusSec": 60, "azDeg": 31, "elDeg": 14.2 },
+            { "tPlusSec": 120, "azDeg": 39, "elDeg": 18.0 }
+          ]
+        },
+        {
+          "id": "W30",
+          "label": "30 mi west",
+          "padBearingDeg": 90,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 90, "elDeg": 0.1 },
+            { "tPlusSec": 10, "azDeg": 86, "elDeg": 4.4 },
+            { "tPlusSec": 30, "azDeg": 82, "elDeg": 7.3 },
+            { "tPlusSec": 60, "azDeg": 77, "elDeg": 10.8 },
+            { "tPlusSec": 120, "azDeg": 71, "elDeg": 15.1 }
+          ]
+        },
+        {
+          "id": "N20",
+          "label": "20 mi north",
+          "padBearingDeg": 180,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 180, "elDeg": 0.1 },
+            { "tPlusSec": 10, "azDeg": 164, "elDeg": 5.5 },
+            { "tPlusSec": 30, "azDeg": 151, "elDeg": 8.8 },
+            { "tPlusSec": 60, "azDeg": 138, "elDeg": 12.1 },
+            { "tPlusSec": 120, "azDeg": 123, "elDeg": 15.9 }
+          ]
+        },
+        {
+          "id": "E15",
+          "label": "15 mi east",
+          "padBearingDeg": 270,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 270, "elDeg": 0.2 },
+            { "tPlusSec": 10, "azDeg": 286, "elDeg": 6.2 },
+            { "tPlusSec": 30, "azDeg": 300, "elDeg": 9.4 },
+            { "tPlusSec": 60, "azDeg": 314, "elDeg": 12.5 },
+            { "tPlusSec": 120, "azDeg": 328, "elDeg": 15.0 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cape-starlink-mid",
+      "label": "Cape Starlink mid-inclination shell",
+      "familyId": "cape_starlink_mid",
+      "site": "cape",
+      "pad": { "latDeg": 28.561857, "lonDeg": -80.577366 },
+      "expectedWindow": { "minAzDeg": 42, "maxAzDeg": 44 },
+      "familyCenterAzDeg": 43,
+      "eastboundFamily": true,
+      "targetOrbit": { "inclinationDeg": 53.2 },
+      "selection": {
+        "directionSource": "inclination_derived",
+        "selectedAzimuthDeg": 43.0,
+        "alternateAzimuthDeg": 137.0,
+        "preferredAzimuthDeg": 50.0,
+        "confidenceBadge": "A",
+        "qualityState": "precision",
+        "guidanceSemantics": "constraint_backed",
+        "authorityTier": "supplemental_ephemeris"
+      },
+      "observers": [
+        {
+          "id": "W15",
+          "label": "15 mi west",
+          "padBearingDeg": 90,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 90, "elDeg": 0.2 },
+            { "tPlusSec": 10, "azDeg": 83, "elDeg": 6.9 },
+            { "tPlusSec": 30, "azDeg": 77, "elDeg": 10.4 },
+            { "tPlusSec": 60, "azDeg": 70, "elDeg": 14.2 },
+            { "tPlusSec": 120, "azDeg": 61, "elDeg": 17.2 }
+          ]
+        },
+        {
+          "id": "SW15",
+          "label": "15 mi southwest",
+          "padBearingDeg": 45,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 45, "elDeg": 0.2 },
+            { "tPlusSec": 10, "azDeg": 48, "elDeg": 6.3 },
+            { "tPlusSec": 30, "azDeg": 53, "elDeg": 9.7 },
+            { "tPlusSec": 60, "azDeg": 58, "elDeg": 13.6 },
+            { "tPlusSec": 120, "azDeg": 64, "elDeg": 16.9 }
+          ]
+        },
+        {
+          "id": "S15",
+          "label": "15 mi south",
+          "padBearingDeg": 0,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 0, "elDeg": 0.3 },
+            { "tPlusSec": 10, "azDeg": 13, "elDeg": 6.0 },
+            { "tPlusSec": 30, "azDeg": 21, "elDeg": 9.6 },
+            { "tPlusSec": 60, "azDeg": 29, "elDeg": 13.4 },
+            { "tPlusSec": 120, "azDeg": 37, "elDeg": 17.3 }
+          ]
+        },
+        {
+          "id": "W30",
+          "label": "30 mi west",
+          "padBearingDeg": 90,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 90, "elDeg": 0.1 },
+            { "tPlusSec": 10, "azDeg": 85, "elDeg": 4.1 },
+            { "tPlusSec": 30, "azDeg": 80, "elDeg": 6.8 },
+            { "tPlusSec": 60, "azDeg": 74, "elDeg": 10.1 },
+            { "tPlusSec": 120, "azDeg": 67, "elDeg": 13.9 }
+          ]
+        },
+        {
+          "id": "N20",
+          "label": "20 mi north",
+          "padBearingDeg": 180,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 180, "elDeg": 0.1 },
+            { "tPlusSec": 10, "azDeg": 166, "elDeg": 5.2 },
+            { "tPlusSec": 30, "azDeg": 154, "elDeg": 8.2 },
+            { "tPlusSec": 60, "azDeg": 141, "elDeg": 11.3 },
+            { "tPlusSec": 120, "azDeg": 127, "elDeg": 15.1 }
+          ]
+        },
+        {
+          "id": "E15",
+          "label": "15 mi east",
+          "padBearingDeg": 270,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 270, "elDeg": 0.2 },
+            { "tPlusSec": 10, "azDeg": 287, "elDeg": 5.9 },
+            { "tPlusSec": 30, "azDeg": 303, "elDeg": 8.8 },
+            { "tPlusSec": 60, "azDeg": 319, "elDeg": 11.7 },
+            { "tPlusSec": 120, "azDeg": 334, "elDeg": 14.4 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cape-starlink-low",
+      "label": "Cape Starlink lower-inclination shell",
+      "familyId": "cape_starlink_low",
+      "site": "cape",
+      "pad": { "latDeg": 28.561857, "lonDeg": -80.577366 },
+      "expectedWindow": { "minAzDeg": 56, "maxAzDeg": 58 },
+      "familyCenterAzDeg": 57,
+      "eastboundFamily": true,
+      "targetOrbit": { "inclinationDeg": 43.0 },
+      "selection": {
+        "directionSource": "inclination_derived",
+        "selectedAzimuthDeg": 56.3,
+        "alternateAzimuthDeg": 123.7,
+        "preferredAzimuthDeg": 57.0,
+        "confidenceBadge": "A",
+        "qualityState": "precision",
+        "guidanceSemantics": "constraint_backed",
+        "authorityTier": "partner_feed"
+      },
+      "observers": [
+        {
+          "id": "W15",
+          "label": "15 mi west",
+          "padBearingDeg": 90,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 90, "elDeg": 0.2 },
+            { "tPlusSec": 10, "azDeg": 88, "elDeg": 7.0 },
+            { "tPlusSec": 30, "azDeg": 84, "elDeg": 10.8 },
+            { "tPlusSec": 60, "azDeg": 78, "elDeg": 14.8 },
+            { "tPlusSec": 120, "azDeg": 70, "elDeg": 18.4 }
+          ]
+        },
+        {
+          "id": "SW15",
+          "label": "15 mi southwest",
+          "padBearingDeg": 45,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 45, "elDeg": 0.2 },
+            { "tPlusSec": 10, "azDeg": 57, "elDeg": 6.8 },
+            { "tPlusSec": 30, "azDeg": 63, "elDeg": 10.6 },
+            { "tPlusSec": 60, "azDeg": 69, "elDeg": 14.6 },
+            { "tPlusSec": 120, "azDeg": 76, "elDeg": 18.0 }
+          ]
+        },
+        {
+          "id": "S15",
+          "label": "15 mi south",
+          "padBearingDeg": 0,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 0, "elDeg": 0.3 },
+            { "tPlusSec": 10, "azDeg": 21, "elDeg": 6.5 },
+            { "tPlusSec": 30, "azDeg": 31, "elDeg": 10.3 },
+            { "tPlusSec": 60, "azDeg": 42, "elDeg": 14.5 },
+            { "tPlusSec": 120, "azDeg": 54, "elDeg": 18.2 }
+          ]
+        },
+        {
+          "id": "W30",
+          "label": "30 mi west",
+          "padBearingDeg": 90,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 90, "elDeg": 0.1 },
+            { "tPlusSec": 10, "azDeg": 89, "elDeg": 4.4 },
+            { "tPlusSec": 30, "azDeg": 86, "elDeg": 7.4 },
+            { "tPlusSec": 60, "azDeg": 82, "elDeg": 10.9 },
+            { "tPlusSec": 120, "azDeg": 76, "elDeg": 14.7 }
+          ]
+        },
+        {
+          "id": "N20",
+          "label": "20 mi north",
+          "padBearingDeg": 180,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 180, "elDeg": 0.1 },
+            { "tPlusSec": 10, "azDeg": 160, "elDeg": 5.8 },
+            { "tPlusSec": 30, "azDeg": 146, "elDeg": 9.1 },
+            { "tPlusSec": 60, "azDeg": 133, "elDeg": 12.5 },
+            { "tPlusSec": 120, "azDeg": 118, "elDeg": 16.1 }
+          ]
+        },
+        {
+          "id": "E15",
+          "label": "15 mi east",
+          "padBearingDeg": 270,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 270, "elDeg": 0.2 },
+            { "tPlusSec": 10, "azDeg": 275, "elDeg": 6.1 },
+            { "tPlusSec": 30, "azDeg": 285, "elDeg": 9.4 },
+            { "tPlusSec": 60, "azDeg": 296, "elDeg": 12.6 },
+            { "tPlusSec": 120, "azDeg": 308, "elDeg": 15.7 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cape-leo-high-inc",
+      "label": "Cape higher-inclination LEO",
+      "familyId": "cape_leo_high_inc",
+      "site": "cape",
+      "pad": { "latDeg": 28.561857, "lonDeg": -80.577366 },
+      "expectedWindow": { "minAzDeg": 38, "maxAzDeg": 40 },
+      "familyCenterAzDeg": 39,
+      "eastboundFamily": true,
+      "targetOrbit": { "inclinationDeg": 57.0 },
+      "selection": {
+        "directionSource": "inclination_derived",
+        "selectedAzimuthDeg": 38.3,
+        "alternateAzimuthDeg": 141.7,
+        "preferredAzimuthDeg": 39.0,
+        "confidenceBadge": "A",
+        "qualityState": "precision",
+        "guidanceSemantics": "constraint_backed",
+        "authorityTier": "partner_feed"
+      },
+      "observers": [
+        {
+          "id": "W15",
+          "label": "15 mi west",
+          "padBearingDeg": 90,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 90, "elDeg": 0.2 },
+            { "tPlusSec": 10, "azDeg": 80, "elDeg": 6.7 },
+            { "tPlusSec": 30, "azDeg": 71, "elDeg": 10.5 },
+            { "tPlusSec": 60, "azDeg": 61, "elDeg": 14.7 },
+            { "tPlusSec": 120, "azDeg": 50, "elDeg": 18.5 }
+          ]
+        },
+        {
+          "id": "SW15",
+          "label": "15 mi southwest",
+          "padBearingDeg": 45,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 45, "elDeg": 0.2 },
+            { "tPlusSec": 10, "azDeg": 44, "elDeg": 6.5 },
+            { "tPlusSec": 30, "azDeg": 48, "elDeg": 10.1 },
+            { "tPlusSec": 60, "azDeg": 52, "elDeg": 14.0 },
+            { "tPlusSec": 120, "azDeg": 58, "elDeg": 17.8 }
+          ]
+        },
+        {
+          "id": "S15",
+          "label": "15 mi south",
+          "padBearingDeg": 0,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 0, "elDeg": 0.3 },
+            { "tPlusSec": 10, "azDeg": 10, "elDeg": 6.2 },
+            { "tPlusSec": 30, "azDeg": 17, "elDeg": 10.0 },
+            { "tPlusSec": 60, "azDeg": 24, "elDeg": 13.9 },
+            { "tPlusSec": 120, "azDeg": 33, "elDeg": 17.9 }
+          ]
+        },
+        {
+          "id": "W30",
+          "label": "30 mi west",
+          "padBearingDeg": 90,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 90, "elDeg": 0.1 },
+            { "tPlusSec": 10, "azDeg": 83, "elDeg": 4.1 },
+            { "tPlusSec": 30, "azDeg": 75, "elDeg": 7.0 },
+            { "tPlusSec": 60, "azDeg": 67, "elDeg": 10.4 },
+            { "tPlusSec": 120, "azDeg": 58, "elDeg": 14.5 }
+          ]
+        },
+        {
+          "id": "N20",
+          "label": "20 mi north",
+          "padBearingDeg": 180,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 180, "elDeg": 0.1 },
+            { "tPlusSec": 10, "azDeg": 169, "elDeg": 5.0 },
+            { "tPlusSec": 30, "azDeg": 159, "elDeg": 8.1 },
+            { "tPlusSec": 60, "azDeg": 148, "elDeg": 11.5 },
+            { "tPlusSec": 120, "azDeg": 136, "elDeg": 15.7 }
+          ]
+        },
+        {
+          "id": "E15",
+          "label": "15 mi east",
+          "padBearingDeg": 270,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 270, "elDeg": 0.2 },
+            { "tPlusSec": 10, "azDeg": 294, "elDeg": 5.8 },
+            { "tPlusSec": 30, "azDeg": 315, "elDeg": 8.9 },
+            { "tPlusSec": 60, "azDeg": 334, "elDeg": 11.7 },
+            { "tPlusSec": 120, "azDeg": 350, "elDeg": 14.9 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cape-gto-geo",
+      "label": "Cape GTO / GEO corridor",
+      "familyId": "cape_gto_geo",
+      "site": "cape",
+      "pad": { "latDeg": 28.561857, "lonDeg": -80.577366 },
+      "expectedWindow": { "minAzDeg": 80, "maxAzDeg": 110 },
+      "familyCenterAzDeg": 95,
+      "eastboundFamily": true,
+      "targetOrbit": { "flightAzimuthDeg": 100.0 },
+      "selection": {
+        "directionSource": "flight_azimuth",
+        "selectedAzimuthDeg": 100.0,
+        "confidenceBadge": "A",
+        "qualityState": "precision",
+        "guidanceSemantics": "constraint_backed",
+        "authorityTier": "supplemental_ephemeris"
+      },
+      "observers": [
+        {
+          "id": "W15",
+          "label": "15 mi west",
+          "padBearingDeg": 90,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 90, "elDeg": 0.2 },
+            { "tPlusSec": 10, "azDeg": 98, "elDeg": 6.4 },
+            { "tPlusSec": 30, "azDeg": 106, "elDeg": 9.8 },
+            { "tPlusSec": 60, "azDeg": 115, "elDeg": 13.5 },
+            { "tPlusSec": 120, "azDeg": 124, "elDeg": 17.1 }
+          ]
+        },
+        {
+          "id": "SW15",
+          "label": "15 mi southwest",
+          "padBearingDeg": 45,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 45, "elDeg": 0.2 },
+            { "tPlusSec": 10, "azDeg": 63, "elDeg": 6.2 },
+            { "tPlusSec": 30, "azDeg": 73, "elDeg": 9.5 },
+            { "tPlusSec": 60, "azDeg": 84, "elDeg": 13.1 },
+            { "tPlusSec": 120, "azDeg": 95, "elDeg": 16.8 }
+          ]
+        },
+        {
+          "id": "S15",
+          "label": "15 mi south",
+          "padBearingDeg": 0,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 0, "elDeg": 0.3 },
+            { "tPlusSec": 10, "azDeg": 32, "elDeg": 5.9 },
+            { "tPlusSec": 30, "azDeg": 44, "elDeg": 9.0 },
+            { "tPlusSec": 60, "azDeg": 56, "elDeg": 12.5 },
+            { "tPlusSec": 120, "azDeg": 69, "elDeg": 16.2 }
+          ]
+        },
+        {
+          "id": "W30",
+          "label": "30 mi west",
+          "padBearingDeg": 90,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 90, "elDeg": 0.1 },
+            { "tPlusSec": 10, "azDeg": 96, "elDeg": 3.9 },
+            { "tPlusSec": 30, "azDeg": 103, "elDeg": 6.7 },
+            { "tPlusSec": 60, "azDeg": 111, "elDeg": 10.0 },
+            { "tPlusSec": 120, "azDeg": 119, "elDeg": 13.6 }
+          ]
+        },
+        {
+          "id": "N20",
+          "label": "20 mi north",
+          "padBearingDeg": 180,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 180, "elDeg": 0.1 },
+            { "tPlusSec": 10, "azDeg": 154, "elDeg": 5.0 },
+            { "tPlusSec": 30, "azDeg": 144, "elDeg": 7.8 },
+            { "tPlusSec": 60, "azDeg": 134, "elDeg": 11.0 },
+            { "tPlusSec": 120, "azDeg": 123, "elDeg": 14.5 }
+          ]
+        },
+        {
+          "id": "E15",
+          "label": "15 mi east",
+          "padBearingDeg": 270,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 270, "elDeg": 0.2 },
+            { "tPlusSec": 10, "azDeg": 261, "elDeg": 6.0 },
+            { "tPlusSec": 30, "azDeg": 253, "elDeg": 9.0 },
+            { "tPlusSec": 60, "azDeg": 246, "elDeg": 11.8 },
+            { "tPlusSec": 120, "azDeg": 239, "elDeg": 14.4 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cape-unknown-eastbound",
+      "label": "Cape unknown eastbound fallback",
+      "familyId": "cape_unknown_eastbound",
+      "site": "cape",
+      "pad": { "latDeg": 28.561857, "lonDeg": -80.577366 },
+      "expectedWindow": { "minAzDeg": 35, "maxAzDeg": 125 },
+      "familyCenterAzDeg": 90,
+      "eastboundFamily": true,
+      "targetOrbit": {},
+      "selection": {
+        "directionSource": "heuristic_only",
+        "selectedAzimuthDeg": 90.0,
+        "preferredAzimuthDeg": 90.0,
+        "confidenceBadge": "C",
+        "qualityState": "safe_corridor",
+        "guidanceSemantics": "estimated_direction",
+        "authorityTier": "model_prior"
+      },
+      "observers": [
+        {
+          "id": "W15",
+          "label": "15 mi west",
+          "padBearingDeg": 90,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 90, "elDeg": 0.2 },
+            { "tPlusSec": 10, "azDeg": 91, "elDeg": 5.8 },
+            { "tPlusSec": 30, "azDeg": 93, "elDeg": 8.7 },
+            { "tPlusSec": 60, "azDeg": 96, "elDeg": 11.8 },
+            { "tPlusSec": 120, "azDeg": 100, "elDeg": 15.2 }
+          ]
+        },
+        {
+          "id": "SW15",
+          "label": "15 mi southwest",
+          "padBearingDeg": 45,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 45, "elDeg": 0.2 },
+            { "tPlusSec": 10, "azDeg": 58, "elDeg": 5.5 },
+            { "tPlusSec": 30, "azDeg": 65, "elDeg": 8.4 },
+            { "tPlusSec": 60, "azDeg": 72, "elDeg": 11.4 },
+            { "tPlusSec": 120, "azDeg": 79, "elDeg": 14.9 }
+          ]
+        },
+        {
+          "id": "S15",
+          "label": "15 mi south",
+          "padBearingDeg": 0,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 0, "elDeg": 0.3 },
+            { "tPlusSec": 10, "azDeg": 26, "elDeg": 5.2 },
+            { "tPlusSec": 30, "azDeg": 37, "elDeg": 8.2 },
+            { "tPlusSec": 60, "azDeg": 48, "elDeg": 11.5 },
+            { "tPlusSec": 120, "azDeg": 60, "elDeg": 15.1 }
+          ]
+        },
+        {
+          "id": "W30",
+          "label": "30 mi west",
+          "padBearingDeg": 90,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 90, "elDeg": 0.1 },
+            { "tPlusSec": 10, "azDeg": 91, "elDeg": 3.5 },
+            { "tPlusSec": 30, "azDeg": 93, "elDeg": 6.2 },
+            { "tPlusSec": 60, "azDeg": 96, "elDeg": 9.3 },
+            { "tPlusSec": 120, "azDeg": 100, "elDeg": 12.8 }
+          ]
+        },
+        {
+          "id": "N20",
+          "label": "20 mi north",
+          "padBearingDeg": 180,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 180, "elDeg": 0.1 },
+            { "tPlusSec": 10, "azDeg": 155, "elDeg": 4.8 },
+            { "tPlusSec": 30, "azDeg": 146, "elDeg": 7.5 },
+            { "tPlusSec": 60, "azDeg": 137, "elDeg": 10.5 },
+            { "tPlusSec": 120, "azDeg": 127, "elDeg": 14.0 }
+          ]
+        },
+        {
+          "id": "E15",
+          "label": "15 mi east",
+          "padBearingDeg": 270,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 270, "elDeg": 0.2 },
+            { "tPlusSec": 10, "azDeg": 270, "elDeg": 5.5 },
+            { "tPlusSec": 30, "azDeg": 271, "elDeg": 8.3 },
+            { "tPlusSec": 60, "azDeg": 273, "elDeg": 10.9 },
+            { "tPlusSec": 120, "azDeg": 276, "elDeg": 13.5 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "vandy-polar-sso",
+      "label": "Vandenberg polar / SSO control",
+      "familyId": "vandy_polar_sso",
+      "site": "vandenberg",
+      "pad": { "latDeg": 34.632834, "lonDeg": -120.610746 },
+      "expectedWindow": { "minAzDeg": 175, "maxAzDeg": 205 },
+      "familyCenterAzDeg": 188,
+      "eastboundFamily": false,
+      "targetOrbit": { "flightAzimuthDeg": 188.0 },
+      "selection": {
+        "directionSource": "flight_azimuth",
+        "selectedAzimuthDeg": 188.0,
+        "confidenceBadge": "A",
+        "qualityState": "precision",
+        "guidanceSemantics": "constraint_backed",
+        "authorityTier": "partner_feed"
+      },
+      "observers": [
+        {
+          "id": "W15",
+          "label": "15 mi west",
+          "padBearingDeg": 90,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 90, "elDeg": 0.2 },
+            { "tPlusSec": 10, "azDeg": 132, "elDeg": 7.2 },
+            { "tPlusSec": 30, "azDeg": 149, "elDeg": 10.7 },
+            { "tPlusSec": 60, "azDeg": 166, "elDeg": 14.6 },
+            { "tPlusSec": 120, "azDeg": 182, "elDeg": 18.5 }
+          ]
+        },
+        {
+          "id": "SW15",
+          "label": "15 mi southwest",
+          "padBearingDeg": 45,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 45, "elDeg": 0.2 },
+            { "tPlusSec": 10, "azDeg": 92, "elDeg": 6.7 },
+            { "tPlusSec": 30, "azDeg": 111, "elDeg": 10.2 },
+            { "tPlusSec": 60, "azDeg": 130, "elDeg": 14.0 },
+            { "tPlusSec": 120, "azDeg": 148, "elDeg": 17.9 }
+          ]
+        },
+        {
+          "id": "S15",
+          "label": "15 mi south",
+          "padBearingDeg": 0,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 0, "elDeg": 0.3 },
+            { "tPlusSec": 10, "azDeg": 45, "elDeg": 6.5 },
+            { "tPlusSec": 30, "azDeg": 63, "elDeg": 10.0 },
+            { "tPlusSec": 60, "azDeg": 82, "elDeg": 13.8 },
+            { "tPlusSec": 120, "azDeg": 101, "elDeg": 17.5 }
+          ]
+        },
+        {
+          "id": "W30",
+          "label": "30 mi west",
+          "padBearingDeg": 90,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 90, "elDeg": 0.1 },
+            { "tPlusSec": 10, "azDeg": 124, "elDeg": 4.5 },
+            { "tPlusSec": 30, "azDeg": 140, "elDeg": 7.6 },
+            { "tPlusSec": 60, "azDeg": 156, "elDeg": 11.2 },
+            { "tPlusSec": 120, "azDeg": 171, "elDeg": 15.4 }
+          ]
+        },
+        {
+          "id": "N20",
+          "label": "20 mi north",
+          "padBearingDeg": 180,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 180, "elDeg": 0.1 },
+            { "tPlusSec": 10, "azDeg": 183, "elDeg": 5.7 },
+            { "tPlusSec": 30, "azDeg": 186, "elDeg": 8.9 },
+            { "tPlusSec": 60, "azDeg": 189, "elDeg": 12.4 },
+            { "tPlusSec": 120, "azDeg": 193, "elDeg": 16.6 }
+          ]
+        },
+        {
+          "id": "E15",
+          "label": "15 mi east",
+          "padBearingDeg": 270,
+          "samples": [
+            { "tPlusSec": -30, "azDeg": 270, "elDeg": 0.2 },
+            { "tPlusSec": 10, "azDeg": 235, "elDeg": 6.2 },
+            { "tPlusSec": 30, "azDeg": 220, "elDeg": 9.5 },
+            { "tPlusSec": 60, "azDeg": 205, "elDeg": 12.8 },
+            { "tPlusSec": 120, "azDeg": 191, "elDeg": 16.2 }
+          ]
+        }
+      ]
+    }
+  ]
+}

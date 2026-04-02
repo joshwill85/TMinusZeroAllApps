@@ -32,13 +32,22 @@ export default async function InfoPage() {
           title="The Hardware"
           subtitle="The machinery of spaceflight—start with the biggest systems."
         >
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-4 md:auto-rows-[170px]">
-            <CommandDeckTile type="launcher_configurations" size="hero" />
-            <CommandDeckTile type="spacecraft_configurations" size="tall" />
-            <CommandDeckTile type="starship" size="standard" />
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-6 md:auto-rows-[190px] xl:grid-cols-12 xl:auto-rows-[220px]">
+            <CommandDeckTile
+              type="launcher_configurations"
+              size="hero"
+              className="md:col-span-3 md:row-span-1 xl:col-span-4 xl:row-span-1"
+            />
+            <CommandDeckTile
+              type="spacecraft_configurations"
+              size="tall"
+              className="md:col-span-3 md:row-span-1 xl:col-span-2 xl:row-span-1"
+            />
+            <CommandDeckTile type="starship" size="standard" className="md:col-span-2 xl:col-span-2" />
             <CommandDeckTile
               type="spacex_drone_ships"
               size="standard"
+              className="md:col-span-2 xl:col-span-2"
               metaOverride={{
                 kind: 'stat',
                 tone: 'secondary',
@@ -46,7 +55,7 @@ export default async function InfoPage() {
                 label: 'Coverage'
               }}
             />
-            <CommandDeckTile type="catalog" size="standard" />
+            <CommandDeckTile type="catalog" size="standard" className="md:col-span-2 xl:col-span-2" />
           </div>
         </DeckSector>
 

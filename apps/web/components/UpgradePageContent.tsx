@@ -8,10 +8,10 @@ import { buildAuthHref, buildProfileHref } from '@tminuszero/navigation';
 import { sanitizeReturnToPath } from '@/lib/billing/shared';
 import { browserApiClient } from '@/lib/api/client';
 import { WebBillingAdapterError } from '@/lib/api/webBillingAdapters';
-import { useStartBillingCheckoutMutation, useViewerEntitlementsQuery, useViewerSessionQuery } from '@/lib/api/queries';
+import { useBillingCatalogQuery, useStartBillingCheckoutMutation, useViewerEntitlementsQuery, useViewerSessionQuery } from '@/lib/api/queries';
 
 const FEATURES = [
-  'Live updates every 15 seconds',
+  'Adaptive live updates',
   'Full change log (see what changed)',
   'Saved/default filters + follows (“My Launches”)',
   'Advanced alerts + native push notifications',
@@ -64,6 +64,7 @@ export function UpgradePageContent() {
     isPending: entitlementsPending,
     refetch: refetchEntitlements
   } = useViewerEntitlementsQuery();
+  const billingCatalogQuery = useBillingCatalogQuery('web');
   const startBillingCheckoutMutation = useStartBillingCheckoutMutation();
   const returnTo = sanitizeReturnToPath(searchParams.get('return_to'), '/account');
   const canceled = searchParams.get('checkout') === 'cancel';
@@ -106,6 +107,13 @@ export function UpgradePageContent() {
         : 'guest';
   const isPaid = entitlements?.isPaid === true;
   const busy = startBillingCheckoutMutation.isPending;
+  const webOffers = useMemo(
+    () =>
+      (billingCatalogQuery.data?.products[0]?.offers ?? []).filter(
+        (offer) => offer.provider === 'stripe' && Boolean(offer.promotionCode)
+      ),
+    [billingCatalogQuery.data]
+  );
 
   const refreshClaim = useCallback(async () => {
     if (!claimToken) {
@@ -130,12 +138,15 @@ export function UpgradePageContent() {
     }
   }, [claimToken]);
 
-  const startCheckout = useCallback(async () => {
+  const startCheckout = useCallback(async (promotionCode?: string | null) => {
     if (busy) return;
     setError(null);
 
     try {
-      const payload = await startBillingCheckoutMutation.mutateAsync(returnTo);
+      const payload = await startBillingCheckoutMutation.mutateAsync({
+        returnTo,
+        promotionCode: promotionCode ?? undefined
+      });
       if (!payload?.url) {
         throw new Error('checkout_failed');
       }
@@ -362,10 +373,29 @@ export function UpgradePageContent() {
               <li key={feature}>• {feature}</li>
             ))}
           </ul>
+          {webOffers.length > 0 ? (
+            <div className="mt-4 space-y-2 rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3">
+              <div className="text-xs uppercase tracking-[0.08em] text-text3">Active web offers</div>
+              {webOffers.map((offer) => (
+                <div key={offer.offerKey} className="rounded-lg border border-stroke bg-surface-1 px-3 py-3 text-sm text-text2">
+                  <div className="text-text1">{offer.label}</div>
+                  {offer.eligibilityHint ? <div className="mt-1 text-xs text-text3">{offer.eligibilityHint}</div> : null}
+                  {offer.promotionCode ? <div className="mt-1 font-mono text-xs text-text3">Code: {offer.promotionCode}</div> : null}
+                  <button
+                    className="btn-secondary mt-3 rounded-lg px-3 py-2 text-xs"
+                    onClick={() => void startCheckout(offer.promotionCode)}
+                    disabled={busy || subscriptionState === 'checking' || subscriptionState === 'paid'}
+                  >
+                    {busy ? 'Starting checkout…' : 'Start with this offer'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
           {authStatus === 'authed' ? (
             <button
               className="btn mt-5 w-full rounded-lg"
-              onClick={startCheckout}
+              onClick={() => void startCheckout(webOffers.length === 1 ? webOffers[0]?.promotionCode ?? null : null)}
               disabled={busy || subscriptionState === 'checking' || subscriptionState === 'paid'}
             >
               {subscriptionState === 'checking'
@@ -378,7 +408,11 @@ export function UpgradePageContent() {
             </button>
           ) : (
             <div className="mt-5 flex flex-col gap-2">
-              <button className="btn w-full rounded-lg px-4 py-2 text-sm" onClick={() => void startCheckout()} disabled={busy}>
+              <button
+                className="btn w-full rounded-lg px-4 py-2 text-sm"
+                onClick={() => void startCheckout(webOffers.length === 1 ? webOffers[0]?.promotionCode ?? null : null)}
+                disabled={busy}
+              >
                 {busy ? 'Starting checkout…' : 'Start Premium'}
               </button>
               <Link className="btn-secondary w-full rounded-lg px-4 py-2 text-sm" href={signInHref}>

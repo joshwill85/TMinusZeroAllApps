@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { startOfMinute } from 'date-fns';
 import { arTelemetrySessionEventSchemaV1 } from '@tminuszero/contracts';
 import { createSupabaseAdminClient } from '@/lib/server/supabaseServer';
+import { buildArTelemetrySessionRow } from '@/lib/server/arTelemetrySession';
 import { isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
 import { getViewerTier } from '@/lib/server/viewerTier';
 import { resolveViewerSession } from '@/lib/server/viewerSession';
@@ -92,99 +93,7 @@ export async function POST(request: Request) {
   }
   if (!allowed) return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
 
-  const p = parsed.data.payload;
-  const row: Record<string, unknown> = {
-    id: p.sessionId,
-    launch_id: p.launchId,
-    started_at: p.startedAt,
-    runtime_family: p.runtimeFamily,
-    client_env: p.clientEnv,
-    client_profile: p.clientProfile,
-    screen_bucket: p.screenBucket,
-
-    camera_status: p.cameraStatus,
-    motion_status: p.motionStatus,
-    heading_status: p.headingStatus,
-    heading_source: p.headingSource,
-    declination_applied: p.declinationApplied,
-    declination_source: p.declinationSource,
-    declination_mag_bucket: p.declinationMagBucket,
-    fusion_enabled: p.fusionEnabled,
-    fusion_used: p.fusionUsed,
-    fusion_fallback_reason: p.fusionFallbackReason,
-    pose_source: p.poseSource,
-    pose_mode: p.poseMode,
-    overlay_mode: p.overlayMode,
-    vision_backend: p.visionBackend,
-    runtime_degradation_tier: p.degradationTier,
-    xr_supported: p.xrSupported,
-    xr_used: p.xrUsed,
-    xr_error_bucket: p.xrErrorBucket,
-
-    tracking_state: p.trackingState,
-    tracking_reason: p.trackingReason,
-    world_alignment: p.worldAlignment,
-    world_mapping_status: p.worldMappingStatus,
-    lidar_available: p.lidarAvailable,
-    scene_depth_enabled: p.sceneDepthEnabled,
-    scene_reconstruction_enabled: p.sceneReconstructionEnabled,
-    geo_tracking_state: p.geoTrackingState,
-    geo_tracking_accuracy: p.geoTrackingAccuracy,
-    occlusion_mode: p.occlusionMode,
-    relocalization_count: p.relocalizationCount,
-    high_res_capture_attempted: p.highResCaptureAttempted,
-    high_res_capture_succeeded: p.highResCaptureSucceeded,
-
-    render_loop_running: p.renderLoopRunning,
-    canvas_hidden: p.canvasHidden,
-    pose_update_rate_bucket: p.poseUpdateRateBucket,
-    ar_loop_active_ms: p.arLoopActiveMs,
-    sky_compass_loop_active_ms: p.skyCompassLoopActiveMs,
-    loop_restart_count: p.loopRestartCount,
-
-    mode_entered: p.modeEntered,
-    fallback_reason: p.fallbackReason ?? undefined,
-    retry_count: p.retryCount,
-
-    used_scrub: p.usedScrub,
-    scrub_seconds_total: p.scrubSecondsTotal,
-    event_tap_count: p.eventTapCount,
-
-    lens_preset: p.lensPreset,
-    corridor_mode: p.corridorMode,
-    lock_on_mode: p.lockOnMode,
-    lock_on_attempted: p.lockOnAttempted,
-    lock_on_acquired: p.lockOnAcquired,
-    time_to_lock_bucket: p.timeToLockBucket,
-    lock_loss_count: p.lockLossCount,
-
-    yaw_offset_bucket: p.yawOffsetBucket,
-    pitch_level_bucket: p.pitchLevelBucket,
-    hfov_bucket: p.hfovBucket,
-    vfov_bucket: p.vfovBucket,
-    fov_source: p.fovSource,
-    zoom_supported: p.zoomSupported,
-    zoom_ratio_bucket: p.zoomRatioBucket,
-    zoom_control_path: p.zoomControlPath,
-    zoom_apply_latency_bucket: p.zoomApplyLatencyBucket,
-    zoom_projection_sync_latency_bucket: p.zoomProjectionSyncLatencyBucket,
-    projection_source: p.projectionSource,
-
-    trajectory_quality: p.tier,
-    trajectory_version: p.trajectoryVersion,
-    trajectory_duration_s: p.durationS,
-    trajectory_step_s: p.stepS,
-    avg_sigma_deg: p.avgSigmaDeg,
-    confidence_tier_seen: p.confidenceTierSeen,
-    contract_tier: p.contractTier,
-    trajectory_authority_tier: p.trajectoryAuthorityTier,
-    trajectory_quality_state: p.trajectoryQualityState,
-    render_tier: p.renderTier,
-    dropped_frame_bucket: p.droppedFrameBucket
-  };
-
-  if (p.endedAt) row.ended_at = p.endedAt;
-  if (typeof p.durationMs === 'number') row.duration_ms = p.durationMs;
+  const row = buildArTelemetrySessionRow(parsed.data.payload);
 
   const { error } = await supabase.from('ar_camera_guide_sessions').upsert(row, { onConflict: 'id' });
   if (error) {

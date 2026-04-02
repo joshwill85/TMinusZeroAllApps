@@ -38,16 +38,6 @@ export function LaunchCard({
   onOpenUpsell,
   blockThirdPartyEmbeds = false,
   initialNowMs,
-  isWatched = false,
-  watchDisabled = false,
-  onToggleWatch,
-  isProviderFollowed = false,
-  providerFollowDisabled = false,
-  onToggleFollowProvider,
-  padFollowValue,
-  isPadFollowed = false,
-  padFollowDisabled = false,
-  onToggleFollowPad,
   followMenuLabel,
   followMenuCapacityLabel,
   followMenuOptions
@@ -63,16 +53,6 @@ export function LaunchCard({
   onOpenUpsell?: (featureLabel?: string) => void;
   blockThirdPartyEmbeds?: boolean;
   initialNowMs?: number;
-  isWatched?: boolean;
-  watchDisabled?: boolean;
-  onToggleWatch?: (launchId: string) => void;
-  isProviderFollowed?: boolean;
-  providerFollowDisabled?: boolean;
-  onToggleFollowProvider?: (provider: string) => void;
-  padFollowValue?: string | null;
-  isPadFollowed?: boolean;
-  padFollowDisabled?: boolean;
-  onToggleFollowPad?: (padRuleValue: string) => void;
   followMenuLabel?: string;
   followMenuCapacityLabel?: string;
   followMenuOptions?: FollowMenuOption[];
@@ -197,8 +177,6 @@ export function LaunchCard({
     return buildCatalogHref({ entity: 'agencies', q: provider });
   }, [launch.provider]);
   const providerLabel = launch.provider.toUpperCase();
-  const providerFollowTarget = String(launch.provider || '').trim() || 'Provider';
-  const providerFollowLabel = `Follow ${providerFollowTarget}`;
 
   const pastOutcome = useMemo(() => {
     if (!isPast) return null;
@@ -281,9 +259,6 @@ export function LaunchCard({
     if (value.toLowerCase() === 'unknown') return null;
     return value;
   }, [launch.firstStageBooster]);
-  const padFollowTarget = locationDisplay || padDisplay || 'Pad';
-  const padFollowLabel = `Follow ${padFollowTarget}`;
-
   const rocketHref = useMemo(
     () => buildRocketHref(launch, launch.rocket?.fullName || launch.vehicle),
     [launch]
@@ -620,38 +595,6 @@ export function LaunchCard({
                     </span>
                   )
                 )}
-                {!isPast &&
-                  (onToggleFollowProvider ? (
-                    <button
-                      type="button"
-                      className={clsx(
-                        'btn-secondary flex h-10 items-center rounded-lg border border-white/10 bg-white/5 text-[11px] font-semibold uppercase tracking-[0.08em] text-text2 transition hover:border-primary hover:text-text1',
-                        isProviderFollowed ? 'w-10 justify-center px-0' : 'gap-2 px-3',
-                        isProviderFollowed && 'border-primary text-primary',
-                        providerFollowDisabled && 'pointer-events-none opacity-60'
-                      )}
-                      onClick={() => onToggleFollowProvider(launch.provider)}
-                      aria-pressed={isProviderFollowed}
-                      aria-label={isProviderFollowed ? `Unfollow ${providerFollowTarget}` : providerFollowLabel}
-                      title={isProviderFollowed ? `Unfollow ${providerFollowTarget}` : providerFollowLabel}
-                      disabled={providerFollowDisabled}
-                    >
-                      <StarIcon className="h-4 w-4" filled={isProviderFollowed} />
-                      {!isProviderFollowed && <span>{providerFollowLabel}</span>}
-                    </button>
-                  ) : canUpsell ? (
-                    <button
-                      type="button"
-                      className="btn-secondary relative flex h-10 items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-text2 transition hover:border-primary hover:text-text1"
-                      onClick={() => onOpenUpsell?.('My Launches')}
-                      aria-label={`Upgrade to Premium to ${providerFollowLabel.toLowerCase()}`}
-                      title={`${providerFollowLabel} (Premium)`}
-                    >
-                      <StarIcon className="h-4 w-4" />
-                      <span>{providerFollowLabel}</span>
-                      <CornerLockBadge />
-                    </button>
-                  ) : null)}
               </div>
               {launch.featured && (
                 <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-text2">
@@ -686,39 +629,6 @@ export function LaunchCard({
                 <Link href={padCatalogHref} className="transition hover:text-primary">
                   {locationDisplay || padDisplay || 'Pad'}
                 </Link>
-                {padFollowValue &&
-                  !isPast &&
-                  (onToggleFollowPad ? (
-                    <button
-                      type="button"
-                      className={clsx(
-                        'btn-secondary inline-flex h-7 items-center rounded-md border border-white/10 bg-white/5 text-[10px] font-semibold uppercase tracking-[0.08em] text-text3 transition hover:border-primary hover:text-text1',
-                        isPadFollowed ? 'w-7 justify-center px-0' : 'gap-1.5 px-2.5',
-                        isPadFollowed && 'border-primary text-primary',
-                        padFollowDisabled && 'pointer-events-none opacity-60'
-                      )}
-                      onClick={() => onToggleFollowPad(padFollowValue)}
-                      aria-pressed={isPadFollowed}
-                      aria-label={isPadFollowed ? `Unfollow ${padFollowTarget}` : padFollowLabel}
-                      title={isPadFollowed ? `Unfollow ${padFollowTarget}` : padFollowLabel}
-                      disabled={padFollowDisabled}
-                    >
-                      <StarIcon className="h-4 w-4" filled={isPadFollowed} />
-                      {!isPadFollowed && <span>{padFollowLabel}</span>}
-                    </button>
-                  ) : canUpsell ? (
-                    <button
-                      type="button"
-                      className="btn-secondary relative inline-flex h-7 items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-text3 transition hover:border-primary hover:text-text1"
-                      onClick={() => onOpenUpsell?.('My Launches')}
-                      aria-label={`Upgrade to Premium to ${padFollowLabel.toLowerCase()}`}
-                      title={`${padFollowLabel} (Premium)`}
-                    >
-                      <StarIcon className="h-4 w-4" />
-                      <span>{padFollowLabel}</span>
-                      <CornerLockBadge size="sm" />
-                    </button>
-                  ) : null)}
                 {!locationDisplay && launch.pad.state && launch.pad.state !== 'NA' && (
                   <span className="text-text4">• {launch.pad.state}</span>
                 )}
@@ -808,39 +718,41 @@ export function LaunchCard({
 
           {!isPast && (
             <div className="flex items-end justify-end">
-              {dateOnly ? (
-                <span className="rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-text2">Time TBD</span>
-              ) : isLaunchWindow ? (
-                <div
-                  className={clsx(
-                    'launch-card__countdownNow font-mono text-4xl font-semibold text-text1 md:text-5xl',
-                    countdownGlow && 'launch-card__countdown--lit'
-                  )}
-                  style={countdownGlow?.style}
-                >
-                  <span className="launch-card__nowText">NOW</span>
-                  <div className="launch-card__afterburner" aria-hidden="true">
-                    <span className="launch-card__afterburnerJet" />
-                    <span className="launch-card__afterburnerJet" />
-                    <span className="launch-card__afterburnerJet" />
+              <div className="flex flex-col items-end gap-2">
+                {dateOnly ? (
+                  <span className="rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-text2">Time TBD</span>
+                ) : isLaunchWindow ? (
+                  <div
+                    className={clsx(
+                      'launch-card__countdownNow font-mono text-4xl font-semibold text-text1 md:text-5xl',
+                      countdownGlow && 'launch-card__countdown--lit'
+                    )}
+                    style={countdownGlow?.style}
+                  >
+                    <span className="launch-card__nowText">NOW</span>
+                    <div className="launch-card__afterburner" aria-hidden="true">
+                      <span className="launch-card__afterburnerJet" />
+                      <span className="launch-card__afterburnerJet" />
+                      <span className="launch-card__afterburnerJet" />
+                    </div>
                   </div>
-                </div>
-              ) : isMilestoneSequence ? (
-                <div className="launch-card__countdown font-mono text-4xl font-light tabular-nums text-text1 md:text-5xl">
-                  {formatTimelineOffset('T+', nowMs - netMs)}
-                </div>
-              ) : (
-                <div
-                  className={clsx(
-                    'launch-card__countdown font-mono text-4xl font-light tabular-nums text-text1 md:text-5xl',
-                    countdownGlow && 'launch-card__countdown--lit',
-                    countdownGlow?.ignite && 'launch-card__countdown--ignite'
-                  )}
-                  style={countdownGlow?.style}
-                >
-                  {formatTMinus(countdown.diffSeconds)}
-                </div>
-              )}
+                ) : isMilestoneSequence ? (
+                  <div className="launch-card__countdown font-mono text-4xl font-light tabular-nums text-text1 md:text-5xl">
+                    {formatTimelineOffset('T+', nowMs - netMs)}
+                  </div>
+                ) : (
+                  <div
+                    className={clsx(
+                      'launch-card__countdown font-mono text-4xl font-light tabular-nums text-text1 md:text-5xl',
+                      countdownGlow && 'launch-card__countdown--lit',
+                      countdownGlow?.ignite && 'launch-card__countdown--ignite'
+                    )}
+                    style={countdownGlow?.style}
+                  >
+                    {formatTMinus(countdown.diffSeconds)}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </section>
@@ -910,7 +822,7 @@ export function LaunchCard({
         )}
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/5 pt-3">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {launch.videoUrl ? (
               <a
                 href={launch.videoUrl}
@@ -934,19 +846,21 @@ export function LaunchCard({
                 <CameraGuideButton
                   href={arHref}
                   launchId={launch.id}
-                  className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-primary/40 bg-primary/10 text-primary transition hover:border-primary"
+                  className="inline-flex h-11 items-center gap-2 rounded-full border border-primary/40 bg-primary/10 px-3 text-primary transition hover:border-primary hover:bg-primary/14"
                 >
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em]">AR</span>
+                  <TrajectoryIcon className="h-4 w-4" />
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.08em]">AR trajectory</span>
                 </CameraGuideButton>
               ) : canUpsell ? (
                 <button
                   type="button"
-                  className="relative inline-flex h-11 w-11 items-center justify-center rounded-lg border border-primary/40 bg-primary/10 text-primary transition hover:border-primary"
+                  className="relative inline-flex h-11 items-center gap-2 rounded-full border border-primary/40 bg-primary/10 px-3 text-primary transition hover:border-primary hover:bg-primary/14"
                   onClick={() => onOpenUpsell?.('AR trajectory')}
                   aria-label="Upgrade to Premium to unlock AR trajectory"
                   title="AR trajectory (Premium)"
                 >
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em]">AR</span>
+                  <TrajectoryIcon className="h-4 w-4" />
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.08em]">AR trajectory</span>
                   <CornerLockBadge size="sm" />
                 </button>
               ) : null)}
@@ -1560,6 +1474,26 @@ function PlayIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
       <path d="M8 6.5v11l9-5.5-9-5.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function TrajectoryIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <path d="M5 8V5.5A1.5 1.5 0 0 1 6.5 4H9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M19 8V5.5A1.5 1.5 0 0 0 17.5 4H15" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M5 16v2.5A1.5 1.5 0 0 0 6.5 20H9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M19 16v2.5A1.5 1.5 0 0 1 17.5 20H15" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path
+        d="M7.5 15.75c1.25-3.25 4.15-6 8.25-7.35"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="m14.75 7 2.85.2-1.5 2.45" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="7.5" cy="15.75" r="1.35" fill="currentColor" />
     </svg>
   );
 }

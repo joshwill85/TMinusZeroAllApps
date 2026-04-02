@@ -19,7 +19,6 @@ const DOC_LINKS = [
   { title: 'Privacy Notice', href: '/legal/privacy', subtitle: 'Collection, use, and disclosure overview.', badge: 'legal' },
   { title: 'Privacy Choices', href: '/legal/privacy-choices', subtitle: 'Export, privacy, and delete-account controls.', badge: 'legal' },
   { title: 'Data & Attribution', href: '/legal/data', subtitle: 'Source inventory and attribution notes.', badge: 'legal' },
-  { title: 'Notification Policy', href: '/legal/sms', subtitle: 'Native push disclosure and device guidance.', badge: 'legal' },
   { title: 'Terms of Service', href: '/legal/terms', subtitle: 'Platform terms and service rules.', badge: 'legal' },
   { title: 'Jellyfish Effect', href: '/jellyfish-effect', subtitle: 'Viewing guide and twilight plume planning.', badge: 'guide' }
 ] as const;
@@ -66,7 +65,6 @@ function resolveDocsFallbackPage(slug: string): CustomerRouteStaticPage {
   if (slug === 'about') return ABOUT_FALLBACK_PAGE;
   if (slug === 'faq') return FAQ_FALLBACK_PAGE;
   if (slug === 'roadmap') return ROADMAP_FALLBACK_PAGE;
-  if (slug === 'sms-opt-in') return NOTIFICATION_SETTINGS_FALLBACK_PAGE;
   if (slug === 'jellyfish-effect') return JELLYFISH_FALLBACK_PAGE;
   return buildGenericDocsFallback(slug);
 }
@@ -126,37 +124,6 @@ const ROADMAP_FALLBACK_PAGE: CustomerRouteStaticPage = {
         'Account profile and notification preference parity.'
       ]
     }
-  ]
-};
-
-const NOTIFICATION_SETTINGS_FALLBACK_PAGE: CustomerRouteStaticPage = {
-  eyebrow: 'Docs',
-  title: 'Notifications',
-  description: 'How native push alerts work and where to manage them in the mobile app.',
-  lastUpdated: 'Jan 20, 2026',
-  sections: [
-    {
-      title: 'Push setup',
-      body: 'Users sign in, open notification settings, and register a device for push delivery.',
-      bullets: [
-        'Push is optional and managed in the app.',
-        'Device registration happens in the mobile client.',
-        'Alert scopes stay tied to the signed-in account.'
-      ]
-    },
-    {
-      title: 'Disable alerts',
-      body: 'A user must be able to stop alerts at any time with a clear in-app control path.',
-      bullets: [
-        'Turn off push from notification settings.',
-        'Disable the device registration if you no longer want alerts.',
-        'Contact support if the app state does not match your device settings.'
-      ]
-    }
-  ],
-  actions: [
-    { label: 'Notification policy', href: '/legal/sms' },
-    { label: 'Privacy notice', href: '/legal/privacy', variant: 'secondary' }
   ]
 };
 

@@ -4,16 +4,32 @@ import type { Href } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import { ApiClientError } from '@tminuszero/api-client';
-import { AppState, Image, Linking, Platform, Pressable, RefreshControl, ScrollView, Share as NativeShare, Text, View, type LayoutChangeEvent } from 'react-native';
+import {
+  AppState,
+  Image,
+  Linking,
+  Modal,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  Share as NativeShare,
+  Text,
+  View,
+  type LayoutChangeEvent
+} from 'react-native';
 import { runOnJS, useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { ArTrajectorySummaryV1, LaunchDetailV1 } from '@tminuszero/contracts';
+import type { ArTrajectorySummaryV1, LaunchDetailV1, LaunchFaaAirspaceMapV1 } from '@tminuszero/contracts';
 import {
   buildCountdownSnapshot,
+  buildDetailVersionToken,
   canAutoRefreshActiveSurface,
-  getNextAlignedRefreshMs,
+  getNextAdaptiveLaunchRefreshMs,
+  getRecommendedLaunchRefreshIntervalSeconds,
   getVisibleDetailUpdatedAt,
   hasVersionChanged,
+  PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS,
   shouldPrimeVersionRefresh
 } from '@tminuszero/domain';
 import { normalizeNativeMobileCustomerHref, toProviderSlug } from '@tminuszero/navigation';
@@ -22,6 +38,7 @@ import {
   fetchLaunchDetailVersion,
   useDeleteMobilePushRuleMutation,
   useLaunchDetailQuery,
+  useLaunchFaaAirspaceMapQuery,
   useMobilePushRulesQuery,
   useUpsertMobilePushLaunchPreferenceMutation,
   useViewerEntitlementsQuery
@@ -35,6 +52,7 @@ import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import { useMobilePush } from '@/src/providers/MobilePushProvider';
 import { useMobileToast } from '@/src/providers/MobileToastProvider';
 import { formatTimestamp, formatSearchResultLabel } from '@/src/utils/format';
+import { buildAppleMapsSatelliteUrl, buildPlatformPadMapUrl } from '@/src/utils/mapLinks';
 import type { LaunchCalendarLaunch } from '@/src/calendar/launchCalendar';
 import {
   buildLaunchSiteRuleValue,
@@ -55,6 +73,7 @@ import { AnimationErrorBoundary } from '@/src/components/launch/AnimationErrorBo
 import { CollapsibleSection } from '@/src/components/launch/CollapsibleSection';
 import { SectionNav, StickyNavPills, type NavSection } from '@/src/components/launch/StickyNavPills';
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
+import { TmzLaunchMapView, getTmzLaunchMapCapabilitiesAsync, type TmzLaunchMapCapabilities } from '@/modules/tmz-launch-map';
 
 type LegacyLaunchSummary = LaunchDetailV1['launch'];
 type RichLaunchSummary = NonNullable<LaunchDetailV1['launchData']>;
@@ -63,6 +82,13 @@ type LaunchExternalContentItem = LaunchDetailV1['enrichment']['externalContent']
 type LaunchExternalContentResource = LaunchExternalContentItem['resources'][number];
 type WatchLinkView = { url: string; label: string; meta: string; imageUrl: string | null; host?: string | null; kind?: string | null };
 type ExternalLinkView = { url: string; label: string; meta: string; host?: string | null; kind?: string | null };
+type RefreshNotice = {
+  tone: 'info' | 'warning';
+  message: string;
+  kind?: 'anon_refresh';
+  actionLabel?: string;
+  onAction?: () => void;
+};
 
 function getLaunchId(value: string | string[] | undefined) {
   if (Array.isArray(value)) {
@@ -87,11 +113,17 @@ export default function LaunchDetailScreen() {
 
     router.replace('/feed' as Href);
   }, [router]);
+  const openPremiumGate = useCallback(() => {
+    router.push('/profile');
+  }, [router]);
   const { installationId, deviceSecret, isRegistered } = useMobilePush();
   const { client } = useApiClient();
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const launchId = getLaunchId(params.id);
   const launchDetailQuery = useLaunchDetailQuery(launchId);
+  const launchFaaAirspaceMapQuery = useLaunchFaaAirspaceMapQuery(launchId, {
+    enabled: Boolean(launchId)
+  });
   const entitlementsQuery = useViewerEntitlementsQuery();
   const detail = launchDetailQuery.data ?? null;
   const legacyLaunch = detail?.launch ?? null;
@@ -104,8 +136,9 @@ export default function LaunchDetailScreen() {
   const isPremium = entitlementsQuery.data?.tier === 'premium';
   const isAuthed = entitlementsQuery.data?.isAuthed ?? false;
   const singleLaunchFollowLimit = Math.max(1, entitlementsQuery.data?.limits.singleLaunchFollowLimit ?? 1);
-  const refreshIntervalMs = (entitlementsQuery.data?.refreshIntervalSeconds ?? 7200) * 1000;
   const detailVersionScope = entitlementsQuery.data?.mode === 'live' ? 'live' : 'public';
+  const fallbackRefreshIntervalSeconds =
+    detailVersionScope === 'live' ? PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS : (entitlementsQuery.data?.refreshIntervalSeconds ?? 7200);
   const mobilePushContext = installationId ? { installationId, deviceSecret } : null;
   const mobilePushRulesQuery = useMobilePushRulesQuery(mobilePushContext, { enabled: Boolean(mobilePushContext?.installationId) });
   const upsertLaunchNotificationMutation = useUpsertMobilePushLaunchPreferenceMutation();
@@ -117,6 +150,9 @@ export default function LaunchDetailScreen() {
   const [activeSection, setActiveSection] = useState<string | null>('mission-control');
   const [detailRefreshing, setDetailRefreshing] = useState(false);
   const [appStateStatus, setAppStateStatus] = useState(AppState.currentState);
+  const [launchMapCapabilities, setLaunchMapCapabilities] = useState<TmzLaunchMapCapabilities | null>(null);
+  const [faaMapModalOpen, setFaaMapModalOpen] = useState(false);
+  const [refreshNotice, setRefreshNotice] = useState<RefreshNotice | null>(null);
   const watchlistState = usePrimaryWatchlist({
     enabled: isAuthed && canUseSavedItems,
     ruleLimit: entitlementsQuery.data?.limits.watchlistRuleLimit ?? null
@@ -128,6 +164,38 @@ export default function LaunchDetailScreen() {
   const sectionNavItemsRef = useRef<NavSection[]>([]);
   const lastSeenVersionRef = useRef<string | null>(null);
   const refetchLaunchDetail = launchDetailQuery.refetch;
+  const refetchLaunchFaaAirspaceMap = launchFaaAirspaceMapQuery.refetch;
+  const [scheduledRefreshIntervalSeconds, setScheduledRefreshIntervalSeconds] = useState<number>(fallbackRefreshIntervalSeconds);
+  const [cadenceAnchorNet, setCadenceAnchorNet] = useState<string | null>(null);
+  const [pendingDetailRefresh, setPendingDetailRefresh] = useState<{ version: string; updatedAt: string | null } | null>(null);
+  const refreshIntervalSeconds = getRecommendedLaunchRefreshIntervalSeconds(
+    scheduledRefreshIntervalSeconds,
+    fallbackRefreshIntervalSeconds
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void getTmzLaunchMapCapabilitiesAsync()
+      .then((capabilities) => {
+        if (!cancelled) {
+          setLaunchMapCapabilities(capabilities);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLaunchMapCapabilities({
+            isAvailable: false,
+            provider: 'none',
+            reason: 'Native launch maps are unavailable on this device.'
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleMissionControlScroll = (offsetY: number) => {
     const sections = sectionNavItemsRef.current;
@@ -198,6 +266,8 @@ export default function LaunchDetailScreen() {
     activeSectionRef.current = 'mission-control';
     sectionNavItemsRef.current = [];
     lastSeenVersionRef.current = null;
+    setPendingDetailRefresh(null);
+    setRefreshNotice(null);
   }, [launchId]);
 
   useEffect(() => {
@@ -210,15 +280,102 @@ export default function LaunchDetailScreen() {
     };
   }, []);
 
-  const refreshDetail = useCallback(async (versionOverride: string | null = null) => {
+  useEffect(() => {
+    setScheduledRefreshIntervalSeconds(fallbackRefreshIntervalSeconds);
+    setCadenceAnchorNet(null);
+  }, [fallbackRefreshIntervalSeconds]);
+
+  useEffect(() => {
+    if (detailVersionScope === 'live' && refreshNotice?.kind === 'anon_refresh') {
+      setRefreshNotice(null);
+    }
+  }, [detailVersionScope, refreshNotice]);
+
+  const applyResolvedDetailRefresh = useCallback(async (nextVersion: string | null) => {
+    const [detailResult] = await Promise.all([refetchLaunchDetail(), refetchLaunchFaaAirspaceMap()]);
+    const refreshedUpdatedAt = getVisibleDetailUpdatedAt(detailResult.data?.launchData ?? detail?.launchData ?? null);
+    lastSeenVersionRef.current = nextVersion ?? buildDetailVersionToken(launchId, detailVersionScope, refreshedUpdatedAt);
+    setPendingDetailRefresh(null);
+    setRefreshNotice((current) => (current?.kind === 'anon_refresh' ? null : current));
+  }, [detail?.launchData, detailVersionScope, launchId, refetchLaunchDetail, refetchLaunchFaaAirspaceMap]);
+
+  const refreshDetail = useCallback(async () => {
+    if (!launchId) {
+      return;
+    }
+
+    if (detailVersionScope !== 'live') {
+      const nextRefreshAt = getNextAdaptiveLaunchRefreshMs({
+        nowMs: Date.now(),
+        intervalSeconds: refreshIntervalSeconds,
+        cadenceAnchorNet
+      });
+      setRefreshNotice({
+        tone: 'info',
+        kind: 'anon_refresh',
+        message: `Public launch data refreshes next around ${formatRefreshTimeLabel(nextRefreshAt)}.`,
+        actionLabel: 'Go Premium for near-live data',
+        onAction: openPremiumGate
+      });
+      return;
+    }
+
     setDetailRefreshing(true);
     try {
-      await refetchLaunchDetail();
-      lastSeenVersionRef.current = versionOverride;
+      if (pendingDetailRefresh) {
+        await applyResolvedDetailRefresh(pendingDetailRefresh.version);
+        return;
+      }
+
+      const payload = await fetchLaunchDetailVersion(queryClient, client, launchId, { scope: detailVersionScope });
+      setScheduledRefreshIntervalSeconds(
+        getRecommendedLaunchRefreshIntervalSeconds(payload.recommendedIntervalSeconds, fallbackRefreshIntervalSeconds)
+      );
+      setCadenceAnchorNet(typeof payload.cadenceAnchorNet === 'string' ? payload.cadenceAnchorNet : null);
+
+      const nextVersion =
+        typeof payload.version === 'string'
+          ? payload.version
+          : buildDetailVersionToken(launchId, detailVersionScope, payload.updatedAt ?? null);
+      const visibleUpdatedAt = getVisibleDetailUpdatedAt(detail?.launchData ?? null);
+      const shouldApply = lastSeenVersionRef.current
+        ? hasVersionChanged(lastSeenVersionRef.current, nextVersion)
+        : shouldPrimeVersionRefresh(payload.updatedAt, visibleUpdatedAt);
+
+      if (!shouldApply) {
+        lastSeenVersionRef.current = nextVersion;
+        showToast({ message: 'Up to date.' });
+        return;
+      }
+
+      await applyResolvedDetailRefresh(nextVersion);
+    } catch (error) {
+      const status = error instanceof ApiClientError ? error.status : null;
+      if (status === 401 || status === 402) {
+        setPendingDetailRefresh(null);
+        showToast({ message: 'Live detail refresh requires Premium.' });
+        return;
+      }
+      showToast({
+        message: error instanceof Error ? error.message : 'Unable to refresh this launch detail.'
+      });
     } finally {
       setDetailRefreshing(false);
     }
-  }, [refetchLaunchDetail]);
+  }, [
+    applyResolvedDetailRefresh,
+    cadenceAnchorNet,
+    client,
+    detail?.launchData,
+    detailVersionScope,
+    fallbackRefreshIntervalSeconds,
+    launchId,
+    openPremiumGate,
+    pendingDetailRefresh,
+    queryClient,
+    refreshIntervalSeconds,
+    showToast
+  ]);
 
   useEffect(() => {
     if (!canAutoRefreshActiveSurface({ isFocused, appStateStatus }) || !launchId || !detail || launchDetailQuery.isPending) {
@@ -233,20 +390,45 @@ export default function LaunchDetailScreen() {
       }
 
       const payload = await fetchLaunchDetailVersion(queryClient, client, launchId, { scope: detailVersionScope });
-      const nextVersion = payload.version;
-      const visibleUpdatedAt = getVisibleDetailUpdatedAt(detail.launchData ?? null);
+      setScheduledRefreshIntervalSeconds(
+        getRecommendedLaunchRefreshIntervalSeconds(payload.recommendedIntervalSeconds, fallbackRefreshIntervalSeconds)
+      );
+      setCadenceAnchorNet(typeof payload.cadenceAnchorNet === 'string' ? payload.cadenceAnchorNet : null);
+      const nextVersion =
+        typeof payload?.version === 'string'
+          ? payload.version
+          : buildDetailVersionToken(launchId, detailVersionScope, payload?.updatedAt ?? null);
 
+      const visibleUpdatedAt = getVisibleDetailUpdatedAt(detail.launchData ?? null);
       if (!lastSeenVersionRef.current) {
-        lastSeenVersionRef.current = nextVersion;
-        const shouldPrimeRefresh = shouldPrimeVersionRefresh(payload.updatedAt, visibleUpdatedAt);
-        if (shouldPrimeRefresh) {
-          await refreshDetail(nextVersion);
+        const shouldPrimePending = shouldPrimeVersionRefresh(payload.updatedAt, visibleUpdatedAt);
+        if (shouldPrimePending) {
+          if (detailVersionScope === 'public') {
+            await applyResolvedDetailRefresh(nextVersion);
+            return;
+          }
+          lastSeenVersionRef.current = nextVersion;
+          setPendingDetailRefresh({
+            version: nextVersion,
+            updatedAt: payload.updatedAt ?? null
+          });
+          return;
         }
+        lastSeenVersionRef.current = nextVersion;
+        setPendingDetailRefresh(null);
         return;
       }
 
       if (hasVersionChanged(lastSeenVersionRef.current, nextVersion)) {
-        await refreshDetail(nextVersion);
+        if (detailVersionScope === 'public') {
+          await applyResolvedDetailRefresh(nextVersion);
+          return;
+        }
+        lastSeenVersionRef.current = nextVersion;
+        setPendingDetailRefresh({
+          version: nextVersion,
+          updatedAt: payload.updatedAt ?? null
+        });
       }
     };
 
@@ -258,7 +440,11 @@ export default function LaunchDetailScreen() {
         clearTimeout(timeout);
         timeout = null;
       }
-      const nextRefreshAt = getNextAlignedRefreshMs(Date.now(), refreshIntervalMs);
+      const nextRefreshAt = getNextAdaptiveLaunchRefreshMs({
+        nowMs: Date.now(),
+        intervalSeconds: refreshIntervalSeconds,
+        cadenceAnchorNet
+      });
       timeout = setTimeout(() => {
         void runVersionCheck().catch((error) => {
           console.error('mobile detail refresh check failed', error);
@@ -284,12 +470,14 @@ export default function LaunchDetailScreen() {
     detailVersionScope,
     detail,
     detailRefreshing,
+    applyResolvedDetailRefresh,
+    cadenceAnchorNet,
+    fallbackRefreshIntervalSeconds,
     isFocused,
     launchDetailQuery.isPending,
     launchId,
     queryClient,
-    refreshDetail,
-    refreshIntervalMs
+    refreshIntervalSeconds
   ]);
 
   if (!launchId) {
@@ -388,10 +576,25 @@ export default function LaunchDetailScreen() {
       padLabel: launch.padName || launch.pad.name,
       ll2PadId: launch.ll2PadId
     });
-    const launchInfoPadHref = buildLaunchPadEntityHref({
+    const platformPadMapHref = buildPlatformPadMapUrl(
+      {
+        latitude: launch.pad.latitude,
+        longitude: launch.pad.longitude,
+        label: launch.pad.shortCode || launch.pad.name || launch.name || 'Launch pad'
+      },
+      Platform.OS
+    );
+    const launchInfoPadCatalogHref = buildLaunchPadEntityHref({
       ll2PadId: launch.ll2PadId,
       fallbackLocationHref: launchInfoLocationHref
     });
+    const launchInfoPadHref = Platform.OS === 'ios' ? platformPadMapHref || launchInfoPadCatalogHref : launchInfoPadCatalogHref;
+    const launchFaaAirspaceMap = launchFaaAirspaceMapQuery.data ?? null;
+    const nativeLaunchMapsSupported = launchMapCapabilities?.isAvailable === true;
+    const faaMapPayload = launchFaaAirspaceMap;
+    const padMapPayload = buildPadSatelliteMapPayload(launch);
+    const showNativePadMapPreview = nativeLaunchMapsSupported && Boolean(platformPadMapHref);
+    const showNativeFaaMapPreview = nativeLaunchMapsSupported && Boolean(launchFaaAirspaceMap?.hasRenderableGeometry);
     const openTarget = (target: string) => {
       if (!target) return;
       if (/^https?:\/\//i.test(target)) {
@@ -413,9 +616,6 @@ export default function LaunchDetailScreen() {
       });
     };
 
-    const openPremiumGate = () => {
-      router.push('/profile');
-    };
     const closeFollowSheet = () => {
       setFollowSheetOpen(false);
     };
@@ -1035,6 +1235,61 @@ export default function LaunchDetailScreen() {
           </ParallaxHero>
         </AnimationErrorBoundary>
 
+        {refreshNotice ? (
+          <View
+            style={{
+              marginTop: 14,
+              borderRadius: 18,
+              borderWidth: 1,
+              borderColor: theme.stroke,
+              backgroundColor: theme.surface,
+              paddingHorizontal: 16,
+              paddingVertical: 12
+            }}
+          >
+            <Text style={{ color: refreshNotice.tone === 'warning' ? theme.foreground : theme.accent, fontSize: 14, lineHeight: 20 }}>
+              {refreshNotice.message}
+            </Text>
+            {refreshNotice.actionLabel && refreshNotice.onAction ? (
+              <Pressable onPress={refreshNotice.onAction} hitSlop={8} style={{ marginTop: 8, alignSelf: 'flex-start' }}>
+                <Text style={{ color: theme.foreground, fontSize: 13, fontWeight: '700', textDecorationLine: 'underline' }}>
+                  {refreshNotice.actionLabel}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+
+        {pendingDetailRefresh ? (
+          <View
+            style={{
+              marginTop: 14,
+              gap: 6,
+              borderRadius: 20,
+              borderWidth: 1,
+              borderColor: 'rgba(123, 204, 255, 0.38)',
+              backgroundColor: 'rgba(14, 30, 56, 0.94)',
+              paddingHorizontal: 16,
+              paddingVertical: 14
+            }}
+          >
+            <Text
+              style={{
+                color: 'rgba(179, 225, 255, 0.95)',
+                fontSize: 11,
+                fontWeight: '800',
+                letterSpacing: 1.1,
+                textTransform: 'uppercase'
+              }}
+            >
+              Update ready
+            </Text>
+            <Text style={{ color: theme.foreground, fontSize: 16, fontWeight: '800', lineHeight: 22 }}>
+              Pull down and release to refresh this launch detail.
+            </Text>
+          </View>
+        ) : null}
+
         {navSections.length > 1 ? (
           <View
             style={{
@@ -1417,6 +1672,45 @@ export default function LaunchDetailScreen() {
               <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>{launch.missionSummary}</Text>
             </SectionCard>
           ) : null}
+          {platformPadMapHref ? (
+            <SectionCard title="Pad satellite view" compact>
+              <View style={{ gap: 10 }}>
+                <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
+                  {Platform.OS === 'ios'
+                    ? 'Native Apple satellite preview centered on the launch pad. Tap the preview to open Apple Maps.'
+                    : 'Native Google satellite preview centered on the launch pad. Tap the preview to open Google Maps.'}
+                </Text>
+                {showNativePadMapPreview ? (
+                  <Pressable
+                    onPress={() => {
+                      void Linking.openURL(platformPadMapHref);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Open launch pad map"
+                    style={{ gap: 8 }}
+                  >
+                    <NativeLaunchMapPreview
+                      payload={padMapPayload}
+                      theme={theme}
+                      height={196}
+                      interactive={false}
+                    />
+                    <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>
+                      {Platform.OS === 'ios' ? 'Open in Apple Maps' : 'Open in Google Maps'}
+                    </Text>
+                  </Pressable>
+                ) : (
+                  <LinkRow
+                    title={Platform.OS === 'ios' ? 'Open in Apple Maps' : 'Open in Google Maps'}
+                    subtitle={launchMapCapabilities?.reason || 'Native map preview is unavailable right now.'}
+                    onPress={() => {
+                      void Linking.openURL(platformPadMapHref);
+                    }}
+                  />
+                )}
+              </View>
+            </SectionCard>
+          ) : null}
           {externalLinks.length > 0 ? (
             <SectionCard title="Links & sources" compact>
               <View style={{ gap: 10 }}>
@@ -1568,62 +1862,118 @@ export default function LaunchDetailScreen() {
             onLayout={registerSectionOffset}
           >
             <View style={{ gap: 12 }}>
-              {detail.enrichment.faaAdvisories.map((advisory) => (
-                <View
-                  key={advisory.matchId}
-                  style={{
-                    borderRadius: 16,
-                    borderWidth: 1,
-                    borderColor: theme.stroke,
-                    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                    padding: 14,
-                    gap: 6
-                  }}
-                >
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                    <View style={{ flex: 1, gap: 6 }}>
-                      <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{advisory.title}</Text>
-                      <Text style={{ color: theme.muted, fontSize: 13 }}>
-                        {[advisory.state, advisory.facility, advisory.type].filter(Boolean).join(' • ')}
-                      </Text>
-                    </View>
-                    <DetailChip label={advisory.isActiveNow ? 'Active now' : advisory.status} tone={advisory.isActiveNow ? 'accent' : 'default'} />
-                  </View>
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                    <DetailChip label={advisory.matchStatus} />
-                    <DetailChip label={`confidence ${advisory.matchConfidence != null ? `${Math.round(advisory.matchConfidence)}%` : 'n/a'}`} />
-                    {advisory.notamId ? <DetailChip label={advisory.notamId} /> : null}
-                  </View>
-                  <Text style={{ color: theme.muted, fontSize: 13 }}>
-                    {formatTimestamp(advisory.validStart)} to {formatTimestamp(advisory.validEnd)}
-                  </Text>
-                  <Text style={{ color: theme.muted, fontSize: 13 }}>
-                    {advisory.shapeCount} shape{advisory.shapeCount === 1 ? '' : 's'}
-                  </Text>
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-                    {advisory.sourceGraphicUrl || advisory.sourceUrl ? (
+              {launchFaaAirspaceMapQuery.isPending ? (
+                <SectionCard title="Launch zone map" compact>
+                  <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>Loading launch-day FAA geometry…</Text>
+                </SectionCard>
+              ) : launchFaaAirspaceMap?.advisoryCount ? (
+                <SectionCard title="Launch zone map" compact>
+                  <View style={{ gap: 10 }}>
+                    <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
+                      Native satellite view with launch-day FAA polygons and the launch pad in the same frame.
+                    </Text>
+                    {showNativeFaaMapPreview && faaMapPayload ? (
                       <Pressable
                         onPress={() => {
-                          void Linking.openURL(advisory.sourceGraphicUrl || advisory.sourceUrl || '');
+                          setFaaMapModalOpen(true);
                         }}
+                        accessibilityRole="button"
+                        accessibilityLabel="Open launch zone map"
+                        style={{ gap: 8 }}
                       >
-                        <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>
-                          {advisory.sourceGraphicUrl ? 'Open FAA graphic page' : 'View FAA source'}
+                        <NativeLaunchMapPreview
+                          payload={faaMapPayload}
+                          theme={theme}
+                          height={224}
+                          interactive={false}
+                        />
+                        <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Open full-screen map</Text>
+                      </Pressable>
+                    ) : (
+                      platformPadMapHref ? (
+                        <LinkRow
+                          title={Platform.OS === 'ios' ? 'Open in Apple Maps' : 'Open in Google Maps'}
+                          subtitle={launchMapCapabilities?.reason || 'Native launch map rendering is unavailable right now.'}
+                          onPress={() => {
+                            void Linking.openURL(platformPadMapHref);
+                          }}
+                        />
+                      ) : (
+                        <View
+                          style={{
+                            borderRadius: 14,
+                            borderWidth: 1,
+                            borderColor: theme.stroke,
+                            padding: 12
+                          }}
+                        >
+                          <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '600' }}>Map unavailable</Text>
+                          <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
+                            {launchMapCapabilities?.reason || 'Native launch map rendering is unavailable right now.'}
+                          </Text>
+                        </View>
+                      )
+                    )}
+                  </View>
+                </SectionCard>
+              ) : null}
+              {detail.enrichment.faaAdvisories.map((advisory) => {
+                const advisoryWindowLabel = formatFaaAdvisoryWindow(advisory.validStart, advisory.validEnd);
+                return (
+                  <View
+                    key={advisory.matchId}
+                    style={{
+                      borderRadius: 16,
+                      borderWidth: 1,
+                      borderColor: theme.stroke,
+                      backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                      padding: 14,
+                      gap: 6
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                      <View style={{ flex: 1, gap: 6 }}>
+                        <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{advisory.title}</Text>
+                        <Text style={{ color: theme.muted, fontSize: 13 }}>
+                          {[advisory.state, advisory.facility, advisory.type].filter(Boolean).join(' • ')}
                         </Text>
-                      </Pressable>
-                    ) : null}
-                    {advisory.sourceRawUrl && advisory.sourceRawUrl !== advisory.sourceGraphicUrl && advisory.sourceRawUrl !== advisory.sourceUrl ? (
-                      <Pressable
-                        onPress={() => {
-                          void Linking.openURL(advisory.sourceRawUrl || '');
-                        }}
-                      >
-                        <Text style={{ color: theme.muted, fontSize: 12, fontWeight: '700' }}>View raw NOTAM text</Text>
-                      </Pressable>
-                    ) : null}
+                      </View>
+                      <DetailChip label={advisory.isActiveNow ? 'Active now' : advisory.status} tone={advisory.isActiveNow ? 'accent' : 'default'} />
+                    </View>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                      <DetailChip label={advisory.matchStatus} />
+                      <DetailChip label={`confidence ${advisory.matchConfidence != null ? `${Math.round(advisory.matchConfidence)}%` : 'n/a'}`} />
+                      {advisory.notamId ? <DetailChip label={advisory.notamId} /> : null}
+                    </View>
+                    {advisoryWindowLabel ? <Text style={{ color: theme.muted, fontSize: 13 }}>{advisoryWindowLabel}</Text> : null}
+                    <Text style={{ color: theme.muted, fontSize: 13 }}>
+                      {advisory.shapeCount} shape{advisory.shapeCount === 1 ? '' : 's'}
+                    </Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                      {advisory.sourceGraphicUrl || advisory.sourceUrl ? (
+                        <Pressable
+                          onPress={() => {
+                            void Linking.openURL(advisory.sourceGraphicUrl || advisory.sourceUrl || '');
+                          }}
+                        >
+                          <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>
+                            {advisory.sourceGraphicUrl ? 'Open FAA graphic page' : 'View FAA source'}
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                      {advisory.sourceRawUrl && advisory.sourceRawUrl !== advisory.sourceGraphicUrl && advisory.sourceRawUrl !== advisory.sourceUrl ? (
+                        <Pressable
+                          onPress={() => {
+                            void Linking.openURL(advisory.sourceRawUrl || '');
+                          }}
+                        >
+                          <Text style={{ color: theme.muted, fontSize: 12, fontWeight: '700' }}>View raw NOTAM text</Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
                   </View>
-                </View>
-              ))}
+                );
+              })}
             </View>
             <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 19 }}>
               Advisory data is informational. Confirm operational constraints with official FAA publications.
@@ -2250,6 +2600,18 @@ export default function LaunchDetailScreen() {
             </View>
           </DetailModuleSection>
         ) : null}
+        {faaMapPayload ? (
+          <LaunchMapModal
+            open={faaMapModalOpen}
+            onClose={() => setFaaMapModalOpen(false)}
+            payload={faaMapPayload}
+            title="Launch zone map"
+            description="Launch-day FAA polygons and launch pad context."
+            externalMapHref={platformPadMapHref}
+            externalMapLabel={Platform.OS === 'ios' ? 'Open in Apple Maps' : 'Open in Google Maps'}
+            theme={theme}
+          />
+        ) : null}
       </>
     );
   }
@@ -2271,7 +2633,7 @@ export default function LaunchDetailScreen() {
           <RefreshControl
             refreshing={detailRefreshing}
             onRefresh={() => {
-              void refreshDetail(null);
+              void refreshDetail();
             }}
             tintColor={theme.accent}
           />
@@ -2283,6 +2645,219 @@ export default function LaunchDetailScreen() {
       {followSheetNode}
       <LaunchCalendarSheet launch={calendarLaunch} open={calendarLaunch != null} onClose={() => setCalendarLaunch(null)} />
     </>
+  );
+}
+
+function NativeLaunchMapPreview({
+  payload,
+  theme,
+  height,
+  interactive
+}: {
+  payload: LaunchFaaAirspaceMapV1;
+  theme: { stroke: string; foreground: string; muted: string };
+  height: number;
+  interactive: boolean;
+}) {
+  const mapViewProps = buildNativeLaunchMapViewProps(payload);
+
+  return (
+    <View
+      style={{
+        height,
+        overflow: 'hidden',
+        borderRadius: 18,
+        borderWidth: 1,
+        borderColor: theme.stroke,
+        backgroundColor: 'rgba(255, 255, 255, 0.03)'
+      }}
+    >
+      <TmzLaunchMapView
+        style={{ flex: 1 }}
+        advisoriesJson={mapViewProps.advisoriesJson}
+        boundsJson={mapViewProps.boundsJson}
+        padJson={mapViewProps.padJson}
+        interactive={interactive}
+      />
+    </View>
+  );
+}
+
+function LaunchMapModal({
+  open,
+  onClose,
+  payload,
+  title,
+  description,
+  externalMapHref,
+  externalMapLabel,
+  theme
+}: {
+  open: boolean;
+  onClose: () => void;
+  payload: LaunchFaaAirspaceMapV1;
+  title: string;
+  description: string;
+  externalMapHref: string | null;
+  externalMapLabel: string;
+  theme: { stroke: string; foreground: string; muted: string; accent: string };
+}) {
+  const mapViewProps = buildNativeLaunchMapViewProps(payload);
+
+  return (
+    <Modal visible={open} transparent animationType="fade" presentationStyle="overFullScreen" statusBarTranslucent onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: 'rgba(5, 6, 10, 0.92)', padding: 16, justifyContent: 'center' }}>
+        <View
+          style={{
+            maxHeight: '88%',
+            borderRadius: 24,
+            borderWidth: 1,
+            borderColor: theme.stroke,
+            backgroundColor: '#070913',
+            overflow: 'hidden'
+          }}
+        >
+          <View
+            style={{
+              paddingHorizontal: 16,
+              paddingTop: 16,
+              paddingBottom: 12,
+              borderBottomWidth: 1,
+              borderBottomColor: theme.stroke,
+              gap: 10
+            }}
+          >
+            <Text style={{ color: theme.foreground, fontSize: 18, fontWeight: '700' }}>{title}</Text>
+            <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>{description}</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+              {externalMapHref ? (
+                <Pressable
+                  onPress={() => {
+                    void Linking.openURL(externalMapHref);
+                  }}
+                  style={{
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: theme.accent,
+                    paddingHorizontal: 14,
+                    paddingVertical: 8
+                  }}
+                >
+                  <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>{externalMapLabel}</Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                onPress={onClose}
+                style={{
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: theme.stroke,
+                  paddingHorizontal: 14,
+                  paddingVertical: 8
+                }}
+              >
+                <Text style={{ color: theme.foreground, fontSize: 12, fontWeight: '700' }}>Close</Text>
+              </Pressable>
+            </View>
+          </View>
+          <View style={{ height: 440 }}>
+            <TmzLaunchMapView
+              style={{ flex: 1 }}
+              advisoriesJson={mapViewProps.advisoriesJson}
+              boundsJson={mapViewProps.boundsJson}
+              padJson={mapViewProps.padJson}
+              interactive
+            />
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function buildNativeLaunchMapViewProps(payload: LaunchFaaAirspaceMapV1) {
+  return {
+    advisoriesJson: JSON.stringify(payload.advisories ?? []),
+    boundsJson: payload.bounds ? JSON.stringify(payload.bounds) : null,
+    padJson: JSON.stringify(payload.pad)
+  };
+}
+
+function buildPadSatelliteMapPayload(launch: RichLaunchSummary): LaunchFaaAirspaceMapV1 {
+  const latitude = typeof launch.pad.latitude === 'number' && Number.isFinite(launch.pad.latitude) ? launch.pad.latitude : null;
+  const longitude = typeof launch.pad.longitude === 'number' && Number.isFinite(launch.pad.longitude) ? launch.pad.longitude : null;
+
+  return {
+    launchId: launch.id,
+    generatedAt: launch.net || '1970-01-01T00:00:00.000Z',
+    advisoryCount: 0,
+    hasRenderableGeometry: false,
+    pad: {
+      latitude,
+      longitude,
+      label: launch.pad.shortCode || launch.pad.name || launch.name || 'Launch pad',
+      shortCode: launch.pad.shortCode || null,
+      locationName: launch.pad.locationName || launch.pad.name || null
+    },
+    bounds: null,
+    advisories: []
+  };
+}
+
+function formatFaaAdvisoryWindow(validStart: string | null, validEnd: string | null) {
+  if (isDateOnlyUtcWindow(validStart, validEnd)) {
+    return formatFaaDateOnlyWindow(validStart, validEnd);
+  }
+
+  const start = validStart ? formatTimestamp(validStart) : null;
+  const end = validEnd ? formatTimestamp(validEnd) : null;
+  if (start && end) return `${start} to ${end}`;
+  if (start) return `Starts ${start}`;
+  if (end) return `Ends ${end}`;
+  return null;
+}
+
+function formatFaaDateOnlyWindow(validStart: string | null, validEnd: string | null) {
+  if (!validStart) return null;
+
+  const startLabel = formatUtcDateOnly(validStart);
+  if (!validEnd) return startLabel;
+
+  const endMs = Date.parse(validEnd);
+  if (!Number.isFinite(endMs)) return startLabel;
+
+  const lastDayLabel = formatUtcDateOnly(new Date(endMs - 1).toISOString());
+  return startLabel === lastDayLabel ? startLabel : `${startLabel} to ${lastDayLabel}`;
+}
+
+function formatUtcDateOnly(value: string) {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'UTC',
+    month: 'short',
+    day: '2-digit',
+    year: 'numeric'
+  }).format(new Date(value));
+}
+
+function isDateOnlyUtcWindow(validStart: string | null, validEnd: string | null) {
+  if (!validStart || !validEnd) return false;
+  const start = new Date(validStart);
+  const end = new Date(validEnd);
+  const startMs = start.getTime();
+  const endMs = end.getTime();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return false;
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  return (
+    start.getUTCHours() === 0 &&
+    start.getUTCMinutes() === 0 &&
+    start.getUTCSeconds() === 0 &&
+    start.getUTCMilliseconds() === 0 &&
+    end.getUTCHours() === 0 &&
+    end.getUTCMinutes() === 0 &&
+    end.getUTCSeconds() === 0 &&
+    end.getUTCMilliseconds() === 0 &&
+    (endMs - startMs) % dayMs === 0
   );
 }
 
@@ -2864,30 +3439,6 @@ function normalizePlatformExternalLinks(externalLinks: ExternalLinkView[], launc
   });
 }
 
-function buildAppleMapsSatelliteUrl({
-  latitude,
-  longitude,
-  label
-}: {
-  latitude: number | null | undefined;
-  longitude: number | null | undefined;
-  label: string | null | undefined;
-}) {
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-    return null;
-  }
-
-  const params = new URLSearchParams({
-    ll: `${latitude},${longitude}`,
-    t: 'k'
-  });
-  const normalizedLabel = normalizeTextValue(label);
-  if (normalizedLabel) {
-    params.set('q', normalizedLabel);
-  }
-  return `https://maps.apple.com/?${params.toString()}`;
-}
-
 function isLaunchPadMapLink(item: ExternalLinkView) {
   if (normalizeTextValue(item.kind)?.toLowerCase() === 'map') {
     return true;
@@ -3169,4 +3720,9 @@ function buildCountdownDisplay(net: string | null | undefined) {
 
 function padNumber(value: number) {
   return String(Math.max(0, value)).padStart(2, '0');
+}
+
+function formatRefreshTimeLabel(timestampMs: number) {
+  if (!Number.isFinite(timestampMs)) return 'the next scheduled refresh';
+  return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(timestampMs));
 }

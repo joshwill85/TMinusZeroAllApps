@@ -10,7 +10,7 @@ const NAV_ITEMS = [
   { href: '/admin/ops', label: 'Ops' },
   { href: '/admin/users', label: 'Users' },
   { href: '/admin/billing', label: 'Billing' },
-  { href: '/admin/coupons', label: 'Coupons' },
+  { href: '/admin/coupons', label: 'Discounts' },
   { href: '/admin/feedback', label: 'Feedback' }
 ] as const;
 

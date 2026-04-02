@@ -170,22 +170,6 @@ export function WatchlistFollows({
       }
     },
     {
-      key: 'rocket',
-      label: 'This rocket',
-      description: rocketRuleValue ? `All launches for ${rocketDisplayLabel}.` : 'Rocket follow unavailable.',
-      active: Boolean(rocketRuleId),
-      disabled: baseDisabled || !rocketRuleValue || Boolean(busy[`rocket:${rocketRuleValue}`]),
-      locked,
-      onPress: () => {
-        if (locked) {
-          setUpsellOpen(true);
-          return;
-        }
-        if (!rocketRuleValue) return;
-        void toggleRule('rocket', rocketRuleValue, rocketDisplayLabel);
-      }
-    },
-    {
       key: 'provider',
       label: 'This provider',
       description: providerKey ? `All launches from ${providerKey}.` : 'Provider follow unavailable.',
@@ -199,6 +183,22 @@ export function WatchlistFollows({
         }
         if (!providerKey) return;
         void toggleRule('provider', providerKey, providerKey);
+      }
+    },
+    {
+      key: 'rocket',
+      label: 'This rocket',
+      description: rocketRuleValue ? `All launches for ${rocketDisplayLabel}.` : 'Rocket follow unavailable.',
+      active: Boolean(rocketRuleId),
+      disabled: baseDisabled || !rocketRuleValue || Boolean(busy[`rocket:${rocketRuleValue}`]),
+      locked,
+      onPress: () => {
+        if (locked) {
+          setUpsellOpen(true);
+          return;
+        }
+        if (!rocketRuleValue) return;
+        void toggleRule('rocket', rocketRuleValue, rocketDisplayLabel);
       }
     },
     {
@@ -265,23 +265,23 @@ export function WatchlistFollows({
       }
     },
     {
-      key: 'rocket',
-      label: 'This rocket',
-      description: 'Premium adds recurring rocket follows.',
+      key: 'provider',
+      label: 'This provider',
+      description: providerKey ? `All launches from ${providerKey}. Premium unlocks recurring provider follows.` : 'Provider follow unavailable for this card.',
       active: false,
-      disabled: false,
-      locked: true,
+      disabled: !providerKey,
+      locked: Boolean(providerKey),
       onPress: () => {
         setUpsellOpen(true);
       }
     },
     {
-      key: 'provider',
-      label: 'This provider',
-      description: 'Premium adds recurring provider follows.',
+      key: 'rocket',
+      label: 'This rocket',
+      description: rocketRuleValue ? `All launches for ${rocketDisplayLabel}. Premium unlocks recurring rocket follows.` : 'Rocket follow unavailable for this card.',
       active: false,
-      disabled: false,
-      locked: true,
+      disabled: !rocketRuleValue,
+      locked: Boolean(rocketRuleValue),
       onPress: () => {
         setUpsellOpen(true);
       }
@@ -289,10 +289,10 @@ export function WatchlistFollows({
     {
       key: 'pad',
       label: 'This pad',
-      description: 'Premium adds recurring pad follows.',
+      description: padRuleValue ? `Launches from ${resolvePadFollowTarget({ padLabel, padShortCode })}. Premium unlocks recurring pad follows.` : 'Pad follow unavailable for this card.',
       active: false,
-      disabled: false,
-      locked: true,
+      disabled: !padRuleValue,
+      locked: Boolean(padRuleValue),
       onPress: () => {
         setUpsellOpen(true);
       }
@@ -300,10 +300,10 @@ export function WatchlistFollows({
     {
       key: 'launch_site',
       label: 'This launch site',
-      description: 'Premium adds recurring launch-site follows.',
+      description: launchSiteRuleValue ? `Launches from ${launchSiteDisplayLabel}. Premium unlocks recurring launch-site follows.` : 'Launch-site follow unavailable for this card.',
       active: false,
-      disabled: false,
-      locked: true,
+      disabled: !launchSiteRuleValue,
+      locked: Boolean(launchSiteRuleValue),
       onPress: () => {
         setUpsellOpen(true);
       }
@@ -311,10 +311,10 @@ export function WatchlistFollows({
     {
       key: 'state',
       label: 'This state',
-      description: 'Premium adds state-wide launch alerts.',
+      description: stateRuleValue ? `Launches in ${stateRuleValue.toUpperCase()}. Premium unlocks state-wide follows.` : 'State follow unavailable for this card.',
       active: false,
-      disabled: false,
-      locked: true,
+      disabled: !stateRuleValue,
+      locked: Boolean(stateRuleValue),
       onPress: () => {
         setUpsellOpen(true);
       }

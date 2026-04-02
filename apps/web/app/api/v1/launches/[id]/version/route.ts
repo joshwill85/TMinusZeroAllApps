@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { launchDetailVersionSchemaV1 } from '@tminuszero/contracts';
 import { isSupabaseConfigured } from '@/lib/server/env';
+import { enforceLaunchDetailVersionRateLimit } from '@/lib/server/launchApiRateLimit';
+import { resolveLaunchRefreshCadenceHint } from '@/lib/server/launchRefreshCadence';
 import { createSupabaseAccessTokenClient, createSupabasePublicClient, createSupabaseServerClient } from '@/lib/server/supabaseServer';
 import { getViewerTier } from '@/lib/server/viewerTier';
 import { resolveViewerSession } from '@/lib/server/viewerSession';
@@ -30,6 +32,13 @@ export async function GET(request: Request, { params }: { params: { id: string }
     const session = await resolveViewerSession(request);
     const viewer = await getViewerTier({ session, reconcileStripe: false });
     const scope = resolveScope(new URL(request.url).searchParams.get('scope'), viewer.mode);
+    const rateLimited = await enforceLaunchDetailVersionRateLimit(request, {
+      scope,
+      viewerId: viewer.userId
+    });
+    if (rateLimited) {
+      return rateLimited;
+    }
 
     if (scope === 'live') {
       if (!viewer.isAuthed) {
@@ -76,6 +85,14 @@ export async function GET(request: Request, { params }: { params: { id: string }
         : (typeof (data as { cache_generated_at?: unknown }).cache_generated_at === 'string'
             ? ((data as { cache_generated_at?: string | null }).cache_generated_at ?? null)
             : null);
+    const cadenceHint =
+      scope === 'live'
+        ? await resolveLaunchRefreshCadenceHint({ client: liveClient, scope: 'live' })
+        : {
+            recommendedIntervalSeconds: viewer.refreshIntervalSeconds,
+            cadenceReason: 'default' as const,
+            cadenceAnchorNet: null
+          };
 
     const payload = launchDetailVersionSchemaV1.parse({
       launchId: parsedLaunch.launchId,
@@ -83,7 +100,10 @@ export async function GET(request: Request, { params }: { params: { id: string }
       tier: viewer.tier,
       intervalSeconds: viewer.refreshIntervalSeconds,
       updatedAt,
-      version: `${parsedLaunch.launchId}|${scope}|${updatedAt ?? 'null'}`
+      version: `${parsedLaunch.launchId}|${scope}|${updatedAt ?? 'null'}`,
+      recommendedIntervalSeconds: cadenceHint.recommendedIntervalSeconds,
+      cadenceReason: cadenceHint.cadenceReason,
+      cadenceAnchorNet: cadenceHint.cadenceAnchorNet
     });
 
     return NextResponse.json(payload, {

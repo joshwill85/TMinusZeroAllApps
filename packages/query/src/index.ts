@@ -63,6 +63,11 @@ export type LaunchDetailVersionQueryKeyOptions = {
   scope?: 'public' | 'live' | null;
 };
 
+export type LaunchJepQueryKeyOptions = {
+  observerLat?: number | null;
+  observerLon?: number | null;
+};
+
 export type BillingCatalogQueryKeyOptions = {
   platform: 'web' | 'ios' | 'android';
 };
@@ -136,6 +141,11 @@ function normalizeInt(value: number | null | undefined) {
   return Math.trunc(value);
 }
 
+function normalizeObserverCoordinate(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return null;
+  return Math.round(value * 10) / 10;
+}
+
 function normalizeLaunchFeedQueryOptions(options: LaunchFeedQueryKeyOptions = {}) {
   return {
     scope: options.scope ?? 'public',
@@ -201,6 +211,22 @@ function normalizeChangedLaunchesQueryOptions(options: ChangedLaunchesQueryKeyOp
 function normalizeLaunchDetailVersionQueryOptions(options: LaunchDetailVersionQueryKeyOptions = {}) {
   return {
     scope: options.scope ?? 'public'
+  };
+}
+
+function normalizeLaunchJepQueryOptions(options: LaunchJepQueryKeyOptions = {}) {
+  const observerLat = normalizeObserverCoordinate(options.observerLat);
+  const observerLon = normalizeObserverCoordinate(options.observerLon);
+  if (observerLat == null || observerLon == null) {
+    return {
+      observerLat: null,
+      observerLon: null
+    };
+  }
+
+  return {
+    observerLat,
+    observerLon
   };
 }
 
@@ -349,6 +375,11 @@ export const sharedQueryKeys = {
     return ['launches-changed', normalized.hours, normalized.region] as const;
   },
   launchDetail: (id: string) => ['launch-detail', id] as const,
+  launchFaaAirspaceMap: (id: string) => ['launch-faa-airspace-map', id] as const,
+  launchJep: (id: string, options: LaunchJepQueryKeyOptions = {}) => {
+    const normalized = normalizeLaunchJepQueryOptions(options);
+    return ['launch-jep', id, normalized.observerLat, normalized.observerLon] as const;
+  },
   launchDetailVersion: (id: string, options: LaunchDetailVersionQueryKeyOptions = {}) => {
     const normalized = normalizeLaunchDetailVersionQueryOptions(options);
     return ['launch-detail-version', id, normalized.scope] as const;
@@ -482,6 +513,8 @@ export const sharedQueryStaleTimes = {
   launchFeedVersion: 0,
   changedLaunches: 15_000,
   launchDetail: 30_000,
+  launchFaaAirspaceMap: 30_000,
+  launchJep: 30_000,
   launchDetailVersion: 0,
   launchTrajectory: 30_000,
   blueOriginOverview: 120_000,
@@ -620,6 +653,26 @@ export function launchDetailQueryOptions<T>(launchId: string, queryFn: QueryLoad
     queryKey: sharedQueryKeys.launchDetail(launchId),
     queryFn,
     staleTime: sharedQueryStaleTimes.launchDetail
+  });
+}
+
+export function launchFaaAirspaceMapQueryOptions<T>(launchId: string, queryFn: QueryLoader<T>) {
+  return queryOptions({
+    queryKey: sharedQueryKeys.launchFaaAirspaceMap(launchId),
+    queryFn,
+    staleTime: sharedQueryStaleTimes.launchFaaAirspaceMap
+  });
+}
+
+export function launchJepQueryOptions<T>(
+  launchId: string,
+  queryFn: QueryLoader<T>,
+  options: LaunchJepQueryKeyOptions = {}
+) {
+  return queryOptions({
+    queryKey: sharedQueryKeys.launchJep(launchId, options),
+    queryFn,
+    staleTime: sharedQueryStaleTimes.launchJep
   });
 }
 

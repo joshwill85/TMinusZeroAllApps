@@ -5,12 +5,13 @@ import { mapLiveLaunchRow, mapPublicCacheRow } from '@/lib/server/transformers';
 import { attachNextLaunchEvents } from '@/lib/server/ll2Events';
 import { isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
 import { getUserAccessEntitlementById } from '@/lib/server/entitlements';
+import { resolveLaunchRefreshCadenceHint } from '@/lib/server/launchRefreshCadence';
 import { parseLaunchRegion, US_PAD_COUNTRY_CODES } from '@/lib/server/us';
 import type { LaunchFilter } from '@/lib/types/launch';
 
 export const dynamic = 'force-dynamic';
 
-const TOKEN_CACHE_CONTROL = 'public, s-maxage=15, stale-while-revalidate=60';
+const TOKEN_CACHE_CONTROL = 'public, max-age=0, must-revalidate';
 const MAX_LOOKAHEAD_DAYS = 365;
 
 export async function GET(request: Request) {
@@ -64,6 +65,8 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: 'unauthorized' }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
       }
 
+      const cadenceHint = await resolveLaunchRefreshCadenceHint({ client: admin, scope: 'live', nowMs });
+
       const filters = await resolveWidgetFilters(admin, {
         userId,
         rawFilters: widget.filters,
@@ -79,18 +82,21 @@ export async function GET(request: Request) {
           })
         : await loadNextLaunchForFilters(admin, { filters, nowIso });
 
-      const headers = { 'Cache-Control': TOKEN_CACHE_CONTROL };
-      if (!launchRow) return NextResponse.json({ launch: null }, { status: 200, headers });
+      const headers = buildCadenceHeaders(cadenceHint.recommendedIntervalSeconds);
+      if (!launchRow) {
+        return NextResponse.json({ launch: null, ...cadenceHint }, { status: 200, headers });
+      }
 
       const launch = mapLiveLaunchRow(launchRow);
       const [launchWithEvents] = await attachNextLaunchEvents(admin, [launch], nowMs);
-      return NextResponse.json({ launch: launchWithEvents }, { status: 200, headers });
+      return NextResponse.json({ launch: launchWithEvents, ...cadenceHint }, { status: 200, headers });
     }
   }
 
   const supabase = createSupabaseServerClient();
   const ok = await validateEmbedToken(supabase, parsedToken);
   if (!ok) return NextResponse.json({ error: 'unauthorized' }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
+  const cadenceHint = await resolveLaunchRefreshCadenceHint({ client: supabase, scope: 'public', nowMs });
 
   let query = supabase.from('launches_public_cache').select('*');
   query = query.in('pad_country_code', US_PAD_COUNTRY_CODES);
@@ -103,13 +109,23 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'failed_to_load' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
   }
 
-  const headers = { 'Cache-Control': TOKEN_CACHE_CONTROL };
-  if (!data) return NextResponse.json({ launch: null }, { status: 200, headers });
+  const headers = buildCadenceHeaders(cadenceHint.recommendedIntervalSeconds);
+  if (!data) return NextResponse.json({ launch: null, ...cadenceHint }, { status: 200, headers });
 
   const launch = mapPublicCacheRow(data);
   const [launchWithEvents] = await attachNextLaunchEvents(supabase, [launch], nowMs);
 
-  return NextResponse.json({ launch: launchWithEvents }, { status: 200, headers });
+  return NextResponse.json({ launch: launchWithEvents, ...cadenceHint }, { status: 200, headers });
+}
+
+function buildCadenceHeaders(recommendedIntervalSeconds: number) {
+  const ttlSeconds = Math.max(1, Math.trunc(recommendedIntervalSeconds));
+  const cdnCacheControl = `public, s-maxage=${ttlSeconds}, stale-while-revalidate=${ttlSeconds}`;
+  return {
+    'Cache-Control': TOKEN_CACHE_CONTROL,
+    'CDN-Cache-Control': cdnCacheControl,
+    'Vercel-CDN-Cache-Control': cdnCacheControl
+  };
 }
 
 function parseToken(token: string | null) {

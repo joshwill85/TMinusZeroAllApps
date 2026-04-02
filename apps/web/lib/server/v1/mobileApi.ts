@@ -362,16 +362,12 @@ const SAVED_INTEGRATION_LIMIT = 10;
 const DEFAULT_NOTIFICATION_PREFERENCES = {
   pushEnabled: false,
   emailEnabled: false,
-  smsEnabled: false,
   launchDayEmailEnabled: false,
   launchDayEmailProviders: [] as string[],
   launchDayEmailStates: [] as string[],
   quietHoursEnabled: false,
   quietStartLocal: null,
-  quietEndLocal: null,
-  smsVerified: false,
-  smsPhone: null,
-  smsSystemEnabled: false
+  quietEndLocal: null
 };
 
 const DEFAULT_LAUNCH_NOTIFICATION_PREFERENCE = {
@@ -394,28 +390,17 @@ function retiredNotificationPreferencesPayload() {
   });
 }
 
-function retiredLaunchNotificationPreferencePayload(launchId: string, channel: 'sms' | 'push') {
+function retiredLaunchNotificationPreferencePayload(launchId: string) {
   return launchNotificationPreferenceEnvelopeSchemaV1.parse({
     ...DEFAULT_LAUNCH_NOTIFICATION_PREFERENCE,
     preference: {
       ...DEFAULT_LAUNCH_NOTIFICATION_PREFERENCE.preference,
-      launchId,
-      channel
+      launchId
     },
-    ...(channel === 'push'
-      ? {
-          pushStatus: {
-            enabled: false,
-            subscribed: false
-          }
-        }
-      : {
-          smsStatus: {
-            enabled: false,
-            verified: false,
-            systemEnabled: false
-          }
-        })
+    pushStatus: {
+      enabled: false,
+      subscribed: false
+    }
   });
 }
 
@@ -722,16 +707,12 @@ function mapNotificationPreferencesPayload(data: any) {
   return notificationPreferencesSchemaV1.parse({
     pushEnabled: data?.push_enabled === true,
     emailEnabled: data?.email_enabled !== false,
-    smsEnabled: data?.sms_enabled === true,
     launchDayEmailEnabled: data?.launch_day_email_enabled === true,
     launchDayEmailProviders: normalizeStringList(data?.launch_day_email_providers, 80),
     launchDayEmailStates: normalizeStringList(data?.launch_day_email_states, 80),
     quietHoursEnabled: data?.quiet_hours_enabled === true,
     quietStartLocal: normalizeText(data?.quiet_start_local),
-    quietEndLocal: normalizeText(data?.quiet_end_local),
-    smsVerified: data?.sms_verified === true,
-    smsPhone: normalizeText(data?.sms_phone_e164),
-    smsSystemEnabled: typeof data?.sms_system_enabled === 'boolean' ? data.sms_system_enabled : null
+    quietEndLocal: normalizeText(data?.quiet_end_local)
   });
 }
 
@@ -3206,7 +3187,7 @@ export async function loadLaunchFeedPayload(request: Request) {
   return loadVersionedLaunchFeedPayload(request);
 }
 
-export async function loadLaunchDetailPayload(id: string, session: ResolvedViewerSession) {
+export async function loadLaunchDetailPayload(id: string, session: ResolvedViewerSession, entitlementOverride?: Awaited<ReturnType<typeof getViewerEntitlement>>['entitlement']) {
   if (!isSupabaseConfigured()) {
     return null;
   }
@@ -3216,7 +3197,7 @@ export async function loadLaunchDetailPayload(id: string, session: ResolvedViewe
     return null;
   }
 
-  const { entitlement } = await getViewerEntitlement({ session, reconcileStripe: false });
+  const entitlement = entitlementOverride ?? (await getViewerEntitlement({ session, reconcileStripe: false })).entitlement;
   const wantsLiveDetail = entitlement.isAuthed && entitlement.tier === 'premium';
   const liveClient = wantsLiveDetail ? getPrivilegedClient(session) : null;
   const useLiveDetail = Boolean(liveClient);
@@ -3539,12 +3520,12 @@ export async function loadAccountExportPayload(session: ResolvedViewerSession) {
   const admin = isSupabaseAdminConfigured() ? createSupabaseAdminClient() : null;
   const db = admin ?? client;
 
-  const [profileRes, prefsRes, privacyPrefsRes, launchPrefsRes, alertRulesRes, pushRes, subscriptionRes, smsConsentRes] = await Promise.all([
+  const [profileRes, prefsRes, privacyPrefsRes, launchPrefsRes, alertRulesRes, pushRes, subscriptionRes] = await Promise.all([
     db.from('profiles').select('user_id, email, role, first_name, last_name, timezone, created_at, updated_at').eq('user_id', session.userId).maybeSingle(),
     db
       .from('notification_preferences')
       .select(
-        'email_enabled, sms_enabled, push_enabled, quiet_hours_enabled, quiet_start_local, quiet_end_local, notify_t_minus_60, notify_t_minus_10, notify_t_minus_5, notify_liftoff, notify_status_change, notify_net_change, sms_phone_e164, sms_verified, sms_opt_in_at, sms_opt_out_at, created_at, updated_at'
+        'email_enabled, push_enabled, quiet_hours_enabled, quiet_start_local, quiet_end_local, notify_t_minus_60, notify_t_minus_10, notify_t_minus_5, notify_liftoff, notify_status_change, notify_net_change, created_at, updated_at'
       )
       .eq('user_id', session.userId)
       .maybeSingle(),
@@ -3573,12 +3554,6 @@ export async function loadAccountExportPayload(session: ResolvedViewerSession) {
       .select('status, stripe_price_id, cancel_at_period_end, current_period_end, created_at, updated_at')
       .eq('user_id', session.userId)
       .maybeSingle(),
-    db
-      .from('sms_consent_events')
-      .select('id, phone_e164, action, source, consent_version, ip, user_agent, request_url, meta, created_at')
-      .eq('user_id', session.userId)
-      .order('created_at', { ascending: false })
-      .limit(1000)
   ]);
 
   const stripeCustomer = admin
@@ -3597,7 +3572,6 @@ export async function loadAccountExportPayload(session: ResolvedViewerSession) {
     },
     profile: profileRes.data ?? null,
     notification_preferences: prefsRes.data ?? null,
-    sms_consent_events: smsConsentRes.data ?? [],
     privacy_preferences: privacyPrefsRes.data ?? null,
     launch_notification_preferences: launchPrefsRes.data ?? [],
     notification_alert_rules: alertRulesRes.data ?? [],
@@ -5169,8 +5143,7 @@ export async function deleteAccountPayload(session: ResolvedViewerSession, reque
 
 export async function loadLaunchNotificationPreferencePayload(
   session: ResolvedViewerSession,
-  launchId: string,
-  channel: 'sms' | 'push'
+  launchId: string
 ) {
   if (!session.userId) {
     return null;
@@ -5181,7 +5154,7 @@ export async function loadLaunchNotificationPreferencePayload(
     return null;
   }
 
-  return retiredLaunchNotificationPreferencePayload(parsedLaunch.launchId, channel);
+  return retiredLaunchNotificationPreferencePayload(parsedLaunch.launchId);
 }
 
 export async function updateLaunchNotificationPreferencePayload(

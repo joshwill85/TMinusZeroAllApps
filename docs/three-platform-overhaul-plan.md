@@ -1,12 +1,13 @@
 # Three-Platform Overhaul Plan
 
-Last updated: 2026-03-20
+Last updated: 2026-04-01
 
 This is the living master checklist for moving T-Minus Zero from a web-only product to a maintainable, high-performance web + iOS + Android product line.
 
 Related implementation plans:
 - `docs/2026-03-20-anon-premium-cutover-plan.md`
 - `docs/2026-03-29-push-only-notification-cutover-plan.md`
+- `docs/ar-trajectory-three-surface-best-in-class-validation-plan-2026-04-01.md`
 
 ## Purpose
 
@@ -27,7 +28,7 @@ Related implementation plans:
   - Remaining raw web `fetch('/api/...')` usage in mobile-critical surfaces
   - Browser/service-worker push parity vs Expo-native push lifecycle
   - Native purchase adapters and receipt validation
-  - Browser-only AR runtime
+  - Cross-surface AR runtime certification and shared-truth gating
 - Backup refs already created before overhaul work:
   - Branch: `backup/pre-mobilechanges3-7-26`
   - Tag: `pre-mobilechanges3-7-26`
@@ -73,6 +74,11 @@ Related implementation plans:
 
 ## Current Slice Tracker
 
+- 2026-04-01: AR trajectory three-surface best-in-class validation planning is in progress for `Web`, `iOS`, and `Android`.
+  - Source-of-truth plan: `docs/ar-trajectory-three-surface-best-in-class-validation-plan-2026-04-01.md`
+  - Scope: establish one shared trajectory truth gate plus platform-native excellence gates for web browsers, native iOS, and native Android.
+  - Guardrails: no forced cross-platform sameness, no false precision, additive telemetry/contracts only, and Chrome-vs-Safari differences are allowed if degradation stays honest.
+  - Current implementation slice: shared-truth family matrix and observer replay are in place, and the surface-evidence path now persists `release_profile`, `time_to_usable_ms`, `location_fix_state`, and `alignment_ready` so the manifest can resolve real field captures with fewer sidecars.
 - 2026-03-29: Push-only notification cutover is in progress for `Web`, `iOS`, and `Android`.
   - Source-of-truth plan: `docs/2026-03-29-push-only-notification-cutover-plan.md`
   - Scope: retire SMS notifications, notification email delivery, and browser/web push; keep only native mobile push for alerts while preserving essential non-notification email.

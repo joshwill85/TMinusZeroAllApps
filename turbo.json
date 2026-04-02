@@ -3,7 +3,18 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": [".next/**", "dist/**"]
+      "outputs": [".next/**", "dist/**"],
+      "env": [
+        "NEXT_PUBLIC_SITE_URL",
+        "NEXT_PUBLIC_TURNSTILE_SITE_KEY",
+        "NEXT_PUBLIC_SUPABASE_URL",
+        "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "APPLE_DEVELOPER_TEAM_ID",
+        "APPLE_APP_STORE_BUNDLE_ID",
+        "MOBILE_APP_LINK_HOSTS",
+        "JEP_FORCE_PUBLIC_VISIBLE"
+      ]
     },
     "dev": {
       "cache": false,

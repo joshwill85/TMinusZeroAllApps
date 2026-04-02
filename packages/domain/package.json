@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "dependencies": {
+    "@tminuszero/contracts": "*"
+  },
   "exports": {
     ".": "./src/index.ts"
   }

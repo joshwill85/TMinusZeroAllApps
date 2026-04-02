@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS } from '@tminuszero/domain';
 import { getSiteUrl, isSupabaseConfigured } from '@/lib/server/env';
 import type { Launch } from '@/lib/types/launch';
 import { EmbeddedNextLaunchCard } from '@/components/embed/EmbeddedNextLaunchCard';
@@ -43,8 +44,8 @@ export default async function EmbedNextLaunchPage({ searchParams }: { searchPara
   }
 
   const nowMs = Date.now();
-  const initialLaunch = await loadInitialLaunch(token);
-  if (initialLaunch === 'invalid') {
+  const initialPayload = await loadInitialPayload(token);
+  if (initialPayload === 'invalid') {
     return (
       <div className="mx-auto w-full max-w-lg p-4">
         <div className="rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
@@ -54,7 +55,7 @@ export default async function EmbedNextLaunchPage({ searchParams }: { searchPara
     );
   }
 
-  if (initialLaunch === 'error') {
+  if (initialPayload === 'error') {
     return (
       <div className="mx-auto w-full max-w-lg p-4">
         <div className="rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
@@ -64,7 +65,15 @@ export default async function EmbedNextLaunchPage({ searchParams }: { searchPara
     );
   }
 
-  return <EmbeddedNextLaunchCard token={token} initialLaunch={initialLaunch} initialNowMs={nowMs} />;
+  return (
+    <EmbeddedNextLaunchCard
+      token={token}
+      initialLaunch={initialPayload.launch}
+      initialRecommendedIntervalSeconds={initialPayload.recommendedIntervalSeconds}
+      initialCadenceAnchorNet={initialPayload.cadenceAnchorNet}
+      initialNowMs={nowMs}
+    />
+  );
 }
 
 function resolveToken(searchParams?: SearchParams) {
@@ -78,14 +87,35 @@ function isUuidToken(token: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(token);
 }
 
-async function loadInitialLaunch(token: string): Promise<Launch | null | 'invalid' | 'error'> {
+async function loadInitialPayload(
+  token: string
+): Promise<
+  | {
+      launch: Launch | null;
+      recommendedIntervalSeconds: number;
+      cadenceAnchorNet: string | null;
+    }
+  | 'invalid'
+  | 'error'
+> {
   try {
     const url = `${getSiteUrl()}/api/embed/next-launch?token=${encodeURIComponent(token)}`;
     const res = await fetch(url, { cache: 'no-store' });
     if (res.status === 401 || res.status === 404) return 'invalid';
     if (!res.ok) return 'error';
-    const json = (await res.json().catch(() => null)) as { launch?: Launch | null } | null;
-    return json?.launch ?? null;
+    const json = (await res.json().catch(() => null)) as {
+      launch?: Launch | null;
+      recommendedIntervalSeconds?: number;
+      cadenceAnchorNet?: string | null;
+    } | null;
+    return {
+      launch: json?.launch ?? null,
+      recommendedIntervalSeconds:
+        typeof json?.recommendedIntervalSeconds === 'number' && Number.isFinite(json.recommendedIntervalSeconds)
+          ? Math.max(1, Math.trunc(json.recommendedIntervalSeconds))
+          : PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS,
+      cadenceAnchorNet: typeof json?.cadenceAnchorNet === 'string' ? json.cadenceAnchorNet : null
+    };
   } catch (err) {
     console.error('embed next launch initial load error', err);
     return 'error';

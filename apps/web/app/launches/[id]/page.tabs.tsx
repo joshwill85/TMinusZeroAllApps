@@ -15,6 +15,7 @@ import {
   getVisibleTabs,
   shouldShowLiveBadge,
   getDefaultActiveTab,
+  getLaunchHeroModel,
   extractOverviewData,
   extractLiveData,
   extractMissionData,
@@ -34,7 +35,7 @@ type LaunchDetailTabsPageProps = {
 export default function LaunchDetailTabsPage({ detail }: LaunchDetailTabsPageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const launch = detail?.launchData ?? detail?.launch;
+  const hero = getLaunchHeroModel(detail);
 
   // Tab state
   const tabVisibility = computeTabVisibility(detail);
@@ -73,7 +74,7 @@ export default function LaunchDetailTabsPage({ detail }: LaunchDetailTabsPagePro
   const relatedData = extractRelatedData(detail);
 
   // Format countdown
-  const countdown = buildCountdownSnapshot(launch?.net ?? null);
+  const countdown = buildCountdownSnapshot(hero.net);
   const countdownText = countdown
     ? countdown.isPast
       ? 'Launched'
@@ -81,23 +82,23 @@ export default function LaunchDetailTabsPage({ detail }: LaunchDetailTabsPagePro
     : null;
 
   // Format NET time
-  const netTime = launch?.net ? new Date(launch.net).toLocaleString() : null;
+  const netTime = hero.net ? new Date(hero.net).toLocaleString() : null;
 
   return (
     <div className="min-h-screen bg-surface-0">
       {/* Hero Section */}
       <LaunchDetailHero
-        backgroundImage={launch?.image?.full ?? null}
-        launchName={launch?.name ?? 'Unknown Launch'}
-        provider={launch?.provider ?? null}
-        vehicle={launch?.vehicle ?? null}
-        status={launch?.status ?? null}
-        statusTone={getStatusTone(launch?.status ?? null)}
-        tier={launch?.tier ?? null}
-        webcastLive={Boolean(launch?.webcastLive)}
+        backgroundImage={hero.backgroundImage}
+        launchName={hero.launchName}
+        provider={hero.provider}
+        vehicle={hero.vehicle}
+        status={hero.status}
+        statusTone={getStatusTone(hero.status)}
+        tier={hero.tier}
+        webcastLive={hero.webcastLive}
         countdown={countdownText}
         netTime={netTime}
-        location={launch?.pad?.location ?? null}
+        location={hero.location}
         actionButtons={
           <div className="flex gap-3">
             {/* Placeholder action buttons */}

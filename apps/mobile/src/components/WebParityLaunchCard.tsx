@@ -769,8 +769,8 @@ function ShareGlyph({ color }: { color: string }) {
 
 function ArGlyph({ color }: { color: string }) {
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 1 }}>
-      <Text style={{ color, fontSize: 10, fontWeight: '800', letterSpacing: 0.8 }}>AR</Text>
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', minWidth: 22 }}>
+      <Text style={{ color, fontSize: 20, lineHeight: 20, fontWeight: '900', letterSpacing: 1.1 }}>AR</Text>
     </View>
   );
 }
