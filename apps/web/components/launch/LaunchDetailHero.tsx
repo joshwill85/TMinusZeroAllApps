@@ -2,6 +2,7 @@
 
 import clsx from 'clsx';
 import Image from 'next/image';
+import type { ReactNode } from 'react';
 
 type LaunchDetailHeroProps = {
   backgroundImage: string | null;
@@ -12,10 +13,10 @@ type LaunchDetailHeroProps = {
   statusTone?: 'default' | 'success' | 'warning' | 'danger';
   tier: string | null;
   webcastLive: boolean;
-  countdown: string | null;
+  countdown: ReactNode;
   netTime: string | null;
   location: string | null;
-  actionButtons: React.ReactNode;
+  actionButtons: ReactNode;
   className?: string;
 };
 
@@ -114,7 +115,7 @@ export function LaunchDetailHero({
                 <p className="text-sm font-medium text-text2 mb-2">
                   Countdown
                 </p>
-                <p className="text-3xl font-extrabold text-text1 tracking-tight">
+                <p className="whitespace-nowrap tabular-nums text-3xl font-extrabold text-text1 tracking-tight">
                   {countdown}
                 </p>
               </div>

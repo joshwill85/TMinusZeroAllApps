@@ -19,8 +19,8 @@ const TILE_SPRING_CONFIG = {
 
 export type StatTile = {
   id: string;
-  label: string;
-  value: string;
+  label: ReactNode;
+  value: ReactNode;
   description?: string;
   icon?: ReactNode;
   tone?: 'default' | 'primary' | 'success' | 'warning' | 'danger';

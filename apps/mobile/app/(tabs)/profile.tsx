@@ -46,7 +46,6 @@ export default function ProfileScreen() {
   const catalogProduct = billing.catalogProduct ?? null;
   const catalogOffers = catalogProduct?.offers ?? [];
   const purchaseProvider = catalogProduct?.provider ?? (billing.platform === 'ios' ? 'apple_app_store' : 'google_play');
-  const tier = getMobileViewerTier(entitlementsQuery.data?.tier ?? 'anon');
   const isAuthed = entitlementsQuery.data?.isAuthed ?? Boolean(accessToken);
   const profile = profileQuery.data ?? null;
   const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ').trim();
@@ -54,9 +53,27 @@ export default function ProfileScreen() {
   const title = fullName ? fullName : isAuthed ? 'Your account' : 'Profile';
   const emailVerified = Boolean(profile?.emailConfirmedAt);
   const isAdminViewer = sessionQuery.data?.role === 'admin';
-  const adminAccessOverride = adminAccessOverrideQuery.data?.adminAccessOverride ?? entitlementsQuery.data?.adminAccessOverride ?? null;
-  const effectiveTierSource = entitlementsQuery.data?.effectiveTierSource ?? 'guest';
-  const billingIsPaid = entitlementsQuery.data?.billingIsPaid === true;
+  const adminAccessState = adminAccessOverrideQuery.data ?? null;
+  const tier = getMobileViewerTier(adminAccessState?.effectiveTier ?? entitlementsQuery.data?.tier ?? 'anon');
+  const adminAccessOverride = adminAccessState?.adminAccessOverride ?? entitlementsQuery.data?.adminAccessOverride ?? null;
+  const effectiveTierSource = adminAccessState?.effectiveTierSource ?? entitlementsQuery.data?.effectiveTierSource ?? 'guest';
+  const billingIsPaid = adminAccessState?.billingIsPaid ?? (entitlementsQuery.data?.billingIsPaid === true);
+  const hasAdminMembership = isAdminViewer && (effectiveTierSource === 'admin' || effectiveTierSource === 'admin_override');
+  const membershipStatusLabel = formatMembershipStatusLabel({
+    tier,
+    isAuthed,
+    effectiveTierSource,
+    status: entitlementsQuery.data?.status ?? null,
+    cancelAtPeriodEnd: entitlementsQuery.data?.cancelAtPeriodEnd ?? false
+  });
+  const membershipStatusCaption = buildMembershipStatusCaption({
+    tier,
+    isAuthed,
+    effectiveTierSource,
+    currentPeriodEnd: entitlementsQuery.data?.currentPeriodEnd ?? null,
+    cancelAtPeriodEnd: entitlementsQuery.data?.cancelAtPeriodEnd ?? false
+  });
+  const adminAccessLabel = formatAdminAccessTierLabel(tier);
   const [editFirstName, setEditFirstName] = useState('');
   const [editLastName, setEditLastName] = useState('');
   const [editTimezone, setEditTimezone] = useState('America/New_York');
@@ -74,8 +91,8 @@ export default function ProfileScreen() {
   const showStoreManagementAction = Boolean(
     billingSummary && billingSummary.isPaid && isStoreManagedBillingProvider(billingSummary.provider) && billingSummary.managementUrl
   );
-  const showPurchaseAction = Boolean(billingSummary && !billingSummary.isPaid);
-  const showRestoreAction = Boolean(billing.isStoreReady && (showStoreManagementAction || showPurchaseAction));
+  const showPurchaseAction = Boolean(billingSummary && !billingSummary.isPaid && !hasAdminMembership);
+  const showRestoreAction = Boolean(billing.isStoreReady && !hasAdminMembership && (showStoreManagementAction || showPurchaseAction));
 
   useEffect(() => {
     if (!profile) return;
@@ -177,7 +194,7 @@ export default function ProfileScreen() {
     try {
       await updateAdminAccessOverrideMutation.mutateAsync({ adminAccessOverride: next });
       setAdminAccessMessage(
-        next === null ? 'Default admin access restored.' : next === 'premium' ? 'Admin premium test mode is active.' : 'Admin free test mode is active.'
+        next === null ? 'Default admin access restored.' : next === 'premium' ? 'Admin premium test mode is active.' : 'Admin anon test mode is active.'
       );
     } catch (error) {
       const fallback = error instanceof Error ? error.message : 'Unable to update admin access.';
@@ -198,7 +215,7 @@ export default function ProfileScreen() {
         }
       >
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-          <CustomerShellBadge label={formatTierLabel(tier)} tone={tier === 'premium' ? 'accent' : 'default'} />
+          <CustomerShellBadge label={formatTierLabel(tier, isAuthed)} tone={tier === 'premium' ? 'accent' : 'default'} />
           <CustomerShellBadge label={isAuthed ? 'Signed in' : 'Guest'} tone={isAuthed ? 'success' : 'warning'} />
           {sessionQuery.data?.role === 'admin' ? <CustomerShellBadge label="Admin" /> : null}
         </View>
@@ -206,22 +223,23 @@ export default function ProfileScreen() {
 
       <CustomerShellPanel
         title="Account overview"
-        description="Identity, access level, and billing status for the current viewer on this device."
+        description="Identity, current access, and membership state for the current viewer on this device."
       >
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
           <CustomerShellMetric
             label="Access"
             value={formatTierLabel(tier, isAuthed)}
             caption={buildAccessCaption({
+              tier,
               isAuthed,
               effectiveTierSource,
               billingIsPaid
             })}
           />
           <CustomerShellMetric
-            label="Billing"
-            value={billingSummary ? formatBillingProvider(billingSummary.provider) : accessToken ? 'Loading…' : '—'}
-            caption={billingSummary ? formatBillingStatus(billingSummary.status) : 'Store or web billing state'}
+            label="Membership"
+            value={membershipStatusLabel}
+            caption={membershipStatusCaption}
           />
           <CustomerShellMetric
             label="Renewal"
@@ -234,11 +252,11 @@ export default function ProfileScreen() {
       {isAdminViewer ? (
         <CustomerShellPanel
           title="Admin access testing"
-          description="Switch this admin account between free and premium customer access. Billing and admin tools stay unchanged."
+          description="Switch this admin account between anon and premium customer access. Billing and admin tools stay unchanged."
         >
           <View style={{ gap: 10 }}>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-              <CustomerShellMetric label="Current access" value={tier === 'premium' ? 'Premium' : 'Free'} caption={formatEffectiveTierSource(effectiveTierSource)} />
+              <CustomerShellMetric label="Current access" value={adminAccessLabel} caption={formatEffectiveTierSource(effectiveTierSource)} />
               <CustomerShellMetric label="Real billing" value={billingIsPaid ? 'Active' : 'Inactive'} caption="Store or web subscription state" />
             </View>
             <CustomerShellActionButton
@@ -250,7 +268,7 @@ export default function ProfileScreen() {
               }}
             />
             <CustomerShellActionButton
-              label={adminAccessOverride === 'anon' ? 'Free mode active' : 'Switch to free'}
+              label={adminAccessOverride === 'anon' ? 'Anon mode active' : 'Switch to anon'}
               variant={adminAccessOverride === 'anon' ? 'primary' : 'secondary'}
               disabled={adminAccessOverrideQuery.isPending || updateAdminAccessOverrideMutation.isPending}
               onPress={() => {
@@ -397,58 +415,61 @@ export default function ProfileScreen() {
         <CustomerShellPanel title="Profile unavailable" description={profileQuery.error.message} />
       ) : (
         <>
-          <CustomerShellPanel testID="profile-data-section" title="Profile details" description="Your account identity synced to this device.">
+          <CustomerShellPanel
+            testID="profile-data-section"
+            title="Profile details"
+            description="Current identity and editable shared account fields used across web, iPhone, and Android."
+          >
             <View style={{ gap: 10 }}>
               <AccountDetailRow testID="profile-display-name" label="Name" value={fullName || 'Name not set'} />
               <AccountDetailRow testID="profile-email" label="Email" value={profile?.email || '—'} />
               <AccountDetailRow label="Email verified" value={emailVerified ? 'Yes' : 'No'} />
               <AccountDetailRow label="Timezone" value={profile?.timezone || 'America/New_York'} />
             </View>
-          </CustomerShellPanel>
 
-          <AccountNotice message={profileMessage} tone="success" />
-          <AccountNotice message={profileError} tone="error" />
-          <CustomerShellPanel title="Update profile" description="Edit the shared account fields used across supported surfaces.">
-            <View style={{ gap: 12 }}>
-              <AccountTextField label="First name" value={editFirstName} onChangeText={setEditFirstName} placeholder="First name" />
-              <AccountTextField label="Last name" value={editLastName} onChangeText={setEditLastName} placeholder="Last name" />
-              <AccountTextField
-                label="Timezone (IANA)"
-                value={editTimezone}
-                onChangeText={setEditTimezone}
-                placeholder="America/New_York"
-                autoCapitalize="none"
-              />
-              <CustomerShellActionButton
-                label={updateProfileMutation.isPending ? 'Saving…' : 'Save profile'}
-                onPress={() => {
-                  void saveProfile();
-                }}
-                disabled={!canSaveProfile}
-              />
+            <View style={{ gap: 8 }}>
+              <Text style={{ color: theme.muted, fontSize: 12, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase' }}>Update profile</Text>
+              <View style={{ gap: 12 }}>
+                <AccountTextField label="First name" value={editFirstName} onChangeText={setEditFirstName} placeholder="First name" />
+                <AccountTextField label="Last name" value={editLastName} onChangeText={setEditLastName} placeholder="Last name" />
+                <AccountTextField
+                  label="Timezone (IANA)"
+                  value={editTimezone}
+                  onChangeText={setEditTimezone}
+                  placeholder="America/New_York"
+                  autoCapitalize="none"
+                />
+                <CustomerShellActionButton
+                  label={updateProfileMutation.isPending ? 'Saving…' : 'Save profile'}
+                  onPress={() => {
+                    void saveProfile();
+                  }}
+                  disabled={!canSaveProfile}
+                />
+              </View>
             </View>
-          </CustomerShellPanel>
 
-          {!emailVerified ? (
-            <>
-              <AccountNotice message={resendMessage} tone="success" />
-              <AccountNotice message={resendError} tone="error" />
-              <CustomerShellPanel title="Email verification" description="Verify your email to keep account recovery and account security flows healthy.">
-                <View style={{ gap: 10 }}>
-                  <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
-                    We sent a verification email to {email || 'your account email'}. Open the link on this device to finish verification.
-                  </Text>
-                  <CustomerShellActionButton
-                    label={resendingEmail ? 'Sending…' : 'Resend verification email'}
-                    onPress={() => {
-                      void resendVerificationEmail();
-                    }}
-                    disabled={resendingEmail || !email}
-                  />
-                </View>
-              </CustomerShellPanel>
-            </>
-          ) : null}
+            <AccountNotice message={profileMessage} tone="success" />
+            <AccountNotice message={profileError} tone="error" />
+
+            {!emailVerified ? (
+              <View style={{ gap: 10 }}>
+                <Text style={{ color: theme.muted, fontSize: 12, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase' }}>Email verification</Text>
+                <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
+                  We sent a verification email to {email || 'your account email'}. Open the link on this device to finish verification.
+                </Text>
+                <CustomerShellActionButton
+                  label={resendingEmail ? 'Sending…' : 'Resend verification email'}
+                  onPress={() => {
+                    void resendVerificationEmail();
+                  }}
+                  disabled={resendingEmail || !email}
+                />
+                <AccountNotice message={resendMessage} tone="success" />
+                <AccountNotice message={resendError} tone="error" />
+              </View>
+            ) : null}
+          </CustomerShellPanel>
 
           <AccountNotice message={marketingMessage} tone="success" />
           <AccountNotice message={marketingError} tone="error" />
@@ -482,14 +503,14 @@ export default function ProfileScreen() {
             </View>
           </CustomerShellPanel>
 
-          <CustomerShellPanel testID="profile-entitlements-section" title="Membership" description="Your current access tier, source, and renewal state.">
+          <CustomerShellPanel testID="profile-entitlements-section" title="Membership" description="Your current access and renewal state on this device.">
             <View style={{ gap: 10 }}>
-              <AccountDetailRow testID="profile-entitlements-tier" label="Tier" value={formatTierLabel(tier)} />
-              <AccountDetailRow label="Status" value={formatBillingStatus(entitlementsQuery.data?.status || 'unknown')} />
-              <AccountDetailRow label="Source" value={formatBillingProvider(entitlementsQuery.data?.source || 'none')} />
+              <AccountDetailRow testID="profile-entitlements-tier" label="Access" value={formatTierLabel(tier, isAuthed)} />
+              <AccountDetailRow label="Status" value={membershipStatusLabel} />
               {entitlementsQuery.data?.currentPeriodEnd ? (
                 <AccountDetailRow label="Current period end" value={formatDate(entitlementsQuery.data.currentPeriodEnd)} />
               ) : null}
+              <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>{membershipStatusCaption}</Text>
             </View>
           </CustomerShellPanel>
 
@@ -501,7 +522,11 @@ export default function ProfileScreen() {
             <CustomerShellPanel
               testID="profile-billing-section"
               title="Billing"
-              description="Manage your current plan and purchase status on this device."
+              description={
+                hasAdminMembership
+                  ? 'Stored billing on this device is separate from admin-controlled access.'
+                  : 'Manage your current plan and purchase status on this device.'
+              }
             >
               <View style={{ gap: 10 }}>
                 <AccountDetailRow
@@ -522,7 +547,9 @@ export default function ProfileScreen() {
               </View>
 
               <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
-                {buildBillingMessage(billingSummary.provider, billingSummary.isPaid, billing.isStoreReady)}
+                {hasAdminMembership
+                  ? 'Admin access can stay premium even when this device has no active paid billing record.'
+                  : buildBillingMessage(billingSummary.provider, billingSummary.isPaid, billing.isStoreReady)}
               </Text>
               {showPurchaseAction ? (
                 <BillingPurchaseNotice
@@ -647,20 +674,22 @@ function formatTierLabel(tier: 'anon' | 'premium', isAuthed = false) {
   if (tier === 'premium') {
     return 'Premium';
   }
-  return isAuthed ? 'Signed in' : 'Public';
+  return isAuthed ? 'Free' : 'Guest';
 }
 
 function buildAccessCaption({
+  tier,
   isAuthed,
   effectiveTierSource,
   billingIsPaid
 }: {
+  tier: 'anon' | 'premium';
   isAuthed: boolean;
   effectiveTierSource: string;
   billingIsPaid: boolean;
 }) {
   if (effectiveTierSource === 'admin_override') {
-    return 'Admin test mode is active';
+    return tier === 'premium' ? 'Admin test mode: premium access' : 'Admin test mode: anon access';
   }
   if (effectiveTierSource === 'admin') {
     return 'Admin premium access is active';
@@ -668,7 +697,7 @@ function buildAccessCaption({
   if (billingIsPaid || effectiveTierSource === 'subscription') {
     return 'Premium is active';
   }
-  return isAuthed ? 'Premium available' : 'Public access';
+  return isAuthed ? 'Premium available on this device' : 'Guest access';
 }
 
 function formatEffectiveTierSource(value: string) {
@@ -685,6 +714,70 @@ function formatEffectiveTierSource(value: string) {
     return 'Signed in without Premium';
   }
   return 'Guest';
+}
+
+function formatAdminAccessTierLabel(tier: 'anon' | 'premium') {
+  return tier === 'premium' ? 'Premium access' : 'Anon access';
+}
+
+function formatMembershipStatusLabel({
+  tier,
+  isAuthed,
+  effectiveTierSource,
+  status,
+  cancelAtPeriodEnd
+}: {
+  tier: 'anon' | 'premium';
+  isAuthed: boolean;
+  effectiveTierSource: string;
+  status: string | null;
+  cancelAtPeriodEnd: boolean;
+}) {
+  const normalizedStatus = String(status || '').trim().toLowerCase();
+
+  if (effectiveTierSource === 'admin_override') {
+    return tier === 'premium' ? 'Admin override' : 'Admin anon';
+  }
+  if (effectiveTierSource === 'admin') {
+    return 'Admin access';
+  }
+  if (normalizedStatus === 'past_due' || normalizedStatus === 'unpaid' || normalizedStatus === 'incomplete') {
+    return 'Billing issue';
+  }
+  if (normalizedStatus === 'canceled' || normalizedStatus === 'expired' || normalizedStatus === 'incomplete_expired') {
+    return 'Canceled';
+  }
+  if (tier === 'premium') {
+    return cancelAtPeriodEnd ? 'Cancels at period end' : 'Premium active';
+  }
+  return isAuthed ? 'Free account' : 'Guest access';
+}
+
+function buildMembershipStatusCaption({
+  tier,
+  isAuthed,
+  effectiveTierSource,
+  currentPeriodEnd,
+  cancelAtPeriodEnd
+}: {
+  tier: 'anon' | 'premium';
+  isAuthed: boolean;
+  effectiveTierSource: string;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+}) {
+  if (effectiveTierSource === 'admin_override') {
+    return tier === 'premium'
+      ? 'Premium access is being forced for testing. Stored billing remains separate.'
+      : 'Anon access is being forced for testing. Stored billing remains separate.';
+  }
+  if (effectiveTierSource === 'admin') {
+    return 'Your admin role grants premium access on this device.';
+  }
+  if (currentPeriodEnd) {
+    return cancelAtPeriodEnd ? `Access is scheduled to end on ${formatDate(currentPeriodEnd)}.` : `Renews on ${formatDate(currentPeriodEnd)}.`;
+  }
+  return isAuthed ? 'Premium can be purchased or restored on this device.' : 'Sign in to manage purchases and profile details.';
 }
 
 function formatBillingProvider(value: string) {

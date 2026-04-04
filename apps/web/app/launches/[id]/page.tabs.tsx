@@ -22,10 +22,10 @@ import {
   extractVehicleData,
   extractRelatedData,
 } from '@tminuszero/launch-detail-ui';
+import { Countdown } from '@/components/Countdown';
 import { LaunchDetailHero } from '@/components/launch/LaunchDetailHero';
 import { LaunchDetailTabs, LaunchDetailTabPanel } from '@/components/launch/LaunchDetailTabs';
 import { OverviewTab } from '@/components/launch/tabs';
-import { buildCountdownSnapshot, formatLaunchCountdownClock } from '@tminuszero/domain';
 import type { LaunchDetailV1 } from '@tminuszero/contracts';
 
 type LaunchDetailTabsPageProps = {
@@ -64,7 +64,7 @@ export default function LaunchDetailTabsPage({ detail }: LaunchDetailTabsPagePro
     if (newDefault !== activeTab && visibleTabs.some((t) => t.id === newDefault)) {
       setActiveTab(newDefault);
     }
-  }, [detail, tabVisibility]);
+  }, [activeTab, detail, tabVisibility, visibleTabs]);
 
   // Extract data for each tab
   const overviewData = extractOverviewData(detail);
@@ -72,14 +72,6 @@ export default function LaunchDetailTabsPage({ detail }: LaunchDetailTabsPagePro
   const missionData = extractMissionData(detail);
   const vehicleData = extractVehicleData(detail);
   const relatedData = extractRelatedData(detail);
-
-  // Format countdown
-  const countdown = buildCountdownSnapshot(hero.net);
-  const countdownText = countdown
-    ? countdown.isPast
-      ? 'Launched'
-      : formatCountdown(countdown.totalMs)
-    : null;
 
   // Format NET time
   const netTime = hero.net ? new Date(hero.net).toLocaleString() : null;
@@ -96,7 +88,7 @@ export default function LaunchDetailTabsPage({ detail }: LaunchDetailTabsPagePro
         statusTone={getStatusTone(hero.status)}
         tier={hero.tier}
         webcastLive={hero.webcastLive}
-        countdown={countdownText}
+        countdown={hero.net ? <Countdown net={hero.net} pastLabel="Launched" /> : null}
         netTime={netTime}
         location={hero.location}
         actionButtons={
@@ -176,10 +168,6 @@ function getStatusTone(status: string | null): 'default' | 'success' | 'warning'
   if (lower.includes('hold') || lower.includes('tbd')) return 'warning';
   if (lower.includes('fail') || lower.includes('scrub')) return 'danger';
   return 'default';
-}
-
-function formatCountdown(totalMs: number): string {
-  return formatLaunchCountdownClock(totalMs);
 }
 
 // Placeholder Tab Components (simplified versions)

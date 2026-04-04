@@ -19,7 +19,7 @@ type LaunchDetailHeroProps = {
   statusTone?: 'default' | 'success' | 'warning' | 'danger';
   tier: string | null;
   webcastLive: boolean;
-  countdown: string | null;
+  countdown: React.ReactNode;
   netTime: string | null;
   location: string | null;
   scrollY: SharedValue<number>;
@@ -256,13 +256,18 @@ export function LaunchDetailHero({
           {/* Bottom: Countdown & Location */}
           <View style={{ gap: 12 }}>
             {countdown && (
-              <View>
+              <View style={{ minWidth: 0 }}>
                 <Text
+                  adjustsFontSizeToFit
+                  ellipsizeMode="clip"
+                  minimumFontScale={0.72}
+                  numberOfLines={1}
                   style={{
                     fontSize: 32,
                     fontWeight: '800',
                     color: theme.foreground,
                     letterSpacing: -1,
+                    fontVariant: ['tabular-nums']
                   }}
                 >
                   {countdown}

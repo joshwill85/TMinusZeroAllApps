@@ -2,8 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Animated, Modal, PanResponder, Pressable, ScrollView, Text, View } from 'react-native';
 import { type Href, usePathname, useRouter, useSegments } from 'expo-router';
 import { useProfileQuery, useViewerEntitlementsQuery, useViewerSessionQuery } from '@/src/api/queries';
+import { buildClaimAuthHref } from '@/src/billing/nativeBillingUi';
+import { useNativeBilling } from '@/src/billing/useNativeBilling';
 import { getProgramHubEntryOrCoreHref } from '@/src/features/programHubs/rollout';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
+import { CustomerShellActionButton, CustomerShellBadge } from '@/src/components/CustomerShell';
 import {
   MOBILE_DOCK_BOTTOM_OFFSET,
   MOBILE_DOCK_HEIGHT,
@@ -166,17 +169,6 @@ export function MobileDockingBay() {
       }
     ];
 
-    if (!isPremium) {
-      nativeItems.push({
-        key: 'upgrade',
-        title: 'Get Premium',
-        description: 'Premium adds follows, saved views, recurring feeds, widgets, and advanced launch tools.',
-        href: '/profile',
-        badge: 'Premium',
-        testID: 'manifest-link-upgrade'
-      });
-    }
-
     const exploreItems: ManifestItem[] = [
       {
         key: 'news',
@@ -336,7 +328,7 @@ export function MobileDockingBay() {
         ]
       }
     ];
-  }, [isPremium, profileHref, viewerSessionQuery.data]);
+  }, [profileHref, viewerSessionQuery.data]);
 
   if (!showDock) {
     return null;
@@ -490,18 +482,6 @@ export function MobileDockingBay() {
                   <Text style={{ color: theme.foreground, fontSize: 22, fontWeight: '800', marginTop: 4 }}>Customer dock</Text>
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 14, paddingTop: 2 }}>
-                  {!isPremium ? (
-                    <HeaderActionLink
-                      label="Get Premium"
-                      theme={theme}
-                      icon={<PremiumGlyph color={theme.accent} />}
-                      testID="manifest-header-upgrade"
-                      onPress={() => {
-                        closeManifest();
-                        router.push('/profile');
-                      }}
-                    />
-                  ) : null}
                   {!isAuthed ? (
                     <HeaderActionLink
                       label="Sign in"
@@ -525,6 +505,14 @@ export function MobileDockingBay() {
                 paddingBottom: insets.bottom + 24
               }}
             >
+              {!isPremium ? (
+                <ManifestPremiumCard
+                  viewerId={viewerSessionQuery.data?.viewerId ?? null}
+                  isAuthed={isAuthed}
+                  theme={theme}
+                  onClose={closeManifest}
+                />
+              ) : null}
               {manifestSections.map((section) => (
                 <View key={section.title} style={{ gap: 10 }}>
                   <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase' }}>{section.title}</Text>
@@ -633,6 +621,102 @@ function ManifestRow({
         <Text style={{ color: theme.muted, fontSize: 18, fontWeight: '700' }}>{'>'}</Text>
       </View>
     </Pressable>
+  );
+}
+
+function ManifestPremiumCard({
+  viewerId,
+  isAuthed,
+  theme,
+  onClose
+}: {
+  viewerId: string | null;
+  isAuthed: boolean;
+  theme: { background: string; foreground: string; muted: string; accent: string; stroke: string };
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const billing = useNativeBilling(viewerId);
+
+  return (
+    <View
+      testID="manifest-premium-card"
+      style={{
+        gap: 12,
+        borderRadius: 22,
+        borderWidth: 1,
+        borderColor: 'rgba(34, 211, 238, 0.22)',
+        backgroundColor: 'rgba(12, 28, 40, 0.92)',
+        paddingHorizontal: 16,
+        paddingVertical: 16
+      }}
+    >
+      <View style={{ gap: 8 }}>
+        <CustomerShellBadge label="Premium" tone="accent" />
+        <Text style={{ color: theme.foreground, fontSize: 19, fontWeight: '800' }}>Go Premium</Text>
+        <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
+          Unlock follows, saved views, recurring feeds, widgets, and advanced launch alerts from one place.
+        </Text>
+      </View>
+
+      {billing.actionMessage ? <Text style={{ color: theme.accent, fontSize: 13, lineHeight: 19 }}>{billing.actionMessage}</Text> : null}
+      {billing.actionError ? <Text style={{ color: '#ff9087', fontSize: 13, lineHeight: 19 }}>{billing.actionError}</Text> : null}
+
+      <View style={{ gap: 10 }}>
+        {billing.claim ? (
+          <>
+            <CustomerShellActionButton
+              testID="manifest-premium-claim-sign-in"
+              label="Sign in to claim Premium"
+              onPress={() => {
+                onClose();
+                router.push(buildClaimAuthHref('/sign-in', billing.claim?.claimToken, billing.claim?.returnTo));
+              }}
+            />
+            <CustomerShellActionButton
+              testID="manifest-premium-claim-sign-up"
+              label="Create account to claim Premium"
+              variant="secondary"
+              onPress={() => {
+                onClose();
+                router.push(buildClaimAuthHref('/sign-up', billing.claim?.claimToken, billing.claim?.returnTo));
+              }}
+            />
+          </>
+        ) : (
+          <>
+            <CustomerShellActionButton
+              testID="manifest-premium-purchase"
+              label={billing.isProcessingPurchase ? 'Working…' : 'Unlock Premium'}
+              disabled={billing.isProcessingPurchase || !billing.isStoreReady}
+              onPress={() => {
+                void billing.requestSubscription();
+              }}
+            />
+            <CustomerShellActionButton
+              testID="manifest-premium-restore"
+              label="Restore purchases"
+              variant="secondary"
+              disabled={billing.isProcessingPurchase || !billing.isStoreReady}
+              onPress={() => {
+                void billing.restorePurchases();
+              }}
+            />
+            {!isAuthed ? (
+              <CustomerShellActionButton
+                testID="manifest-premium-sign-in"
+                label="Sign in"
+                variant="secondary"
+                onPress={() => {
+                  onClose();
+                  router.push('/sign-in');
+                }}
+              />
+            ) : null}
+          </>
+        )}
+      </View>
+    </View>
   );
 }
 
@@ -847,66 +931,6 @@ function MenuGlyph({ color }: { color: string }) {
       {[0, 1, 2].map((line) => (
         <View key={line} style={{ height: 1.8, borderRadius: 999, backgroundColor: color }} />
       ))}
-    </View>
-  );
-}
-
-function PremiumGlyph({ color }: { color: string }) {
-  return (
-    <View style={{ width: 16, height: 14, justifyContent: 'flex-end' }}>
-      <View
-        style={{
-          position: 'absolute',
-          left: 1,
-          right: 1,
-          bottom: 1,
-          height: 7,
-          borderWidth: 1.5,
-          borderTopWidth: 0,
-          borderBottomLeftRadius: 4,
-          borderBottomRightRadius: 4,
-          borderColor: color
-        }}
-      />
-      <View
-        style={{
-          position: 'absolute',
-          left: 1,
-          top: 4,
-          width: 4,
-          height: 4,
-          borderLeftWidth: 1.5,
-          borderTopWidth: 1.5,
-          borderColor: color,
-          transform: [{ rotate: '-45deg' }]
-        }}
-      />
-      <View
-        style={{
-          position: 'absolute',
-          left: 6.5,
-          top: 0,
-          width: 3,
-          height: 5,
-          borderLeftWidth: 1.5,
-          borderTopWidth: 1.5,
-          borderColor: color,
-          transform: [{ rotate: '45deg' }]
-        }}
-      />
-      <View
-        style={{
-          position: 'absolute',
-          right: 1,
-          top: 4,
-          width: 4,
-          height: 4,
-          borderRightWidth: 1.5,
-          borderTopWidth: 1.5,
-          borderColor: color,
-          transform: [{ rotate: '45deg' }]
-        }}
-      />
     </View>
   );
 }

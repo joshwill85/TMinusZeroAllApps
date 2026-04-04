@@ -4,7 +4,18 @@ import Link from 'next/link';
 const LOGO_SCALE_FACTOR = 2.5;
 const scaleLogoSize = (size: number, multiplier = 1) => Math.round(size * LOGO_SCALE_FACTOR * multiplier);
 
-const PROGRAM_ITEMS = [
+type ProgramItem = {
+  href: string;
+  label: string;
+  logoSrc: string;
+  logoWidth: number;
+  logoHeight: number;
+  logoClass: string;
+  logoFrameClass: string;
+  renderGraphic?: () => JSX.Element;
+};
+
+const PROGRAM_ITEMS: readonly ProgramItem[] = [
   {
     href: '/artemis',
     label: 'Artemis Program',
@@ -30,7 +41,8 @@ const PROGRAM_ITEMS = [
     logoWidth: scaleLogoSize(36),
     logoHeight: scaleLogoSize(36),
     logoClass: '',
-    logoFrameClass: 'bg-transparent'
+    logoFrameClass: 'bg-transparent',
+    renderGraphic: renderBlueOriginGraphic
   }
 ] as const;
 
@@ -49,13 +61,17 @@ export function ProgramHubDock() {
             <span
               className={`inline-flex min-h-[56px] w-full items-center justify-center overflow-hidden rounded-xl border border-white/6 bg-[rgba(255,255,255,0.03)] px-2 ${item.logoFrameClass}`}
             >
-              <Image
-                src={item.logoSrc}
-                alt={`${item.label} official logo`}
-                width={item.logoWidth}
-                height={item.logoHeight}
-                className={`h-auto w-auto max-w-full object-contain ${item.logoClass}`}
-              />
+              {item.renderGraphic ? (
+                item.renderGraphic()
+              ) : (
+                <Image
+                  src={item.logoSrc}
+                  alt={`${item.label} official logo`}
+                  width={item.logoWidth}
+                  height={item.logoHeight}
+                  className={`h-auto w-auto max-w-full object-contain ${item.logoClass}`}
+                />
+              )}
             </span>
             <span className="mt-2 flex items-center justify-between gap-2 px-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-text2">
               <span className="truncate">{item.label.replace(' Program', '')}</span>
@@ -72,5 +88,25 @@ export function ProgramHubDock() {
         ))}
       </div>
     </section>
+  );
+}
+
+function renderBlueOriginGraphic() {
+  return (
+    <span className="flex min-h-[56px] w-full items-center gap-3 rounded-xl border border-[#315be0]/45 bg-[radial-gradient(circle_at_left,rgba(67,118,255,0.5),rgba(14,20,39,0.96)_62%)] px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+      <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/15 bg-[rgba(255,255,255,0.08)] shadow-[0_0_22px_rgba(58,103,240,0.32)]">
+        <Image
+          src="/assets/program-logos/blueorigin-official.png"
+          alt="Blue Origin official logo"
+          width={32}
+          height={32}
+          className="h-auto w-auto max-h-8 max-w-8 object-contain drop-shadow-[0_0_16px_rgba(69,120,255,0.48)]"
+        />
+      </span>
+      <span className="flex min-w-0 flex-col items-start">
+        <span className="text-[9px] font-semibold uppercase tracking-[0.32em] text-[#b8cbff]">Blue</span>
+        <span className="text-sm font-semibold uppercase tracking-[0.18em] text-white">Origin</span>
+      </span>
+    </span>
   );
 }

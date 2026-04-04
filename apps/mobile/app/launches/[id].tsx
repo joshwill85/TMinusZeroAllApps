@@ -21,10 +21,8 @@ import { runOnJS, useAnimatedScrollHandler, useSharedValue } from 'react-native-
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { ArTrajectorySummaryV1, LaunchDetailV1, LaunchFaaAirspaceMapV1 } from '@tminuszero/contracts';
 import {
-  buildCountdownSnapshot,
   buildDetailVersionToken,
   canAutoRefreshActiveSurface,
-  formatLaunchCountdownClock,
   getNextAdaptiveLaunchRefreshMs,
   getRecommendedLaunchRefreshIntervalSeconds,
   getVisibleDetailUpdatedAt,
@@ -50,6 +48,7 @@ import { LaunchCalendarSheet } from '@/src/components/LaunchCalendarSheet';
 import { LaunchFollowSheet } from '@/src/components/LaunchFollowSheet';
 import { LaunchShareIconButton } from '@/src/components/LaunchShareIconButton';
 import { EmptyStateCard, ErrorStateCard, LoadingStateCard, SectionCard } from '@/src/components/SectionCard';
+import { JepPanel } from '@/src/components/launch/JepPanel';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import { useMobilePush } from '@/src/providers/MobilePushProvider';
 import { useMobileToast } from '@/src/providers/MobileToastProvider';
@@ -72,6 +71,12 @@ import {
 import { ParallaxHero, StaticHero } from '@/src/components/launch/ParallaxHero';
 import { InteractiveStatTiles, type StatTile } from '@/src/components/launch/InteractiveStatTiles';
 import { LiveBadge } from '@/src/components/launch/LiveDataPulse';
+import {
+  LiveLaunchCountdownClock,
+  LiveLaunchCountdownLabel,
+  buildLaunchCountdownDisplay,
+  buildLaunchCountdownLabel
+} from '@/src/components/launch/LiveLaunchCountdown';
 import { AnimationErrorBoundary } from '@/src/components/launch/AnimationErrorBoundary';
 import { CollapsibleSection } from '@/src/components/launch/CollapsibleSection';
 import { SectionNav, StickyNavPills, type NavSection } from '@/src/components/launch/StickyNavPills';
@@ -572,7 +577,6 @@ export default function LaunchDetailScreen() {
       Platform.OS
     );
     const watchUrl = watchLinks[0]?.url ?? getPrimaryWatchUrl(launch);
-    const resourceUrl = resourcesModule?.missionResources?.[0]?.url ?? externalLinks[0]?.url ?? getPrimaryResourceUrl(launch);
     const primaryWatchLink = watchLinks[0] ?? null;
     const heroTitle = launch.mission?.name || title;
     const heroMeta = [launch.provider, launch.rocket?.fullName || launch.vehicle, launch.pad.shortCode || launch.pad.name]
@@ -1069,11 +1073,13 @@ export default function LaunchDetailScreen() {
       />
     );
 
+    const countdownTileFallbackLabel = buildLaunchCountdownLabel(launch.net);
+    const countdownTileFallbackValue = buildLaunchCountdownDisplay(launch.net);
     const statTiles: StatTile[] = [
       {
         id: 'countdown',
-        label: buildCountdownLabel(launch.net),
-        value: buildCountdownDisplay(launch.net),
+        label: <LiveLaunchCountdownLabel net={launch.net} />,
+        value: <LiveLaunchCountdownClock net={launch.net} />,
         description: `NET: ${formatTimestamp(launch.net)}`,
         tone: 'primary'
       },
@@ -1102,6 +1108,14 @@ export default function LaunchDetailScreen() {
         description: launch.pad?.name ? `From ${launch.pad.name}` : 'Launch vehicle',
         tone: 'default'
       }
+    ];
+    const statTileFallbackItems: FactGridItem[] = [
+      [countdownTileFallbackLabel, countdownTileFallbackValue],
+      ...(weatherModule?.summary
+        ? [['Weather conditions', weatherModule.summary.split('.')[0] || 'Favorable'] satisfies FactGridItem]
+        : []),
+      ['Launch provider', launch.provider],
+      ['Launch vehicle', launch.vehicle || launch.rocket?.fullName || 'TBD']
     ];
     const hasLiveCoverage = Boolean(primaryWatchLink);
     const hasSocialUpdates = Boolean(socialModule?.matchedPost || socialModule?.providerFeeds?.length);
@@ -1359,7 +1373,7 @@ export default function LaunchDetailScreen() {
         >
           <View style={{ gap: 16 }}>
             <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16 }}>
-              <View style={{ flex: 1, gap: 4 }}>
+              <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
                 <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase' }}>
                   Liftoff
                 </Text>
@@ -1370,8 +1384,9 @@ export default function LaunchDetailScreen() {
               </View>
               <View
                 style={{
-                  minWidth: 132,
+                  minWidth: 148,
                   maxWidth: '48%',
+                  flexShrink: 0,
                   borderRadius: 18,
                   borderWidth: 1,
                   borderColor: 'rgba(255, 255, 255, 0.06)',
@@ -1381,6 +1396,10 @@ export default function LaunchDetailScreen() {
                 }}
               >
                 <Text
+                  adjustsFontSizeToFit
+                  ellipsizeMode="clip"
+                  minimumFontScale={0.72}
+                  numberOfLines={1}
                   style={{
                     color: theme.foreground,
                     fontSize: 27,
@@ -1391,7 +1410,7 @@ export default function LaunchDetailScreen() {
                     fontVariant: ['tabular-nums']
                   }}
                 >
-                  {buildCountdownDisplay(launch.net)}
+                  <LiveLaunchCountdownClock net={launch.net} />
                 </Text>
                 <Text
                   style={{
@@ -1404,7 +1423,7 @@ export default function LaunchDetailScreen() {
                     textTransform: 'uppercase'
                   }}
                 >
-                  {buildCountdownLabel(launch.net)}
+                  <LiveLaunchCountdownLabel net={launch.net} />
                 </Text>
               </View>
             </View>
@@ -1439,15 +1458,6 @@ export default function LaunchDetailScreen() {
                   onPress={() => {
                     void Linking.openURL(watchUrl);
                   }}
-                />
-              ) : null}
-              {resourceUrl ? (
-                <ActionButton
-                  label="Mission resources"
-                  onPress={() => {
-                    void Linking.openURL(resourceUrl);
-                  }}
-                  variant="secondary"
                 />
               ) : null}
               <ActionButton
@@ -1512,7 +1522,7 @@ export default function LaunchDetailScreen() {
               }}
             />
 
-            <AnimationErrorBoundary fallback={<FactGrid items={statTiles.map((tile) => [tile.label, tile.value] as [string, string])} />}>
+            <AnimationErrorBoundary fallback={<FactGrid items={statTileFallbackItems} />}>
               <InteractiveStatTiles tiles={statTiles} />
             </AnimationErrorBoundary>
 
@@ -1878,6 +1888,15 @@ export default function LaunchDetailScreen() {
             </View>
           </DetailModuleSection>
         ) : null}
+
+        <DetailModuleSection
+          id="jep-visibility"
+          title="JEP visibility score"
+          description="Jellyfish effect scoring based on geometry, sun angle, and the current forecast."
+          onLayout={registerSectionOffset}
+        >
+          <JepPanel launchId={launch.id} hasJepScore={detail.enrichment.hasJepScore} theme={theme} />
+        </DetailModuleSection>
 
         {detail.enrichment.faaAdvisories.length > 0 ? (
           <DetailModuleSection
@@ -3789,14 +3808,6 @@ function getPrimaryWatchUrl(launch: LaunchSummary) {
   return launch.videoUrl || launch.launchVidUrls?.[0]?.url || null;
 }
 
-function getPrimaryResourceUrl(launch: LaunchSummary) {
-  if (!isRichLaunchSummary(launch)) {
-    return null;
-  }
-  const firstNonSpaceXInfoUrl = launch.launchInfoUrls?.find((item) => !isSpaceXWebsiteUrl(item?.url || null))?.url || null;
-  return firstNonSpaceXInfoUrl || launch.launchVidUrls?.[0]?.url || null;
-}
-
 function buildLaunchShareInput(launch: LaunchSummary): LaunchShareInput {
   if (isRichLaunchSummary(launch)) {
     return {
@@ -3913,28 +3924,6 @@ function buildLaunchPadEntityHref({
     return `/catalog/pads/${encodeURIComponent(String(ll2PadId))}`;
   }
   return fallbackLocationHref;
-}
-
-function buildCountdownLabel(net: string | null | undefined) {
-  const snapshot = buildCountdownSnapshot(net ?? null);
-  if (!snapshot) return 'NET TBD';
-
-  const totalMinutes = Math.round(Math.abs(snapshot.totalMs) / 60_000);
-  if (totalMinutes >= 24 * 60) {
-    const days = Math.round(totalMinutes / (24 * 60));
-    return snapshot.isPast ? `${days}d since liftoff` : `${days}d to launch`;
-  }
-  if (totalMinutes >= 60) {
-    const hours = Math.round(totalMinutes / 60);
-    return snapshot.isPast ? `${hours}h since liftoff` : `${hours}h to launch`;
-  }
-  return snapshot.isPast ? `${totalMinutes}m since liftoff` : `${totalMinutes}m to launch`;
-}
-
-function buildCountdownDisplay(net: string | null | undefined) {
-  const snapshot = buildCountdownSnapshot(net ?? null);
-  if (!snapshot) return 'NET TBD';
-  return formatLaunchCountdownClock(snapshot.totalMs);
 }
 
 function formatRefreshTimeLabel(timestampMs: number) {

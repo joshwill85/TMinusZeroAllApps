@@ -14,6 +14,7 @@ import {
   useStartBillingCheckoutMutation,
   useStartBillingSetupIntentMutation,
   useUpdateDefaultPaymentMethodMutation,
+  useViewerEntitlementsQuery,
   useViewerSessionQuery
 } from '@/lib/api/queries';
 import { getStripePublishableKey } from '@/lib/env/public';
@@ -64,6 +65,7 @@ function readCheckoutParam() {
 
 export function BillingPanel() {
   const viewerSessionQuery = useViewerSessionQuery();
+  const entitlementsQuery = useViewerEntitlementsQuery();
   const billingSummaryQuery = useBillingSummaryQuery();
   const billingCatalogQuery = useBillingCatalogQuery('web');
   const startBillingCheckoutMutation = useStartBillingCheckoutMutation();
@@ -108,6 +110,81 @@ export function BillingPanel() {
   const webOffers = (billingCatalogQuery.data?.products[0]?.offers ?? []).filter(
     (offer) => offer.provider === 'stripe' && Boolean(offer.promotionCode)
   );
+  const accessTier = entitlementsQuery.data?.tier ?? (isPaid ? 'premium' : 'anon');
+  const effectiveTierSource = entitlementsQuery.data?.effectiveTierSource ?? (isGuestViewer ? 'guest' : isPaid ? 'subscription' : 'free');
+  const hasAdminAccess = entitlementsQuery.data?.isAdmin === true && (effectiveTierSource === 'admin' || effectiveTierSource === 'admin_override');
+  const hasPremiumAccess = accessTier === 'premium';
+  const membershipTitle = hasPremiumAccess ? 'Premium membership' : isGuestViewer ? 'Guest access' : 'Free membership';
+  const membershipStatusLabel = hasAdminAccess
+    ? effectiveTierSource === 'admin_override'
+      ? accessTier === 'premium'
+        ? 'Admin override'
+        : 'Admin anon'
+      : 'Admin'
+    : hasBillingIssue
+      ? 'Billing issue'
+      : hasPremiumAccess
+        ? cancelAtPeriodEnd
+          ? 'Cancels at period end'
+          : summary?.status
+            ? formatStatus(summary.status)
+            : 'Premium'
+        : isGuestViewer
+          ? 'Guest'
+          : 'Free';
+  const membershipDescription = hasAdminAccess
+    ? accessTier === 'premium'
+      ? effectiveTierSource === 'admin_override'
+        ? 'Premium access is active from the admin override. Billing records stay separate from this test mode.'
+        : 'Premium access is active through your admin role. Billing records stay separate from admin access.'
+      : 'Anon access is active from the admin override. Billing records stay separate from this test mode.'
+    : hasBilling
+      ? hasBillingIssue
+        ? 'Payment issue detected. Update your payment method or manage billing.'
+        : isCanceled
+          ? 'Subscription canceled'
+          : cancelAtPeriodEnd
+            ? `Cancels on ${renewalLabel}`
+            : currentPeriodEnd
+              ? `Renews on ${renewalLabel}`
+              : 'Subscription active'
+      : 'Premium unlocks live data, alerts, and saved tools. Billing actions stay here when you need them.';
+
+  function renderBillingManagementActions() {
+    if (isExternalProvider) {
+      return summary?.managementUrl ? (
+        <a className="btn-secondary rounded-lg px-3 py-2 text-xs" href={summary.managementUrl} target="_blank" rel="noreferrer">
+          {provider === 'apple_app_store' ? 'Manage in App Store' : 'Manage in Google Play'}
+        </a>
+      ) : null;
+    }
+
+    return (
+      <>
+        <button
+          className="btn-secondary rounded-lg px-3 py-2 text-xs"
+          onClick={startSetupIntent}
+          disabled={!stripePromise || Boolean(setupClientSecret) || startBillingSetupIntentMutation.isPending}
+        >
+          {startBillingSetupIntentMutation.isPending ? 'Starting…' : 'Update payment method'}
+        </button>
+        {!isCanceled && !cancelAtPeriodEnd ? (
+          <button className="btn-secondary rounded-lg px-3 py-2 text-xs" onClick={cancelSubscription} disabled={busyAction === 'cancel'}>
+            {busyAction === 'cancel' ? 'Canceling…' : 'Cancel subscription'}
+          </button>
+        ) : !isCanceled ? (
+          <button className="btn-secondary rounded-lg px-3 py-2 text-xs" onClick={resumeSubscription} disabled={busyAction === 'resume'}>
+            {busyAction === 'resume' ? 'Resuming…' : 'Resume subscription'}
+          </button>
+        ) : null}
+        {canManageStripeBilling && (
+          <button className="btn-secondary rounded-lg px-3 py-2 text-xs" onClick={openPortal} disabled={busyAction === 'portal'}>
+            {busyAction === 'portal' ? 'Opening…' : 'Manage billing'}
+          </button>
+        )}
+      </>
+    );
+  }
 
   async function refreshBilling() {
     await billingSummaryQuery.refetch();
@@ -207,18 +284,16 @@ export function BillingPanel() {
     }
   };
 
-  const planTitle = isPaid ? 'Premium plan' : hasBillingIssue ? 'Billing issue' : 'Signed in without Premium';
-  const statusLabel = summary?.status ? formatStatus(summary.status) : 'Unknown';
-
   return (
     <div className="rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-xs uppercase tracking-[0.1em] text-text3">Billing & subscription</div>
-          <div className="text-lg font-semibold text-text1">{planTitle}</div>
+          <div className="text-xs uppercase tracking-[0.1em] text-text3">Membership</div>
+          <div className="text-lg font-semibold text-text1">{membershipTitle}</div>
+          {status === 'ready' && <div className="mt-2 text-xs text-text3">{membershipDescription}</div>}
         </div>
         {status === 'ready' && (
-          <span className="rounded-full border border-stroke px-3 py-1 text-xs text-text3">{statusLabel}</span>
+          <span className="whitespace-nowrap rounded-full border border-stroke px-3 py-1 text-xs text-text3">{membershipStatusLabel}</span>
         )}
       </div>
 
@@ -228,64 +303,25 @@ export function BillingPanel() {
 
       {status === 'ready' && summary && (
         <div className="mt-3 space-y-3">
-          {hasBilling ? (
-            <div className="space-y-2">
-              <div className="text-xs text-text3">
-                {hasBillingIssue
-                  ? 'Payment issue detected. Update your payment method or manage billing.'
-                  : isCanceled
-                    ? 'Subscription canceled'
-                    : cancelAtPeriodEnd
-                      ? `Cancels on ${renewalLabel}`
-                      : currentPeriodEnd
-                        ? `Renews on ${renewalLabel}`
-                        : 'Subscription active'}
+          {hasAdminAccess ? (
+            hasBilling ? (
+              <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3">
+                <div className="text-xs uppercase tracking-[0.08em] text-text3">Billing management</div>
+                <div className="mt-1 text-xs text-text3">
+                  {summary.providerMessage || 'Any stored billing can be managed here without changing admin access.'}
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">{renderBillingManagementActions()}</div>
               </div>
-
+            ) : null
+          ) : hasBilling ? (
+            <div className="space-y-2">
               {summary.providerMessage && (
                 <div className="rounded-lg border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-2 text-xs text-text2">
                   {summary.providerMessage}
                 </div>
               )}
 
-              <div className="flex flex-wrap gap-2">
-                {isExternalProvider ? (
-                  summary.managementUrl ? (
-                    <a
-                      className="btn-secondary rounded-lg px-3 py-2 text-xs"
-                      href={summary.managementUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {provider === 'apple_app_store' ? 'Manage in App Store' : 'Manage in Google Play'}
-                    </a>
-                  ) : null
-                ) : (
-                  <>
-                    <button
-                      className="btn-secondary rounded-lg px-3 py-2 text-xs"
-                      onClick={startSetupIntent}
-                      disabled={!stripePromise || Boolean(setupClientSecret) || startBillingSetupIntentMutation.isPending}
-                    >
-                      {startBillingSetupIntentMutation.isPending ? 'Starting…' : 'Update payment method'}
-                    </button>
-                    {!isCanceled && !cancelAtPeriodEnd ? (
-                      <button className="btn-secondary rounded-lg px-3 py-2 text-xs" onClick={cancelSubscription} disabled={busyAction === 'cancel'}>
-                        {busyAction === 'cancel' ? 'Canceling…' : 'Cancel subscription'}
-                      </button>
-                    ) : !isCanceled ? (
-                      <button className="btn-secondary rounded-lg px-3 py-2 text-xs" onClick={resumeSubscription} disabled={busyAction === 'resume'}>
-                        {busyAction === 'resume' ? 'Resuming…' : 'Resume subscription'}
-                      </button>
-                    ) : null}
-                    {canManageStripeBilling && (
-                      <button className="btn-secondary rounded-lg px-3 py-2 text-xs" onClick={openPortal} disabled={busyAction === 'portal'}>
-                        {busyAction === 'portal' ? 'Opening…' : 'Manage billing'}
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
+              <div className="flex flex-wrap gap-2">{renderBillingManagementActions()}</div>
             </div>
           ) : (
             <div className="space-y-2">

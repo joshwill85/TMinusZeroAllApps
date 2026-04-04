@@ -4,6 +4,8 @@ type CoordinateTarget = {
   label?: string | null | undefined;
 };
 
+const APPLE_MAPS_SATELLITE_ZOOM_LEVEL = 18;
+
 function normalizeCoordinate(value: number | null | undefined) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
@@ -25,7 +27,8 @@ export function buildAppleMapsSatelliteUrl(target: CoordinateTarget) {
 
   const params = new URLSearchParams({
     ll: `${formatCoordinate(latitude)},${formatCoordinate(longitude)}`,
-    t: 'k'
+    t: 'k',
+    z: String(APPLE_MAPS_SATELLITE_ZOOM_LEVEL)
   });
   const label = normalizeTextValue(target.label);
   if (label) {

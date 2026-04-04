@@ -10,7 +10,7 @@ internal final class TmzLaunchMapView: ExpoView, MKMapViewDelegate {
 
   private let mapView = MKMapView(frame: .zero)
   private let decoder = JSONDecoder()
-  private let padPreviewDistanceMeters: CLLocationDistance = 1_200
+  private let padPreviewDistanceMeters: CLLocationDistance = 600
   private let boundsEdgePadding = UIEdgeInsets(top: 28, left: 28, bottom: 28, right: 28)
   private var pendingBounds: BoundsPayload?
   private var pendingPad: PadPayload?

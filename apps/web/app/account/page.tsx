@@ -82,13 +82,13 @@ export default function AccountPage() {
   }, [marketingEmailQuery.data, status]);
 
   const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ');
-  const emailPremiumLocked = isPaid !== true;
   const emailVerified = Boolean(profile?.emailConfirmedAt);
   const isAdminViewer = viewerSessionQuery.data?.role === 'admin';
-  const adminAccessOverride = adminAccessOverrideQuery.data?.adminAccessOverride ?? entitlementsQuery.data?.adminAccessOverride ?? null;
-  const effectiveTier = entitlementsQuery.data?.tier ?? 'anon';
-  const effectiveTierSource = entitlementsQuery.data?.effectiveTierSource ?? 'guest';
-  const billingIsPaid = entitlementsQuery.data?.billingIsPaid === true;
+  const adminAccessState = adminAccessOverrideQuery.data ?? null;
+  const adminAccessOverride = adminAccessState?.adminAccessOverride ?? entitlementsQuery.data?.adminAccessOverride ?? null;
+  const effectiveTier = adminAccessState?.effectiveTier ?? entitlementsQuery.data?.tier ?? 'anon';
+  const effectiveTierSource = adminAccessState?.effectiveTierSource ?? entitlementsQuery.data?.effectiveTierSource ?? 'guest';
+  const billingIsPaid = adminAccessState?.billingIsPaid ?? (entitlementsQuery.data?.billingIsPaid === true);
   const premiumStatus = searchParams.get('premium');
   const showPremiumWelcome = premiumStatus === 'welcome' && isPaid === true;
   const profileFirstName = String(profile?.firstName || '').trim();
@@ -105,6 +105,8 @@ export default function AccountPage() {
     status === 'authed' && nextTimezone && hasProfileChanges && !hasBlankedExistingName && !updateProfileMutation.isPending
   );
   const showLoading = status === 'loading' || (status === 'authed' && profileQuery.isPending && !profile);
+  const membershipLabel = formatMembershipTierLabel(effectiveTier, status === 'authed');
+  const adminAccessLabel = formatAdminAccessTierLabel(effectiveTier);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -209,7 +211,7 @@ export default function AccountPage() {
     try {
       await updateAdminAccessOverrideMutation.mutateAsync({ adminAccessOverride: next });
       setAdminAccessMessage(
-        next === null ? 'Default admin access restored.' : next === 'premium' ? 'Admin premium test mode is active.' : 'Admin free test mode is active.'
+        next === null ? 'Default admin access restored.' : next === 'premium' ? 'Admin premium test mode is active.' : 'Admin anon test mode is active.'
       );
     } catch (error: unknown) {
       setAdminAccessError(resolveAdminAccessOverrideErrorMessage(getErrorCode(error), getErrorMessage(error, 'Unable to update admin access.')));
@@ -296,104 +298,116 @@ export default function AccountPage() {
               </div>
             </div>
           )}
-          <div className="mt-4 space-y-3 rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
-            <div className="flex items-center justify-between">
-              <span className="text-text3">Name</span>
-              <span className="text-text1">{fullName || 'Not set'}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-text3">Email</span>
-              <span className="text-text1">{profile?.email || '—'}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-text3">Email verified</span>
-              <span className={emailVerified ? 'text-success' : 'text-warning'}>{emailVerified ? 'Yes' : 'No'}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-text3">Timezone</span>
-              <span className="text-text1">{profile?.timezone || 'America/New_York'}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-text3">Member since</span>
-              <span className="text-text1">{profile?.createdAt ? formatDate(profile.createdAt) : '—'}</span>
-            </div>
-            <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3">
-              <div className="text-xs uppercase tracking-[0.1em] text-text3">Update profile</div>
-              <div className="mt-2 grid gap-3 sm:grid-cols-2">
-                <label className="flex flex-col gap-1">
-                  <span className="text-xs text-text3">First name</span>
-                  <input
-                    type="text"
-                    className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
-                    value={editFirstName}
-                    onChange={(event) => setEditFirstName(event.target.value)}
-                    autoComplete="given-name"
-                  />
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-xs text-text3">Last name</span>
-                  <input
-                    type="text"
-                    className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
-                    value={editLastName}
-                    onChange={(event) => setEditLastName(event.target.value)}
-                    autoComplete="family-name"
-                  />
-                </label>
-                <label className="flex flex-col gap-1 sm:col-span-2">
-                  <span className="text-xs text-text3">Timezone (IANA)</span>
-                  <input
-                    type="text"
-                    className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
-                    value={editTimezone}
-                    onChange={(event) => setEditTimezone(event.target.value)}
-                    placeholder="America/New_York"
-                    autoComplete="off"
-                  />
-                </label>
+          <div className="mt-4 rounded-3xl border border-stroke bg-surface-1 p-5 text-sm text-text2 md:p-6">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-xs uppercase tracking-[0.1em] text-text3">Account overview</div>
+                <div className="mt-1 text-lg font-semibold text-text1">{fullName || profile?.email || 'Your account'}</div>
+                <div className="mt-1 text-xs text-text3">Profile details and membership live together, with edits alongside the current account state.</div>
               </div>
-              <div className="mt-3 flex flex-wrap items-center gap-3">
-                <button type="button" className="btn rounded-lg px-4 py-2 text-xs" onClick={saveProfile} disabled={!canSaveProfile}>
-                  {updateProfileMutation.isPending ? 'Saving…' : 'Save profile'}
-                </button>
-                <Link className="text-xs text-primary hover:underline" href="/legal/privacy-choices">
-                  Privacy choices
-                </Link>
-              </div>
-              {hasBlankedExistingName && <div className="mt-2 text-xs text-warning">First and last name cannot be cleared once set.</div>}
-              {profileMessage && <div className="mt-2 text-xs text-success">{profileMessage}</div>}
-              {profileError && <div className="mt-2 text-xs text-warning">{profileError}</div>}
+              <span className="whitespace-nowrap rounded-full border border-primary/30 bg-[rgba(34,211,238,0.12)] px-3 py-1 text-xs font-semibold text-primary">
+                {membershipLabel}
+              </span>
             </div>
-            {!emailVerified && profile?.email && (
-              <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3">
-                <div className="text-xs uppercase tracking-[0.1em] text-text3">Email verification</div>
-                <div className="mt-2 text-xs text-text3">
-                  Verify your email to keep your account secure. We sent a verification email to{' '}
-                  <span className="text-text2">{profile.email}</span>. If you don’t see it within a few minutes, check your spam/junk folder (and Promotions).
+
+            <div className="mt-5 grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+              <div className="space-y-4">
+                <div>
+                  <div className="text-xs uppercase tracking-[0.1em] text-text3">Profile details</div>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <AccountOverviewItem label="Name" value={fullName || 'Not set'} />
+                    <AccountOverviewItem label="Membership" value={membershipLabel} />
+                    <AccountOverviewItem label="Email" value={profile?.email || '—'} className="sm:col-span-2" />
+                    <AccountOverviewItem label="Role" value={isAdminViewer ? 'Admin' : 'Member'} />
+                    <AccountOverviewItem label="Email verified" value={emailVerified ? 'Yes' : 'No'} valueClassName={emailVerified ? 'text-success' : 'text-warning'} />
+                    <AccountOverviewItem label="Timezone" value={profile?.timezone || 'America/New_York'} />
+                    <AccountOverviewItem label="Member since" value={profile?.createdAt ? formatDate(profile.createdAt) : '—'} />
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  className="btn-secondary mt-3 rounded-lg px-3 py-2 text-xs"
-                  onClick={resendVerificationEmail}
-                  disabled={resendingEmail}
-                >
-                  {resendingEmail ? 'Sending…' : 'Resend verification email'}
-                </button>
-                {resendEmailMessage && <div className="mt-2 text-xs text-success">{resendEmailMessage}</div>}
-                {resendEmailError && <div className="mt-2 text-xs text-warning">{resendEmailError}</div>}
+
+                {!emailVerified && profile?.email && (
+                  <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3">
+                    <div className="text-xs uppercase tracking-[0.1em] text-text3">Email verification</div>
+                    <div className="mt-2 text-xs text-text3">
+                      Verify your email to keep your account secure. We sent a verification email to{' '}
+                      <span className="text-text2">{profile.email}</span>. If you don’t see it within a few minutes, check your spam/junk folder (and Promotions).
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-secondary mt-3 rounded-lg px-3 py-2 text-xs"
+                      onClick={resendVerificationEmail}
+                      disabled={resendingEmail}
+                    >
+                      {resendingEmail ? 'Sending…' : 'Resend verification email'}
+                    </button>
+                    {resendEmailMessage && <div className="mt-2 text-xs text-success">{resendEmailMessage}</div>}
+                    {resendEmailError && <div className="mt-2 text-xs text-warning">{resendEmailError}</div>}
+                  </div>
+                )}
               </div>
-            )}
-            <button
-              className="btn w-fit rounded-lg"
-              onClick={async () => {
-                const supabase = getBrowserClient();
-                if (!supabase) return;
-                await supabase.auth.signOut();
-                applyGuestViewerState(queryClient);
-              }}
-            >
-              Sign out
-            </button>
+
+              <div className="rounded-2xl border border-stroke bg-[rgba(255,255,255,0.02)] p-4">
+                <div className="text-xs uppercase tracking-[0.1em] text-text3">Update profile</div>
+                <div className="mt-3 grid gap-3">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs text-text3">First name</span>
+                    <input
+                      type="text"
+                      className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
+                      value={editFirstName}
+                      onChange={(event) => setEditFirstName(event.target.value)}
+                      autoComplete="given-name"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs text-text3">Last name</span>
+                    <input
+                      type="text"
+                      className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
+                      value={editLastName}
+                      onChange={(event) => setEditLastName(event.target.value)}
+                      autoComplete="family-name"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs text-text3">Timezone (IANA)</span>
+                    <input
+                      type="text"
+                      className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
+                      value={editTimezone}
+                      onChange={(event) => setEditTimezone(event.target.value)}
+                      placeholder="America/New_York"
+                      autoComplete="off"
+                    />
+                  </label>
+                </div>
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <button type="button" className="btn rounded-lg px-4 py-2 text-xs" onClick={saveProfile} disabled={!canSaveProfile}>
+                    {updateProfileMutation.isPending ? 'Saving…' : 'Save profile'}
+                  </button>
+                  <Link className="text-xs text-primary hover:underline" href="/legal/privacy-choices">
+                    Privacy choices
+                  </Link>
+                </div>
+                {hasBlankedExistingName && <div className="mt-2 text-xs text-warning">First and last name cannot be cleared once set.</div>}
+                {profileMessage && <div className="mt-2 text-xs text-success">{profileMessage}</div>}
+                {profileError && <div className="mt-2 text-xs text-warning">{profileError}</div>}
+              </div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-stroke/70 pt-4">
+              <button
+                className="btn-secondary rounded-lg px-4 py-2 text-xs"
+                onClick={async () => {
+                  const supabase = getBrowserClient();
+                  if (!supabase) return;
+                  await supabase.auth.signOut();
+                  applyGuestViewerState(queryClient);
+                }}
+              >
+                Sign out
+              </button>
+            </div>
           </div>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <div className="md:col-span-2">
@@ -404,13 +418,13 @@ export default function AccountPage() {
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
                     <div className="text-xs uppercase tracking-[0.1em] text-text3">Admin access testing</div>
-                    <div className="mt-1 text-base font-semibold text-text1">Switch this admin account between free and premium</div>
+                    <div className="mt-1 text-base font-semibold text-text1">Switch this admin account between anon and premium</div>
                     <div className="mt-1 text-xs text-text3">
                       This changes customer access across web, iPhone, and Android. Billing and admin tools stay unchanged.
                     </div>
                   </div>
-                  <span className="rounded-full border border-primary/30 px-3 py-1 text-xs text-primary">
-                    {effectiveTier === 'premium' ? 'Premium access' : 'Free access'}
+                  <span className="whitespace-nowrap rounded-full border border-primary/30 px-3 py-1 text-xs text-primary">
+                    {adminAccessLabel}
                   </span>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -421,7 +435,7 @@ export default function AccountPage() {
                     onClick={() => void updateAdminAccessOverride(null)}
                   />
                   <AdminAccessButton
-                    label="Free"
+                    label="Anon"
                     active={adminAccessOverride === 'anon'}
                     disabled={adminAccessOverrideQuery.isPending || updateAdminAccessOverrideMutation.isPending}
                     onClick={() => void updateAdminAccessOverride('anon')}
@@ -435,7 +449,7 @@ export default function AccountPage() {
                 </div>
                 <div className="mt-3 grid gap-2 text-xs text-text3 sm:grid-cols-3">
                   <div>
-                    <span className="text-text3">Current access:</span> <span className="text-text2">{effectiveTier === 'premium' ? 'Premium' : 'Free'}</span>
+                    <span className="text-text3">Current access:</span> <span className="text-text2">{adminAccessLabel}</span>
                   </div>
                   <div>
                     <span className="text-text3">Source:</span> <span className="text-text2">{formatEffectiveTierSource(effectiveTierSource)}</span>
@@ -556,6 +570,25 @@ export default function AccountPage() {
   );
 }
 
+function AccountOverviewItem({
+  label,
+  value,
+  className,
+  valueClassName
+}: {
+  label: string;
+  value: string;
+  className?: string;
+  valueClassName?: string;
+}) {
+  return (
+    <div className={`min-w-0 rounded-2xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3 ${className ?? ''}`.trim()}>
+      <div className="text-[11px] uppercase tracking-[0.1em] text-text3">{label}</div>
+      <div className={`mt-2 break-words text-sm font-semibold text-text1 ${valueClassName ?? ''}`.trim()}>{value}</div>
+    </div>
+  );
+}
+
 function ToggleButton({
   checked,
   disabled,
@@ -627,6 +660,15 @@ function formatEffectiveTierSource(value: string) {
   if (value === 'subscription') return 'Paid subscription';
   if (value === 'free') return 'Signed in without Premium';
   return 'Guest';
+}
+
+function formatMembershipTierLabel(value: string, isAuthed: boolean) {
+  if (value === 'premium') return 'Premium access';
+  return isAuthed ? 'Free access' : 'Guest access';
+}
+
+function formatAdminAccessTierLabel(value: string) {
+  return value === 'premium' ? 'Premium access' : 'Anon access';
 }
 
 function stableKey(values: string[]) {

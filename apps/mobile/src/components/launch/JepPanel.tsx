@@ -15,7 +15,15 @@ export function JepPanel({ launchId, hasJepScore, theme }: JepPanelProps) {
   const query = useLaunchJepQuery(launchId, {}, { enabled: hasJepScore });
 
   if (!hasJepScore) {
-    return null;
+    return (
+      <Card theme={theme}>
+        <Text style={eyebrowStyle(theme)}>Jellyfish Exposure Potential</Text>
+        <Text style={titleStyle(theme)}>JEP visibility scoring is not available yet</Text>
+        <Text style={bodyStyle(theme)}>
+          Check back as launch timing, trajectory geometry, and forecast inputs refresh.
+        </Text>
+      </Card>
+    );
   }
 
   if (query.isPending && !query.data) {

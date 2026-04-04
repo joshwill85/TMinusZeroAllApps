@@ -33,10 +33,10 @@ import { OverviewTab } from '@/src/components/launch/tabs/OverviewTab';
 import { RelatedTab } from '@/src/components/launch/tabs/RelatedTab';
 import { VehicleTab } from '@/src/components/launch/tabs/VehicleTab';
 import { LaunchShareIconButton } from '@/src/components/LaunchShareIconButton';
+import { LiveLaunchCountdownClock } from '@/src/components/launch/LiveLaunchCountdown';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import { shareLaunch } from '@/src/utils/launchShare';
 import { formatTimestamp } from '@/src/utils/format';
-import { buildCountdownSnapshot, formatLaunchCountdownClock } from '@tminuszero/domain';
 
 function getLaunchId(value: string | string[] | undefined) {
   if (Array.isArray(value)) {
@@ -110,14 +110,6 @@ export default function LaunchDetailTabsScreen() {
   const relatedData = extractRelatedData(detail);
   const launchData = detail.launchData ?? null;
 
-  // Format countdown
-  const countdown = buildCountdownSnapshot(hero?.net ?? null);
-  const countdownText = countdown
-    ? countdown.isPast
-      ? 'Launched'
-      : formatCountdown(countdown.totalMs)
-    : null;
-
   // Format NET time
   const netTime = hero?.net ? formatTimestamp(hero.net) : null;
   const handleShare = () => {
@@ -169,7 +161,7 @@ export default function LaunchDetailTabsScreen() {
           statusTone={getStatusTone(hero?.status ?? null)}
           tier={hero?.tier ?? null}
           webcastLive={Boolean(hero?.webcastLive)}
-          countdown={countdownText}
+          countdown={hero?.net ? <LiveLaunchCountdownClock net={hero.net} pastLabel="Launched" /> : null}
           netTime={netTime}
           location={hero?.location ?? null}
           scrollY={scrollY}
@@ -233,8 +225,4 @@ function getStatusTone(status: string | null): 'default' | 'success' | 'warning'
   if (lower.includes('hold') || lower.includes('tbd')) return 'warning';
   if (lower.includes('fail') || lower.includes('scrub')) return 'danger';
   return 'default';
-}
-
-function formatCountdown(totalMs: number): string {
-  return formatLaunchCountdownClock(totalMs);
 }

@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 import { Image, Linking, Pressable, Text, View, type DimensionValue } from 'react-native';
-import { buildCountdownSnapshot, formatLaunchCountdownClock } from '@tminuszero/domain';
 import type { FeedLaunchCardData } from '@/src/feed/feedCardData';
 import { ShareGlyph } from '@/src/components/LaunchShareIconButton';
+import { LiveLaunchCountdownClock } from '@/src/components/launch/LiveLaunchCountdown';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import { shareLaunch } from '@/src/utils/launchShare';
 import { formatTimestamp } from '@/src/utils/format';
@@ -108,7 +108,6 @@ export function WebParityLaunchCard({
 }: WebParityLaunchCardProps) {
   const { theme } = useMobileBootstrap();
   const statusTone = STATUS_TONES[launch.status] ?? STATUS_TONES.unknown;
-  const countdownDisplay = buildCountdownDisplay(launch.net);
   const orbitLabel = buildOrbitLabel(launch);
   const providerLabel = String(launch.provider || 'Launch').trim().toUpperCase();
   const providerLogoUrl = typeof launch.providerLogoUrl === 'string' ? launch.providerLogoUrl.trim() : '';
@@ -363,7 +362,7 @@ export function WebParityLaunchCard({
               fontVariant: ['tabular-nums']
             }}
           >
-            {countdownDisplay}
+            <LiveLaunchCountdownClock net={launch.net} />
           </Text>
         </View>
       </View>
@@ -1034,12 +1033,6 @@ function buildWindowSummary(startValue: string | undefined, endValue: string | u
     progressPct: 100,
     fillColor: 'rgba(251, 191, 36, 0.78)'
   };
-}
-
-function buildCountdownDisplay(net: string | null | undefined) {
-  const snapshot = buildCountdownSnapshot(net ?? null);
-  if (!snapshot) return 'NET TBD';
-  return formatLaunchCountdownClock(snapshot.totalMs);
 }
 
 function normalizeKnownValue(value: string | null | undefined) {
