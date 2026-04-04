@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/server/supabaseServer';
-import { isSupabaseConfigured } from '@/lib/server/env';
+import { requireAdminRequest } from '../../_lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,19 +14,9 @@ type EligibleLaunch = {
 };
 
 export async function GET() {
-  if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'supabase_not_configured' }, { status: 501 });
-  }
-
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-
-  if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-
-  const { data: profile } = await supabase.from('profiles').select('role').eq('user_id', user.id).maybeSingle();
-  if (profile?.role !== 'admin') return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  const gate = await requireAdminRequest();
+  if (!gate.ok) return gate.response;
+  const { supabase } = gate.context;
 
   const nowIso = new Date().toISOString();
   const { data, error } = await supabase
@@ -76,4 +65,3 @@ export async function GET() {
     }
   );
 }
-

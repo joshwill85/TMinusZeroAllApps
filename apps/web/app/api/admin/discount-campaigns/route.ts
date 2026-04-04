@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { loadDiscountCampaigns, summarizeDiscountCampaigns } from '@/lib/server/discountCampaigns';
-import { isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
-import { createSupabaseAdminClient, createSupabaseServerClient } from '@/lib/server/supabaseServer';
+import { requireAdminRequest } from '../_lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -111,24 +110,16 @@ function buildArtifactPayload(parsed: z.infer<typeof patchSchema> & { action: 'a
 }
 
 async function requireAdmin() {
-  if (!isSupabaseConfigured() || !isSupabaseAdminConfigured()) {
-    return { error: NextResponse.json({ error: 'supabase_not_configured' }, { status: 503 }), admin: null, userId: null as string | null };
+  const gate = await requireAdminRequest({ requireServiceRole: true });
+  if (!gate.ok) {
+    return { error: gate.response, admin: null, userId: null as string | null };
   }
 
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return { error: NextResponse.json({ error: 'unauthorized' }, { status: 401 }), admin: null, userId: null as string | null };
-  }
-
-  const { data: profile } = await supabase.from('profiles').select('role').eq('user_id', user.id).maybeSingle();
-  if (profile?.role !== 'admin') {
-    return { error: NextResponse.json({ error: 'forbidden' }, { status: 403 }), admin: null, userId: null as string | null };
-  }
-
-  return { error: null, admin: createSupabaseAdminClient(), userId: user.id };
+  return {
+    error: null,
+    admin: gate.context.admin,
+    userId: gate.context.user.id
+  };
 }
 
 export async function GET() {

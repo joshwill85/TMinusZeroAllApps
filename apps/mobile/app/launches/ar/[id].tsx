@@ -1344,7 +1344,8 @@ export default function LaunchArTrajectoryScreen() {
           backgroundColor: theme.background,
           paddingTop: Math.max(insets.top, 16),
           paddingBottom: Math.max(insets.bottom, 16),
-          paddingHorizontal: 16,
+          paddingLeft: insets.left + 16,
+          paddingRight: insets.right + 16,
           gap: 12
         }}
       >

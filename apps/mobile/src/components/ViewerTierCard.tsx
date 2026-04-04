@@ -42,6 +42,9 @@ export function ViewerTierCard({
   const router = useRouter();
   const tierCard = getMobileViewerTierCard(tier, { isAuthed });
   const featureState = featureKey ? getMobileViewerFeatureState(featureKey, tier, { isAuthed }) : null;
+  if (featureState?.isAccessible && tier === 'premium') {
+    return null;
+  }
   const title = featureState && !featureState.isAccessible ? featureState.blockedTitle : tierCard.title;
   const description = featureState && !featureState.isAccessible ? featureState.blockedDescription : tierCard.description;
   const actionLabel = featureState && !featureState.isAccessible ? featureState.ctaLabel : tierCard.ctaLabel;

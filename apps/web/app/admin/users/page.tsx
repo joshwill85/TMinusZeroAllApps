@@ -129,7 +129,7 @@ export default function AdminUsersPage() {
         setUsers((prev) =>
           prev.map((user) => {
             if (user.user_id !== userId) return user;
-            const nextStatus = role === 'admin' ? 'admin' : user.is_paid ? 'paid' : 'signed_in';
+            const nextStatus = role === 'admin' ? 'admin' : user.is_paid ? 'paid' : 'anon';
             return { ...user, role, status: nextStatus };
           })
         );
@@ -525,20 +525,20 @@ function Badge({ label }: { label: string }) {
   );
 }
 
-function resolveUserStatus(user: AdminUser): 'signed_in' | 'paid' | 'admin' {
+function resolveUserStatus(user: AdminUser): 'anon' | 'paid' | 'admin' {
   if (user.role === 'admin') return 'admin';
   if (user.is_paid) return 'paid';
   if (user.status === 'paid' || user.status === 'admin') return user.status;
-  return 'signed_in';
+  return 'anon';
 }
 
-function formatUserStatusLabel(status: 'signed_in' | 'paid' | 'admin') {
+function formatUserStatusLabel(status: 'anon' | 'paid' | 'admin') {
   if (status === 'admin') return 'Admin';
   if (status === 'paid') return 'Paid';
-  return 'Signed in';
+  return 'Anon';
 }
 
-function statusBadgeClass(status: 'signed_in' | 'paid' | 'admin') {
+function statusBadgeClass(status: 'anon' | 'paid' | 'admin') {
   if (status === 'admin') return 'border-warning/40 text-warning bg-warning/10';
   if (status === 'paid') return 'border-success/40 text-success bg-success/10';
   return 'border-stroke text-text3 bg-[rgba(255,255,255,0.02)]';
@@ -604,7 +604,7 @@ function formatRelativeEvent(event: AdminUser['recent_auth_events'][number]) {
 
 function formatBillingSummary(user: AdminUser) {
   if (!user.billing.provider || !user.billing.status) {
-    return 'Billing: free account';
+    return 'Billing: no premium entitlement';
   }
   return `Billing: ${formatProviderLabel(user.billing.provider)} · ${user.billing.status.replace(/_/g, ' ')}`;
 }

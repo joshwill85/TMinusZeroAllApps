@@ -29,9 +29,6 @@ const PREMIUM_SAVED_LIMITS = getTierLimits('premium');
 export default function AccountSavedPage() {
   const viewerSessionQuery = useViewerSessionQuery();
   const entitlementsQuery = useViewerEntitlementsQuery();
-  const filterPresetsQuery = useFilterPresetsQuery();
-  const watchlistsQuery = useWatchlistsQuery();
-  const alertRulesQuery = useAlertRulesQuery();
   const updateFilterPresetMutation = useUpdateFilterPresetMutation();
   const deleteFilterPresetMutation = useDeleteFilterPresetMutation();
   const updateWatchlistMutation = useUpdateWatchlistMutation();
@@ -56,16 +53,16 @@ export default function AccountSavedPage() {
   const savedItemLimits = entitlementsQuery.data?.limits ?? getTierLimits(viewerTier);
   const canUseSavedItems = entitlementsQuery.data?.capabilities.canUseSavedItems ?? false;
   const canUseAdvancedAlertRules = entitlementsQuery.data?.capabilities.canUseAdvancedAlertRules ?? false;
-  const presets = filterPresetsQuery.data?.presets ?? [];
-  const watchlists = useMemo(() => watchlistsQuery.data?.watchlists ?? [], [watchlistsQuery.data?.watchlists]);
-  const alertRules = useMemo(() => alertRulesQuery.data?.rules ?? [], [alertRulesQuery.data?.rules]);
-  const hasSavedInventory = presets.length > 0 || watchlists.length > 0;
-  const loadingSavedItems = status === 'authed' && (filterPresetsQuery.isPending || watchlistsQuery.isPending);
-  const totalRuleCount = useMemo(
-    () => watchlists.reduce((sum, watchlist) => sum + countWatchlistRules(watchlist.rules), 0),
-    [watchlists]
+  const filterPresetsQuery = useFilterPresetsQuery({ enabled: status === 'authed' && canUseSavedItems });
+  const watchlistsQuery = useWatchlistsQuery({ enabled: status === 'authed' && canUseSavedItems });
+  const alertRulesQuery = useAlertRulesQuery({ enabled: status === 'authed' && canUseSavedItems && canUseAdvancedAlertRules });
+  const presets = canUseSavedItems ? filterPresetsQuery.data?.presets ?? [] : [];
+  const watchlists = useMemo(
+    () => (canUseSavedItems ? watchlistsQuery.data?.watchlists ?? [] : []),
+    [canUseSavedItems, watchlistsQuery.data?.watchlists]
   );
-  const savedItemsReadOnly = status === 'authed' && !canUseSavedItems;
+  const alertRules = useMemo(() => alertRulesQuery.data?.rules ?? [], [alertRulesQuery.data?.rules]);
+  const loadingSavedItems = status === 'authed' && canUseSavedItems && (filterPresetsQuery.isPending || watchlistsQuery.isPending);
   const normalizedRuleQuery = ruleQuery.trim().toLowerCase();
   const filteredWatchlists = useMemo(() => {
     if (!normalizedRuleQuery) return watchlists;
@@ -97,7 +94,9 @@ export default function AccountSavedPage() {
   );
   const queryError =
     status === 'authed'
-      ? filterPresetsQuery.error || watchlistsQuery.error || alertRulesQuery.error || (entitlementsQuery.error ?? null)
+      ? (canUseSavedItems ? filterPresetsQuery.error || watchlistsQuery.error : null) ||
+        (canUseSavedItems && canUseAdvancedAlertRules ? alertRulesQuery.error : null) ||
+        (entitlementsQuery.error ?? null)
       : entitlementsQuery.error;
   const activeError = error ?? (queryError ? getErrorMessage(queryError, 'Unable to load saved items.') : null);
 
@@ -294,10 +293,14 @@ export default function AccountSavedPage() {
         <div>
           <p className="text-xs uppercase tracking-[0.1em] text-text3">Account</p>
           <h1 className="text-3xl font-semibold text-text1">Saved</h1>
-          <p className="mt-1 text-sm text-text3">Review saved filters, follows, and starred launches. Editing and new saves stay Premium-only.</p>
+          <p className="mt-1 text-sm text-text3">
+            {canUseSavedItems
+              ? 'Review saved filters, follows, and starred launches.'
+              : 'Review saved filters, follows, and starred launches. Editing and new saves require paid access.'}
+          </p>
         </div>
         <Link href={buildProfileHref()} className="text-sm text-primary hover:underline">
-          Back to profile
+          Back to account
         </Link>
       </div>
 
@@ -313,26 +316,20 @@ export default function AccountSavedPage() {
           <Link className="text-primary hover:underline" href={buildAuthHref('sign-in', { returnTo: '/account/saved' })}>
             Sign in
           </Link>{' '}
-          to review saved items already linked to your account or upgrade later for saved-item access.
+          to manage saved items after Premium is active.
         </p>
       )}
 
       {status === 'authed' && !entitlementsLoading && (
         <div className="mt-4 rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
-          <div className="text-xs uppercase tracking-[0.1em] text-text3">{viewerTier === 'premium' ? 'Premium' : 'Signed in'}</div>
+          <div className="text-xs uppercase tracking-[0.1em] text-text3">{viewerTier === 'premium' ? 'Enabled' : 'Public'}</div>
           <div className="mt-1 text-base font-semibold text-text1">
-            {viewerTier === 'premium'
-              ? 'Saved items are fully enabled.'
-              : hasSavedInventory
-                ? 'Saved items stay stored but read-only without Premium.'
-                : 'Saved items are a Premium feature.'}
+            {viewerTier === 'premium' ? 'Saved items are ready.' : 'Saved items are Premium-only.'}
           </div>
           <div className="mt-1 text-xs text-text3">
             {viewerTier === 'premium'
               ? `${savedItemLimits.presetLimit} presets, ${savedItemLimits.watchlistLimit} watchlists, and ${savedItemLimits.watchlistRuleLimit} rules per watchlist.`
-              : hasSavedInventory
-                ? 'Your saved views, follows, and starred launches are still here, but they reactivate only with Premium.'
-                : `Premium unlocks saved/default filters, follows, and starred launches, plus up to ${PREMIUM_SAVED_LIMITS.presetLimit} presets and ${PREMIUM_SAVED_LIMITS.watchlistLimit} watchlists.`}
+              : `Premium unlocks saved/default filters, follows, and starred launches, plus up to ${PREMIUM_SAVED_LIMITS.presetLimit} presets and ${PREMIUM_SAVED_LIMITS.watchlistLimit} watchlists.`}
           </div>
           {viewerTier !== 'premium' && (
             <Link className="mt-3 inline-block text-sm text-primary hover:underline" href={buildProfileHref()}>
@@ -342,21 +339,17 @@ export default function AccountSavedPage() {
         </div>
       )}
 
-      {status === 'authed' && !entitlementsLoading && !canUseSavedItems && !hasSavedInventory && (
+      {status === 'authed' && !entitlementsLoading && !canUseSavedItems && (
         <div className="mt-6 rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
-          No saved items yet. Premium unlocks saved/default filters, follows, and starred launches across your account.
+          Saved items are unavailable on the public tier. Upgrade to Premium to manage saved/default filters, follows, and starred launches across your account.
         </div>
       )}
 
-      {status === 'authed' && !entitlementsLoading && (canUseSavedItems || hasSavedInventory) && (
+      {status === 'authed' && !entitlementsLoading && canUseSavedItems && (
         <>
           <Section
             title="Presets"
-            description={
-              canUseSavedItems
-                ? `Saved filters for the home feed (${presets.length}/${savedItemLimits.presetLimit}). Premium can also turn a preset into an alert source.`
-                : `Stored Premium filter presets (${presets.length}).`
-            }
+            description={`Saved filters for the home feed (${presets.length}/${savedItemLimits.presetLimit}). Use a preset as an alert source when needed.`}
             emptyLabel="No presets yet."
             loading={loadingSavedItems}
           >
@@ -450,11 +443,7 @@ export default function AccountSavedPage() {
 
           <Section
             title="My Launches"
-            description={
-              canUseSavedItems
-                ? `Watchlists and rules (${watchlists.length}/${savedItemLimits.watchlistLimit} watchlists, ${savedItemLimits.watchlistRuleLimit} rules max per watchlist). Premium can also turn a follow into an alert source.`
-                : `Stored Premium follows and starred launches (${watchlists.length} watchlists, ${totalRuleCount} rules).`
-            }
+            description={`Watchlists and rules (${watchlists.length}/${savedItemLimits.watchlistLimit} watchlists, ${savedItemLimits.watchlistRuleLimit} rules max per watchlist). Use a follow as an alert source when needed.`}
             emptyLabel="No watchlists yet."
             loading={loadingSavedItems}
           >
@@ -536,9 +525,7 @@ export default function AccountSavedPage() {
           </Section>
 
           <div className="mt-6 text-xs text-text3">
-            {savedItemsReadOnly
-              ? 'These items stay stored on your account, but edits and new saves remain locked until Premium is active again.'
-              : 'Tip: if you hit your plan limit, remove old follows or saved views here first. Tokenized feeds (calendar, RSS, embeds) still sit on the Premium side and stay cached and rate-limited.'}
+            Tip: if you hit your plan limit, remove old follows or saved views here first. Tokenized feeds (calendar, RSS, embeds) stay in Integrations and still use caching and rate limits.
           </div>
         </>
       )}
@@ -569,10 +556,6 @@ function normalizeViewerTier(value: unknown): ViewerTier | undefined {
 
 function resolveViewerTier(value: unknown): ViewerTier {
   return normalizeViewerTier(value) ?? 'anon';
-}
-
-function countWatchlistRules(rules: WatchlistRuleV1[]) {
-  return rules.filter((rule) => rule?.id && rule?.ruleType && rule?.ruleValue).length;
 }
 
 function normalizeRuleValue(ruleType: string, ruleValue: string) {

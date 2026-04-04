@@ -83,7 +83,7 @@ export function BillingPanel() {
 
   useEffect(() => {
     const checkout = readCheckoutParam();
-    if (checkout === 'success') setNotice('Subscription active. Welcome to Premium.');
+    if (checkout === 'success') setNotice('Membership active.');
     if (checkout === 'cancel') setNotice('Checkout canceled. You can resume anytime.');
   }, []);
 
@@ -111,44 +111,34 @@ export function BillingPanel() {
     (offer) => offer.provider === 'stripe' && Boolean(offer.promotionCode)
   );
   const accessTier = entitlementsQuery.data?.tier ?? (isPaid ? 'premium' : 'anon');
-  const effectiveTierSource = entitlementsQuery.data?.effectiveTierSource ?? (isGuestViewer ? 'guest' : isPaid ? 'subscription' : 'free');
-  const hasAdminAccess = entitlementsQuery.data?.isAdmin === true && (effectiveTierSource === 'admin' || effectiveTierSource === 'admin_override');
   const hasPremiumAccess = accessTier === 'premium';
-  const membershipTitle = hasPremiumAccess ? 'Premium membership' : isGuestViewer ? 'Guest access' : 'Free membership';
-  const membershipStatusLabel = hasAdminAccess
-    ? effectiveTierSource === 'admin_override'
-      ? accessTier === 'premium'
-        ? 'Admin override'
-        : 'Admin anon'
-      : 'Admin'
-    : hasBillingIssue
-      ? 'Billing issue'
-      : hasPremiumAccess
-        ? cancelAtPeriodEnd
-          ? 'Cancels at period end'
-          : summary?.status
-            ? formatStatus(summary.status)
-            : 'Premium'
-        : isGuestViewer
-          ? 'Guest'
-          : 'Free';
-  const membershipDescription = hasAdminAccess
-    ? accessTier === 'premium'
-      ? effectiveTierSource === 'admin_override'
-        ? 'Premium access is active from the admin override. Billing records stay separate from this test mode.'
-        : 'Premium access is active through your admin role. Billing records stay separate from admin access.'
-      : 'Anon access is active from the admin override. Billing records stay separate from this test mode.'
-    : hasBilling
-      ? hasBillingIssue
-        ? 'Payment issue detected. Update your payment method or manage billing.'
-        : isCanceled
-          ? 'Subscription canceled'
-          : cancelAtPeriodEnd
-            ? `Cancels on ${renewalLabel}`
-            : currentPeriodEnd
-              ? `Renews on ${renewalLabel}`
-              : 'Subscription active'
-      : 'Premium unlocks live data, alerts, and saved tools. Billing actions stay here when you need them.';
+  const membershipTitle = hasPremiumAccess ? 'Membership' : 'Public access';
+  const membershipStatusLabel = hasBillingIssue
+    ? 'Billing issue'
+    : hasPremiumAccess
+      ? cancelAtPeriodEnd
+        ? 'Cancels at period end'
+        : summary?.status
+          ? formatStatus(summary.status)
+          : 'Active'
+      : isGuestViewer
+        ? 'Guest session'
+        : 'Public';
+  const membershipDescription = hasBilling
+    ? hasBillingIssue
+      ? 'Payment issue detected. Update your payment method or manage billing.'
+      : isCanceled
+        ? 'Subscription canceled'
+        : cancelAtPeriodEnd
+          ? `Cancels on ${renewalLabel}`
+          : currentPeriodEnd
+            ? `Renews on ${renewalLabel}`
+            : 'Subscription active'
+    : hasPremiumAccess
+      ? 'Full access is active on this account. Billing records may appear separately from this access state.'
+      : isGuestViewer
+        ? 'Public access is active. Sign in if you need account management, then upgrade when you want live data, alerts, and saved tools.'
+        : 'This account currently uses public access. Premium unlocks live data, alerts, and saved tools.';
 
   function renderBillingManagementActions() {
     if (isExternalProvider) {
@@ -206,7 +196,7 @@ export function BillingPanel() {
       if (err instanceof WebBillingAdapterError) {
         if (err.code === 'already_subscribed') {
           await refreshBilling();
-          setNotice('Premium is already active.');
+          setNotice('Access is already active.');
           return;
         }
         if (err.code === 'payment_issue') {
@@ -303,17 +293,7 @@ export function BillingPanel() {
 
       {status === 'ready' && summary && (
         <div className="mt-3 space-y-3">
-          {hasAdminAccess ? (
-            hasBilling ? (
-              <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3">
-                <div className="text-xs uppercase tracking-[0.08em] text-text3">Billing management</div>
-                <div className="mt-1 text-xs text-text3">
-                  {summary.providerMessage || 'Any stored billing can be managed here without changing admin access.'}
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">{renderBillingManagementActions()}</div>
-              </div>
-            ) : null
-          ) : hasBilling ? (
+          {hasBilling ? (
             <div className="space-y-2">
               {summary.providerMessage && (
                 <div className="rounded-lg border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-2 text-xs text-text2">
@@ -323,9 +303,17 @@ export function BillingPanel() {
 
               <div className="flex flex-wrap gap-2">{renderBillingManagementActions()}</div>
             </div>
+          ) : hasPremiumAccess ? (
+            <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3 text-xs text-text3">
+              Billing records may appear separately from the current access state on this account.
+            </div>
           ) : (
             <div className="space-y-2">
-              <div className="text-xs text-text3">Signing in keeps account ownership and billing access. Premium unlocks live data, alerts, and saved tools.</div>
+              <div className="text-xs text-text3">
+                {isGuestViewer
+                  ? 'Public access is active. Sign in if you need account management, then upgrade when you want live data, alerts, and saved tools.'
+                  : 'This account currently uses public access. Premium unlocks live data, alerts, and saved tools.'}
+              </div>
               <div className="flex flex-wrap gap-2">
                 <button
                   className="btn rounded-lg px-3 py-2 text-xs"
@@ -367,7 +355,7 @@ export function BillingPanel() {
               <div className="text-xs uppercase tracking-[0.08em] text-text3">Update payment method</div>
               <Elements stripe={stripePromise} options={{ clientSecret: setupClientSecret, appearance }}>
                 <PaymentMethodForm
-                  amountLabel={isPaid ? 'Premium payment method' : 'payment method'}
+                  amountLabel={isPaid ? 'default payment method' : 'payment method'}
                   onClose={() => setSetupClientSecret(null)}
                   onSuccess={async () => {
                     setSetupSuccess(true);

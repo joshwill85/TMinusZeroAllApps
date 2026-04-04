@@ -106,7 +106,7 @@ export function RocketVolatilitySection({
       </p>
 
       {!adminConfigured ? (
-        <div className="mt-3 text-sm text-text3">Supabase admin credentials are required to load launch update history.</div>
+        <div className="mt-3 text-sm text-text3">Launch update history is unavailable right now.</div>
       ) : safeLaunches.length === 0 ? (
         <div className="mt-3 text-sm text-text3">No upcoming launches to analyze right now.</div>
       ) : state === 'unauthenticated' ? (
@@ -126,7 +126,7 @@ export function RocketVolatilitySection({
           .
         </div>
       ) : state === 'admin_not_configured' ? (
-        <div className="mt-3 text-sm text-text3">Supabase admin credentials are required to load launch update history.</div>
+        <div className="mt-3 text-sm text-text3">Launch update history is unavailable right now.</div>
       ) : state === 'loading' ? (
         <div className="mt-4 text-sm text-text3">Loading volatility stats…</div>
       ) : state === 'error' ? (

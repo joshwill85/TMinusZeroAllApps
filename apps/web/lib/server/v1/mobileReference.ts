@@ -108,8 +108,8 @@ const CONTENT_PAGES: ContentPageDefinition[] = [
         body: 'Keep account, alerts, and subscription flows aligned across surfaces.'
       },
       {
-        title: 'Phase 3 - Admin and ops',
-        body: 'Internal tooling remains web-first and is excluded from the mobile parity work.'
+        title: 'Phase 3 - Reliability',
+        body: 'Background jobs and release hardening remain web-first and are excluded from the mobile parity work.'
       }
     ]
   },

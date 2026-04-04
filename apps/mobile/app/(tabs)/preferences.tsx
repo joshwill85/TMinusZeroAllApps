@@ -53,12 +53,11 @@ export default function PreferencesScreen() {
     disablePushAlerts,
     sendTestPush
   } = useMobilePush();
-  const isAuthed = entitlementsQuery.data?.isAuthed ?? false;
   const isPremium = entitlementsQuery.data?.tier === 'premium';
   const canUseAllUsLaunchAlerts = entitlementsQuery.data?.capabilities.canUseAllUsLaunchAlerts ?? false;
   const canUseStateLaunchAlerts = entitlementsQuery.data?.capabilities.canUseStateLaunchAlerts ?? false;
   const canUseSingleLaunchFollow = entitlementsQuery.data?.capabilities.canUseSingleLaunchFollow ?? false;
-  const accessLabel = isPremium ? 'Premium' : isAuthed ? 'Signed in' : 'Public';
+  const accessLabel = isPremium ? 'Full access' : 'Public';
   const context = installationId ? { installationId, deviceSecret } : null;
   const rulesQuery = useMobilePushRulesQuery(context, {
     enabled: Boolean(installationId)
@@ -111,7 +110,7 @@ export default function PreferencesScreen() {
     <AppScreen testID="preferences-screen">
       <CustomerShellHero
         eyebrow="Push alerts"
-        title="Settings"
+        title="Alerts"
         description="Manage this device’s push registration and the mobile alert rules that should deliver to it."
       >
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -122,13 +121,17 @@ export default function PreferencesScreen() {
 
       <CustomerShellPanel
         title="Notification overview"
-        description="Mobile notifications are push-only. Free includes one launch follow slot from launch detail plus `All U.S.` alerts here. Premium adds state alerts, saved follows, extra reminder windows, daily digests, and change alerts."
+        description={
+          isPremium
+            ? 'Mobile notifications are push-only. All launch scopes, reminder windows, digests, and change alerts can be managed here.'
+            : 'Mobile notifications are push-only. Public access includes one launch follow slot from launch detail plus `All U.S.` alerts here. Premium adds state alerts, saved follows, extra reminder windows, daily digests, and change alerts.'
+        }
       >
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
           <CustomerShellMetric
             label="Access"
             value={accessLabel}
-            caption={isPremium ? 'All mobile alert scopes enabled' : canUseSingleLaunchFollow || canUseAllUsLaunchAlerts ? 'Free launch slot + All U.S.' : 'Limited mobile alerts'}
+            caption={isPremium ? 'All mobile alert scopes enabled' : canUseSingleLaunchFollow || canUseAllUsLaunchAlerts ? 'Public launch slot + All U.S.' : 'Limited mobile alerts'}
           />
           <CustomerShellMetric label="Push" value={isPushEnabled ? 'On' : 'Off'} caption={isRegistered ? 'This device is registered' : 'Device registration pending'} />
           <CustomerShellMetric label="Rules" value={String(scopeRules.length)} caption={launchRuleCount ? `${launchRuleCount} launch-specific alert${launchRuleCount === 1 ? '' : 's'} on launch detail` : 'No broad rules yet'} />
@@ -220,7 +223,11 @@ export default function PreferencesScreen() {
 
       <CustomerShellPanel
         title="Alert rules"
-        description="Free/basic can manage `All U.S.` launches here, and the single-launch free slot is handled from launch detail. State rules, saved presets, follows, digests, and change alerts stay Premium-only."
+        description={
+          isPremium
+            ? 'Manage broad launch alert rules for this device, including all launches, saved filters, follows, digests, and change alerts.'
+            : 'Public access can manage `All U.S.` launches here, and the single-launch public slot is handled from launch detail. State rules, saved presets, follows, digests, and change alerts stay Premium-only.'
+        }
       >
         {!installationId ? (
           <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>Preparing mobile push rules…</Text>
@@ -312,8 +319,12 @@ export default function PreferencesScreen() {
       </CustomerShellPanel>
 
       <CustomerShellPanel
-        title="Premium sources"
-        description="Premium can also watch all launches, saved filter presets, and anything followed from Saved or launch detail."
+        title={isPremium ? 'Additional sources' : 'Premium sources'}
+        description={
+          isPremium
+            ? 'All launches, saved filter presets, and anything followed from Saved or launch detail can trigger alerts here.'
+            : 'Premium can also watch all launches, saved filter presets, and anything followed from Saved or launch detail.'
+        }
       >
         <View style={{ gap: 12 }}>
           {!isPremium ? (
@@ -613,10 +624,10 @@ function RuleEditorCard({
             : rule.scopeKind === 'state'
               ? 'State scope'
               : rule.scopeKind === 'all_launches'
-                ? 'Premium all-launches scope'
+                ? 'All-launches scope'
                 : rule.scopeKind === 'preset'
-                  ? 'Premium saved-filter scope'
-                  : 'Premium follow scope'}
+                  ? 'Saved-filter scope'
+                  : 'Follow scope'}
         </Text>
       </View>
 
@@ -649,7 +660,7 @@ function RuleEditorCard({
       </View>
 
       <View style={{ gap: 8 }}>
-        <Text style={{ color: theme.foreground, fontSize: 13, fontWeight: '700' }}>Premium change alerts</Text>
+        <Text style={{ color: theme.foreground, fontSize: 13, fontWeight: '700' }}>Change alerts</Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
           {STATUS_OPTIONS.map((option) => {
             const active = statusChangeTypes.includes(option.key);

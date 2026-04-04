@@ -92,7 +92,7 @@ async function verifyQueryReuse() {
         isAdmin: false,
         isAuthed: true,
         mode: 'public',
-        effectiveTierSource: 'free',
+        effectiveTierSource: 'anon',
         adminAccessOverride: null,
         refreshIntervalSeconds: 7200,
         capabilities: {
@@ -144,7 +144,7 @@ async function verifyQueryReuse() {
         isAdmin: false,
         isAuthed: true,
         mode: 'public',
-        effectiveTierSource: 'free',
+        effectiveTierSource: 'anon',
         adminAccessOverride: null,
         refreshIntervalSeconds: 7200,
         capabilities: {

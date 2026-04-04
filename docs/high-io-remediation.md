@@ -2,7 +2,7 @@
 
 This runbook is focused on **reducing IO + cost** without changing product semantics:
 - Premium stays “live” (LL2 incremental cadence ~15 seconds).
-- Anon + signed-in free continue to use **cached snapshots** (`launches_public_cache`), refreshed on the existing cadence.
+- Anon viewers, including authenticated accounts without Premium, continue to use **cached snapshots** (`launches_public_cache`), refreshed on the existing cadence.
 - AR trajectory pipeline behavior is unchanged.
 
 ## Quick triage (if you see a Disk IO budget warning)

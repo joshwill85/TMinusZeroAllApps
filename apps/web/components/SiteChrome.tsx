@@ -41,7 +41,6 @@ export function SiteChrome() {
     const tier = entitlementsQuery.data?.tier;
     return tier === 'anon' || tier === 'premium' ? tier : null;
   }, [entitlementsQuery.data?.tier]);
-  const isAdmin = profile?.role === 'admin';
   const isCameraGuide = /^\/launches\/[^/]+\/ar(?:\/|$)/.test(pathname || '');
   const feedbackContext = useMemo(() => {
     if (!pathname) return null;
@@ -112,7 +111,7 @@ export function SiteChrome() {
     if (premium === 'welcome') {
       pushToast({
         tone: 'success',
-        message: 'Premium is active. Live updates, alerts, and recurring feeds are ready.'
+        message: 'Live updates, alerts, and recurring feeds are ready.'
       });
     } else if (premium === 'payment_issue') {
       pushToast({
@@ -142,7 +141,6 @@ export function SiteChrome() {
       <CommLinkHeader />
       <DockingBay
         profile={profile}
-        isAdmin={isAdmin}
         viewerTier={viewerTier}
         onOpenCalendar={() => router.push(buildCalendarHref())}
         onOpenSearch={() => setSearchOpen(true)}

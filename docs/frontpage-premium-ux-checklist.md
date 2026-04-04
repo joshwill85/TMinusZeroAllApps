@@ -2,12 +2,11 @@
 
 Last updated: 2026-01-25
 
-Goal: make Premium value obvious without degrading the Free experience (no popups, no nagging, clear dismiss/TTL behavior).
+Goal: make Premium value obvious without degrading the anon experience (no popups, no nagging, clear dismiss/TTL behavior).
 
 ## Audience tiers (product truth)
 
-- **Anon**: not signed in.
-- **Free**: signed in, not Premium.
+- **Anon**: public access, whether the viewer is signed out or authenticated without Premium.
 - **Premium**: paid subscription (or admin).
 
 ## Guardrails (non‑negotiable)
@@ -24,13 +23,12 @@ Goal: make Premium value obvious without degrading the Free experience (no popup
 ### 1) “Data freshness” status card (mission‑control framing)
 
 - **Where**: `components/LaunchFeed.tsx`
-- **Who sees it**: anon + free + premium
+- **Who sees it**: anon + premium
 - **What it does**
-  - Explains the user’s current mode (Public snapshot / Free cache / Live).
+  - Explains the user’s current mode (Public snapshot / Public cache / Live).
   - Shows last/next refresh timing when available.
   - Provides one primary action:
-    - anon → “Sign in for free”
-    - free → “Go live (Premium)”
+    - anon → “Sign in” or “Upgrade to Premium” depending on session state
     - premium → “Premium active” state chip
 - **Persistence**
   - Collapsible; state stored in `localStorage` (`HOME_UPSELL_KEYS.freshnessCollapsed`).
@@ -38,7 +36,7 @@ Goal: make Premium value obvious without degrading the Free experience (no popup
 ### 2) “Premium unlocks” compact panel (feature discovery, no hard sell)
 
 - **Where**: `components/LaunchFeed.tsx`
-- **Who sees it**: free only (keeps anon landing page clean)
+- **Who sees it**: anon only (keeps premium landing page clean)
 - **What it does**
   - One‑line “unlocks” summary in plain language (Live / Change log / Alerts / My Launches / Private feeds).
   - Expand reveals small “try it” buttons that open the shared upsell modal with context.
@@ -49,7 +47,7 @@ Goal: make Premium value obvious without degrading the Free experience (no popup
 ### 3) “Recently changed (24h)” teaser (value demonstration)
 
 - **Where**: `components/LaunchFeed.tsx`
-- **Who sees it**: free only
+- **Who sees it**: anon only
 - **What it does**
   - Shows example “scrub/time shift/status update” items as proof of value.
   - CTA opens the upsell modal (context: change log).
@@ -59,7 +57,7 @@ Goal: make Premium value obvious without degrading the Free experience (no popup
 ### 4) Locked “My Launches” feed control (affordance + clarity)
 
 - **Where**: `components/LaunchFeed.tsx`
-- **Who sees it**: free only (Premium sees the working control)
+- **Who sees it**: anon only (Premium sees the working control)
 - **What it does**
   - Shows the control but routes through `PremiumGateButton` so users understand it exists.
   - CTA opens upsell modal with context (“My Launches”).
@@ -67,14 +65,14 @@ Goal: make Premium value obvious without degrading the Free experience (no popup
 ### 5) Locked “Save view” button (premium benefit made tangible)
 
 - **Where**: `components/LaunchFeed.tsx`
-- **Who sees it**: free only (Premium sees “Save preset”)
+- **Who sees it**: anon only (Premium sees “Save preset”)
 - **What it does**
   - Uses `PremiumGateButton` to surface “saved views” as a real workflow upgrade.
 
 ### 6) Alerts nudge on the next upcoming launch (micro‑CTA, not a popup)
 
 - **Where**: `components/LaunchFeed.tsx` → props into `components/LaunchCard.tsx`
-- **Who sees it**: anon + free (not premium), on the next upcoming launch only
+- **Who sees it**: anon, on the next upcoming launch only
 - **What it does**
   - Temporarily labels the alerts bell as “Alerts” to reduce icon ambiguity and prompt setup.
   - Click opens the existing alerts panel. New copy uses native push language.
@@ -91,7 +89,7 @@ Goal: make Premium value obvious without degrading the Free experience (no popup
 ### 8) Single shared upsell modal (consistent, subtle conversion path)
 
 - **Where**: `components/PremiumUpsellModal.tsx` (invoked from `components/LaunchFeed.tsx`)
-- **Who sees it**: triggered by free users’ “try it” actions (and optionally anon flows)
+- **Who sees it**: triggered by anon users’ “try it” actions
 - **What it does**
   - Uses `featureLabel` to contextualize “why Premium” without shouting.
   - Copy intentionally describes alerts as **native mobile push notifications**.
@@ -99,7 +97,7 @@ Goal: make Premium value obvious without degrading the Free experience (no popup
 ### 9) Premium entry in DockingBay manifest (always discoverable, not pushy)
 
 - **Where**: `components/SiteChrome.tsx`, `components/DockingBay.tsx`
-- **Who sees it**: anon + free
+- **Who sees it**: anon + premium
 - **What it does**
   - Adds “Premium · $3.99/mo” to the manifest sitemap list so users can always find the upgrade path without UI clutter.
 
@@ -126,6 +124,6 @@ Goal: make Premium value obvious without degrading the Free experience (no popup
 ## Quick QA checklist (manual)
 
 - As **anon** on `/`: confirm only Data freshness + sign-in banner + DockingBay Premium link (no heavy upsell stack).
-- As **free** on `/`: confirm unlocks card, why-premium card behavior, recently-changed teaser, locked controls, alerts nudge.
+- As **anon** on `/`: confirm unlocks card, why-premium card behavior, recently-changed teaser, locked controls, alerts nudge.
 - As **premium** on `/`: confirm no upgrade prompts, live mode text, and premium-only controls are enabled.
 - Confirm new upsell surfaces use push-only language and do **not** mention the enhanced forecast provider name.

@@ -1302,19 +1302,15 @@ export function LaunchFeed({
   const homeUpgradeHref = buildUpgradeHref({ returnTo: '/' });
   const showModeStatusCard = authStatus !== 'loading' && !query && !unlocksDismissed;
   const showAlertsNudge = false;
-  const modeStatusEyebrow = viewerTier === 'premium' ? 'Live mode' : isAuthed ? 'Signed in' : 'Browse mode';
+  const modeStatusEyebrow = viewerTier === 'premium' ? 'Live mode' : 'Public mode';
   const modeStatusTitle =
     viewerTier === 'premium'
       ? 'Live updates are active.'
-      : isAuthed
-        ? 'You are signed in without Premium.'
-        : 'Browse publicly, then sign in when you want account ownership.';
+      : 'Public browsing is active.';
   const modeStatusBody =
     viewerTier === 'premium'
       ? premiumFreshnessLine || 'Premium keeps the feed on the live cadence while launches are active.'
-      : isAuthed
-        ? 'Signing in keeps account ownership, purchase restore, and billing access. Premium adds saved/default filters, follows, browser alerts, recurring feeds, and the live change log.'
-        : 'Browse launches, filters, and the launch calendar publicly. Upgrade when you want live data, saved items, and recurring integrations.';
+      : 'Browse launches, filters, and the launch calendar on the public cadence. Premium adds live data, saved items, browser alerts, recurring integrations, and the live change log.';
   const modePrimaryHref = viewerTier === 'premium' ? '/account' : homeUpgradeHref;
   const modePrimaryLabel = viewerTier === 'premium' ? 'Open account' : 'See Premium';
 
@@ -2270,17 +2266,40 @@ export function LaunchFeed({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
               <div className="inline-flex items-center gap-1 rounded-xl border border-stroke bg-surface-0 p-1">
-                <button
-                  type="button"
-                  className={clsx(
-                    'rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] transition',
-                    !myLaunchesEnabled ? 'bg-primary text-black' : 'text-text2 hover:bg-[rgba(255,255,255,0.06)] hover:text-text1'
-                  )}
-                  onClick={() => toggleMyLaunches(false)}
-                  aria-pressed={!myLaunchesEnabled}
-                >
-                  For You
-                </button>
+                {!myLaunchesEnabled ? (
+                  <div className="inline-flex items-center gap-1 rounded-lg bg-primary p-1 text-black">
+                    <span className="px-2.5 py-1.5 text-xs font-semibold uppercase tracking-[0.08em]">For You</span>
+                    <button
+                      type="button"
+                      className={clsx(
+                        'inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] transition',
+                        filtersOpen
+                          ? 'border-black/20 bg-black/15 text-black'
+                          : 'border-black/12 bg-black/5 text-black/80 hover:bg-black/10'
+                      )}
+                      onClick={() => setFiltersOpen((open) => !open)}
+                      aria-expanded={filtersOpen}
+                      aria-controls={filtersPanelId}
+                    >
+                      <FilterIcon className="h-3.5 w-3.5" />
+                      <span>Filters</span>
+                      {hasActiveFilters ? (
+                        <span className="rounded-full border border-black/20 px-1.5 py-0.5 text-[9px] leading-none">
+                          {activeFilterCount}
+                        </span>
+                      ) : null}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-text2 transition hover:bg-[rgba(255,255,255,0.06)] hover:text-text1"
+                    onClick={() => toggleMyLaunches(false)}
+                    aria-pressed={!myLaunchesEnabled}
+                  >
+                    For You
+                  </button>
+                )}
                 {canUseSavedItems ? (
                   <button
                     type="button"
@@ -2306,16 +2325,18 @@ export function LaunchFeed({
                   </PremiumGateButton>
                 )}
               </div>
-              <button
-                type="button"
-                className="hidden rounded-lg border border-stroke bg-surface-0 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-text2 transition hover:border-primary hover:text-text1 md:inline-flex"
-                onClick={() => setFiltersOpen((open) => !open)}
-                aria-expanded={filtersOpen}
-                aria-controls={filtersPanelId}
-              >
-                {filtersOpen ? 'Hide filters' : 'Show filters'}
-              </button>
-              {hasActiveFilters ? (
+              {myLaunchesEnabled ? (
+                <button
+                  type="button"
+                  className="hidden rounded-lg border border-stroke bg-surface-0 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-text2 transition hover:border-primary hover:text-text1 md:inline-flex"
+                  onClick={() => setFiltersOpen((open) => !open)}
+                  aria-expanded={filtersOpen}
+                  aria-controls={filtersPanelId}
+                >
+                  {filtersOpen ? 'Hide filters' : 'Show filters'}
+                </button>
+              ) : null}
+              {hasActiveFilters && myLaunchesEnabled ? (
                 <span className="rounded-full border border-stroke bg-surface-0 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-text3">
                   {activeFilterCount}
                 </span>

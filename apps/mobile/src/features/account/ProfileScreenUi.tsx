@@ -15,10 +15,11 @@ export function formatDate(value: string) {
 }
 
 export function formatTierLabel(tier: 'anon' | 'premium', isAuthed = false) {
+  void isAuthed;
   if (tier === 'premium') {
-    return 'Premium';
+    return 'Full access';
   }
-  return isAuthed ? 'Free' : 'Guest';
+  return 'Public';
 }
 
 export function buildAccessCaption({
@@ -32,59 +33,42 @@ export function buildAccessCaption({
   effectiveTierSource: string;
   billingIsPaid: boolean;
 }) {
-  if (effectiveTierSource === 'admin_override') {
-    return tier === 'premium' ? 'Admin test mode: premium access' : 'Admin test mode: anon access';
+  if (tier === 'premium' || billingIsPaid || effectiveTierSource === 'subscription') {
+    return 'All features are active on this account.';
   }
-  if (effectiveTierSource === 'admin') {
-    return 'Admin premium access is active';
-  }
-  if (billingIsPaid || effectiveTierSource === 'subscription') {
-    return 'Premium is active';
-  }
-  return isAuthed ? 'Premium available on this device' : 'Guest access';
+  return isAuthed ? 'This account currently uses public access.' : 'Public access is active on this device.';
 }
 
 export function formatEffectiveTierSource(value: string) {
   if (value === 'admin_override') {
-    return 'Manual override';
+    return 'Included access';
   }
   if (value === 'admin') {
-    return 'Admin default';
+    return 'Included access';
   }
   if (value === 'subscription') {
     return 'Paid subscription';
   }
-  if (value === 'free') {
-    return 'Signed in without Premium';
+  if (value === 'anon') {
+    return 'Public access';
   }
-  return 'Guest';
-}
-
-export function formatAdminAccessTierLabel(tier: 'anon' | 'premium') {
-  return tier === 'premium' ? 'Premium access' : 'Anon access';
+  return 'Guest session';
 }
 
 export function formatMembershipStatusLabel({
   tier,
-  isAuthed,
   effectiveTierSource,
   status,
   cancelAtPeriodEnd
 }: {
   tier: 'anon' | 'premium';
-  isAuthed: boolean;
   effectiveTierSource: string;
   status: string | null;
   cancelAtPeriodEnd: boolean;
 }) {
   const normalizedStatus = String(status || '').trim().toLowerCase();
 
-  if (effectiveTierSource === 'admin_override') {
-    return tier === 'premium' ? 'Admin override' : 'Admin anon';
-  }
-  if (effectiveTierSource === 'admin') {
-    return 'Admin access';
-  }
+  void effectiveTierSource;
   if (normalizedStatus === 'past_due' || normalizedStatus === 'unpaid' || normalizedStatus === 'incomplete') {
     return 'Billing issue';
   }
@@ -92,9 +76,9 @@ export function formatMembershipStatusLabel({
     return 'Canceled';
   }
   if (tier === 'premium') {
-    return cancelAtPeriodEnd ? 'Cancels at period end' : 'Premium active';
+    return cancelAtPeriodEnd ? 'Cancels at period end' : 'Active';
   }
-  return isAuthed ? 'Free account' : 'Guest access';
+  return 'Public access';
 }
 
 export function buildMembershipStatusCaption({
@@ -110,16 +94,12 @@ export function buildMembershipStatusCaption({
   currentPeriodEnd: string | null;
   cancelAtPeriodEnd: boolean;
 }) {
-  if (effectiveTierSource === 'admin_override') {
-    return tier === 'premium'
-      ? 'Premium access is being forced for testing. Stored billing remains separate.'
-      : 'Anon access is being forced for testing. Stored billing remains separate.';
-  }
-  if (effectiveTierSource === 'admin') {
-    return 'Your admin role grants premium access on this device.';
-  }
+  void effectiveTierSource;
   if (currentPeriodEnd) {
     return cancelAtPeriodEnd ? `Access is scheduled to end on ${formatDate(currentPeriodEnd)}.` : `Renews on ${formatDate(currentPeriodEnd)}.`;
+  }
+  if (tier === 'premium') {
+    return isAuthed ? 'Full access is active on this account.' : 'Full access is active on this device.';
   }
   return isAuthed ? 'Premium can be purchased or restored on this device.' : 'Sign in to manage purchases and profile details.';
 }

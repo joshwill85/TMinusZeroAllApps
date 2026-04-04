@@ -13,12 +13,9 @@ import { BRAND_NAME } from '@/lib/brand';
 
 export function NavBar() {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [profile, setProfile] = useState<{ role?: string | null; first_name?: string | null; last_name?: string | null } | null>(
-    null
-  );
+  const [profile, setProfile] = useState<{ first_name?: string | null; last_name?: string | null } | null>(null);
   const pathname = usePathname();
   const menuId = 'primary-navigation';
-  const isAdmin = profile?.role === 'admin';
 
   const loadProfile = useCallback(() => {
     let cancelled = false;
@@ -29,7 +26,6 @@ export function NavBar() {
         setProfile(
           nextProfile
             ? {
-                role: nextProfile.role,
                 first_name: nextProfile.firstName,
                 last_name: nextProfile.lastName
               }
@@ -123,11 +119,6 @@ export function NavBar() {
             <Link href="/catalog" className="hover:text-text1">
               Catalog
             </Link>
-            {isAdmin && (
-              <Link href="/admin" className="hover:text-text1">
-                Admin
-              </Link>
-            )}
             {profile ? (
               <Link href="/account" className="hover:text-text1">
                 {profile.first_name?.trim() || 'Account'}
@@ -167,11 +158,6 @@ export function NavBar() {
             <Link href="/catalog" className="hover:text-text1" onClick={() => setMenuOpen(false)}>
               Catalog
             </Link>
-            {isAdmin && (
-              <Link href="/admin" className="hover:text-text1" onClick={() => setMenuOpen(false)}>
-                Admin
-              </Link>
-            )}
             {profile ? (
               <Link href="/account" className="hover:text-text1" onClick={() => setMenuOpen(false)}>
                 {profile.first_name?.trim() || 'Account'}

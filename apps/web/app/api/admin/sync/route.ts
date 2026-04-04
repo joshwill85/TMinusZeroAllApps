@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createSupabaseAdminClient, createSupabaseServerClient } from '@/lib/server/supabaseServer';
-import { isSupabaseConfigured } from '@/lib/server/env';
 import { ingestWs45LaunchForecasts } from '@/lib/server/ws45ForecastIngest';
+import { requireAdminRequest } from '../_lib/auth';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
@@ -101,18 +100,9 @@ const schema = z.object({
 });
 
 export async function POST(request: Request) {
-  if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'supabase_not_configured' }, { status: 501 });
-  }
-
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-
-  const { data: profile } = await supabase.from('profiles').select('role').eq('user_id', user.id).maybeSingle();
-  if (profile?.role !== 'admin') return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  const gate = await requireAdminRequest();
+  if (!gate.ok) return gate.response;
+  const { supabase } = gate.context;
 
   const parsed = schema.safeParse(await request.json().catch(() => undefined));
   if (!parsed.success) return NextResponse.json({ error: 'invalid_body' }, { status: 400 });
@@ -121,7 +111,10 @@ export async function POST(request: Request) {
 
   if (jobName === 'ws45_forecasts_ingest') {
     try {
-      const admin = createSupabaseAdminClient();
+      const admin = gate.context.admin;
+      if (!admin) {
+        return NextResponse.json({ error: 'supabase_admin_not_configured' }, { status: 501 });
+      }
       const result = await ingestWs45LaunchForecasts({ supabaseAdmin: admin });
       if (!result.ok) {
         return NextResponse.json({ error: 'ws45_ingest_failed', result }, { status: 502 });

@@ -5,8 +5,8 @@ import { BRAND_NAME } from '@/lib/brand';
 export default function PreferencesPage() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 md:px-6">
-      <p className="text-xs uppercase tracking-[0.1em] text-text3">Profile</p>
-      <h1 className="text-3xl font-semibold text-text1">Notifications</h1>
+      <p className="text-xs uppercase tracking-[0.1em] text-text3">Account</p>
+      <h1 className="text-3xl font-semibold text-text1">Launch Alerts</h1>
       <p className="mt-3 text-sm text-text2">
         {BRAND_NAME} is moving to native mobile push only for launch alerts. Web no longer manages legacy notification subscriptions.
       </p>
@@ -23,13 +23,10 @@ export default function PreferencesPage() {
       <div className="mt-6 rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
         <div className="text-xs uppercase tracking-[0.1em] text-text3">What still works here</div>
         <p className="mt-2">
-          Profile basics, account access, and marketing email preferences remain available elsewhere in your account. Essential account email flows are unchanged.
+          Account basics, access, and marketing email preferences remain available elsewhere in your account. Essential account email flows are unchanged.
         </p>
         <div className="mt-3 flex flex-wrap gap-3">
           <Link className="btn rounded-lg px-4 py-2 text-xs" href={buildProfileHref()}>
-            Open profile
-          </Link>
-          <Link className="text-xs text-primary hover:underline" href="/account">
             Open account
           </Link>
         </div>

@@ -32,7 +32,6 @@ describe('mobile core shell', () => {
     await element(by.id('tab-search')).tap();
     await expect(element(by.id('search-screen'))).toBeVisible();
     await element(by.id('search-input')).replaceText('starlink');
-    await element(by.id('search-submit')).tap();
     await expect(element(by.id('search-screen'))).toBeVisible();
   });
 
@@ -67,6 +66,11 @@ describe('mobile core shell', () => {
   it('opens the saved, preferences, and profile tabs', async () => {
     await element(by.id('dock-manifest-toggle')).tap();
     await waitFor(element(by.id('dock-manifest'))).toBeVisible().withTimeout(5000);
+    await element(by.id('dock-manifest-toggle')).tap();
+    await expect(element(by.id('dock-manifest'))).not.toBeVisible();
+
+    await element(by.id('dock-manifest-toggle')).tap();
+    await waitFor(element(by.id('dock-manifest'))).toBeVisible().withTimeout(5000);
     await element(by.id('tab-saved')).tap();
     await expect(element(by.id('saved-screen'))).toBeVisible();
 
@@ -93,15 +97,23 @@ describe('mobile core shell', () => {
   it('opens auth callback and reset routes via deep link', async () => {
     await device.launchApp({
       newInstance: true,
-      url: 'https://www.tminuszero.app/auth/callback?error_description=Denied'
+      url: 'https://tminuszero-mobile-staging.vercel.app/auth/callback?error_description=Denied'
     });
     await expect(element(by.id('auth-callback-screen'))).toBeVisible();
 
     await device.launchApp({
       newInstance: true,
-      url: 'https://www.tminuszero.app/auth/reset-password?error_description=Expired'
+      url: 'https://tminuszero-mobile-staging.vercel.app/auth/reset-password?error_description=Expired'
     });
     await expect(element(by.id('auth-reset-screen'))).toBeVisible();
+  });
+
+  it('keeps admin routes hidden for non-admin deep links', async () => {
+    await device.launchApp({
+      newInstance: true,
+      url: 'tminuszero://admin/access'
+    });
+    await expect(element(by.text('Screen not found'))).toBeVisible();
   });
 
   it('restores the shell after relaunch without losing routed state', async () => {
@@ -115,6 +127,17 @@ describe('mobile core shell', () => {
       }
     });
     await expect(element(by.id('feed-screen'))).toBeVisible();
+  });
+
+  authenticatedIt('shows live search results without requiring submit', async () => {
+    await signInWithFixture();
+    await element(by.text('Back to feed')).tap();
+    await expect(element(by.id('feed-screen'))).toBeVisible();
+
+    await element(by.id('tab-search')).tap();
+    await expect(element(by.id('search-screen'))).toBeVisible();
+    await element(by.id('search-input')).replaceText('starlink');
+    await waitFor(element(by.id('search-result-first'))).toBeVisible().withTimeout(30000);
   });
 
   authenticatedIt('signs in with configured E2E credentials and restores the session on relaunch', async () => {

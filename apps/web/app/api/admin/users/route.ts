@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createSupabaseAdminClient, createSupabaseServerClient } from '@/lib/server/supabaseServer';
-import { getSiteUrl, isStripeConfigured, isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
+import { createSupabaseAdminClient } from '@/lib/server/supabaseServer';
+import { getSiteUrl, isStripeConfigured } from '@/lib/server/env';
 import { isSubscriptionActive } from '@/lib/server/subscription';
 import { stripe } from '@/lib/api/stripe';
 import { recordBillingEvent } from '@/lib/server/billingEvents';
+import { requireAdminRequest } from '../_lib/auth';
 export const dynamic = 'force-dynamic';
 
 const updateSchema = z.object({
@@ -326,7 +327,7 @@ async function loadAdminUserBatch(admin: ReturnType<typeof createSupabaseAdminCl
     const { providers, primaryProvider } = extractProviders(user);
     const userMeta = (user.user_metadata || {}) as Record<string, unknown>;
     const role: AdminUserSummary['role'] = profile?.role === 'admin' ? 'admin' : 'user';
-    const status = role === 'admin' ? 'admin' : isPaid ? 'paid' : 'signed_in';
+    const status = role === 'admin' ? 'admin' : isPaid ? 'paid' : 'anon';
     const email = profile?.email ?? user.email ?? null;
     const firstName = profile?.first_name ?? (typeof userMeta.first_name === 'string' ? userMeta.first_name : null);
     const lastName = profile?.last_name ?? (typeof userMeta.last_name === 'string' ? userMeta.last_name : null);
@@ -371,18 +372,8 @@ async function loadAdminUserBatch(admin: ReturnType<typeof createSupabaseAdminCl
 }
 
 export async function GET(request: Request) {
-  if (!isSupabaseConfigured() || !isSupabaseAdminConfigured()) {
-    return NextResponse.json({ error: 'supabase_not_configured' }, { status: 503 });
-  }
-
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-
-  const { data: profile } = await supabase.from('profiles').select('role').eq('user_id', user.id).maybeSingle();
-  if (profile?.role !== 'admin') return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  const gate = await requireAdminRequest({ requireServiceRole: true });
+  if (!gate.ok) return gate.response;
 
   const params = Object.fromEntries(new URL(request.url).searchParams.entries());
   const parsedQuery = querySchema.safeParse(params);
@@ -391,7 +382,8 @@ export async function GET(request: Request) {
   }
 
   const filters = parsedQuery.data;
-  const admin = createSupabaseAdminClient();
+  const admin = gate.context.admin;
+  if (!admin) return NextResponse.json({ error: 'supabase_admin_not_configured' }, { status: 501 });
   const matchedUsers: AdminUserSummary[] = [];
   const scanPerPage = Math.max(filters.perPage, 50);
   const requiredMatches = filters.page * filters.perPage;
@@ -432,24 +424,15 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  if (!isSupabaseConfigured() || !isSupabaseAdminConfigured()) {
-    return NextResponse.json({ error: 'supabase_not_configured' }, { status: 503 });
-  }
-
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-
-  const { data: profile } = await supabase.from('profiles').select('role').eq('user_id', user.id).maybeSingle();
-  if (profile?.role !== 'admin') return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  const gate = await requireAdminRequest({ requireServiceRole: true });
+  if (!gate.ok) return gate.response;
 
   const json = await request.json().catch(() => ({}));
   const parsed = requestSchema.safeParse(json);
   if (!parsed.success) return NextResponse.json({ error: 'invalid_body', detail: parsed.error.flatten() }, { status: 400 });
 
-  const admin = createSupabaseAdminClient();
+  const admin = gate.context.admin;
+  if (!admin) return NextResponse.json({ error: 'supabase_admin_not_configured' }, { status: 501 });
   if ('action' in parsed.data) {
     if (parsed.data.action === 'reset_password') {
       const { data: userData, error: userError } = await admin.auth.admin.getUserById(parsed.data.userId);

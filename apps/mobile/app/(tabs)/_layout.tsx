@@ -19,8 +19,8 @@ export default function TabsLayout() {
       <Tabs.Screen name="calendar" options={{ title: 'Calendar' }} />
       <Tabs.Screen name="search" options={{ title: 'Search' }} />
       <Tabs.Screen name="saved" options={{ title: 'Saved' }} />
-      <Tabs.Screen name="preferences" options={{ title: 'Settings' }} />
-      <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
+      <Tabs.Screen name="preferences" options={{ title: 'Alerts' }} />
+      <Tabs.Screen name="profile" options={{ title: 'Account' }} />
     </Tabs>
   );
 }

@@ -34,9 +34,9 @@ export default function IntegrationsPage() {
       : 'guest';
   const isPaid = entitlementsQuery.data?.isPaid ?? false;
   const entitlementsLoading = status === 'authed' && entitlementsQuery.isPending && !entitlementsQuery.data;
-  const calendarFeedsQuery = useCalendarFeedsQuery({ enabled: status === 'authed' });
-  const rssFeedsQuery = useRssFeedsQuery({ enabled: status === 'authed' });
-  const embedWidgetsQuery = useEmbedWidgetsQuery({ enabled: status === 'authed' });
+  const calendarFeedsQuery = useCalendarFeedsQuery({ enabled: status === 'authed' && isPaid });
+  const rssFeedsQuery = useRssFeedsQuery({ enabled: status === 'authed' && isPaid });
+  const embedWidgetsQuery = useEmbedWidgetsQuery({ enabled: status === 'authed' && isPaid });
   const updateCalendarFeedMutation = useUpdateCalendarFeedMutation();
   const deleteCalendarFeedMutation = useDeleteCalendarFeedMutation();
   const rotateCalendarFeedMutation = useRotateCalendarFeedMutation();
@@ -52,13 +52,15 @@ export default function IntegrationsPage() {
   const [busy, setBusy] = useState<Record<string, boolean>>({});
 
   const baseUrl = useMemo(() => resolveBaseUrl(), []);
-  const calendarFeeds = calendarFeedsQuery.data?.feeds ?? [];
-  const rssFeeds = rssFeedsQuery.data?.feeds ?? [];
-  const embedWidgets = embedWidgetsQuery.data?.widgets ?? [];
-  const hasIntegrationInventory = calendarFeeds.length > 0 || rssFeeds.length > 0 || embedWidgets.length > 0;
-  const loadingIntegrations = status === 'authed' && (calendarFeedsQuery.isPending || rssFeedsQuery.isPending || embedWidgetsQuery.isPending);
+  const calendarFeeds = isPaid ? calendarFeedsQuery.data?.feeds ?? [] : [];
+  const rssFeeds = isPaid ? rssFeedsQuery.data?.feeds ?? [] : [];
+  const embedWidgets = isPaid ? embedWidgetsQuery.data?.widgets ?? [] : [];
+  const loadingIntegrations =
+    status === 'authed' && isPaid && (calendarFeedsQuery.isPending || rssFeedsQuery.isPending || embedWidgetsQuery.isPending);
   const queryError =
-    status === 'authed' ? calendarFeedsQuery.error || rssFeedsQuery.error || embedWidgetsQuery.error || (entitlementsQuery.error ?? null) : entitlementsQuery.error;
+    status === 'authed'
+      ? (isPaid ? calendarFeedsQuery.error || rssFeedsQuery.error || embedWidgetsQuery.error : null) || (entitlementsQuery.error ?? null)
+      : entitlementsQuery.error;
   const activeError = error ?? (queryError ? getErrorMessage(queryError, 'Unable to load integrations.') : null);
 
   async function copyText(key: string, value: string | null) {
@@ -247,7 +249,7 @@ export default function IntegrationsPage() {
           <p className="mt-1 text-sm text-text3">Manage your calendar feeds, RSS feeds, and embeddable widgets.</p>
         </div>
         <Link href={buildProfileHref()} className="text-sm text-primary hover:underline">
-          Back to profile
+          Back to account
         </Link>
       </div>
 
@@ -263,160 +265,26 @@ export default function IntegrationsPage() {
           <Link className="text-primary hover:underline" href={buildAuthHref('sign-in', { returnTo: '/account/integrations' })}>
             Sign in
           </Link>{' '}
-          to manage integrations.
+          to manage integrations after Premium is active.
         </p>
       )}
 
       {status === 'authed' && !entitlementsLoading && isPaid !== true && (
         <div className="mt-4 rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
-          <div className="text-xs uppercase tracking-[0.1em] text-text3">Signed in</div>
-          <div className="mt-1 text-base font-semibold text-text1">
-            {hasIntegrationInventory ? 'Stored integrations are read-only without Premium.' : 'Integrations are Premium-only.'}
-          </div>
-          <div className="mt-1 text-xs text-text3">
-            {hasIntegrationInventory
-              ? 'Calendar feeds, RSS feeds, and embeds already stored on this account remain visible. Upgrade to Premium to rotate, edit, delete, or create new integrations.'
-              : 'Calendar feeds, RSS feeds, and embeds use live data and tokenized links. Upgrade to Premium to enable and manage them.'}
-          </div>
+          <div className="text-xs uppercase tracking-[0.1em] text-text3">Public</div>
+          <div className="mt-1 text-base font-semibold text-text1">Integrations are Premium-only.</div>
+          <div className="mt-1 text-xs text-text3">Calendar feeds, RSS feeds, and embeds use live data plus tokenized links. Upgrade to Premium to enable and manage them.</div>
           <Link className="mt-3 inline-block text-sm text-primary hover:underline" href={buildProfileHref()}>
             View billing options
           </Link>
         </div>
       )}
 
-      {status === 'authed' && !entitlementsLoading && isPaid !== true && hasIntegrationInventory && (
-        <>
-          <Section
-            title="Calendar feeds"
-            description="Stored Premium calendar feeds (read-only)."
-            emptyLabel="No stored calendar feeds."
-            items={calendarFeeds}
-            renderItem={(feed) => {
-              const urls = buildCalendarUrls(baseUrl, feed.token);
-              return (
-                <div key={feed.id} className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3">
-                  <div className="truncate text-sm font-semibold text-text1">{feed.name}</div>
-                  <div className="mt-1 text-xs text-text3">
-                    {formatUpdated(feed.updatedAt || feed.createdAt)} • {formatCalendarReminder(feed.alarmMinutesBefore)}
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <a
-                      className={clsx(
-                        'btn-secondary rounded-lg border border-stroke px-3 py-2 text-xs text-text1 hover:border-primary',
-                        !urls.webcalUrl && 'pointer-events-none opacity-50'
-                      )}
-                      href={urls.webcalUrl || undefined}
-                      aria-disabled={!urls.webcalUrl}
-                      tabIndex={urls.webcalUrl ? undefined : -1}
-                    >
-                      Subscribe
-                    </a>
-                    <button
-                      type="button"
-                      className="btn-secondary rounded-lg border border-stroke px-3 py-2 text-xs text-text1 hover:border-primary"
-                      onClick={() => copyText(`calendar:https:${feed.id}`, urls.httpsUrl)}
-                    >
-                      {copyState[`calendar:https:${feed.id}`] === 'copied'
-                        ? 'Copied'
-                        : copyState[`calendar:https:${feed.id}`] === 'error'
-                          ? 'Copy failed'
-                          : 'Copy link'}
-                    </button>
-                  </div>
-                </div>
-              );
-            }}
-          />
-
-          <Section
-            title="RSS feeds"
-            description="Stored Premium RSS and Atom feeds (read-only)."
-            emptyLabel="No stored RSS feeds."
-            items={rssFeeds}
-            renderItem={(feed) => {
-              const urls = buildRssUrls(baseUrl, feed.token);
-              return (
-                <div key={feed.id} className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3">
-                  <div className="truncate text-sm font-semibold text-text1">{feed.name}</div>
-                  <div className="mt-1 text-xs text-text3">{formatUpdated(feed.updatedAt || feed.createdAt)}</div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <a
-                      className={clsx(
-                        'btn-secondary rounded-lg border border-stroke px-3 py-2 text-xs text-text1 hover:border-primary',
-                        !urls.rssUrl && 'pointer-events-none opacity-50'
-                      )}
-                      href={urls.rssUrl || undefined}
-                      aria-disabled={!urls.rssUrl}
-                      tabIndex={urls.rssUrl ? undefined : -1}
-                    >
-                      RSS
-                    </a>
-                    <a
-                      className={clsx(
-                        'btn-secondary rounded-lg border border-stroke px-3 py-2 text-xs text-text1 hover:border-primary',
-                        !urls.atomUrl && 'pointer-events-none opacity-50'
-                      )}
-                      href={urls.atomUrl || undefined}
-                      aria-disabled={!urls.atomUrl}
-                      tabIndex={urls.atomUrl ? undefined : -1}
-                    >
-                      Atom
-                    </a>
-                  </div>
-                </div>
-              );
-            }}
-          />
-
-          <Section
-            title="Embed widgets"
-            description="Stored Premium widgets (read-only)."
-            emptyLabel="No stored widgets."
-            items={embedWidgets}
-            renderItem={(widget) => {
-              const urls = buildEmbedUrls(baseUrl, widget.token);
-              return (
-                <div key={widget.id} className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3">
-                  <div className="truncate text-sm font-semibold text-text1">{widget.name}</div>
-                  <div className="mt-1 text-xs text-text3">
-                    {widget.widgetType.replace(/_/g, ' ')} • {formatUpdated(widget.updatedAt || widget.createdAt)}
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      className="btn-secondary rounded-lg border border-stroke px-3 py-2 text-xs text-text1 hover:border-primary"
-                      onClick={() => copyText(`widget:src:${widget.id}`, urls.srcUrl)}
-                    >
-                      {copyState[`widget:src:${widget.id}`] === 'copied'
-                        ? 'Copied'
-                        : copyState[`widget:src:${widget.id}`] === 'error'
-                          ? 'Copy failed'
-                          : 'Copy src'}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-secondary rounded-lg border border-stroke px-3 py-2 text-xs text-text1 hover:border-primary"
-                      onClick={() => copyText(`widget:iframe:${widget.id}`, urls.iframeCode)}
-                    >
-                      {copyState[`widget:iframe:${widget.id}`] === 'copied'
-                        ? 'Copied'
-                        : copyState[`widget:iframe:${widget.id}`] === 'error'
-                          ? 'Copy failed'
-                          : 'Copy iframe'}
-                    </button>
-                  </div>
-                </div>
-              );
-            }}
-          />
-        </>
-      )}
-
       {status === 'authed' && !entitlementsLoading && isPaid === true && (
         <>
           <Section
             title="Calendar feeds"
-            description="Private, tokenized .ics subscriptions with adaptive Premium cadence."
+            description="Private, tokenized .ics subscriptions with live-refresh cadence."
             emptyLabel={loadingIntegrations ? 'Loading calendar feeds…' : 'No calendar feeds yet. Create one from Bulk export on the home page.'}
             items={calendarFeeds}
             renderItem={(feed) => {
@@ -501,7 +369,7 @@ export default function IntegrationsPage() {
 
           <Section
             title="RSS feeds"
-            description="Private RSS links with adaptive Premium cadence."
+            description="Private RSS links with live-refresh cadence."
             emptyLabel={loadingIntegrations ? 'Loading RSS feeds…' : 'No RSS feeds yet. Create one from the RSS button on the home page.'}
             items={rssFeeds}
             renderItem={(feed) => {

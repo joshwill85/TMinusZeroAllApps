@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, Share, Text, View } from 'react-native';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Modal, Pressable, ScrollView, Share, Text, View } from 'react-native';
 import type { LaunchFeedV1, WatchlistRuleV1 } from '@tminuszero/api-client';
 import type { Href } from 'expo-router';
 import { useRouter } from 'expo-router';
@@ -7,10 +7,14 @@ import {
   buildCalendarMonthDays,
   buildCountdownSnapshot,
   formatLaunchCountdownClock,
+  getCalendarDayTemporalState,
+  getCalendarLaunchMarkerState,
   getCalendarMonthBounds,
   getMobileViewerTier,
   groupItemsByLocalDate,
-  toLocalDateKey
+  toLocalDateKey,
+  type CalendarDayTemporalState,
+  type CalendarLaunchMarkerState
 } from '@tminuszero/domain';
 import { buildLaunchHref } from '@tminuszero/navigation';
 import {
@@ -41,13 +45,15 @@ import {
 } from '@/src/watchlists/usePrimaryWatchlist';
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
-const EMPTY_GRID_SLOT_LABEL = 'Open';
+const CALENDAR_GRID_COLUMN_WIDTH = '14.2857%';
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] as const;
 
 type CalendarFollowRule = WatchlistRuleV1 & {
   ruleType: 'launch' | 'provider' | 'pad';
 };
 
 type CalendarLaunchItem = LaunchFeedV1['launches'][number];
+type CalendarGridDayItem = ReturnType<typeof buildCalendarMonthDays>[number];
 
 function isCalendarFollowRule(rule: WatchlistRuleV1): rule is CalendarFollowRule {
   return rule.ruleType === 'launch' || rule.ruleType === 'provider' || rule.ruleType === 'pad';
@@ -97,6 +103,7 @@ export default function CalendarScreen() {
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [pendingSelectedDay, setPendingSelectedDay] = useState<string | null>(null);
   const [calendarSheetLaunch, setCalendarSheetLaunch] = useState<LaunchCalendarLaunch | null>(null);
+  const [viewPickerOpen, setViewPickerOpen] = useState(false);
   const [didInitializeSelection, setDidInitializeSelection] = useState(false);
   const selectedLaunches = selectedDay ? groupedLaunches.get(selectedDay) ?? [] : [];
   const launchDayCount = groupedLaunches.size;
@@ -113,7 +120,6 @@ export default function CalendarScreen() {
     [primaryWatchlist?.rules]
   );
   const localTimeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local time', []);
-  const todayKey = toLocalDateKey(new Date());
   const nearestLaunchDay = useMemo(() => getNearestLaunchDayKey(launchDayKeys, selectedDay), [launchDayKeys, selectedDay]);
 
   const allLaunchesFeed = useMemo(
@@ -195,17 +201,9 @@ export default function CalendarScreen() {
     setDidInitializeSelection(true);
   }
 
-  function navigateMonth(offset: number) {
+  function setCalendarViewMonth(nextMonth: Date) {
     setPendingSelectedDay(null);
-    setMonth(new Date(month.getFullYear(), month.getMonth() + offset, 1));
-  }
-
-  function jumpToToday() {
-    if (!todayKey) {
-      return;
-    }
-
-    openSelectedDay(todayKey);
+    setMonth(new Date(nextMonth.getFullYear(), nextMonth.getMonth(), 1));
   }
 
   function navigateDay(offset: number) {
@@ -303,11 +301,11 @@ export default function CalendarScreen() {
     <>
       <AppScreen testID="calendar-screen">
         <ScreenHeader
-          eyebrow={tier === 'premium' ? 'Premium calendar' : 'Launch calendar'}
+          eyebrow="Launch calendar"
           title={`${formatMonthLabel(month)} Launch Calendar`}
           description={
-            tier === 'premium'
-              ? 'Browse launch dates, tap into the day’s schedule, and use Premium exports on top of one-off calendar adds.'
+            canUseRecurringCalendarFeeds
+              ? 'Browse launch dates, tap into the day’s schedule, and use recurring feeds on top of one-off calendar adds.'
               : 'Browse launch dates, tap into the day’s schedule, and add individual launches to your calendar.'
           }
         />
@@ -326,11 +324,7 @@ export default function CalendarScreen() {
           <ErrorStateCard title="Calendar unavailable" body={calendarQuery.error.message} />
         ) : (
           <>
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              <MonthButton label="Prev month" onPress={() => navigateMonth(-1)} />
-              <MonthButton label="Jump to today" onPress={jumpToToday} primary disabled={!todayKey} />
-              <MonthButton label="Next month" onPress={() => navigateMonth(1)} />
-            </View>
+            <CalendarViewPickerCard month={month} today={new Date()} onPress={() => setViewPickerOpen(true)} />
 
             <SectionCard
               testID="calendar-month-summary"
@@ -371,8 +365,10 @@ export default function CalendarScreen() {
               </SectionCard>
             ) : null}
 
-            <SectionCard title="Month view" description="Tap a day to reveal launch cards below. Dots mark scheduled launches.">
+            <SectionCard title="Month view" description="Tap a day to reveal launch cards below.">
               <View style={{ gap: 8 }}>
+                <CalendarGridLegend />
+
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                   {WEEKDAY_LABELS.map((label) => (
                     <Text
@@ -391,48 +387,17 @@ export default function CalendarScreen() {
                   ))}
                 </View>
 
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -2 }}>
                   {calendarDays.map((day) => {
                     const dayLaunches = groupedLaunches.get(day.key) ?? [];
-                    const isSelected = selectedDay === day.key;
-                    const isToday = todayKey === day.key;
                     return (
-                      <Pressable
+                      <CalendarDayCell
                         key={day.key}
-                        accessibilityRole="button"
-                        accessibilityLabel={`${formatSelectedDay(day.key)}${dayLaunches.length ? `, ${dayLaunches.length} launch${dayLaunches.length === 1 ? '' : 'es'}` : ', no launches'}`}
-                        accessibilityState={{ selected: isSelected }}
+                        day={day}
+                        count={dayLaunches.length}
+                        selected={selectedDay === day.key}
                         onPress={() => openSelectedDay(day.key)}
-                        style={({ pressed }) => ({
-                          width: '13.2%',
-                          minHeight: 86,
-                          borderRadius: 18,
-                          borderWidth: 1,
-                          borderColor: isSelected ? 'rgba(34, 211, 238, 0.32)' : isToday ? 'rgba(34, 211, 238, 0.24)' : theme.stroke,
-                          backgroundColor: isSelected
-                            ? 'rgba(34, 211, 238, 0.12)'
-                            : pressed
-                              ? 'rgba(255, 255, 255, 0.06)'
-                              : 'rgba(255, 255, 255, 0.03)',
-                          paddingHorizontal: 7,
-                          paddingVertical: 8,
-                          justifyContent: 'space-between'
-                        })}
-                      >
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                          <Text style={{ color: day.isCurrentMonth ? theme.foreground : theme.muted, fontSize: 12, fontWeight: '700' }}>
-                            {day.date.getDate()}
-                          </Text>
-                          {isToday ? <View style={{ width: 7, height: 7, borderRadius: 999, backgroundColor: theme.accent }} /> : null}
-                        </View>
-
-                        <View style={{ gap: 6 }}>
-                          <CalendarDayDots count={dayLaunches.length} />
-                          <Text style={{ color: dayLaunches.length ? theme.accent : theme.muted, fontSize: 10, fontWeight: '700', textAlign: 'center' }}>
-                            {dayLaunches.length ? `${dayLaunches.length} launch${dayLaunches.length === 1 ? '' : 'es'}` : day.isCurrentMonth ? EMPTY_GRID_SLOT_LABEL : 'Month'}
-                          </Text>
-                        </View>
-                      </Pressable>
+                      />
                     );
                   })}
                 </View>
@@ -493,7 +458,7 @@ export default function CalendarScreen() {
             </SectionCard>
 
             <SectionCard
-              title="Premium calendar feeds"
+              title="Recurring calendar feeds"
               description="Export dynamic feeds for all launches, saved presets, or individual follows. New matching launches appear automatically in subscribed calendars."
             >
               {canUseRecurringCalendarFeeds ? (
@@ -639,39 +604,183 @@ export default function CalendarScreen() {
         )}
       </AppScreen>
 
+      <CalendarViewPickerSheet
+        open={viewPickerOpen}
+        month={month}
+        today={new Date()}
+        onClose={() => setViewPickerOpen(false)}
+        onChange={(nextMonth) => {
+          setCalendarViewMonth(nextMonth);
+        }}
+      />
       <LaunchCalendarSheet launch={calendarSheetLaunch} open={calendarSheetLaunch != null} onClose={() => setCalendarSheetLaunch(null)} />
     </>
   );
 }
 
-function MonthButton({
-  label,
-  onPress,
-  primary = false,
-  disabled = false
+function CalendarViewPickerCard({
+  month,
+  today,
+  onPress
 }: {
-  label: string;
+  month: Date;
+  today: Date;
   onPress: () => void;
-  primary?: boolean;
-  disabled?: boolean;
 }) {
   const { theme } = useMobileBootstrap();
 
   return (
     <Pressable
-      onPress={disabled ? undefined : onPress}
+      onPress={onPress}
       style={({ pressed }) => ({
-        flex: 1,
-        borderRadius: 14,
+        borderRadius: 18,
         borderWidth: 1,
-        borderColor: primary ? 'rgba(34, 211, 238, 0.24)' : theme.stroke,
-        backgroundColor: primary ? 'rgba(34, 211, 238, 0.1)' : pressed ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.03)',
-        paddingHorizontal: 12,
-        paddingVertical: 12,
-        opacity: disabled ? 0.5 : pressed ? 0.88 : 1
+        borderColor: 'rgba(34, 211, 238, 0.2)',
+        backgroundColor: pressed ? 'rgba(34, 211, 238, 0.12)' : 'rgba(34, 211, 238, 0.08)',
+        paddingHorizontal: 16,
+        paddingVertical: 15,
+        gap: 10,
+        opacity: pressed ? 0.9 : 1
       })}
     >
-      <Text style={{ color: primary ? theme.accent : theme.foreground, fontSize: 13, fontWeight: '700', textAlign: 'center' }}>{label}</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12 }}>
+        <View style={{ flex: 1, gap: 4 }}>
+          <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase' }}>
+            Current view
+          </Text>
+          <Text style={{ color: theme.foreground, fontSize: 22, fontWeight: '800' }}>{formatMonthLabel(month)}</Text>
+          <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>Today is {formatLongDate(today)}.</Text>
+        </View>
+        <View
+          style={{
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: 'rgba(34, 211, 238, 0.24)',
+            backgroundColor: 'rgba(7, 9, 19, 0.34)',
+            paddingHorizontal: 12,
+            paddingVertical: 8
+          }}
+        >
+          <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '800' }}>Change month & year</Text>
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
+function CalendarViewPickerSheet({
+  open,
+  month,
+  today,
+  onClose,
+  onChange
+}: {
+  open: boolean;
+  month: Date;
+  today: Date;
+  onClose: () => void;
+  onChange: (nextMonth: Date) => void;
+}) {
+  const { theme } = useMobileBootstrap();
+  const yearOptions = buildCalendarYearOptions(month.getFullYear(), today.getFullYear());
+
+  return (
+    <Modal visible={open} transparent animationType="fade" presentationStyle="overFullScreen" statusBarTranslucent onRequestClose={onClose}>
+      <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0, 0, 0, 0.42)' }}>
+        <Pressable onPress={onClose} style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }} />
+
+        <View
+          style={{
+            borderTopLeftRadius: 28,
+            borderTopRightRadius: 28,
+            borderTopWidth: 1,
+            borderColor: theme.stroke,
+            backgroundColor: theme.background,
+            paddingTop: 12,
+            paddingHorizontal: 20,
+            paddingBottom: 28,
+            gap: 16
+          }}
+        >
+          <View style={{ alignItems: 'center' }}>
+            <View style={{ width: 44, height: 4, borderRadius: 999, backgroundColor: 'rgba(255, 255, 255, 0.18)' }} />
+          </View>
+
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+            <View style={{ flex: 1, gap: 4 }}>
+              <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase' }}>
+                Current view
+              </Text>
+              <Text style={{ color: theme.foreground, fontSize: 24, fontWeight: '800' }}>{formatMonthLabel(month)}</Text>
+              <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>Today is {formatLongDate(today)}.</Text>
+            </View>
+
+            <Pressable onPress={onClose} hitSlop={8}>
+              <Text style={{ color: theme.accent, fontSize: 13, fontWeight: '800' }}>Done</Text>
+            </Pressable>
+          </View>
+
+          <View style={{ gap: 8 }}>
+            <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase' }}>Month</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {MONTH_NAMES.map((monthLabel, index) => {
+                const active = month.getMonth() === index;
+                return (
+                  <CalendarPickerChip
+                    key={monthLabel}
+                    label={monthLabel}
+                    active={active}
+                    onPress={() => onChange(new Date(month.getFullYear(), index, 1))}
+                  />
+                );
+              })}
+            </View>
+          </View>
+
+          <View style={{ gap: 8 }}>
+            <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase' }}>Year</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingRight: 4 }}>
+              {yearOptions.map((year) => (
+                <CalendarPickerChip
+                  key={year}
+                  label={String(year)}
+                  active={month.getFullYear() === year}
+                  onPress={() => onChange(new Date(year, month.getMonth(), 1))}
+                />
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function CalendarPickerChip({
+  label,
+  active,
+  onPress
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  const { theme } = useMobileBootstrap();
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => ({
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: active ? 'rgba(34, 211, 238, 0.28)' : theme.stroke,
+        backgroundColor: active ? 'rgba(34, 211, 238, 0.1)' : pressed ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.03)',
+        paddingHorizontal: 12,
+        paddingVertical: 9,
+        opacity: pressed ? 0.88 : 1
+      })}
+    >
+      <Text style={{ color: active ? theme.accent : theme.foreground, fontSize: 13, fontWeight: '700' }}>{label}</Text>
     </Pressable>
   );
 }
@@ -711,17 +820,196 @@ function LaunchDateChip({
   );
 }
 
-function CalendarDayDots({ count }: { count: number }) {
+function CalendarGridLegend() {
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+      <CalendarLegendPill label="Past launches" marker={<CalendarDayMarker state="past" count={1} />} />
+      <CalendarLegendPill label="Today" marker={<CalendarDayMarker state="today" count={1} />} />
+      <CalendarLegendPill label="Upcoming launches" marker={<CalendarDayMarker state="future" count={3} />} />
+    </View>
+  );
+}
+
+function CalendarLegendPill({ label, marker }: { label: string; marker: ReactNode }) {
   const { theme } = useMobileBootstrap();
-  const dots = Math.min(Math.max(count, 0), 3);
 
   return (
-    <View style={{ minHeight: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-      {dots > 0
-        ? Array.from({ length: dots }).map((_, index) => (
-            <View key={index} style={{ width: 6, height: 6, borderRadius: 999, backgroundColor: theme.accent }} />
-          ))
-        : null}
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: theme.stroke,
+        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+        paddingHorizontal: 10,
+        paddingVertical: 6
+      }}
+    >
+      {marker}
+      <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700' }}>{label}</Text>
+    </View>
+  );
+}
+
+function CalendarDayCell({
+  day,
+  count,
+  selected,
+  onPress
+}: {
+  day: CalendarGridDayItem;
+  count: number;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const { theme } = useMobileBootstrap();
+  const dayState = getCalendarDayTemporalState(day.key) ?? 'future';
+  const markerState = getCalendarLaunchMarkerState(day.key, count);
+
+  return (
+    <View style={{ width: CALENDAR_GRID_COLUMN_WIDTH, paddingHorizontal: 2, paddingBottom: 4 }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={buildCalendarDayLabel(day.key, count)}
+        accessibilityState={{ selected }}
+        onPress={onPress}
+        style={({ pressed }) => ({
+          aspectRatio: 1,
+          borderRadius: 18,
+          borderWidth: 1,
+          borderColor: resolveCalendarTileBorderColor(dayState, selected, theme.stroke),
+          backgroundColor: resolveCalendarTileBackground(dayState, selected, pressed),
+          opacity: day.isCurrentMonth ? 1 : 0.52,
+          overflow: 'hidden'
+        })}
+      >
+        <View
+          pointerEvents="none"
+          style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Text
+            style={{
+              color: resolveCalendarDayNumberColor(dayState, day.isCurrentMonth),
+              fontSize: day.date.getDate() >= 10 ? 24 : 29,
+              fontWeight: '800',
+              letterSpacing: -1.8
+            }}
+          >
+            {day.date.getDate()}
+          </Text>
+        </View>
+
+        <View style={{ flex: 1, justifyContent: 'space-between', padding: 6 }}>
+          <View style={{ alignItems: 'flex-end' }}>
+            {count > 0 ? <CalendarDayCountBadge count={count} state={markerState} /> : null}
+          </View>
+
+          <View style={{ minHeight: 18, alignItems: 'center', justifyContent: 'flex-end' }}>
+            {markerState !== 'none' ? <CalendarDayMarker state={markerState} count={count} /> : null}
+          </View>
+        </View>
+      </Pressable>
+    </View>
+  );
+}
+
+function CalendarDayCountBadge({
+  count,
+  state
+}: {
+  count: number;
+  state: CalendarLaunchMarkerState;
+}) {
+  const { theme } = useMobileBootstrap();
+
+  return (
+    <View
+      style={{
+        minWidth: 20,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor:
+          state === 'past' ? 'rgba(255, 255, 255, 0.14)' : state === 'today' ? 'rgba(34, 211, 238, 0.28)' : 'rgba(34, 211, 238, 0.2)',
+        backgroundColor:
+          state === 'past' ? 'rgba(255, 255, 255, 0.08)' : state === 'today' ? 'rgba(34, 211, 238, 0.14)' : 'rgba(34, 211, 238, 0.1)',
+        paddingHorizontal: 6,
+        paddingVertical: 2
+      }}
+    >
+      <Text style={{ color: state === 'past' ? theme.foreground : theme.accent, fontSize: 10, fontWeight: '800' }}>{count}</Text>
+    </View>
+  );
+}
+
+function CalendarDayMarker({
+  state,
+  count
+}: {
+  state: Exclude<CalendarLaunchMarkerState, 'none'>;
+  count: number;
+}) {
+  const { theme } = useMobileBootstrap();
+
+  if (state === 'future') {
+    return (
+      <View style={{ minHeight: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+        {Array.from({ length: Math.min(Math.max(count, 1), 3) }).map((_, index) => (
+          <View key={`${state}-${index}`} style={{ width: 6, height: 6, borderRadius: 999, backgroundColor: theme.accent }} />
+        ))}
+      </View>
+    );
+  }
+
+  if (state === 'past') {
+    return (
+      <View
+        style={{
+          width: 16,
+          height: 16,
+          borderRadius: 999,
+          borderWidth: 1,
+          borderColor: 'rgba(255, 255, 255, 0.14)',
+          backgroundColor: 'rgba(255, 255, 255, 0.08)',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}
+      >
+        <Text style={{ color: theme.foreground, fontSize: 10, fontWeight: '800', lineHeight: 10 }}>✓</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ width: 16, height: 16, alignItems: 'center', justifyContent: 'center' }}>
+      <View
+        style={{
+          position: 'absolute',
+          top: 0,
+          right: 0,
+          bottom: 0,
+          left: 0,
+          borderRadius: 999,
+          borderWidth: 1,
+          borderColor: 'rgba(34, 211, 238, 0.72)'
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          top: 3,
+          right: 3,
+          bottom: 3,
+          left: 3,
+          borderRadius: 999,
+          borderWidth: 1,
+          borderColor: 'rgba(34, 211, 238, 0.38)'
+        }}
+      />
+      <View style={{ width: 4, height: 4, borderRadius: 999, backgroundColor: theme.accent }} />
     </View>
   );
 }
@@ -952,6 +1240,22 @@ function formatMonthLabel(value: Date) {
   });
 }
 
+function buildCalendarYearOptions(viewYear: number, currentYear: number) {
+  const start = Math.min(viewYear, currentYear) - 4;
+  const end = Math.max(viewYear, currentYear) + 8;
+
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+}
+
+function formatLongDate(value: Date) {
+  return value.toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
+}
+
 function parseDayKey(value: string) {
   const parsed = new Date(`${value}T12:00:00`);
   if (Number.isNaN(parsed.getTime())) {
@@ -995,6 +1299,57 @@ function formatSelectedDay(dayKey: string) {
     day: 'numeric',
     weekday: 'short'
   });
+}
+
+function buildCalendarDayLabel(dayKey: string, count: number) {
+  const labels = [formatSelectedDay(dayKey)];
+  const dayState = getCalendarDayTemporalState(dayKey);
+
+  if (dayState === 'today') {
+    labels.push('today');
+  } else if (dayState === 'past') {
+    labels.push(count > 0 ? 'past launches' : 'past date');
+  } else if (dayState === 'future') {
+    labels.push(count > 0 ? 'upcoming launches' : 'future date');
+  }
+
+  labels.push(count > 0 ? `${count} launch${count === 1 ? '' : 'es'}` : 'no launches');
+  return labels.join(', ');
+}
+
+function resolveCalendarTileBorderColor(dayState: CalendarDayTemporalState, selected: boolean, fallbackStroke: string) {
+  if (dayState === 'today') {
+    return selected ? 'rgba(34, 211, 238, 0.38)' : 'rgba(34, 211, 238, 0.28)';
+  }
+
+  if (selected) {
+    return 'rgba(34, 211, 238, 0.32)';
+  }
+
+  return dayState === 'past' ? 'rgba(255, 255, 255, 0.1)' : fallbackStroke;
+}
+
+function resolveCalendarTileBackground(dayState: CalendarDayTemporalState, selected: boolean, pressed: boolean) {
+  if (dayState === 'today') {
+    return selected ? 'rgba(34, 211, 238, 0.14)' : 'rgba(34, 211, 238, 0.08)';
+  }
+
+  if (selected) {
+    return 'rgba(34, 211, 238, 0.1)';
+  }
+
+  if (pressed) {
+    return 'rgba(255, 255, 255, 0.06)';
+  }
+
+  return dayState === 'past' ? 'rgba(255, 255, 255, 0.02)' : 'rgba(255, 255, 255, 0.03)';
+}
+
+function resolveCalendarDayNumberColor(dayState: CalendarDayTemporalState, isCurrentMonth: boolean) {
+  if (!isCurrentMonth) return 'rgba(234, 240, 255, 0.08)';
+  if (dayState === 'today') return 'rgba(34, 211, 238, 0.3)';
+  if (dayState === 'past') return 'rgba(234, 240, 255, 0.16)';
+  return 'rgba(234, 240, 255, 0.2)';
 }
 
 function formatLaunchTiming(net: string, netPrecision: string) {

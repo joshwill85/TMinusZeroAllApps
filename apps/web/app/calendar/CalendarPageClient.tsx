@@ -8,6 +8,7 @@ import {
   buildCalendarMonthDays,
   buildCountdownSnapshot,
   formatLaunchCountdownClock,
+  getCalendarDayTemporalState,
   getCalendarMonthBounds,
   groupItemsByLocalDate,
   toLocalDateKey
@@ -15,6 +16,8 @@ import {
 import { buildAuthHref, buildUpgradeHref } from '@tminuszero/navigation';
 import clsx from 'clsx';
 import { AddToCalendarButton } from '@/components/AddToCalendarButton';
+import { CalendarDayTile, CalendarStateLegend } from '@/components/CalendarDayTile';
+import { CalendarMonthYearPicker } from '@/components/CalendarMonthYearPicker';
 import { useLaunchFeedPageQuery, useViewerEntitlementsQuery } from '@/lib/api/queries';
 import type { LaunchStatus } from '@/lib/types/launch';
 import { formatDateOnly, formatNetLabel, isDateOnlyNet } from '@/lib/time';
@@ -146,20 +149,6 @@ export function CalendarPageClient() {
     setSelectedDay(dayKey);
   }
 
-  function navigateMonth(offset: number) {
-    setPendingSelectedDay(null);
-    updateCalendarQuery(router, pathname, searchParams, { month: shiftMonth(month, offset) });
-  }
-
-  function jumpToToday() {
-    const todayKey = toLocalDateKey(new Date());
-    if (!todayKey) {
-      return;
-    }
-
-    openSelectedDay(todayKey);
-  }
-
   function navigateDay(offset: number) {
     const nextDayKey = shiftDayKey(selectedDay || `${monthKey}-01`, offset);
     if (!nextDayKey) {
@@ -206,13 +195,11 @@ export function CalendarPageClient() {
     <div className="mx-auto max-w-6xl px-4 py-8 md:px-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
-          <div className="text-xs uppercase tracking-[0.14em] text-text3">
-            {canUseRecurringCalendarFeeds ? 'Premium calendar' : 'Launch calendar'}
-          </div>
+          <div className="text-xs uppercase tracking-[0.14em] text-text3">Launch calendar</div>
           <h1 className="mt-2 text-3xl font-semibold text-text1">{formatMonthLabel(month)}</h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-text2">
             {canUseRecurringCalendarFeeds
-              ? 'Read the monthly schedule at a glance, tap into any date, and export premium calendar feeds.'
+              ? 'Read the monthly schedule at a glance, tap into any date, and export recurring calendar feeds.'
               : 'Read the monthly schedule at a glance, tap into any date, and add launches to your calendar.'}
           </p>
         </div>
@@ -235,18 +222,11 @@ export function CalendarPageClient() {
       </div>
 
       <div className="mt-6 rounded-3xl border border-stroke bg-surface-1 p-4 md:p-5">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-wrap items-center gap-2">
-            <button type="button" className="btn-secondary rounded-lg px-3 py-2 text-sm" onClick={() => navigateMonth(-1)}>
-              Prev month
-            </button>
-            <button type="button" className="btn-secondary rounded-lg px-3 py-2 text-sm" onClick={jumpToToday}>
-              Jump to today
-            </button>
-            <button type="button" className="btn-secondary rounded-lg px-3 py-2 text-sm" onClick={() => navigateMonth(1)}>
-              Next month
-            </button>
-          </div>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <CalendarMonthYearPicker
+            value={month}
+            onChange={(nextMonth) => updateCalendarQuery(router, pathname, searchParams, { month: formatMonthKey(nextMonth) })}
+          />
           <div className="grid gap-2 sm:grid-cols-3">
             <select
               aria-label="Filter launch region"
@@ -336,45 +316,35 @@ export function CalendarPageClient() {
           </div>
         ) : null}
 
-        <div className="mt-4 overflow-x-auto pb-2">
-          <div className="grid min-w-[620px] grid-cols-7 gap-2">
-            {WEEKDAY_LABELS.map((label) => (
-              <div key={label} className="text-center text-xs uppercase tracking-[0.08em] text-text3">
-                {label}
-              </div>
-            ))}
-            {calendarDays.map((day) => {
-              const items = launchesByDay.get(day.key) ?? [];
-              const isSelected = selectedDay === day.key;
-              const isToday = toLocalDateKey(new Date()) === day.key;
-              return (
-                <button
-                  key={day.key}
-                  type="button"
-                  onClick={() => openSelectedDay(day.key)}
-                  className={clsx(
-                    'flex min-h-[112px] flex-col justify-between rounded-2xl border px-3 py-3 text-left transition',
-                    day.isCurrentMonth ? 'text-text1' : 'text-text3',
-                    isSelected ? 'border-primary bg-primary/10' : isToday ? 'border-primary/50 bg-surface-0/80' : 'border-stroke bg-surface-0/70 hover:border-primary/50'
-                  )}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-semibold">{day.date.getDate()}</span>
-                    {isToday ? <span className="h-2 w-2 rounded-full bg-primary" aria-hidden="true" /> : null}
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-center gap-1">
-                      {items.slice(0, 3).map((launch) => (
-                        <span key={launch.id} className="h-2 w-2 rounded-full bg-primary" aria-hidden="true" />
-                      ))}
-                    </div>
-                    <div className={clsx('text-center text-[11px] font-semibold', items.length ? 'text-primary' : 'text-text3')}>
-                      {items.length ? `${items.length} launch${items.length === 1 ? '' : 'es'}` : day.isCurrentMonth ? 'Open' : 'Month'}
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
+        <div className="mt-4 rounded-2xl border border-stroke bg-surface-0/45 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-xs uppercase tracking-[0.08em] text-text3">Past, today, upcoming</div>
+            <CalendarStateLegend />
+          </div>
+
+          <div className="mt-4 overflow-x-auto pb-2">
+            <div className="grid min-w-[680px] grid-cols-7 gap-3">
+              {WEEKDAY_LABELS.map((label) => (
+                <div key={label} className="text-center text-xs uppercase tracking-[0.08em] text-text3">
+                  {label}
+                </div>
+              ))}
+              {calendarDays.map((day) => {
+                const items = launchesByDay.get(day.key) ?? [];
+                return (
+                  <CalendarDayTile
+                    key={day.key}
+                    dayKey={day.key}
+                    dayNumber={day.date.getDate()}
+                    launchCount={items.length}
+                    isCurrentMonth={day.isCurrentMonth}
+                    isSelected={selectedDay === day.key}
+                    ariaLabel={buildCalendarDayLabel(day.key, items.length, localTimeZone)}
+                    onClick={() => openSelectedDay(day.key)}
+                  />
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
@@ -562,10 +532,6 @@ function formatMonthLabel(value: Date) {
   });
 }
 
-function shiftMonth(value: Date, delta: number) {
-  return formatMonthKey(new Date(value.getFullYear(), value.getMonth() + delta, 1));
-}
-
 function shiftDayKey(dayKey: string, delta: number) {
   const parsed = parseDayKey(dayKey);
   if (!parsed) {
@@ -632,6 +598,22 @@ function formatSelectedDay(dayKey: string, localTimeZone: string) {
 
 function formatLaunchCountLabel(count: number) {
   return `${count} launch${count === 1 ? '' : 'es'}`;
+}
+
+function buildCalendarDayLabel(dayKey: string, count: number, localTimeZone: string) {
+  const labels = [formatSelectedDay(dayKey, localTimeZone)];
+  const dayState = getCalendarDayTemporalState(dayKey);
+
+  if (dayState === 'today') {
+    labels.push('today');
+  } else if (dayState === 'past') {
+    labels.push(count > 0 ? 'past launches' : 'past date');
+  } else if (dayState === 'future') {
+    labels.push(count > 0 ? 'upcoming launches' : 'future date');
+  }
+
+  labels.push(count > 0 ? formatLaunchCountLabel(count) : 'no launches');
+  return labels.join(' • ');
 }
 
 function formatLaunchTiming(launch: CalendarLaunch, localTimeZone: string) {

@@ -1,83 +1,36 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Text, View } from 'react-native';
+import { useState } from 'react';
+import { View } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
-import { ApiClientError, type BillingCatalogOfferV1 } from '@tminuszero/api-client';
-import { getMobileViewerTier, resolveAdminAccessOverrideErrorMessage } from '@tminuszero/domain';
-import {
-  useAdminAccessOverrideQuery,
-  useMarketingEmailQuery,
-  useProfileQuery,
-  useUpdateAdminAccessOverrideMutation,
-  useUpdateMarketingEmailMutation,
-  useUpdateProfileMutation,
-  useViewerEntitlementsQuery,
-  useViewerSessionQuery
-} from '@/src/api/queries';
-import { resendSignupVerification } from '@/src/auth/supabaseAuth';
-import { buildClaimAuthHref } from '@/src/billing/nativeBillingUi';
-import { useNativeBilling } from '@/src/billing/useNativeBilling';
+import { getMobileViewerTier } from '@tminuszero/domain';
+import { useProfileQuery, useViewerEntitlementsQuery, useViewerSessionQuery } from '@/src/api/queries';
+import { signOut } from '@/src/auth/supabaseAuth';
 import { AppScreen } from '@/src/components/AppScreen';
+import { CustomerShellActionButton, CustomerShellBadge, CustomerShellHero, CustomerShellMetric, CustomerShellPanel } from '@/src/components/CustomerShell';
+import { AccountDetailRow, AccountNavRow, AccountNotice } from '@/src/features/account/AccountUi';
 import {
-  CustomerShellActionButton,
-  CustomerShellBadge,
-  CustomerShellHero,
-  CustomerShellMetric,
-  CustomerShellPanel
-} from '@/src/components/CustomerShell';
-import { MobileAccountDeletionPanel } from '@/src/components/MobileAccountDeletionPanel';
-import { ViewerTierCard } from '@/src/components/ViewerTierCard';
-import { getPublicSiteUrl } from '@/src/config/api';
-import { AccountDetailRow, AccountNotice, AccountTextField } from '@/src/features/account/AccountUi';
-import {
-  BillingPurchaseNotice,
   buildAccessCaption,
-  buildBillingMessage,
   buildMembershipStatusCaption,
-  formatAdminAccessTierLabel,
-  formatBillingProvider,
-  formatBillingStatus,
   formatDate,
-  formatEffectiveTierSource,
-  formatManagementProviderLabel,
   formatMembershipStatusLabel,
-  formatTierLabel,
-  isStoreManagedBillingProvider
+  formatTierLabel
 } from '@/src/features/account/ProfileScreenUi';
+import { useMobilePush } from '@/src/providers/MobilePushProvider';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { accessToken, theme } = useMobileBootstrap();
-  const callbackUrl = useMemo(() => `${getPublicSiteUrl()}/auth/callback`, []);
+  const { accessToken, clearSession } = useMobileBootstrap();
+  const { permissionStatus, isPushEnabled, isRegistered } = useMobilePush();
   const sessionQuery = useViewerSessionQuery();
   const entitlementsQuery = useViewerEntitlementsQuery();
-  const adminAccessOverrideQuery = useAdminAccessOverrideQuery();
   const profileQuery = useProfileQuery();
-  const marketingEmailQuery = useMarketingEmailQuery();
-  const updateAdminAccessOverrideMutation = useUpdateAdminAccessOverrideMutation();
-  const updateProfileMutation = useUpdateProfileMutation();
-  const updateMarketingEmailMutation = useUpdateMarketingEmailMutation();
-  const billing = useNativeBilling(sessionQuery.data?.viewerId ?? null);
-  const billingSummary = billing.billingSummaryQuery.data ?? null;
-  const catalogProduct = billing.catalogProduct ?? null;
-  const catalogOffers = catalogProduct?.offers ?? [];
-  const purchaseProvider = catalogProduct?.provider ?? (billing.platform === 'ios' ? 'apple_app_store' : 'google_play');
+
   const isAuthed = entitlementsQuery.data?.isAuthed ?? Boolean(accessToken);
-  const profile = profileQuery.data ?? null;
-  const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ').trim();
-  const email = profile?.email ?? sessionQuery.data?.email ?? null;
-  const title = fullName ? fullName : isAuthed ? 'Your account' : 'Profile';
-  const emailVerified = Boolean(profile?.emailConfirmedAt);
-  const isAdminViewer = sessionQuery.data?.role === 'admin';
-  const adminAccessState = adminAccessOverrideQuery.data ?? null;
-  const tier = getMobileViewerTier(adminAccessState?.effectiveTier ?? entitlementsQuery.data?.tier ?? 'anon');
-  const adminAccessOverride = adminAccessState?.adminAccessOverride ?? entitlementsQuery.data?.adminAccessOverride ?? null;
-  const effectiveTierSource = adminAccessState?.effectiveTierSource ?? entitlementsQuery.data?.effectiveTierSource ?? 'guest';
-  const billingIsPaid = adminAccessState?.billingIsPaid ?? (entitlementsQuery.data?.billingIsPaid === true);
-  const hasAdminMembership = isAdminViewer && (effectiveTierSource === 'admin' || effectiveTierSource === 'admin_override');
+  const tier = getMobileViewerTier(entitlementsQuery.data?.tier ?? 'anon');
+  const effectiveTierSource = entitlementsQuery.data?.effectiveTierSource ?? 'guest';
+  const billingIsPaid = entitlementsQuery.data?.billingIsPaid === true;
   const membershipStatusLabel = formatMembershipStatusLabel({
     tier,
-    isAuthed,
     effectiveTierSource,
     status: entitlementsQuery.data?.status ?? null,
     cancelAtPeriodEnd: entitlementsQuery.data?.cancelAtPeriodEnd ?? false
@@ -89,133 +42,29 @@ export default function ProfileScreen() {
     currentPeriodEnd: entitlementsQuery.data?.currentPeriodEnd ?? null,
     cancelAtPeriodEnd: entitlementsQuery.data?.cancelAtPeriodEnd ?? false
   });
-  const adminAccessLabel = formatAdminAccessTierLabel(tier);
-  const [editFirstName, setEditFirstName] = useState('');
-  const [editLastName, setEditLastName] = useState('');
-  const [editTimezone, setEditTimezone] = useState('America/New_York');
-  const [profileMessage, setProfileMessage] = useState<string | null>(null);
-  const [profileError, setProfileError] = useState<string | null>(null);
-  const [marketingEmailOptIn, setMarketingEmailOptIn] = useState<boolean | null>(null);
-  const [marketingMessage, setMarketingMessage] = useState<string | null>(null);
-  const [marketingError, setMarketingError] = useState<string | null>(null);
-  const [resendMessage, setResendMessage] = useState<string | null>(null);
-  const [resendError, setResendError] = useState<string | null>(null);
-  const [resendingEmail, setResendingEmail] = useState(false);
-  const [accountMessage, setAccountMessage] = useState<string | null>(null);
-  const [adminAccessMessage, setAdminAccessMessage] = useState<string | null>(null);
-  const [adminAccessError, setAdminAccessError] = useState<string | null>(null);
-  const showStoreManagementAction = Boolean(
-    billingSummary && billingSummary.isPaid && isStoreManagedBillingProvider(billingSummary.provider) && billingSummary.managementUrl
-  );
-  const showPurchaseAction = Boolean(billingSummary && !billingSummary.isPaid && !hasAdminMembership);
-  const showRestoreAction = Boolean(billing.isStoreReady && !hasAdminMembership && (showStoreManagementAction || showPurchaseAction));
+  const profile = profileQuery.data ?? null;
+  const summaryName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ').trim();
+  const summaryEmail = profile?.email ?? sessionQuery.data?.email ?? '—';
+  const emailVerified = Boolean(profile?.emailConfirmedAt);
+  const alertStatusLabel = isPushEnabled ? 'On' : permissionStatus === 'granted' ? (isRegistered ? 'Ready' : 'Pending') : 'Off';
 
-  useEffect(() => {
-    if (!profile) return;
-    setEditFirstName(profile.firstName || '');
-    setEditLastName(profile.lastName || '');
-    setEditTimezone(profile.timezone || 'America/New_York');
-  }, [profile]);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
+  const [isSigningOut, setIsSigningOut] = useState(false);
 
-  useEffect(() => {
-    if (!marketingEmailQuery.data) return;
-    setMarketingEmailOptIn(marketingEmailQuery.data.marketingEmailOptIn);
-  }, [marketingEmailQuery.data]);
-
-  const profileFirstName = String(profile?.firstName || '').trim();
-  const profileLastName = String(profile?.lastName || '').trim();
-  const profileTimezone = String(profile?.timezone || 'America/New_York').trim();
-  const nextFirstName = editFirstName.trim();
-  const nextLastName = editLastName.trim();
-  const nextTimezone = editTimezone.trim();
-  const hasBlankedExistingName =
-    (profileFirstName.length > 0 && nextFirstName.length === 0) || (profileLastName.length > 0 && nextLastName.length === 0);
-  const hasProfileChanges =
-    nextFirstName !== profileFirstName || nextLastName !== profileLastName || nextTimezone !== profileTimezone;
-  const canSaveProfile = Boolean(
-    isAuthed && nextTimezone && hasProfileChanges && !hasBlankedExistingName && !updateProfileMutation.isPending
-  );
-
-  async function saveProfile() {
-    if (!canSaveProfile) {
-      if (hasBlankedExistingName) {
-        setProfileError('First and last name cannot be cleared once set.');
-      }
+  async function handleSignOut() {
+    if (isSigningOut) {
       return;
     }
 
-    const payload: { firstName?: string; lastName?: string; timezone?: string } = {};
-    if (nextFirstName && nextFirstName !== profileFirstName) payload.firstName = nextFirstName;
-    if (nextLastName && nextLastName !== profileLastName) payload.lastName = nextLastName;
-    if (nextTimezone !== profileTimezone) payload.timezone = nextTimezone;
-
-    setProfileMessage(null);
-    setProfileError(null);
+    setIsSigningOut(true);
+    setSignOutError(null);
     try {
-      const nextProfile = await updateProfileMutation.mutateAsync(payload);
-      setEditFirstName(nextProfile.firstName || '');
-      setEditLastName(nextProfile.lastName || '');
-      setEditTimezone(nextProfile.timezone || 'America/New_York');
-      setProfileMessage('Profile updated.');
+      await signOut(accessToken).catch(() => undefined);
+      await clearSession();
     } catch (error) {
-      setProfileError(error instanceof Error ? error.message : 'Unable to update profile.');
-    }
-  }
-
-  async function toggleMarketingEmail(next: boolean) {
-    if (!isAuthed) {
-      setMarketingError('Sign in to update marketing email preferences.');
-      return;
-    }
-
-    const previous = marketingEmailOptIn;
-    setMarketingEmailOptIn(next);
-    setMarketingMessage(null);
-    setMarketingError(null);
-    try {
-      const payload = await updateMarketingEmailMutation.mutateAsync(next);
-      setMarketingEmailOptIn(payload.marketingEmailOptIn);
-      setMarketingMessage(
-        payload.marketingEmailOptIn
-          ? 'Marketing emails enabled.'
-          : 'Marketing emails disabled. Essential account emails will still be sent.'
-      );
-    } catch (error) {
-      setMarketingEmailOptIn(previous);
-      setMarketingError(error instanceof Error ? error.message : 'Unable to update marketing email settings.');
-    }
-  }
-
-  async function resendVerificationEmail() {
-    if (!email) {
-      return;
-    }
-
-    setResendingEmail(true);
-    setResendMessage(null);
-    setResendError(null);
-    try {
-      await resendSignupVerification(email, callbackUrl);
-      setResendMessage(`Verification email resent to ${email}.`);
-    } catch (error) {
-      setResendError(error instanceof Error ? error.message : 'Unable to resend verification email.');
+      setSignOutError(error instanceof Error ? error.message : 'Unable to sign out.');
     } finally {
-      setResendingEmail(false);
-    }
-  }
-
-  async function updateAdminAccessOverride(next: 'anon' | 'premium' | null) {
-    setAdminAccessMessage(null);
-    setAdminAccessError(null);
-    try {
-      await updateAdminAccessOverrideMutation.mutateAsync({ adminAccessOverride: next });
-      setAdminAccessMessage(
-        next === null ? 'Default admin access restored.' : next === 'premium' ? 'Admin premium test mode is active.' : 'Admin anon test mode is active.'
-      );
-    } catch (error) {
-      const fallback = error instanceof Error ? error.message : 'Unable to update admin access.';
-      const code = error instanceof ApiClientError ? error.code : null;
-      setAdminAccessError(resolveAdminAccessOverrideErrorMessage(code, fallback));
+      setIsSigningOut(false);
     }
   }
 
@@ -223,24 +72,20 @@ export default function ProfileScreen() {
     <AppScreen testID="profile-screen">
       <CustomerShellHero
         eyebrow="Account"
-        title={title}
+        title="Account"
         description={
           isAuthed
-            ? 'Manage your identity, profile, privacy controls, integrations, and membership status natively.'
-            : 'Browse freely, then sign in when you want account management, restore purchases, or Premium.'
+            ? 'Account, billing, alerts, privacy, and support now live in dedicated sections instead of one long mixed screen.'
+            : 'Browse freely, then sign in when you want to manage account details, claim Premium, or restore purchases.'
         }
       >
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
           <CustomerShellBadge label={formatTierLabel(tier, isAuthed)} tone={tier === 'premium' ? 'accent' : 'default'} />
           <CustomerShellBadge label={isAuthed ? 'Signed in' : 'Guest'} tone={isAuthed ? 'success' : 'warning'} />
-          {sessionQuery.data?.role === 'admin' ? <CustomerShellBadge label="Admin" /> : null}
         </View>
       </CustomerShellHero>
 
-      <CustomerShellPanel
-        title="Account overview"
-        description="Identity, current access, and membership state for the current viewer on this device."
-      >
+      <CustomerShellPanel title="Account summary" description="One summary block for identity, access, and renewal state on this device.">
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
           <CustomerShellMetric
             label="Access"
@@ -252,427 +97,144 @@ export default function ProfileScreen() {
               billingIsPaid
             })}
           />
-          <CustomerShellMetric
-            label="Membership"
-            value={membershipStatusLabel}
-            caption={membershipStatusCaption}
-          />
+          <CustomerShellMetric label="Membership" value={membershipStatusLabel} caption={membershipStatusCaption} />
           <CustomerShellMetric
             label="Renewal"
             value={entitlementsQuery.data?.currentPeriodEnd ? formatDate(entitlementsQuery.data.currentPeriodEnd) : '—'}
             caption="Current period end"
           />
         </View>
+
+        <View style={{ gap: 10 }}>
+          <AccountDetailRow label="Name" value={summaryName || 'Name not set'} />
+          <AccountDetailRow label="Email" value={summaryEmail} />
+          {isAuthed ? <AccountDetailRow label="Email verified" value={emailVerified ? 'Yes' : 'No'} /> : null}
+        </View>
       </CustomerShellPanel>
-
-      {isAdminViewer ? (
-        <CustomerShellPanel
-          title="Admin access testing"
-          description="Switch this admin account between anon and premium customer access. Billing and admin tools stay unchanged."
-        >
-          <View style={{ gap: 10 }}>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-              <CustomerShellMetric label="Current access" value={adminAccessLabel} caption={formatEffectiveTierSource(effectiveTierSource)} />
-              <CustomerShellMetric label="Real billing" value={billingIsPaid ? 'Active' : 'Inactive'} caption="Store or web subscription state" />
-            </View>
-            <CustomerShellActionButton
-              label={adminAccessOverride === null ? 'Using default' : 'Use default'}
-              variant={adminAccessOverride === null ? 'primary' : 'secondary'}
-              disabled={adminAccessOverrideQuery.isPending || updateAdminAccessOverrideMutation.isPending}
-              onPress={() => {
-                void updateAdminAccessOverride(null);
-              }}
-            />
-            <CustomerShellActionButton
-              label={adminAccessOverride === 'anon' ? 'Anon mode active' : 'Switch to anon'}
-              variant={adminAccessOverride === 'anon' ? 'primary' : 'secondary'}
-              disabled={adminAccessOverrideQuery.isPending || updateAdminAccessOverrideMutation.isPending}
-              onPress={() => {
-                void updateAdminAccessOverride('anon');
-              }}
-            />
-            <CustomerShellActionButton
-              label={adminAccessOverride === 'premium' ? 'Premium mode active' : 'Switch to premium'}
-              variant={adminAccessOverride === 'premium' ? 'primary' : 'secondary'}
-              disabled={adminAccessOverrideQuery.isPending || updateAdminAccessOverrideMutation.isPending}
-              onPress={() => {
-                void updateAdminAccessOverride('premium');
-              }}
-            />
-            {adminAccessMessage ? <Text style={{ color: '#7ff0bc', fontSize: 13, lineHeight: 19 }}>{adminAccessMessage}</Text> : null}
-            {adminAccessError ? <Text style={{ color: '#ff9087', fontSize: 13, lineHeight: 19 }}>{adminAccessError}</Text> : null}
-          </View>
-        </CustomerShellPanel>
-      ) : null}
-
-      <ViewerTierCard tier={tier} isAuthed={isAuthed} showAction={tier !== 'premium'} testID="profile-tier-card" />
-      <AccountNotice message={accountMessage} tone="success" />
 
       {!isAuthed ? (
         <>
-          <CustomerShellPanel
-            testID="profile-entitlements-section"
-            title="Membership"
-            description="Mobile browsing, filters, the calendar, and basic reminders are available without paying. Premium adds follows, saved views, recurring feeds, and advanced alerts."
-          >
-            <Text testID="profile-entitlements-tier" style={{ color: theme.foreground, fontSize: 16, fontWeight: '700' }}>
-              {formatTierLabel(tier)}
-            </Text>
-          </CustomerShellPanel>
-
-          <CustomerShellPanel
-            title={billing.claim ? 'Claim Premium' : 'Premium'}
-            description={
-              billing.claim
-                ? 'Your store purchase is verified. Sign in to an existing account or create one now to claim Premium on this device.'
-                : 'Buy Premium first, then sign in or create an account to claim it on this device.'
-            }
-          >
+          <CustomerShellPanel title="Start here" description="Use a smaller set of focused destinations instead of managing everything from the root account screen.">
             <View style={{ gap: 10 }}>
-              {billing.actionMessage ? <Text style={{ color: theme.accent, fontSize: 14, lineHeight: 21 }}>{billing.actionMessage}</Text> : null}
-              {billing.actionError ? <Text style={{ color: '#ff9087', fontSize: 14, lineHeight: 21 }}>{billing.actionError}</Text> : null}
-              <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
-                {billing.claim ? 'Claiming Premium links the verified purchase to a T-Minus Zero account for ownership, recovery, and restore.' : buildBillingMessage('none', false, billing.isStoreReady)}
-              </Text>
-              {!billing.claim ? (
-                <BillingPurchaseNotice
-                  displayName={catalogProduct?.displayName}
-                  priceLabel={catalogProduct?.priceLabel}
-                  provider={purchaseProvider}
-                  onOpenPrivacy={() => router.push('/legal/privacy' as Href)}
-                  onOpenTerms={() => router.push('/legal/terms' as Href)}
-                />
-              ) : null}
-              {catalogOffers.length > 0 ? (
-                <View style={{ gap: 8 }}>
-                  <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>Active offers on this device</Text>
-                  {catalogOffers.map((offer) => (
-                    <View
-                      key={offer.offerKey}
-                      style={{
-                        gap: 6,
-                        borderRadius: 16,
-                        borderWidth: 1,
-                        borderColor: theme.stroke,
-                        backgroundColor: 'rgba(255,255,255,0.03)',
-                        paddingHorizontal: 12,
-                        paddingVertical: 12
-                      }}
-                    >
-                      <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>{offer.label}</Text>
-                      {offer.eligibilityHint ? <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>{offer.eligibilityHint}</Text> : null}
-                      {offer.promotionCode ? <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>Code: {offer.promotionCode}</Text> : null}
-                      {offer.redemptionUrl ? (
-                        <CustomerShellActionButton
-                          label="Redeem App Store offer"
-                          variant="secondary"
-                          onPress={() => {
-                            void billing.openManagementLink(offer.redemptionUrl);
-                          }}
-                        />
-                      ) : null}
-                    </View>
-                  ))}
-                  {hasAutomaticGoogleOffer(catalogOffers) ? (
-                    <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
-                      Eligible Google Play offers are applied automatically when checkout starts on this device.
-                    </Text>
-                  ) : null}
-                </View>
-              ) : null}
-              {billing.claim ? (
-                <>
-                  <CustomerShellActionButton
-                    label="Sign in to claim Premium"
-                    onPress={() => {
-                      router.push(buildClaimAuthHref('/sign-in', billing.claim?.claimToken, billing.claim?.returnTo));
-                    }}
-                  />
-                  <CustomerShellActionButton
-                    label="Create account to claim Premium"
-                    variant="secondary"
-                    onPress={() => {
-                      router.push(buildClaimAuthHref('/sign-up', billing.claim?.claimToken, billing.claim?.returnTo));
-                    }}
-                  />
-                </>
-              ) : (
-                <>
-                  <CustomerShellActionButton
-                    label={billing.isProcessingPurchase ? 'Working…' : 'Unlock Premium'}
-                    onPress={() => {
-                      void billing.requestSubscription();
-                    }}
-                    disabled={billing.isProcessingPurchase || !billing.isStoreReady}
-                  />
-                  <CustomerShellActionButton
-                    label="Restore purchases"
-                    variant="secondary"
-                    onPress={() => {
-                      void billing.restorePurchases();
-                    }}
-                    disabled={billing.isProcessingPurchase || !billing.isStoreReady}
-                  />
-                  <CustomerShellActionButton
-                    label="Sign in"
-                    variant="secondary"
-                    onPress={() => {
-                      router.push('/sign-in');
-                    }}
-                  />
-                </>
-              )}
-            </View>
-          </CustomerShellPanel>
-        </>
-      ) : profileQuery.isPending ? (
-        <CustomerShellPanel title="Loading profile" description="Fetching your account details." />
-      ) : profileQuery.isError ? (
-        <CustomerShellPanel title="Profile unavailable" description={profileQuery.error.message} />
-      ) : (
-        <>
-          <CustomerShellPanel
-            testID="profile-data-section"
-            title="Profile details"
-            description="Current identity and editable shared account fields used across web, iPhone, and Android."
-          >
-            <View style={{ gap: 10 }}>
-              <AccountDetailRow testID="profile-display-name" label="Name" value={fullName || 'Name not set'} />
-              <AccountDetailRow testID="profile-email" label="Email" value={profile?.email || '—'} />
-              <AccountDetailRow label="Email verified" value={emailVerified ? 'Yes' : 'No'} />
-              <AccountDetailRow label="Timezone" value={profile?.timezone || 'America/New_York'} />
-            </View>
-
-            <View style={{ gap: 8 }}>
-              <Text style={{ color: theme.muted, fontSize: 12, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase' }}>Update profile</Text>
-              <View style={{ gap: 12 }}>
-                <AccountTextField label="First name" value={editFirstName} onChangeText={setEditFirstName} placeholder="First name" />
-                <AccountTextField label="Last name" value={editLastName} onChangeText={setEditLastName} placeholder="Last name" />
-                <AccountTextField
-                  label="Timezone (IANA)"
-                  value={editTimezone}
-                  onChangeText={setEditTimezone}
-                  placeholder="America/New_York"
-                  autoCapitalize="none"
-                />
-                <CustomerShellActionButton
-                  label={updateProfileMutation.isPending ? 'Saving…' : 'Save profile'}
-                  onPress={() => {
-                    void saveProfile();
-                  }}
-                  disabled={!canSaveProfile}
-                />
-              </View>
-            </View>
-
-            <AccountNotice message={profileMessage} tone="success" />
-            <AccountNotice message={profileError} tone="error" />
-
-            {!emailVerified ? (
-              <View style={{ gap: 10 }}>
-                <Text style={{ color: theme.muted, fontSize: 12, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase' }}>Email verification</Text>
-                <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
-                  We sent a verification email to {email || 'your account email'}. Open the link on this device to finish verification.
-                </Text>
-                <CustomerShellActionButton
-                  label={resendingEmail ? 'Sending…' : 'Resend verification email'}
-                  onPress={() => {
-                    void resendVerificationEmail();
-                  }}
-                  disabled={resendingEmail || !email}
-                />
-                <AccountNotice message={resendMessage} tone="success" />
-                <AccountNotice message={resendError} tone="error" />
-              </View>
-            ) : null}
-          </CustomerShellPanel>
-
-          <AccountNotice message={marketingMessage} tone="success" />
-          <AccountNotice message={marketingError} tone="error" />
-          <CustomerShellPanel title="Communication preferences" description="Manage marketing email preferences and jump into alert or privacy settings.">
-            <View style={{ gap: 10 }}>
-              <AccountDetailRow
-                label="Marketing emails"
-                value={marketingEmailOptIn == null ? 'Loading…' : marketingEmailOptIn ? 'Enabled' : 'Disabled'}
-              />
-              <CustomerShellActionButton
-                label={
-                  marketingEmailOptIn == null
-                    ? 'Loading…'
-                    : marketingEmailOptIn
-                      ? 'Disable marketing emails'
-                      : 'Enable marketing emails'
-                }
+              <AccountNavRow
+                title="Membership & billing"
+                description="Premium purchase, restore, claim, and subscription management on mobile."
+                value={formatTierLabel(tier, isAuthed)}
                 onPress={() => {
-                  if (marketingEmailOptIn == null) return;
-                  void toggleMarketingEmail(!marketingEmailOptIn);
+                  router.push('/account/membership' as Href);
                 }}
-                disabled={marketingEmailOptIn == null || updateMarketingEmailMutation.isPending}
               />
-              <CustomerShellActionButton
-                label="Open alert settings"
-                variant="secondary"
+              <AccountNavRow
+                title="Alerts"
+                description="Push permissions, device registration, and mobile launch alert rules."
+                value="Mobile only"
                 onPress={() => {
-                  router.push('/preferences');
+                  router.push('/preferences' as Href);
+                }}
+              />
+              <AccountNavRow
+                title="Support & legal"
+                description="Account help plus privacy and terms links."
+                onPress={() => {
+                  router.push('/support' as Href);
                 }}
               />
             </View>
           </CustomerShellPanel>
 
-          <CustomerShellPanel testID="profile-entitlements-section" title="Membership" description="Your current access and renewal state on this device.">
-            <View style={{ gap: 10 }}>
-              <AccountDetailRow testID="profile-entitlements-tier" label="Access" value={formatTierLabel(tier, isAuthed)} />
-              <AccountDetailRow label="Status" value={membershipStatusLabel} />
-              {entitlementsQuery.data?.currentPeriodEnd ? (
-                <AccountDetailRow label="Current period end" value={formatDate(entitlementsQuery.data.currentPeriodEnd)} />
-              ) : null}
-              <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>{membershipStatusCaption}</Text>
-            </View>
-          </CustomerShellPanel>
-
-          {billing.billingSummaryQuery.isPending ? (
-            <CustomerShellPanel title="Billing" description="Loading provider-aware billing status." />
-          ) : billing.billingSummaryQuery.isError ? (
-            <CustomerShellPanel title="Billing unavailable" description={billing.billingSummaryQuery.error.message} />
-          ) : billingSummary ? (
-            <CustomerShellPanel
-              testID="profile-billing-section"
-              title="Billing"
-              description={
-                hasAdminMembership
-                  ? 'Stored billing on this device is separate from admin-controlled access.'
-                  : 'Manage your current plan and purchase status on this device.'
-              }
-            >
-              <View style={{ gap: 10 }}>
-                <AccountDetailRow
-                  testID="profile-billing-provider"
-                  label="Provider"
-                  value={billingSummary.provider === 'none' ? 'No active Premium billing' : formatBillingProvider(billingSummary.provider)}
-                />
-                <AccountDetailRow testID="profile-billing-status" label="Status" value={formatBillingStatus(billingSummary.status)} />
-                <AccountDetailRow testID="profile-billing-paid-access" label="Paid access" value={billingSummary.isPaid ? 'Yes' : 'No'} />
-                {billingSummary.currentPeriodEnd ? (
-                  <AccountDetailRow label="Current period end" value={formatDate(billingSummary.currentPeriodEnd)} />
-                ) : null}
-                {billingSummary.providerMessage ? (
-                  <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>{billingSummary.providerMessage}</Text>
-                ) : null}
-                {billing.actionMessage ? <Text style={{ color: theme.accent, fontSize: 14, lineHeight: 21 }}>{billing.actionMessage}</Text> : null}
-                {billing.actionError ? <Text style={{ color: '#ff9087', fontSize: 14, lineHeight: 21 }}>{billing.actionError}</Text> : null}
-              </View>
-
-              <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
-                {hasAdminMembership
-                  ? 'Admin access can stay premium even when this device has no active paid billing record.'
-                  : buildBillingMessage(billingSummary.provider, billingSummary.isPaid, billing.isStoreReady)}
-              </Text>
-              {showPurchaseAction ? (
-                <BillingPurchaseNotice
-                  displayName={catalogProduct?.displayName}
-                  priceLabel={catalogProduct?.priceLabel}
-                  provider={purchaseProvider}
-                  onOpenPrivacy={() => router.push('/legal/privacy' as Href)}
-                  onOpenTerms={() => router.push('/legal/terms' as Href)}
-                />
-              ) : null}
-              {catalogOffers.length > 0 ? (
-                <View style={{ gap: 8 }}>
-                  <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>Active offers on this device</Text>
-                  {catalogOffers.map((offer) => (
-                    <View
-                      key={offer.offerKey}
-                      style={{
-                        gap: 6,
-                        borderRadius: 16,
-                        borderWidth: 1,
-                        borderColor: theme.stroke,
-                        backgroundColor: 'rgba(255,255,255,0.03)',
-                        paddingHorizontal: 12,
-                        paddingVertical: 12
-                      }}
-                    >
-                      <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>{offer.label}</Text>
-                      {offer.eligibilityHint ? <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>{offer.eligibilityHint}</Text> : null}
-                      {offer.promotionCode ? <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>Code: {offer.promotionCode}</Text> : null}
-                      {offer.redemptionUrl ? (
-                        <CustomerShellActionButton
-                          label="Redeem App Store offer"
-                          variant="secondary"
-                          onPress={() => {
-                            void billing.openManagementLink(offer.redemptionUrl);
-                          }}
-                        />
-                      ) : null}
-                    </View>
-                  ))}
-                  {hasAutomaticGoogleOffer(catalogOffers) ? (
-                    <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
-                      Eligible Google Play offers are applied automatically when checkout starts on this device.
-                    </Text>
-                  ) : null}
-                </View>
-              ) : null}
-
-              {showStoreManagementAction || showPurchaseAction ? (
-                <CustomerShellActionButton
-                  testID="profile-billing-primary-action"
-                  label={
-                    billing.isProcessingPurchase
-                      ? 'Working…'
-                      : showStoreManagementAction
-                        ? `Manage in ${formatManagementProviderLabel(billingSummary.provider)}`
-                        : 'Unlock Premium'
-                  }
-                  onPress={() => {
-                    if (showStoreManagementAction && billingSummary.managementUrl) {
-                      void billing.openManagementLink(billingSummary.managementUrl);
-                      return;
-                    }
-                    void billing.requestSubscription();
-                  }}
-                  disabled={billing.isProcessingPurchase || (showStoreManagementAction ? !billingSummary.managementUrl : !billing.isStoreReady)}
-                />
-              ) : null}
-
-              {showRestoreAction ? (
-                <CustomerShellActionButton
-                  testID="profile-billing-restore-action"
-                  label="Restore purchases"
-                  variant="secondary"
-                  onPress={() => {
-                    void billing.restorePurchases();
-                  }}
-                  disabled={billing.isProcessingPurchase}
-                />
-              ) : null}
-            </CustomerShellPanel>
-          ) : null}
-
-          <MobileAccountDeletionPanel
-            billingSummary={billingSummary}
-            onDeleted={(message) => {
-              setAccountMessage(message);
+          <CustomerShellActionButton
+            label="Sign in"
+            onPress={() => {
+              router.push('/sign-in');
             }}
           />
-
-          <CustomerShellPanel title="Account tools" description="Open the remaining customer account surfaces that now stay native on mobile.">
+        </>
+      ) : (
+        <>
+          <CustomerShellPanel title="Identity & security" description="Profile fields and authentication methods for this customer account.">
             <View style={{ gap: 10 }}>
-              <CustomerShellActionButton label="Saved items" onPress={() => router.push('/saved')} />
-              <CustomerShellActionButton label="Login methods" variant="secondary" onPress={() => router.push('/account/login-methods' as Href)} />
-              <CustomerShellActionButton label="Integrations" variant="secondary" onPress={() => router.push('/account/integrations' as Href)} />
-              <CustomerShellActionButton label="Support" variant="secondary" onPress={() => router.push('/support' as Href)} />
-              <CustomerShellActionButton label="Privacy choices" variant="secondary" onPress={() => router.push('/legal/privacy-choices' as Href)} />
-              <CustomerShellActionButton label="Privacy notice" variant="secondary" onPress={() => router.push('/legal/privacy' as Href)} />
-              <CustomerShellActionButton label="Terms of service" variant="secondary" onPress={() => router.push('/legal/terms' as Href)} />
+              <AccountNavRow
+                title="Personal info"
+                description="Name, email verification, timezone, and marketing email preferences."
+                value={summaryName || summaryEmail}
+                onPress={() => {
+                  router.push('/account/personal' as Href);
+                }}
+              />
+              <AccountNavRow
+                title="Login methods"
+                description="Email/password and Sign in with Apple management for this account."
+                onPress={() => {
+                  router.push('/account/login-methods' as Href);
+                }}
+              />
             </View>
           </CustomerShellPanel>
+
+          <CustomerShellPanel title="Membership & billing" description="Keep plan status, renewal timing, and billing actions in one owned destination.">
+            <AccountNavRow
+              title="Membership & billing"
+              description="Plan, renewal, restore, and provider-aware billing management."
+              value={membershipStatusLabel}
+              onPress={() => {
+                router.push('/account/membership' as Href);
+              }}
+            />
+          </CustomerShellPanel>
+
+          <CustomerShellPanel title="Communications & alerts" description="Marketing email stays account-wide while push stays device-specific.">
+            <AccountNavRow
+              title="Alerts"
+              description="Push permissions, device registration, and mobile launch alert rules."
+              value={alertStatusLabel}
+              onPress={() => {
+                router.push('/preferences' as Href);
+              }}
+            />
+          </CustomerShellPanel>
+
+          <CustomerShellPanel title="Launch tools" description="Saved items already have their own tab. Premium integrations stay in a dedicated account destination.">
+            <AccountNavRow
+              title="Integrations"
+              description="Recurring calendar feeds, RSS feeds, and next-launch widgets."
+              value="Premium"
+              onPress={() => {
+                router.push('/account/integrations' as Href);
+              }}
+            />
+          </CustomerShellPanel>
+
+          <CustomerShellPanel title="Privacy & data" description="Keep export, deletion, and embed privacy preferences together in one place.">
+            <AccountNavRow
+              title="Privacy choices & data requests"
+              description="Export account data, delete your account, and manage media-loading privacy preferences."
+              value="Export + delete"
+              onPress={() => {
+                router.push('/legal/privacy-choices' as Href);
+              }}
+            />
+          </CustomerShellPanel>
+
+          <CustomerShellPanel title="Support & legal" description="Account help, billing help, and the linked legal summaries for mobile.">
+            <AccountNavRow
+              title="Support"
+              description="Contact support and open privacy or terms links from one place."
+              onPress={() => {
+                router.push('/support' as Href);
+              }}
+            />
+          </CustomerShellPanel>
+          <AccountNotice message={signOutError} tone="error" />
+          <CustomerShellActionButton
+            label={isSigningOut ? 'Signing out…' : 'Sign out'}
+            variant="secondary"
+            onPress={() => {
+              void handleSignOut();
+            }}
+            disabled={isSigningOut}
+          />
         </>
       )}
     </AppScreen>
   );
-}
-
-function hasAutomaticGoogleOffer(offers: BillingCatalogOfferV1[]) {
-  return offers.some((offer) => offer.provider === 'google_play' && Boolean(offer.offerToken));
 }

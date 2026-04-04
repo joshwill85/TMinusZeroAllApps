@@ -3,13 +3,13 @@
 ## 0) Goal & DoD
 - Goal: Mobile-first, dark-space launch schedule that answers "When?/Watch?/Status?" in ~2 seconds.
 - DoD v1.0:
-  - Free users: Public cache (15m) feed, watch link. Skeletons, no CLS.
+  - Anon viewers: Public cache (15m) feed, watch link. Skeletons, no CLS.
   - Paid: Live feed freshness, native mobile push alerts, saved filters, quiet hours, change alerts.
   - Admin: Manage overrides, system settings, view logs/outbox, manual sync triggers.
   - Legal: Terms, Privacy, Data/Attribution pages live.
 
 ## 1) Product Model
-- Free tier: Public cache feed, basic filters, watch link, no notifications.
+- Anon tier: Public cache feed, basic filters, watch link, no notifications.
 - Paid tier (subscription): Live feed, notifications, saved filters, "recently changed", quiet hours.
 
 ## 2) UX / UI

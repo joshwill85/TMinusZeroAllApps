@@ -65,7 +65,7 @@ export function SupportScreen() {
       <CustomerShellPanel title="Billing and subscriptions" description="Premium billing stays native on mobile and should be managed through the correct billing provider.">
         <View style={{ gap: 8 }}>
           <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
-            Use Profile to purchase Premium, restore purchases, or open store management for App Store or Google Play billing.
+            Use Account to purchase Premium, restore purchases, or open store management for App Store or Google Play billing.
           </Text>
           <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
             If you delete your account, cancel any active App Store or Google Play subscription in the store first if you do not want renewal to continue.

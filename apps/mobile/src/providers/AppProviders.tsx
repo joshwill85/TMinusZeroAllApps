@@ -94,6 +94,7 @@ function isAuthScopedQueryKey(queryKey: readonly unknown[]) {
   if (
     root === sharedQueryKeys.viewerSession[0] ||
     root === sharedQueryKeys.entitlements[0] ||
+    root === sharedQueryKeys.adminAccessOverride[0] ||
     root === sharedQueryKeys.profile[0] ||
     root === sharedQueryKeys.authMethods[0] ||
     root === sharedQueryKeys.privacyPreferences[0] ||

@@ -94,6 +94,15 @@ export function isSupabaseAdminConfigured() {
   );
 }
 
+export function getAntiIngestionTokenSecret() {
+  const explicit = readConfiguredValue(process.env.ANTI_INGESTION_TOKEN_SECRET, ['ANTI_INGESTION_TOKEN_SECRET']);
+  if (explicit) {
+    return explicit;
+  }
+
+  return readConfiguredValue(process.env.SUPABASE_SERVICE_ROLE_KEY, ['SUPABASE_SERVICE_ROLE_KEY', 'service_role_key', 'service_role_placeholder']);
+}
+
 export function isJepPublicVisibilityForced() {
   return parseBooleanEnv(process.env.JEP_FORCE_PUBLIC_VISIBLE);
 }

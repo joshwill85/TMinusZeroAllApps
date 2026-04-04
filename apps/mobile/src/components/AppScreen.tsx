@@ -43,8 +43,9 @@ export function AppScreen({
     : Math.max(insets.bottom + 24, 40);
   const contentStyle = {
     gap: 16,
-    paddingHorizontal: 20,
-    paddingTop: 20,
+    paddingLeft: insets.left + 20,
+    paddingRight: insets.right + 20,
+    paddingTop: insets.top + 20,
     paddingBottom: contentBottomPadding
   } as const;
 
@@ -70,6 +71,7 @@ export function AppScreen({
         testID={testID}
         style={{ flex: 1, backgroundColor: theme.background }}
         contentContainerStyle={contentStyle}
+        contentInsetAdjustmentBehavior="never"
         keyboardShouldPersistTaps={keyboardShouldPersistTaps}
         refreshControl={refreshControl}
         onScroll={onScroll}
@@ -87,6 +89,7 @@ export function AppScreen({
       testID={testID}
       style={{ flex: 1, backgroundColor: theme.background }}
       contentContainerStyle={contentStyle}
+      contentInsetAdjustmentBehavior="never"
       keyboardShouldPersistTaps={keyboardShouldPersistTaps}
       refreshControl={refreshControl}
     >

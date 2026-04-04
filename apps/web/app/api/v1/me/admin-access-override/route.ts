@@ -19,7 +19,9 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     if (error instanceof MobileApiRouteError) {
-      return NextResponse.json({ error: error.code }, { status: error.status });
+      const status = error.status === 401 || error.status === 403 ? 404 : error.status;
+      const code = status === 404 ? 'not_found' : error.code;
+      return NextResponse.json({ error: code }, { status });
     }
     console.error('v1 admin access override failed', error);
     return NextResponse.json({ error: 'failed_to_load' }, { status: 500 });
@@ -37,7 +39,9 @@ export async function PUT(request: Request) {
     });
   } catch (error) {
     if (error instanceof MobileApiRouteError) {
-      return NextResponse.json({ error: error.code }, { status: error.status });
+      const status = error.status === 401 || error.status === 403 ? 404 : error.status;
+      const code = status === 404 ? 'not_found' : error.code;
+      return NextResponse.json({ error: code }, { status });
     }
     console.error('v1 admin access override update failed', error);
     return NextResponse.json({ error: 'failed_to_save' }, { status: 500 });

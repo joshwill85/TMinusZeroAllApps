@@ -55,11 +55,11 @@ assert.equal(countdown?.isPast, false);
 assert.equal(countdown?.totalMs, 300_000);
 
 assert.equal(resolveViewerTier({ isAuthed: false, isPaid: false }), 'anon');
-assert.equal(resolveViewerTier({ isAuthed: true, isPaid: false }), 'free');
+assert.equal(resolveViewerTier({ isAuthed: true, isPaid: false }), 'anon');
 assert.equal(resolveViewerTier({ isAuthed: true, isPaid: true }), 'premium');
 assert.equal(tierToMode('premium'), 'live');
 assert.equal(getTierRefreshSeconds('premium'), 15);
-assert.equal(getTierLimits('free').watchlistRuleLimit, 0);
+assert.equal(getTierLimits('anon').watchlistRuleLimit, 0);
 assert.equal(getTierCapabilities('anon').canUseSavedItems, false);
 
 const parsedSearch = parseSiteSearchInput('type:launch provider:SpaceX -status:scrubbed "Starlink 12"');

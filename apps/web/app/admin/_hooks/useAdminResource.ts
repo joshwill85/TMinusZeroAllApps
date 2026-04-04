@@ -21,7 +21,7 @@ export function useAdminResource<T>(url: string, options: UseAdminResourceOption
     async (signal?: AbortSignal) => {
       setError(null);
       const res = await fetch(url, { cache: 'no-store', signal });
-      if (res.status === 401 || res.status === 403) {
+      if (res.status === 401 || res.status === 403 || res.status === 404) {
         setStatus('unauthorized');
         setError('Admin access required. Sign in with an admin account to continue.');
         return false;
@@ -65,4 +65,3 @@ export function useAdminResource<T>(url: string, options: UseAdminResourceOption
     [data, error, lastRefreshedAt, refresh, status]
   );
 }
-

@@ -703,8 +703,8 @@ export default function LaunchDetailScreen() {
         setSavedStatus({
           tone: 'error',
           text: basicActiveLaunchRule?.label
-            ? `Your free launch slot is in use by ${basicActiveLaunchRule.label}. Unfollow it or wait until it launches.`
-            : 'Your free launch slot is already in use.'
+            ? `Your public launch slot is in use by ${basicActiveLaunchRule.label}. Unfollow it or wait until it launches.`
+            : 'Your public launch slot is already in use.'
         });
         return;
       }
@@ -741,8 +741,8 @@ export default function LaunchDetailScreen() {
           setSavedStatus({
             tone: 'error',
             text: basicActiveLaunchRule?.label
-              ? `Your free launch slot is in use by ${basicActiveLaunchRule.label}. Unfollow it or wait until it launches.`
-              : 'Your free launch slot is already in use.'
+              ? `Your public launch slot is in use by ${basicActiveLaunchRule.label}. Unfollow it or wait until it launches.`
+              : 'Your public launch slot is already in use.'
           });
           return;
         }
@@ -974,10 +974,10 @@ export default function LaunchDetailScreen() {
                 : !canUseSingleLaunchFollow
                   ? 'Launch follow is unavailable on this account.'
                   : basicLaunchSlotOccupiedElsewhere
-                    ? `Your free launch slot is in use by ${basicActiveLaunchRule?.label || 'another launch'}. Unfollow it or wait until it launches.`
+                    ? `Your public launch slot is in use by ${basicActiveLaunchRule?.label || 'another launch'}. Unfollow it or wait until it launches.`
                     : currentBasicLaunchActive
-                      ? 'This launch is using your free follow slot. Unfollow it to free up the slot.'
-                      : 'Use your free slot for push reminders on this launch.',
+                      ? 'This launch is using your public launch slot. Unfollow it to free up the slot.'
+                      : 'Use your public launch slot for push reminders on this launch.',
             active: currentBasicLaunchActive,
             disabled:
               upsertLaunchNotificationMutation.isPending ||
@@ -1066,8 +1066,8 @@ export default function LaunchDetailScreen() {
           canUseSavedItems
             ? 'Following keeps matching launches in your saved list and related notifications can be tuned from Preferences.'
             : canUseAllUsLaunchAlerts
-              ? 'Free keeps one launch reminder slot on this device. Manage All U.S. launches from Preferences. Premium adds synced follows across broader scopes.'
-              : 'Free keeps one launch reminder slot on this device. Premium adds synced follows across broader scopes.'
+              ? 'Public access keeps one launch reminder slot on this device. Manage All U.S. launches from Preferences. Premium adds synced follows across broader scopes.'
+              : 'Public access keeps one launch reminder slot on this device. Premium adds synced follows across broader scopes.'
         }
         onClose={() => setFollowSheetOpen(false)}
       />
@@ -1188,7 +1188,7 @@ export default function LaunchDetailScreen() {
       <>
         <View
           style={{
-            marginTop: Math.max(insets.top - 10, 8),
+            marginTop: 8,
             overflow: 'hidden',
             borderRadius: 999,
             borderWidth: 1,
@@ -1337,7 +1337,7 @@ export default function LaunchDetailScreen() {
           </View>
         ) : null}
 
-        {navSections.length > 1 ? (
+        {shouldReduceMotion && navSections.length > 1 ? (
           <View
             style={{
               borderRadius: 20,
@@ -1372,21 +1372,18 @@ export default function LaunchDetailScreen() {
           onLayout={registerSectionOffset}
         >
           <View style={{ gap: 16 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16 }}>
-              <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+            <View style={{ gap: 12 }}>
+              <View style={{ gap: 4 }}>
                 <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase' }}>
                   Liftoff
                 </Text>
                 <Text style={{ color: theme.foreground, fontSize: 18, fontWeight: '700', lineHeight: 22 }}>{formatTimestamp(launch.net)}</Text>
                 <Text style={{ color: theme.muted, fontSize: 13 }}>
-                  {launch.netPrecision === 'day' || launch.netPrecision === 'tbd' ? 'Date-only NET window' : 'Precise launch window'}
+                  {buildMissionControlWindowLine(launch.netPrecision, launch.windowStart, launch.net, launch.windowEnd)}
                 </Text>
               </View>
               <View
                 style={{
-                  minWidth: 148,
-                  maxWidth: '48%',
-                  flexShrink: 0,
                   borderRadius: 18,
                   borderWidth: 1,
                   borderColor: 'rgba(255, 255, 255, 0.06)',
@@ -1396,16 +1393,27 @@ export default function LaunchDetailScreen() {
                 }}
               >
                 <Text
+                  style={{
+                    color: theme.accent,
+                    fontSize: 11,
+                    fontWeight: '700',
+                    letterSpacing: 1.1,
+                    textTransform: 'uppercase'
+                  }}
+                >
+                  T- countdown
+                </Text>
+                <Text
                   adjustsFontSizeToFit
                   ellipsizeMode="clip"
                   minimumFontScale={0.72}
                   numberOfLines={1}
                   style={{
                     color: theme.foreground,
-                    fontSize: 27,
+                    fontSize: 31,
                     fontWeight: '300',
-                    lineHeight: 30,
-                    textAlign: 'right',
+                    lineHeight: 34,
+                    marginTop: 6,
                     letterSpacing: 0.4,
                     fontVariant: ['tabular-nums']
                   }}
@@ -1419,7 +1427,6 @@ export default function LaunchDetailScreen() {
                     fontSize: 11,
                     fontWeight: '700',
                     letterSpacing: 1.1,
-                    textAlign: 'right',
                     textTransform: 'uppercase'
                   }}
                 >
@@ -3236,6 +3243,32 @@ function formatFaaCoverageLabel(shapeCount: number, hasShape: boolean) {
     return `${shapeCount} mapped area${shapeCount === 1 ? '' : 's'}`;
   }
   return hasShape ? 'Restricted area' : 'Notice only';
+}
+
+function buildMissionControlWindowLine(
+  netPrecision: string | null | undefined,
+  windowStart: string | null | undefined,
+  net: string | null | undefined,
+  windowEnd: string | null | undefined
+) {
+  if (netPrecision === 'tbd') {
+    return 'Launch timing pending';
+  }
+
+  if (netPrecision === 'day') {
+    return 'Date-only NET window';
+  }
+
+  const rangeStart = windowStart || net;
+  if (!rangeStart) {
+    return 'Precise launch window';
+  }
+
+  if (windowEnd && windowEnd !== rangeStart) {
+    return `NET window ${formatTimestamp(rangeStart)} to ${formatTimestamp(windowEnd)}`;
+  }
+
+  return `NET ${formatTimestamp(rangeStart)}`;
 }
 
 function formatFaaOverlapLabel(matchStatus: LaunchFaaAirspaceAdvisoryView['matchStatus'], matchConfidence: number | null) {

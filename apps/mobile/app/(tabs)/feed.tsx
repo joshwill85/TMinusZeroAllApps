@@ -415,7 +415,7 @@ export default function FeedScreen() {
   const contentBottomPadding = showDock
     ? insets.bottom + MOBILE_DOCK_HEIGHT + MOBILE_DOCK_BOTTOM_OFFSET + MOBILE_DOCK_CONTENT_GAP
     : Math.max(insets.bottom + 24, 40);
-  const floatingFeedBarTop = Math.max(insets.top - 10, 8);
+  const floatingFeedBarTop = Math.max(insets.top + 8, 16);
   const floatingFeedBarOffset = floatingFeedBarTop + FLOATING_FEED_BAR_HEIGHT + 22;
 
   useEffect(() => {
@@ -1300,10 +1300,10 @@ export default function FeedScreen() {
                 : !canUseSingleLaunchFollow
                   ? 'Launch follow is unavailable on this account.'
                   : selectedBasicLaunchSlotOccupiedElsewhere
-                    ? `Your free launch slot is in use by ${basicActiveLaunchRule?.label || 'another launch'}. Unfollow it or wait until it launches.`
+                    ? `Your public launch slot is in use by ${basicActiveLaunchRule?.label || 'another launch'}. Unfollow it or wait until it launches.`
                     : selectedBasicLaunchActive
-                      ? 'This launch is using your free follow slot. Unfollow it to free up the slot.'
-                      : 'Use your free slot for push reminders on this launch.',
+                      ? 'This launch is using your public launch slot. Unfollow it to free up the slot.'
+                      : 'Use your public launch slot for push reminders on this launch.',
             icon: 'launch',
             active: selectedBasicLaunchActive,
             disabled:
@@ -1326,8 +1326,8 @@ export default function FeedScreen() {
                 setNotice({
                   tone: 'warning',
                   message: basicActiveLaunchRule?.label
-                    ? `Your free launch slot is in use by ${basicActiveLaunchRule.label}. Unfollow it or wait until it launches.`
-                    : 'Your free launch slot is already in use.'
+                    ? `Your public launch slot is in use by ${basicActiveLaunchRule.label}. Unfollow it or wait until it launches.`
+                    : 'Your public launch slot is already in use.'
                 });
                 return;
               }
@@ -1359,8 +1359,8 @@ export default function FeedScreen() {
                   setNotice({
                     tone: 'warning',
                     message: basicActiveLaunchRule?.label
-                      ? `Your free launch slot is in use by ${basicActiveLaunchRule.label}. Unfollow it or wait until it launches.`
-                      : 'Your free launch slot is already in use.'
+                      ? `Your public launch slot is in use by ${basicActiveLaunchRule.label}. Unfollow it or wait until it launches.`
+                      : 'Your public launch slot is already in use.'
                   });
                   return;
                 }
@@ -1559,15 +1559,18 @@ export default function FeedScreen() {
             >
               <Image source={item.logo} resizeMode="contain" style={item.logoStyle} />
             </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, minHeight: 30 }}>
               <Text
-                numberOfLines={1}
-                style={{ flex: 1, color: theme.foreground, fontSize: 11, fontWeight: '800', letterSpacing: 0.8, textTransform: 'uppercase' }}
+                adjustsFontSizeToFit
+                minimumFontScale={0.82}
+                numberOfLines={2}
+                style={{ flex: 1, color: theme.foreground, fontSize: 11, lineHeight: 13, fontWeight: '800' }}
               >
                 {item.label}
               </Text>
               <View
                 style={{
+                  marginTop: 1,
                   width: 20,
                   height: 20,
                   alignItems: 'center',
@@ -1636,11 +1639,17 @@ export default function FeedScreen() {
           padding: 16
         }}
       >
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <ModeButton
             label="For You"
             active={feedMode === 'for-you'}
             onPress={() => setFeedMode('for-you')}
+            accessoryLabel={canUseLaunchFilters && feedMode === 'for-you' ? 'Filters' : undefined}
+            accessoryCount={canUseLaunchFilters && feedMode === 'for-you' ? activeFilterCount : 0}
+            accessoryTestID="feed-mode-filters-button"
+            onAccessoryPress={() => {
+              setFiltersOpen(true);
+            }}
           />
           <ModeButton
             label="Following"
@@ -1722,8 +1731,8 @@ export default function FeedScreen() {
         style={{
           position: 'absolute',
           top: floatingFeedBarTop,
-          left: 20,
-          right: 20,
+          left: insets.left + 20,
+          right: insets.right + 20,
           zIndex: 20
         }}
       >
@@ -1886,7 +1895,8 @@ export default function FeedScreen() {
         removeClippedSubviews
         style={{ flex: 1 }}
         contentContainerStyle={{
-          paddingHorizontal: 20,
+          paddingLeft: insets.left + 20,
+          paddingRight: insets.right + 20,
           paddingTop: floatingFeedBarOffset,
           paddingBottom: contentBottomPadding
         }}
@@ -2017,8 +2027,8 @@ export default function FeedScreen() {
           canUseSavedItems
             ? 'Following keeps matching launches in your saved list and related notifications can be tuned from Preferences.'
             : canUseAllUsLaunchAlerts
-              ? 'Free keeps one launch reminder slot on this device. Manage All U.S. launches from Preferences. Premium adds synced follows across broader scopes.'
-              : 'Free keeps one launch reminder slot on this device. Premium adds synced follows across broader scopes.'
+              ? 'Public access keeps one launch reminder slot on this device. Manage All U.S. launches from Preferences. Premium adds synced follows across broader scopes.'
+              : 'Public access keeps one launch reminder slot on this device. Premium adds synced follows across broader scopes.'
         }
         onClose={() => setFollowLaunch(null)}
       />
@@ -2067,14 +2077,85 @@ function ModeButton({
   label,
   active,
   disabled = false,
-  onPress
+  onPress,
+  accessoryLabel,
+  accessoryCount = 0,
+  accessoryTestID,
+  onAccessoryPress
 }: {
   label: string;
   active: boolean;
   disabled?: boolean;
   onPress: () => void;
+  accessoryLabel?: string;
+  accessoryCount?: number;
+  accessoryTestID?: string;
+  onAccessoryPress?: () => void;
 }) {
   const { theme } = useMobileBootstrap();
+
+  if (active && accessoryLabel && onAccessoryPress) {
+    return (
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 8,
+          borderRadius: 999,
+          borderWidth: 1,
+          borderColor: theme.accent,
+          backgroundColor: theme.accent,
+          paddingLeft: 14,
+          paddingRight: 8,
+          paddingVertical: 5
+        }}
+      >
+        <Text style={{ color: theme.background, fontSize: 12, fontWeight: '700' }}>{label}</Text>
+        <View
+          style={{
+            width: 1,
+            alignSelf: 'stretch',
+            backgroundColor: 'rgba(7, 9, 19, 0.14)',
+            marginVertical: 2
+          }}
+        />
+        <Pressable
+          testID={accessoryTestID}
+          onPress={onAccessoryPress}
+          hitSlop={8}
+          style={({ pressed }) => ({
+            minHeight: 28,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 6,
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: 'rgba(7, 9, 19, 0.12)',
+            backgroundColor: pressed ? 'rgba(7, 9, 19, 0.12)' : 'rgba(7, 9, 19, 0.06)',
+            paddingHorizontal: 10,
+            paddingVertical: 5
+          })}
+        >
+          <Text style={{ color: theme.background, fontSize: 11, fontWeight: '800' }}>{accessoryLabel}</Text>
+          {accessoryCount > 0 ? (
+            <View
+              style={{
+                minWidth: 18,
+                height: 18,
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: 999,
+                backgroundColor: 'rgba(7, 9, 19, 0.14)',
+                paddingHorizontal: 5
+              }}
+            >
+              <Text style={{ color: theme.background, fontSize: 10, fontWeight: '800' }}>{accessoryCount}</Text>
+            </View>
+          ) : null}
+        </Pressable>
+      </View>
+    );
+  }
 
   return (
     <Pressable

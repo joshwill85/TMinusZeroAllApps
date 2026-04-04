@@ -4,6 +4,10 @@ export type CalendarGridDay = {
   isCurrentMonth: boolean;
 };
 
+export type CalendarDayTemporalState = 'past' | 'today' | 'future';
+
+export type CalendarLaunchMarkerState = CalendarDayTemporalState | 'none';
+
 export type CalendarEventLinkInput = {
   title: string;
   location?: string | null;
@@ -84,6 +88,39 @@ export function toLocalDateKey(value: Date | string | null | undefined) {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+export function parseCalendarDayKey(value: string | null | undefined) {
+  const normalized = String(value || '').trim();
+  if (!normalized) return null;
+
+  const parsed = new Date(`${normalized}T12:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export function getCalendarDayTemporalState(
+  dayKey: string,
+  referenceDate: Date = new Date()
+): CalendarDayTemporalState | null {
+  const day = parseCalendarDayKey(dayKey);
+  const referenceKey = toLocalDateKey(referenceDate);
+  const reference = parseCalendarDayKey(referenceKey);
+  if (!day || !reference) return null;
+
+  const dayMs = day.getTime();
+  const referenceMs = reference.getTime();
+  if (dayMs < referenceMs) return 'past';
+  if (dayMs > referenceMs) return 'future';
+  return 'today';
+}
+
+export function getCalendarLaunchMarkerState(
+  dayKey: string,
+  itemCount: number,
+  referenceDate: Date = new Date()
+): CalendarLaunchMarkerState {
+  if (!Number.isFinite(itemCount) || itemCount < 1) return 'none';
+  return getCalendarDayTemporalState(dayKey, referenceDate) ?? 'none';
 }
 
 export function buildCalendarEventLinks(input: CalendarEventLinkInput) {

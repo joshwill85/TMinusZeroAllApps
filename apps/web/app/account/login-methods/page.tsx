@@ -165,7 +165,7 @@ export default function LoginMethodsPage() {
           <p className="mt-1 text-sm text-text3">Manage the sign-in methods attached to this customer account.</p>
         </div>
         <Link href={buildProfileHref()} className="text-sm text-primary hover:underline">
-          Back to profile
+          Back to account
         </Link>
       </div>
 

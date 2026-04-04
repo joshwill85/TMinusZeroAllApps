@@ -3,10 +3,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import clsx from 'clsx';
+import { getCalendarDayTemporalState } from '@tminuszero/domain';
 import { Launch } from '@/lib/types/launch';
 import { formatDateOnly } from '@/lib/time';
 import { resolveProviderLogoUrl } from '@/lib/utils/providerLogo';
 import { buildLaunchHref, buildProviderHref } from '@/lib/utils/launchLinks';
+import { CalendarDayTile, CalendarStateLegend } from '@/components/CalendarDayTile';
+import { CalendarMonthYearPicker } from '@/components/CalendarMonthYearPicker';
 
 export function LaunchCalendar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [monthOffset, setMonthOffset] = useState(0);
@@ -102,22 +105,33 @@ export function LaunchCalendar({ open, onClose }: { open: boolean; onClose: () =
             </h2>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-secondary rounded-lg px-3 py-2 text-sm" onClick={() => setMonthOffset((m) => m - 1)}>
-              ← Prev
-            </button>
-            <button className="btn-secondary rounded-lg px-3 py-2 text-sm" onClick={() => setMonthOffset((m) => m + 1)}>
-              Next →
-            </button>
             <button className="btn rounded-lg px-3 py-2 text-sm" onClick={onClose}>
               Close
             </button>
           </div>
         </div>
 
+        <div className="mt-4">
+          <CalendarMonthYearPicker
+            value={currentMonth}
+            today={today}
+            compact
+            onChange={(nextMonth) => {
+              const offset = (nextMonth.getFullYear() - today.getFullYear()) * 12 + (nextMonth.getMonth() - today.getMonth());
+              setMonthOffset(offset);
+            }}
+          />
+        </div>
+
         {loading && <div className="mt-3 text-sm text-text3">Loading launches...</div>}
 
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-xs uppercase tracking-[0.08em] text-text3">Past, today, upcoming</div>
+          <CalendarStateLegend />
+        </div>
+
         <div className="mt-4 overflow-x-auto pb-2">
-          <div className="grid min-w-[560px] grid-cols-7 gap-2">
+          <div className="grid min-w-[560px] grid-cols-7 gap-3">
             {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
               <div key={d} className="text-center text-xs uppercase tracking-[0.08em] text-text3">
                 {d}
@@ -128,44 +142,21 @@ export function LaunchCalendar({ open, onClose }: { open: boolean; onClose: () =
               const key = day.iso;
               const items = launchesByDay.get(key) || [];
               const isSelected = selectedDay === key;
-              const dotCount = Math.min(items.length, 3);
               return (
-                <button
+                <CalendarDayTile
                   key={key}
+                  dayKey={key}
+                  dayNumber={day.date.getDate()}
+                  launchCount={items.length}
+                  isCurrentMonth={isCurrentMonth}
+                  isSelected={isSelected}
+                  ariaLabel={buildCalendarDayLabel(key, items.length, localTimezone)}
                   onClick={() => {
                     setSelectedDay(key);
                     setMobileDayDetailsOpen(true);
                   }}
-                  className={`flex h-[88px] min-h-[88px] flex-col overflow-hidden rounded-lg border px-2 py-2 text-left transition ${
-                    isSelected ? 'border-primary bg-[rgba(34,211,238,0.08)]' : 'border-stroke bg-[rgba(255,255,255,0.02)]'
-                  } ${isCurrentMonth ? 'text-text1' : 'text-text3'}`}
-                  aria-label={`${formatDateOnly(`${key}T00:00:00`, localTimezone)} • ${formatLaunchCountLabel(items.length)}`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-semibold">{day.date.getDate()}</span>
-                    {items.length > 0 && (
-                      <span className="rounded-full bg-[rgba(34,211,238,0.15)] px-2 py-[2px] text-[11px] text-primary">
-                        {items.length}
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-2 flex flex-1 flex-col justify-end overflow-hidden">
-                    {items.length > 0 ? (
-                      <>
-                        <div className="truncate text-[11px] font-medium text-text2">{formatLaunchCountLabel(items.length)}</div>
-                        <div className="mt-1 flex items-center gap-1" aria-hidden="true">
-                          {Array.from({ length: dotCount }).map((_, index) => (
-                            <span
-                              key={`${key}-dot-${index}`}
-                              className="h-1.5 w-1.5 rounded-full bg-primary/80"
-                            />
-                          ))}
-                          {items.length > dotCount ? <span className="text-[10px] text-text3">+{items.length - dotCount}</span> : null}
-                        </div>
-                      </>
-                    ) : null}
-                  </div>
-                </button>
+                  compact
+                />
               );
             })}
           </div>
@@ -281,6 +272,22 @@ function ymdLocal(date: Date) {
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
+}
+
+function buildCalendarDayLabel(dayKey: string, count: number, localTimezone: string) {
+  const label = [formatDateOnly(`${dayKey}T00:00:00`, localTimezone)];
+  const dayState = getCalendarDayTemporalState(dayKey);
+
+  if (dayState === 'today') {
+    label.push('today');
+  } else if (dayState === 'past') {
+    label.push(count > 0 ? 'past launches' : 'past date');
+  } else if (dayState === 'future') {
+    label.push(count > 0 ? 'upcoming launches' : 'future date');
+  }
+
+  label.push(count > 0 ? formatLaunchCountLabel(count) : 'no launches');
+  return label.join(' • ');
 }
 
 function formatLaunchCountLabel(count: number) {

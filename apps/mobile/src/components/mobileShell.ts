@@ -1,6 +1,6 @@
 export const MOBILE_DOCK_HEIGHT = 66;
 export const MOBILE_DOCK_SIDE_INSET = 16;
-export const MOBILE_DOCK_BOTTOM_OFFSET = 12;
+export const MOBILE_DOCK_BOTTOM_OFFSET = 6;
 export const MOBILE_DOCK_CONTENT_GAP = 28;
 
 const CUSTOMER_SHELL_REDIRECT_SEGMENTS = new Set(['feed', 'search', 'saved', 'preferences', 'profile', 'account']);

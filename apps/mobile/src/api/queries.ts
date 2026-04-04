@@ -21,6 +21,7 @@ import type {
   EmbedWidgetEnvelopeV1,
   EmbedWidgetsV1,
   EmbedWidgetUpdateV1,
+  EntitlementsV1,
   FilterPresetEnvelopeV1,
   FilterPresetCreateV1,
   FilterPresetsV1,
@@ -117,6 +118,7 @@ import {
   viewerSessionQueryOptions,
   watchlistsQueryOptions
 } from '@tminuszero/query';
+import { applyAdminAccessOverrideToEntitlements } from '@tminuszero/domain';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import { useMobileApiClient } from '@/src/api/useMobileApiClient';
 import { isMobileE2EEnabled } from '@/src/notifications/runtime';
@@ -720,12 +722,14 @@ export function usePadDetailQuery(id: string | null, options?: { enabled?: boole
   });
 }
 
-export function useSearchQuery(query: string) {
+export function useSearchQuery(query: string, options?: { limit?: number; types?: string[] }) {
   const client = useMobileApiClient();
   const normalized = normalizeSearchQuery(query);
+  const limit = options?.limit;
+  const types = options?.types;
 
   return useQuery({
-    ...searchQueryOptions(normalized, () => client.search(normalized)),
+    ...searchQueryOptions(normalized, () => client.search(normalized, { limit, types }), { limit, types }),
     enabled: normalized.length >= 2,
   });
 }
@@ -783,60 +787,73 @@ export function useMarketingEmailQuery(options?: { enabled?: boolean }) {
 export function useCalendarFeedsQuery(options?: { enabled?: boolean }) {
   const client = useMobileApiClient();
   const { accessToken, isAuthHydrated } = useMobileBootstrap();
+  const entitlementsQuery = useViewerEntitlementsQuery();
+  const canUsePremiumIntegrations = entitlementsQuery.data?.tier === 'premium';
 
   return useQuery({
     ...calendarFeedsQueryOptions(() => client.getCalendarFeeds()),
-    enabled: isAuthHydrated && Boolean(accessToken) && (options?.enabled ?? true)
+    enabled: isAuthHydrated && Boolean(accessToken) && canUsePremiumIntegrations && (options?.enabled ?? true)
   });
 }
 
 export function useRssFeedsQuery(options?: { enabled?: boolean }) {
   const client = useMobileApiClient();
   const { accessToken, isAuthHydrated } = useMobileBootstrap();
+  const entitlementsQuery = useViewerEntitlementsQuery();
+  const canUsePremiumIntegrations = entitlementsQuery.data?.tier === 'premium';
 
   return useQuery({
     ...rssFeedsQueryOptions(() => client.getRssFeeds()),
-    enabled: isAuthHydrated && Boolean(accessToken) && (options?.enabled ?? true)
+    enabled: isAuthHydrated && Boolean(accessToken) && canUsePremiumIntegrations && (options?.enabled ?? true)
   });
 }
 
 export function useEmbedWidgetsQuery(options?: { enabled?: boolean }) {
   const client = useMobileApiClient();
   const { accessToken, isAuthHydrated } = useMobileBootstrap();
+  const entitlementsQuery = useViewerEntitlementsQuery();
+  const canUsePremiumIntegrations = entitlementsQuery.data?.tier === 'premium';
 
   return useQuery({
     ...embedWidgetsQueryOptions(() => client.getEmbedWidgets()),
-    enabled: isAuthHydrated && Boolean(accessToken) && (options?.enabled ?? true)
+    enabled: isAuthHydrated && Boolean(accessToken) && canUsePremiumIntegrations && (options?.enabled ?? true)
   });
 }
 
-export function useWatchlistsQuery() {
+export function useWatchlistsQuery(options?: { enabled?: boolean }) {
   const client = useMobileApiClient();
   const { accessToken, isAuthHydrated } = useMobileBootstrap();
+  const entitlementsQuery = useViewerEntitlementsQuery();
+  const canUseSavedItems = entitlementsQuery.data?.capabilities.canUseSavedItems ?? false;
 
   return useQuery({
     ...watchlistsQueryOptions(() => client.getWatchlists()),
-    enabled: isAuthHydrated && Boolean(accessToken),
+    enabled: isAuthHydrated && Boolean(accessToken) && canUseSavedItems && (options?.enabled ?? true),
   });
 }
 
-export function useFilterPresetsQuery() {
+export function useFilterPresetsQuery(options?: { enabled?: boolean }) {
   const client = useMobileApiClient();
   const { accessToken, isAuthHydrated } = useMobileBootstrap();
+  const entitlementsQuery = useViewerEntitlementsQuery();
+  const canUseSavedItems = entitlementsQuery.data?.capabilities.canUseSavedItems ?? false;
 
   return useQuery({
     ...filterPresetsQueryOptions(() => client.getFilterPresets()),
-    enabled: isAuthHydrated && Boolean(accessToken),
+    enabled: isAuthHydrated && Boolean(accessToken) && canUseSavedItems && (options?.enabled ?? true),
   });
 }
 
-export function useAlertRulesQuery() {
+export function useAlertRulesQuery(options?: { enabled?: boolean }) {
   const client = useMobileApiClient();
   const { accessToken, isAuthHydrated } = useMobileBootstrap();
+  const entitlementsQuery = useViewerEntitlementsQuery();
+  const canUseSavedItems = entitlementsQuery.data?.capabilities.canUseSavedItems ?? false;
+  const canUseAdvancedAlertRules = entitlementsQuery.data?.capabilities.canUseAdvancedAlertRules ?? false;
 
   return useQuery({
     ...alertRulesQueryOptions(() => client.getAlertRules()),
-    enabled: isAuthHydrated && Boolean(accessToken),
+    enabled: isAuthHydrated && Boolean(accessToken) && canUseSavedItems && canUseAdvancedAlertRules && (options?.enabled ?? true),
   });
 }
 
@@ -1042,6 +1059,9 @@ export function useUpdateAdminAccessOverrideMutation() {
     mutationFn: (payload: AdminAccessOverrideUpdateV1) => client.updateAdminAccessOverride(payload),
     onSuccess: async (payload: AdminAccessOverrideV1) => {
       queryClient.setQueryData(sharedQueryKeys.adminAccessOverride, payload);
+      queryClient.setQueryData<EntitlementsV1>(sharedQueryKeys.entitlements, (current) =>
+        applyAdminAccessOverrideToEntitlements(current, payload)
+      );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: sharedQueryKeys.adminAccessOverride }),
         queryClient.invalidateQueries({ queryKey: sharedQueryKeys.entitlements }),

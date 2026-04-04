@@ -16,14 +16,20 @@
       "autoIncrement": true,
       "channel": "preview",
       "env": {
-        "EXPO_PUBLIC_MOBILE_APPLE_AUTH_ENABLED": "1"
+        "EXPO_PUBLIC_API_BASE_URL": "https://tminuszero-mobile-staging.vercel.app",
+        "EXPO_PUBLIC_SITE_URL": "https://tminuszero-mobile-staging.vercel.app",
+        "EXPO_PUBLIC_MOBILE_APPLE_AUTH_ENABLED": "1",
+        "MOBILE_APP_LINK_HOSTS": "tminuszero-mobile-staging.vercel.app"
       }
     },
     "production": {
       "autoIncrement": true,
       "channel": "production",
       "env": {
-        "EXPO_PUBLIC_MOBILE_APPLE_AUTH_ENABLED": "1"
+        "EXPO_PUBLIC_API_BASE_URL": "https://tminuszero-mobile-staging.vercel.app",
+        "EXPO_PUBLIC_SITE_URL": "https://tminuszero-mobile-staging.vercel.app",
+        "EXPO_PUBLIC_MOBILE_APPLE_AUTH_ENABLED": "1",
+        "MOBILE_APP_LINK_HOSTS": "tminuszero-mobile-staging.vercel.app"
       }
     }
   },

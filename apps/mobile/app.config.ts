@@ -6,7 +6,9 @@ const baseConfig = appJson.expo as ExpoConfig;
 const baseExtra = (baseConfig.extra ?? {}) as ExpoConfig['extra'] & {
   eas?: { projectId?: string };
 };
-const DEFAULT_ASSOCIATED_DOMAIN_HOSTS = ['www.tminuszero.app', 'tminuszero.app'];
+const PRODUCTION_MOBILE_HOSTS = ['www.tminuszero.app', 'tminuszero.app'];
+const DEFAULT_ASSOCIATED_DOMAIN_HOSTS = ['tminuszero-mobile-staging.vercel.app'];
+const PRODUCTION_RELEASE_ALLOW_ENV = 'TMZ_MOBILE_ALLOW_PRODUCTION_RELEASE_URLS';
 
 function uniqueStrings(values: Array<string | null | undefined>) {
   return Array.from(
@@ -27,6 +29,17 @@ function parseCsvList(value: string | undefined) {
 
 function normalizeUrl(value: string | undefined) {
   return normalizeEnvUrl(value);
+}
+
+function normalizeHost(value: string | null | undefined) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\.+$/, '');
+}
+
+function isProductionMobileHost(value: string | null | undefined) {
+  return PRODUCTION_MOBILE_HOSTS.includes(normalizeHost(value));
 }
 
 function assertSecureReleaseUrl(name: string, value: string | null) {
@@ -59,9 +72,38 @@ function normalizeEnv(value: string | undefined) {
   return normalizeEnvText(value);
 }
 
+function allowProductionReleaseUrls() {
+  return normalizeEnv(process.env[PRODUCTION_RELEASE_ALLOW_ENV]) === '1';
+}
+
 function getAssociatedDomainHosts() {
   const explicit = parseCsvList(process.env.MOBILE_APP_LINK_HOSTS);
   return explicit.length ? explicit : DEFAULT_ASSOCIATED_DOMAIN_HOSTS;
+}
+
+function assertNonProductionReleaseUrl(name: string, value: string, allowProductionHosts: boolean) {
+  const host = normalizeHost(new URL(value).hostname);
+  if (!allowProductionHosts && isProductionMobileHost(host)) {
+    throw new Error(
+      `${name} cannot use production host ${host} until ${PRODUCTION_RELEASE_ALLOW_ENV}=1 is set explicitly for the mobile build.`
+    );
+  }
+  return value;
+}
+
+function assertSafeAssociatedDomainHosts(hosts: string[], allowProductionHosts: boolean) {
+  if (allowProductionHosts) {
+    return hosts;
+  }
+
+  const blockedHosts = hosts.filter((host) => isProductionMobileHost(host));
+  if (blockedHosts.length > 0) {
+    throw new Error(
+      `MOBILE_APP_LINK_HOSTS cannot include production hosts (${blockedHosts.join(', ')}) until ${PRODUCTION_RELEASE_ALLOW_ENV}=1 is set explicitly for the mobile build.`
+    );
+  }
+
+  return hosts;
 }
 
 function hasAppleAppLinkConfiguration() {
@@ -105,16 +147,26 @@ export default (): ExpoConfig => {
   const buildProfile = getBuildProfile();
   const buildPlatform = getBuildPlatform();
   const nativeBuildConfiguration = getNativeBuildConfiguration();
+  const allowProductionHosts = allowProductionReleaseUrls();
   const associatedDomainHosts = uniqueStrings(getAssociatedDomainHosts());
   if (isReleaseProfile(buildProfile) || nativeBuildConfiguration === 'release') {
-    assertSecureReleaseUrl('EXPO_PUBLIC_API_BASE_URL', normalizeUrl(process.env.EXPO_PUBLIC_API_BASE_URL));
-    assertSecureReleaseUrl('EXPO_PUBLIC_SITE_URL', normalizeUrl(process.env.EXPO_PUBLIC_SITE_URL));
+    assertNonProductionReleaseUrl(
+      'EXPO_PUBLIC_API_BASE_URL',
+      assertSecureReleaseUrl('EXPO_PUBLIC_API_BASE_URL', normalizeUrl(process.env.EXPO_PUBLIC_API_BASE_URL)),
+      allowProductionHosts
+    );
+    assertNonProductionReleaseUrl(
+      'EXPO_PUBLIC_SITE_URL',
+      assertSecureReleaseUrl('EXPO_PUBLIC_SITE_URL', normalizeUrl(process.env.EXPO_PUBLIC_SITE_URL)),
+      allowProductionHosts
+    );
     assertSecureReleaseUrl('EXPO_PUBLIC_SUPABASE_URL', normalizeUrl(process.env.EXPO_PUBLIC_SUPABASE_URL));
     assertRequiredReleaseValue('EXPO_PUBLIC_SUPABASE_ANON_KEY', normalizeEnv(process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY));
     assertRequiredReleaseValue(
       'EXPO_PUBLIC_EAS_PROJECT_ID or EAS_PROJECT_ID',
       normalizeEnv(process.env.EXPO_PUBLIC_EAS_PROJECT_ID) || normalizeEnv(process.env.EAS_PROJECT_ID) || normalizeEnv(baseExtra.eas?.projectId)
     );
+    assertSafeAssociatedDomainHosts(associatedDomainHosts, allowProductionHosts);
     if (buildPlatform === 'android') {
       assertRequiredReleaseValue('GOOGLE_MAPS_ANDROID_API_KEY', normalizeEnv(process.env.GOOGLE_MAPS_ANDROID_API_KEY));
     }

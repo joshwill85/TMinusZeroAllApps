@@ -13,7 +13,7 @@ This document is the evidence checklist for the remaining mobile-core Phase 4 ga
   - `npm run acceptance:preflight -- --out-dir=.artifacts/three-platform-acceptance`
 - Repo-owned local-stack bundle:
   - `npm run acceptance:local -- --skip-mobile-e2e --out-dir=.artifacts/three-platform-local-acceptance`
-  - This path resets local Supabase, applies migrations, seeds deterministic free/premium fixture data, starts `apps/web`, runs the pinned acceptance preflight, and captures the local rate-limit smoke output.
+  - This path resets local Supabase, applies migrations, seeds deterministic anon/premium fixture data, starts `apps/web`, runs the pinned acceptance preflight, and captures the local rate-limit smoke output.
 - Required automated checks:
   - `npm run test:v1-contracts`
   - `npm run test:mobile-query-guard`

@@ -43,9 +43,9 @@ export default function AccountIntegrationsScreen() {
   const isAuthed = Boolean(viewerSessionQuery.data?.viewerId);
   const isPaid = entitlementsQuery.data?.isPaid === true;
   const baseUrl = useMemo(() => getPublicSiteUrl(), []);
-  const calendarFeedsQuery = useCalendarFeedsQuery({ enabled: isAuthed });
-  const rssFeedsQuery = useRssFeedsQuery({ enabled: isAuthed });
-  const embedWidgetsQuery = useEmbedWidgetsQuery({ enabled: isAuthed });
+  const calendarFeedsQuery = useCalendarFeedsQuery({ enabled: isPaid });
+  const rssFeedsQuery = useRssFeedsQuery({ enabled: isPaid });
+  const embedWidgetsQuery = useEmbedWidgetsQuery({ enabled: isPaid });
   const createCalendarFeedMutation = useCreateCalendarFeedMutation();
   const updateCalendarFeedMutation = useUpdateCalendarFeedMutation();
   const deleteCalendarFeedMutation = useDeleteCalendarFeedMutation();
@@ -68,14 +68,11 @@ export default function AccountIntegrationsScreen() {
   const [rssDrafts, setRssDrafts] = useState<Record<string, NameDraft>>({});
   const [widgetDrafts, setWidgetDrafts] = useState<Record<string, NameDraft>>({});
 
-  const calendarFeeds = useMemo(() => calendarFeedsQuery.data?.feeds ?? [], [calendarFeedsQuery.data?.feeds]);
-  const rssFeeds = useMemo(() => rssFeedsQuery.data?.feeds ?? [], [rssFeedsQuery.data?.feeds]);
-  const embedWidgets = useMemo(() => embedWidgetsQuery.data?.widgets ?? [], [embedWidgetsQuery.data?.widgets]);
-  const hasIntegrationInventory = calendarFeeds.length > 0 || rssFeeds.length > 0 || embedWidgets.length > 0;
-  const loadingIntegrations =
-    isAuthed && (calendarFeedsQuery.isPending || rssFeedsQuery.isPending || embedWidgetsQuery.isPending);
-  const queryError =
-    calendarFeedsQuery.error || rssFeedsQuery.error || embedWidgetsQuery.error || entitlementsQuery.error || null;
+  const calendarFeeds = useMemo(() => (isPaid ? calendarFeedsQuery.data?.feeds ?? [] : []), [calendarFeedsQuery.data?.feeds, isPaid]);
+  const rssFeeds = useMemo(() => (isPaid ? rssFeedsQuery.data?.feeds ?? [] : []), [isPaid, rssFeedsQuery.data?.feeds]);
+  const embedWidgets = useMemo(() => (isPaid ? embedWidgetsQuery.data?.widgets ?? [] : []), [embedWidgetsQuery.data?.widgets, isPaid]);
+  const loadingIntegrations = isPaid && (calendarFeedsQuery.isPending || rssFeedsQuery.isPending || embedWidgetsQuery.isPending);
+  const queryError = (isPaid ? calendarFeedsQuery.error || rssFeedsQuery.error || embedWidgetsQuery.error : null) || entitlementsQuery.error || null;
 
   useEffect(() => {
     setCalendarDrafts((current) => syncCalendarDrafts(current, calendarFeeds));
@@ -351,8 +348,8 @@ export default function AccountIntegrationsScreen() {
         description="Manage recurring calendar feeds, RSS feeds, and embeddable next-launch widgets natively on mobile."
       >
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-          <CustomerShellBadge label={isAuthed ? 'Signed in' : 'Guest'} tone={isAuthed ? 'success' : 'warning'} />
-          <CustomerShellBadge label={isPaid ? 'Premium' : 'Premium required'} tone={isPaid ? 'accent' : 'warning'} />
+          <CustomerShellBadge label={isAuthed ? 'Account' : 'Guest'} tone={isAuthed ? 'success' : 'warning'} />
+          <CustomerShellBadge label={isPaid ? 'Full access' : 'Public'} tone={isPaid ? 'accent' : 'default'} />
         </View>
       </CustomerShellHero>
 
@@ -360,7 +357,7 @@ export default function AccountIntegrationsScreen() {
       {queryError ? <AccountNotice message={toIntegrationMessage(queryError, 'Unable to load integrations.')} tone="error" /> : null}
 
       {!isAuthed ? (
-        <CustomerShellPanel title="Sign in required" description="Sign in to review any existing integrations linked to your account, or buy Premium from Account first.">
+        <CustomerShellPanel title="Sign in required" description="Sign in to manage integrations once Premium is active on your account.">
           <CustomerShellActionButton
             label="Sign in"
             onPress={() => {
@@ -369,82 +366,17 @@ export default function AccountIntegrationsScreen() {
           />
         </CustomerShellPanel>
       ) : !isPaid ? (
-        <>
-          <CustomerShellPanel
-            title="Premium required"
-            description={
-              hasIntegrationInventory
-                ? 'Stored Premium integrations stay visible here, but editing, rotating, deleting, and creating new integrations requires Premium.'
-                : 'Calendar feeds, RSS feeds, and embed widgets are premium integrations.'
-            }
-          >
-            <CustomerShellActionButton
-              label="Open account"
-              onPress={() => {
-                router.push('/profile');
-              }}
-            />
-          </CustomerShellPanel>
-
-          {hasIntegrationInventory ? (
-            <>
-              <FeedSection<CalendarFeedV1>
-                title="Calendar feeds"
-                description="Stored Premium calendar feeds (read-only)."
-                emptyLabel={loadingIntegrations ? 'Loading calendar feeds…' : 'No stored calendar feeds.'}
-                items={calendarFeeds}
-                renderItem={(feed) => {
-                  const urls = buildCalendarUrls(baseUrl, feed.token);
-                  return (
-                    <IntegrationCard key={feed.id}>
-                      <AccountDetailRow label="Feed name" value={feed.name} />
-                      <AccountDetailRow label="Reminder" value={feed.alarmMinutesBefore == null ? 'None' : `${feed.alarmMinutesBefore} min`} />
-                      <AccountDetailRow label="HTTPS URL" value={urls.httpsUrl || '—'} />
-                      <AccountDetailRow label="Webcal URL" value={urls.webcalUrl || '—'} />
-                      <AccountDetailRow label="Updated" value={formatUpdated(feed.updatedAt)} />
-                    </IntegrationCard>
-                  );
-                }}
-              />
-
-              <FeedSection<RssFeedV1>
-                title="RSS + Atom feeds"
-                description="Stored Premium RSS and Atom feeds (read-only)."
-                emptyLabel={loadingIntegrations ? 'Loading RSS feeds…' : 'No stored RSS feeds.'}
-                items={rssFeeds}
-                renderItem={(feed) => {
-                  const urls = buildRssUrls(baseUrl, feed.token);
-                  return (
-                    <IntegrationCard key={feed.id}>
-                      <AccountDetailRow label="Feed name" value={feed.name} />
-                      <AccountDetailRow label="RSS URL" value={urls.rssUrl || '—'} />
-                      <AccountDetailRow label="Atom URL" value={urls.atomUrl || '—'} />
-                      <AccountDetailRow label="Updated" value={formatUpdated(feed.updatedAt)} />
-                    </IntegrationCard>
-                  );
-                }}
-              />
-
-              <FeedSection<EmbedWidgetV1>
-                title="Embeddable widgets"
-                description="Stored Premium widgets (read-only)."
-                emptyLabel={loadingIntegrations ? 'Loading widgets…' : 'No stored widgets.'}
-                items={embedWidgets}
-                renderItem={(widget) => {
-                  const urls = buildEmbedUrls(baseUrl, widget.token);
-                  return (
-                    <IntegrationCard key={widget.id}>
-                      <AccountDetailRow label="Widget name" value={widget.name} />
-                      <AccountDetailRow label="Widget type" value={widget.widgetType} />
-                      <AccountDetailRow label="Embed URL" value={urls.srcUrl || '—'} />
-                      <AccountDetailRow label="Updated" value={formatUpdated(widget.updatedAt)} />
-                    </IntegrationCard>
-                  );
-                }}
-              />
-            </>
-          ) : null}
-        </>
+        <CustomerShellPanel
+          title="Upgrade to Premium"
+          description="Public access does not include calendar feeds, RSS feeds, or embeddable widgets. Upgrade to Premium to create and manage them."
+        >
+          <CustomerShellActionButton
+            label="Open account"
+            onPress={() => {
+              router.push('/profile');
+            }}
+          />
+        </CustomerShellPanel>
       ) : (
         <>
           <CustomerShellPanel
@@ -452,7 +384,7 @@ export default function AccountIntegrationsScreen() {
             description="Create a tokenized `.ics` feed. Leave reminder blank for no alarm, or set minutes before launch."
           >
             <View style={{ gap: 12 }}>
-              <AccountTextField label="Feed name" value={newCalendarName} onChangeText={setNewCalendarName} placeholder="My premium calendar" />
+              <AccountTextField label="Feed name" value={newCalendarName} onChangeText={setNewCalendarName} placeholder="My calendar feed" />
               <AccountTextField
                 label="Reminder minutes"
                 value={newCalendarReminder}

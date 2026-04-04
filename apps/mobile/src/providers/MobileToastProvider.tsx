@@ -113,8 +113,8 @@ export function MobileToastProvider({ children }: { children: ReactNode }) {
           style={{
             position: 'absolute',
             top: Math.max(insets.top + 8, 12),
-            right: 16,
-            left: 16,
+            right: insets.right + 16,
+            left: insets.left + 16,
             zIndex: 1000
           }}
         >

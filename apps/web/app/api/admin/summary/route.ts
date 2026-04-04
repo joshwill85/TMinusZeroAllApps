@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { summarizeArRuntimePolicies, type ArRuntimePolicySummary } from '@/lib/ar/runtimePolicyTelemetry';
 import { createSupabaseAdminClient, createSupabaseServerClient } from '@/lib/server/supabaseServer';
-import { isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
+import { isSupabaseAdminConfigured } from '@/lib/server/env';
+import { requireAdminRequest } from '../_lib/auth';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
@@ -829,19 +830,9 @@ const STUB_SUMMARY = {
 };
 
 export async function GET() {
-  if (!isSupabaseConfigured()) {
-    return NextResponse.json({ mode: 'stub', summary: STUB_SUMMARY });
-  }
-
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-
-  if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-
-  const { data: profile } = await supabase.from('profiles').select('role').eq('user_id', user.id).maybeSingle();
-  if (profile?.role !== 'admin') return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  const gate = await requireAdminRequest();
+  if (!gate.ok) return gate.response;
+  const { supabase } = gate.context;
 
   const today = startOfDay(new Date()).toISOString();
 

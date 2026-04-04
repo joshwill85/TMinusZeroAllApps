@@ -33,7 +33,7 @@ Prove all of the following with real store/tester environments:
 
 ## Stripe Continuity
 
-1. Sign in on web with a free account.
+1. Sign in on web with a TMZ account that does not yet have Premium.
 2. Open the billing surface and confirm the user shows `provider=none`.
 3. Start Stripe checkout from web.
 4. Complete checkout and confirm:

@@ -1233,7 +1233,7 @@ export const entitlementLimitsSchemaV1 = z.object({
 
 export const adminAccessOverrideTierSchemaV1 = z.enum(['anon', 'premium']);
 
-export const effectiveTierSourceSchemaV1 = z.enum(['guest', 'free', 'subscription', 'admin', 'admin_override']);
+export const effectiveTierSourceSchemaV1 = z.enum(['guest', 'anon', 'subscription', 'admin', 'admin_override']);
 
 export const entitlementSchemaV1 = z.object({
   tier: z.enum(['anon', 'premium']),
@@ -2811,6 +2811,23 @@ export const mobileAuthChallengeResultSchemaV1 = z
   })
   .strict();
 
+export const clientBootstrapRequestSchemaV1 = z
+  .object({
+    installationId: z.string().trim().min(1).max(160),
+    platform: z.enum(['ios', 'android']),
+    appVersion: z.string().trim().min(1).max(40).nullable().optional(),
+    buildProfile: z.string().trim().min(1).max(40).nullable().optional()
+  })
+  .strict();
+
+export const clientBootstrapResponseSchemaV1 = z
+  .object({
+    guestToken: z.string().trim().min(1).max(8192),
+    expiresAt: z.string().datetime(),
+    tokenType: z.literal('app_guest')
+  })
+  .strict();
+
 export const mobileAuthPasswordSignInSchemaV1 = z
   .object({
     email: z.string().trim().email(),
@@ -4115,6 +4132,8 @@ export type MobileAuthRiskStartV1 = z.infer<typeof mobileAuthRiskStartSchemaV1>;
 export type MobileAuthRiskDecisionV1 = z.infer<typeof mobileAuthRiskDecisionSchemaV1>;
 export type MobileAuthChallengeCompleteV1 = z.infer<typeof mobileAuthChallengeCompleteSchemaV1>;
 export type MobileAuthChallengeResultV1 = z.infer<typeof mobileAuthChallengeResultSchemaV1>;
+export type ClientBootstrapRequestV1 = z.infer<typeof clientBootstrapRequestSchemaV1>;
+export type ClientBootstrapResponseV1 = z.infer<typeof clientBootstrapResponseSchemaV1>;
 export type MobileAuthPasswordSignInV1 = z.infer<typeof mobileAuthPasswordSignInSchemaV1>;
 export type MobileAuthPasswordSignInResponseV1 = z.infer<typeof mobileAuthPasswordSignInResponseSchemaV1>;
 export type MobileAuthPasswordSignUpV1 = z.infer<typeof mobileAuthPasswordSignUpSchemaV1>;

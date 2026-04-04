@@ -82,13 +82,13 @@ export function SignUpPanel() {
       <div>
         <h1 className="text-3xl font-semibold text-text1">Create account</h1>
         <p className="mt-1 text-sm text-text3">
-          Account creation now happens only after a verified Premium purchase. Signing in without Premium keeps the same product access as public browsing.
+          Account creation now happens only after a verified Premium purchase. Accounts without Premium stay on the public tier.
         </p>
       </div>
 
       {!claimToken ? (
         <div className="space-y-3 rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
-          <p>Public sign-up without Premium has been removed. Start Premium first, then create an account to claim it.</p>
+          <p>Standalone public sign-up has been removed. Start Premium first, then create an account to claim it.</p>
           <div className="flex flex-col gap-2 sm:flex-row">
             <Link href="/upgrade" className="btn rounded-lg px-4 py-2 text-sm">
               Start Premium

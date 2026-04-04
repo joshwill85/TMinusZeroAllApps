@@ -74,6 +74,7 @@ import {
   viewerSessionQueryOptions,
   watchlistsQueryOptions
 } from '@tminuszero/query';
+import { applyAdminAccessOverrideToEntitlements } from '@tminuszero/domain';
 import { browserApiClient } from '@/lib/api/client';
 import {
   cancelBillingSubscription,
@@ -491,6 +492,7 @@ export function invalidateViewerScopedQueries(queryClient: QueryClient) {
 export function applyGuestViewerState(queryClient: QueryClient) {
   queryClient.setQueryData(sharedQueryKeys.viewerSession, guestViewerSession);
   queryClient.setQueryData(sharedQueryKeys.entitlements, guestViewerEntitlements);
+  queryClient.removeQueries({ queryKey: sharedQueryKeys.adminAccessOverride });
   queryClient.removeQueries({ queryKey: sharedQueryKeys.profile });
   queryClient.removeQueries({ queryKey: sharedQueryKeys.authMethods });
   queryClient.removeQueries({ queryKey: sharedQueryKeys.privacyPreferences });
@@ -604,57 +606,74 @@ export function useMarketingEmailQuery() {
   });
 }
 
-export function useWatchlistsQuery() {
+export function useWatchlistsQuery(options?: { enabled?: boolean }) {
   const viewerSessionQuery = useViewerSessionQuery();
+  const entitlementsQuery = useViewerEntitlementsQuery();
+  const canUseSavedItems = entitlementsQuery.data?.capabilities.canUseSavedItems ?? false;
 
   return useQuery({
     ...watchlistsQueryOptions(() => browserApiClient.getWatchlists()),
-    enabled: Boolean(viewerSessionQuery.data?.viewerId)
+    enabled: Boolean(viewerSessionQuery.data?.viewerId) && canUseSavedItems && (options?.enabled ?? true)
   });
 }
 
-export function useFilterPresetsQuery() {
+export function useFilterPresetsQuery(options?: { enabled?: boolean }) {
   const viewerSessionQuery = useViewerSessionQuery();
+  const entitlementsQuery = useViewerEntitlementsQuery();
+  const canUseSavedItems = entitlementsQuery.data?.capabilities.canUseSavedItems ?? false;
 
   return useQuery({
     ...filterPresetsQueryOptions(() => browserApiClient.getFilterPresets()),
-    enabled: Boolean(viewerSessionQuery.data?.viewerId)
+    enabled: Boolean(viewerSessionQuery.data?.viewerId) && canUseSavedItems && (options?.enabled ?? true)
   });
 }
 
-export function useAlertRulesQuery() {
+export function useAlertRulesQuery(options?: { enabled?: boolean }) {
   const viewerSessionQuery = useViewerSessionQuery();
+  const entitlementsQuery = useViewerEntitlementsQuery();
+  const canUseSavedItems = entitlementsQuery.data?.capabilities.canUseSavedItems ?? false;
+  const canUseAdvancedAlertRules = entitlementsQuery.data?.capabilities.canUseAdvancedAlertRules ?? false;
 
   return useQuery({
     ...alertRulesQueryOptions(() => browserApiClient.getAlertRules()),
-    enabled: Boolean(viewerSessionQuery.data?.viewerId)
+    enabled:
+      Boolean(viewerSessionQuery.data?.viewerId) &&
+      canUseSavedItems &&
+      canUseAdvancedAlertRules &&
+      (options?.enabled ?? true)
   });
 }
 
 export function useCalendarFeedsQuery(options?: { enabled?: boolean }) {
   const viewerSessionQuery = useViewerSessionQuery();
+  const entitlementsQuery = useViewerEntitlementsQuery();
+  const isPremium = entitlementsQuery.data?.tier === 'premium';
 
   return useQuery({
     ...calendarFeedsQueryOptions(() => browserApiClient.getCalendarFeeds()),
-    enabled: Boolean(viewerSessionQuery.data?.viewerId) && (options?.enabled ?? true)
+    enabled: Boolean(viewerSessionQuery.data?.viewerId) && isPremium && (options?.enabled ?? true)
   });
 }
 
 export function useRssFeedsQuery(options?: { enabled?: boolean }) {
   const viewerSessionQuery = useViewerSessionQuery();
+  const entitlementsQuery = useViewerEntitlementsQuery();
+  const isPremium = entitlementsQuery.data?.tier === 'premium';
 
   return useQuery({
     ...rssFeedsQueryOptions(() => browserApiClient.getRssFeeds()),
-    enabled: Boolean(viewerSessionQuery.data?.viewerId) && (options?.enabled ?? true)
+    enabled: Boolean(viewerSessionQuery.data?.viewerId) && isPremium && (options?.enabled ?? true)
   });
 }
 
 export function useEmbedWidgetsQuery(options?: { enabled?: boolean }) {
   const viewerSessionQuery = useViewerSessionQuery();
+  const entitlementsQuery = useViewerEntitlementsQuery();
+  const isPremium = entitlementsQuery.data?.tier === 'premium';
 
   return useQuery({
     ...embedWidgetsQueryOptions(() => browserApiClient.getEmbedWidgets()),
-    enabled: Boolean(viewerSessionQuery.data?.viewerId) && (options?.enabled ?? true)
+    enabled: Boolean(viewerSessionQuery.data?.viewerId) && isPremium && (options?.enabled ?? true)
   });
 }
 
@@ -1058,6 +1077,9 @@ export function useUpdateAdminAccessOverrideMutation() {
     mutationFn: (payload: AdminAccessOverrideUpdateV1) => browserApiClient.updateAdminAccessOverride(payload),
     onSuccess: async (payload: AdminAccessOverrideV1) => {
       queryClient.setQueryData(sharedQueryKeys.adminAccessOverride, payload);
+      queryClient.setQueryData<EntitlementsV1>(sharedQueryKeys.entitlements, (current) =>
+        applyAdminAccessOverrideToEntitlements(current, payload)
+      );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: sharedQueryKeys.adminAccessOverride }),
         queryClient.invalidateQueries({ queryKey: sharedQueryKeys.entitlements }),

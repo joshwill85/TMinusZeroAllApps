@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Animated, Modal, PanResponder, Pressable, ScrollView, Text, View } from 'react-native';
+import { Animated, PanResponder, Pressable, ScrollView, Text, View } from 'react-native';
 import { type Href, usePathname, useRouter, useSegments } from 'expo-router';
 import { useProfileQuery, useViewerEntitlementsQuery, useViewerSessionQuery } from '@/src/api/queries';
 import { buildClaimAuthHref } from '@/src/billing/nativeBillingUi';
@@ -155,15 +155,15 @@ export function MobileDockingBay() {
       },
       {
         key: 'settings',
-        title: 'Settings',
-        description: 'Notifications, push, and device preferences.',
+        title: 'Alerts',
+        description: 'Notifications, push, and device alert preferences.',
         href: '/preferences',
         testID: 'tab-preferences'
       },
       {
         key: 'profile',
         title: 'Account',
-        description: viewerSessionQuery.data?.viewerId ? 'Account, membership, and billing.' : 'Profile, membership, and purchase restore.',
+        description: viewerSessionQuery.data?.viewerId ? 'Account, membership, and billing.' : 'Account, membership, and purchase restore.',
         href: profileHref,
         testID: 'manifest-link-profile'
       }
@@ -329,6 +329,7 @@ export function MobileDockingBay() {
       }
     ];
   }, [profileHref, viewerSessionQuery.data]);
+  const manifestDockClearance = insets.bottom + MOBILE_DOCK_HEIGHT + MOBILE_DOCK_BOTTOM_OFFSET + 8;
 
   if (!showDock) {
     return null;
@@ -336,6 +337,133 @@ export function MobileDockingBay() {
 
   return (
     <>
+      {manifestOpen ? (
+        <View
+          pointerEvents="box-none"
+          style={{
+            position: 'absolute',
+            top: 0,
+            right: 0,
+            bottom: 0,
+            left: 0,
+            zIndex: 55
+          }}
+        >
+          <Pressable
+            testID="dock-manifest-backdrop"
+            onPress={closeManifest}
+            style={{
+              position: 'absolute',
+              top: 0,
+              right: 0,
+              bottom: 0,
+              left: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.4)'
+            }}
+          />
+          <View
+            pointerEvents="box-none"
+            style={{
+              flex: 1,
+              justifyContent: 'flex-end',
+              paddingBottom: manifestDockClearance
+            }}
+          >
+            <Animated.View
+              testID="dock-manifest"
+              style={{
+                maxHeight: '76%',
+                borderTopLeftRadius: 28,
+                borderTopRightRadius: 28,
+                borderTopWidth: 1,
+                borderColor: theme.stroke,
+                backgroundColor: theme.background,
+                paddingTop: 12,
+                shadowColor: '#000000',
+                shadowOpacity: 0.28,
+                shadowRadius: 24,
+                shadowOffset: { width: 0, height: -8 },
+                elevation: 9,
+                transform: [{ translateY: manifestSheetTranslateY }]
+              }}
+            >
+              <View {...manifestHeaderPanResponder.panHandlers}>
+                <View style={{ alignItems: 'center' }}>
+                  <View
+                    style={{
+                      width: 44,
+                      height: 4,
+                      borderRadius: 999,
+                      backgroundColor: 'rgba(255, 255, 255, 0.18)'
+                    }}
+                  />
+                </View>
+
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 14, paddingBottom: 8, gap: 16 }}>
+                  <View
+                    style={{
+                      flex: 1
+                    }}
+                  >
+                    <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase' }}>Manifest</Text>
+                    <Text style={{ color: theme.foreground, fontSize: 22, fontWeight: '800', marginTop: 4 }}>Customer dock</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 14, paddingTop: 2 }}>
+                    {!isAuthed ? (
+                      <HeaderActionLink
+                        label="Sign in"
+                        theme={theme}
+                        testID="manifest-header-sign-in"
+                        onPress={() => {
+                          closeManifest();
+                          router.push('/sign-in');
+                        }}
+                      />
+                    ) : null}
+                  </View>
+                </View>
+              </View>
+
+              <ScrollView
+                contentContainerStyle={{
+                  gap: 18,
+                  paddingHorizontal: 20,
+                  paddingTop: 8,
+                  paddingBottom: insets.bottom + 24
+                }}
+              >
+                {!isPremium ? (
+                  <ManifestPremiumCard
+                    viewerId={viewerSessionQuery.data?.viewerId ?? null}
+                    isAuthed={isAuthed}
+                    theme={theme}
+                    onClose={closeManifest}
+                  />
+                ) : null}
+                {manifestSections.map((section) => (
+                  <View key={section.title} style={{ gap: 10 }}>
+                    <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase' }}>{section.title}</Text>
+                    <View style={{ gap: 10 }}>
+                      {section.items.map((item) => (
+                        <ManifestRow
+                          key={item.key}
+                          item={item}
+                          theme={theme}
+                          onPress={() => {
+                            closeManifest();
+                            router.replace(item.href);
+                          }}
+                        />
+                      ))}
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+            </Animated.View>
+          </View>
+        </View>
+      ) : null}
+
       <View
         pointerEvents="box-none"
         style={{
@@ -425,6 +553,8 @@ export function MobileDockingBay() {
                     closeManifest();
                     return;
                   }
+                  manifestSheetTranslateY.stopAnimation();
+                  manifestSheetTranslateY.setValue(0);
                   setManifestOpen(true);
                 }}
               >
@@ -434,107 +564,6 @@ export function MobileDockingBay() {
           </View>
         </View>
       </View>
-
-      <Modal
-        visible={manifestOpen}
-        transparent
-        animationType="fade"
-        statusBarTranslucent
-        presentationStyle="overFullScreen"
-        onRequestClose={() => {
-          closeManifest();
-        }}
-      >
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0, 0, 0, 0.4)' }}>
-          <Pressable testID="dock-manifest-backdrop" onPress={closeManifest} style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }} />
-          <Animated.View
-            testID="dock-manifest"
-            style={{
-              maxHeight: '76%',
-              borderTopLeftRadius: 28,
-              borderTopRightRadius: 28,
-              borderTopWidth: 1,
-              borderColor: theme.stroke,
-              backgroundColor: theme.background,
-              paddingTop: 12,
-              transform: [{ translateY: manifestSheetTranslateY }]
-            }}
-          >
-            <View {...manifestHeaderPanResponder.panHandlers}>
-              <View style={{ alignItems: 'center' }}>
-                <View
-                  style={{
-                    width: 44,
-                    height: 4,
-                    borderRadius: 999,
-                    backgroundColor: 'rgba(255, 255, 255, 0.18)'
-                  }}
-                />
-              </View>
-
-              <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 14, paddingBottom: 8, gap: 16 }}>
-                <View
-                  style={{
-                    flex: 1
-                  }}
-                >
-                  <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase' }}>Manifest</Text>
-                  <Text style={{ color: theme.foreground, fontSize: 22, fontWeight: '800', marginTop: 4 }}>Customer dock</Text>
-                </View>
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 14, paddingTop: 2 }}>
-                  {!isAuthed ? (
-                    <HeaderActionLink
-                      label="Sign in"
-                      theme={theme}
-                      testID="manifest-header-sign-in"
-                      onPress={() => {
-                        closeManifest();
-                        router.push('/sign-in');
-                      }}
-                    />
-                  ) : null}
-                </View>
-              </View>
-            </View>
-
-            <ScrollView
-              contentContainerStyle={{
-                gap: 18,
-                paddingHorizontal: 20,
-                paddingTop: 8,
-                paddingBottom: insets.bottom + 24
-              }}
-            >
-              {!isPremium ? (
-                <ManifestPremiumCard
-                  viewerId={viewerSessionQuery.data?.viewerId ?? null}
-                  isAuthed={isAuthed}
-                  theme={theme}
-                  onClose={closeManifest}
-                />
-              ) : null}
-              {manifestSections.map((section) => (
-                <View key={section.title} style={{ gap: 10 }}>
-                  <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase' }}>{section.title}</Text>
-                  <View style={{ gap: 10 }}>
-                    {section.items.map((item) => (
-                      <ManifestRow
-                        key={item.key}
-                        item={item}
-                        theme={theme}
-                        onPress={() => {
-                          closeManifest();
-                          router.replace(item.href);
-                        }}
-                      />
-                    ))}
-                  </View>
-                </View>
-              ))}
-            </ScrollView>
-          </Animated.View>
-        </View>
-      </Modal>
     </>
   );
 }

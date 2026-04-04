@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { mobileColorTokens } from '@tminuszero/design-tokens';
 
 export function ScreenShell({
@@ -13,9 +14,22 @@ export function ScreenShell({
   subtitle?: string;
   children: ReactNode;
 }) {
+  const insets = useSafeAreaInsets();
+
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.content}>
+    <View style={styles.safeArea}>
+      <ScrollView
+        contentInsetAdjustmentBehavior="never"
+        contentContainerStyle={[
+          styles.content,
+          {
+            paddingTop: insets.top + 20,
+            paddingRight: insets.right + 20,
+            paddingBottom: insets.bottom + 20,
+            paddingLeft: insets.left + 20
+          }
+        ]}
+      >
         <View style={styles.header}>
           {eyebrow ? <Text style={styles.eyebrow}>{eyebrow}</Text> : null}
           <Text style={styles.title}>{title}</Text>
@@ -23,7 +37,7 @@ export function ScreenShell({
         </View>
         {children}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -79,8 +93,6 @@ const styles = StyleSheet.create({
   },
   content: {
     gap: 16,
-    paddingHorizontal: 20,
-    paddingVertical: 20,
     backgroundColor: mobileColorTokens.background
   },
   header: {

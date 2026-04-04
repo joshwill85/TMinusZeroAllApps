@@ -109,7 +109,7 @@ export default function SignUpScreen() {
       subtitle={
         claimToken
           ? 'Create an account from a verified Premium purchase.'
-          : 'Free sign-up has been removed. Buy Premium first, then create or link an account.'
+          : 'Account creation now requires a verified Premium purchase. Buy Premium first, then create or link an account.'
       }
     >
       {!claimToken ? (

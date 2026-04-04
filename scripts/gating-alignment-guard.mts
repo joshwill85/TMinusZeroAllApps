@@ -25,12 +25,10 @@ async function main() {
   const sourceAssertions: string[] = [];
 
   assert.equal(getTierCapabilities('anon').canUseOneOffCalendar, true);
-  assert.equal(getTierCapabilities('free').canUseOneOffCalendar, true);
   assert.equal(getTierCapabilities('premium').canUseOneOffCalendar, true);
-  behaviorAssertions.push('one-off calendar is available for anon, free, and premium entitlements');
+  behaviorAssertions.push('one-off calendar is available for anon and premium entitlements');
 
   assert.equal(getMobileViewerTier('anon'), 'anon');
-  assert.equal(getMobileViewerTier('free'), 'anon');
   assert.equal(getMobileViewerTier('premium'), 'premium');
   behaviorAssertions.push('mobile viewer tier projection stays anon-or-premium only');
 

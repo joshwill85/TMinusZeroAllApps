@@ -122,7 +122,7 @@ export default function LaunchFaaMapScreen() {
     <AppScreen scroll={false}>
       <Stack.Screen options={{ headerShown: false }} />
       <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
+        contentInsetAdjustmentBehavior="never"
         contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 32 }}
       >
         <View style={{ gap: 16 }}>

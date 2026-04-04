@@ -7,6 +7,7 @@ import Animated, {
   Extrapolate,
   withSpring,
 } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ANIMATION_CONSTANTS } from '@tminuszero/launch-animations';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 
@@ -38,6 +39,7 @@ export function StickyNavPills({
   offsetTop = 80,
 }: StickyNavPillsProps) {
   const { theme } = useMobileBootstrap();
+  const insets = useSafeAreaInsets();
 
   // Sticky nav slide-in animation
   const containerStyle = useAnimatedStyle(() => {
@@ -88,7 +90,11 @@ export function StickyNavPills({
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 20, gap: 8 }}
+        contentContainerStyle={{
+          paddingLeft: insets.left + 20,
+          paddingRight: insets.right + 20,
+          gap: 8
+        }}
       >
         {sections.map((section) => (
           <NavPill

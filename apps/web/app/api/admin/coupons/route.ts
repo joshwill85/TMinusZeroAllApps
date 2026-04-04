@@ -2,8 +2,9 @@ import { createHash } from 'crypto';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { stripe } from '@/lib/api/stripe';
-import { createSupabaseAdminClient, createSupabaseServerClient } from '@/lib/server/supabaseServer';
+import { createSupabaseAdminClient } from '@/lib/server/supabaseServer';
 import { isStripeConfigured, isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
+import { requireAdminRequest } from '../_lib/auth';
 export const dynamic = 'force-dynamic';
 
 const createSchema = z.object({
@@ -85,15 +86,8 @@ export async function GET() {
   if (!isStripeConfigured()) {
     return NextResponse.json({ error: 'stripe_not_configured' }, { status: 503 });
   }
-
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-
-  const { data: profile } = await supabase.from('profiles').select('role').eq('user_id', user.id).maybeSingle();
-  if (profile?.role !== 'admin') return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  const gate = await requireAdminRequest();
+  if (!gate.ok) return gate.response;
 
   const [coupons, promotionCodes] = await Promise.all([
     stripe.coupons.list({ limit: 50 }),
@@ -116,15 +110,8 @@ export async function POST(request: Request) {
   if (!isStripeConfigured()) {
     return NextResponse.json({ error: 'stripe_not_configured' }, { status: 503 });
   }
-
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-
-  const { data: profile } = await supabase.from('profiles').select('role').eq('user_id', user.id).maybeSingle();
-  if (profile?.role !== 'admin') return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  const gate = await requireAdminRequest();
+  if (!gate.ok) return gate.response;
 
   const json = await request.json().catch(() => ({}));
   const parsed = createSchema.safeParse(json);
@@ -278,15 +265,8 @@ export async function PATCH(request: Request) {
   if (!isStripeConfigured()) {
     return NextResponse.json({ error: 'stripe_not_configured' }, { status: 503 });
   }
-
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-
-  const { data: profile } = await supabase.from('profiles').select('role').eq('user_id', user.id).maybeSingle();
-  if (profile?.role !== 'admin') return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  const gate = await requireAdminRequest();
+  if (!gate.ok) return gate.response;
 
   const json = await request.json().catch(() => ({}));
   const parsed = updateSchema.safeParse(json);

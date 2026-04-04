@@ -1,20 +1,16 @@
 'use client';
 
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
-import { resolveAdminAccessOverrideErrorMessage } from '@tminuszero/domain';
-import { buildAuthCallbackHref, buildAuthHref, buildPreferencesHref, buildProfileHref } from '@tminuszero/navigation';
+import { buildAuthCallbackHref, buildAuthHref, buildProfileHref } from '@tminuszero/navigation';
 import { BillingPanel } from '@/components/BillingPanel';
 import { TipJarRecurringPanel } from '@/components/TipJarRecurringPanel';
 import {
   applyGuestViewerState,
-  useAdminAccessOverrideQuery,
-  useDeleteAccountMutation,
   useMarketingEmailQuery,
   useProfileQuery,
-  useUpdateAdminAccessOverrideMutation,
   useUpdateMarketingEmailMutation,
   useUpdateProfileMutation,
   useViewerEntitlementsQuery,
@@ -29,11 +25,8 @@ export default function AccountPage() {
   const entitlementsQuery = useViewerEntitlementsQuery();
   const profileQuery = useProfileQuery();
   const marketingEmailQuery = useMarketingEmailQuery();
-  const adminAccessOverrideQuery = useAdminAccessOverrideQuery();
   const updateProfileMutation = useUpdateProfileMutation();
-  const updateAdminAccessOverrideMutation = useUpdateAdminAccessOverrideMutation();
   const updateMarketingEmailMutation = useUpdateMarketingEmailMutation();
-  const deleteAccountMutation = useDeleteAccountMutation();
 
   const marketingLabelId = useId();
 
@@ -59,12 +52,6 @@ export default function AccountPage() {
   const [resendEmailMessage, setResendEmailMessage] = useState<string | null>(null);
   const [resendEmailError, setResendEmailError] = useState<string | null>(null);
 
-  const [deleteConfirm, setDeleteConfirm] = useState('');
-  const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [adminAccessMessage, setAdminAccessMessage] = useState<string | null>(null);
-  const [adminAccessError, setAdminAccessError] = useState<string | null>(null);
-
   useEffect(() => {
     if (!profile) return;
     setEditFirstName(profile.firstName || '');
@@ -83,14 +70,7 @@ export default function AccountPage() {
 
   const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ');
   const emailVerified = Boolean(profile?.emailConfirmedAt);
-  const isAdminViewer = viewerSessionQuery.data?.role === 'admin';
-  const adminAccessState = adminAccessOverrideQuery.data ?? null;
-  const adminAccessOverride = adminAccessState?.adminAccessOverride ?? entitlementsQuery.data?.adminAccessOverride ?? null;
-  const effectiveTier = adminAccessState?.effectiveTier ?? entitlementsQuery.data?.tier ?? 'anon';
-  const effectiveTierSource = adminAccessState?.effectiveTierSource ?? entitlementsQuery.data?.effectiveTierSource ?? 'guest';
-  const billingIsPaid = adminAccessState?.billingIsPaid ?? (entitlementsQuery.data?.billingIsPaid === true);
   const premiumStatus = searchParams.get('premium');
-  const showPremiumWelcome = premiumStatus === 'welcome' && isPaid === true;
   const profileFirstName = String(profile?.firstName || '').trim();
   const profileLastName = String(profile?.lastName || '').trim();
   const profileTimezone = String(profile?.timezone || 'America/New_York').trim();
@@ -105,8 +85,7 @@ export default function AccountPage() {
     status === 'authed' && nextTimezone && hasProfileChanges && !hasBlankedExistingName && !updateProfileMutation.isPending
   );
   const showLoading = status === 'loading' || (status === 'authed' && profileQuery.isPending && !profile);
-  const membershipLabel = formatMembershipTierLabel(effectiveTier, status === 'authed');
-  const adminAccessLabel = formatAdminAccessTierLabel(effectiveTier);
+  const membershipLabel = formatMembershipTierLabel(entitlementsQuery.data?.tier ?? 'anon', status === 'authed');
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -205,150 +184,73 @@ export default function AccountPage() {
     }
   }
 
-  async function updateAdminAccessOverride(next: 'anon' | 'premium' | null) {
-    setAdminAccessMessage(null);
-    setAdminAccessError(null);
-    try {
-      await updateAdminAccessOverrideMutation.mutateAsync({ adminAccessOverride: next });
-      setAdminAccessMessage(
-        next === null ? 'Default admin access restored.' : next === 'premium' ? 'Admin premium test mode is active.' : 'Admin anon test mode is active.'
-      );
-    } catch (error: unknown) {
-      setAdminAccessError(resolveAdminAccessOverrideErrorMessage(getErrorCode(error), getErrorMessage(error, 'Unable to update admin access.')));
-    }
-  }
-
-  async function deleteAccount() {
-    setDeleteMessage(null);
-    setDeleteError(null);
-    try {
-      await deleteAccountMutation.mutateAsync(deleteConfirm);
-      const supabase = getBrowserClient();
-      await supabase?.auth.signOut().catch(() => undefined);
-      applyGuestViewerState(queryClient);
-      setDeleteMessage('Account deleted.');
-      setDeleteConfirm('');
-    } catch (error: unknown) {
-      const code = getErrorCode(error);
-      if (code === 'confirm_required') {
-        setDeleteError('Type DELETE to confirm.');
-        return;
-      }
-      if (code === 'active_subscription') {
-        setDeleteError(
-          'You have an active subscription and we could not cancel renewal automatically. Cancel billing first, then delete your account.'
-        );
-        return;
-      }
-      if (code === 'apple_revocation_not_configured') {
-        setDeleteError('Account deletion for Sign in with Apple is temporarily unavailable. Contact support and try again later.');
-        return;
-      }
-      if (code === 'apple_revocation_unavailable') {
-        setDeleteError('Please sign in with Apple again before deleting this account.');
-        return;
-      }
-      if (code === 'apple_revocation_failed') {
-        setDeleteError('We could not complete the Apple account-revocation step. Try again or contact support.');
-        return;
-      }
-      setDeleteError(getErrorMessage(error, 'Delete failed'));
-    }
-  }
-
   return (
-    <div className="mx-auto max-w-3xl px-4 py-10 md:px-6">
+    <div className="mx-auto max-w-4xl px-4 py-10 md:px-6">
       <p className="text-xs uppercase tracking-[0.1em] text-text3">Account</p>
-      <h1 className="text-3xl font-semibold text-text1">Profile</h1>
-      {deleteMessage && (
-        <div className="mt-3 rounded-xl border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
-          {deleteMessage}
+      <h1 className="text-3xl font-semibold text-text1 text-balance">Account</h1>
+      <p className="mt-3 max-w-2xl text-sm text-text2">
+        {status === 'authed'
+          ? 'Account, billing, alerts, privacy, and launch tools now live in clearer owned sections instead of one mixed page.'
+          : 'Sign in to manage account details, restore purchases, and billing.'}
+      </p>
+
+      {showLoading ? <p className="mt-4 text-text3">Loading…</p> : null}
+
+      {status === 'guest' && !showLoading ? (
+        <div className="mt-6 rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
+          <div className="text-xs uppercase tracking-[0.1em] text-text3">Sign in required</div>
+          <div className="mt-1 text-base font-semibold text-text1">Open your account</div>
+          <p className="mt-2 text-text3">
+            Sign in to manage personal info, restore purchases, and billing settings. Privacy choices remain available separately.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <Link className="btn rounded-lg px-4 py-2 text-xs" href={buildAuthHref('sign-in', { returnTo: buildProfileHref() })}>
+              Sign in
+            </Link>
+            <Link className="btn-secondary rounded-lg px-4 py-2 text-xs" href="/legal/privacy-choices">
+              Privacy & data
+            </Link>
+          </div>
         </div>
-      )}
-      {deleteError && (
-        <div className="mt-3 rounded-xl border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
-          {deleteError}
-        </div>
-      )}
-      {showLoading && <p className="text-text3">Loading...</p>}
-      {status === 'guest' && !showLoading && (
-        <p className="text-text2">
-          You are not signed in. <Link className="text-primary" href={buildAuthHref('sign-in', { returnTo: buildProfileHref() })}>Sign in</Link> to manage your account, restore purchases, and billing settings.
-        </p>
-      )}
-      {status === 'authed' && !showLoading && (
+      ) : null}
+
+      {status === 'authed' && !showLoading ? (
         <>
-          {showPremiumWelcome && (
-            <div className="mt-4 rounded-2xl border border-primary/30 bg-[rgba(34,211,238,0.08)] p-4 text-sm text-text2">
-              <div className="text-xs uppercase tracking-[0.1em] text-text3">Premium quick-start</div>
-              <div className="mt-1 text-base font-semibold text-text1">Everything is unlocked. Start with three setup steps.</div>
-              <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                <Link className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1 hover:border-primary" href={buildPreferencesHref()}>
-                  Open notification settings
-                </Link>
-                <Link className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1 hover:border-primary" href="/account/saved">
-                  Build My Launches
-                </Link>
-                <Link
-                  className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1 hover:border-primary"
-                  href="/account/integrations"
-                >
-                  Set up recurring feeds
-                </Link>
-              </div>
-            </div>
-          )}
-          <div className="mt-4 rounded-3xl border border-stroke bg-surface-1 p-5 text-sm text-text2 md:p-6">
+          <section className="mt-6 rounded-3xl border border-stroke bg-surface-1 p-5 text-sm text-text2 md:p-6" aria-labelledby="account-summary-heading">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-xs uppercase tracking-[0.1em] text-text3">Account overview</div>
-                <div className="mt-1 text-lg font-semibold text-text1">{fullName || profile?.email || 'Your account'}</div>
-                <div className="mt-1 text-xs text-text3">Profile details and membership live together, with edits alongside the current account state.</div>
+                <div className="text-xs uppercase tracking-[0.1em] text-text3">Account summary</div>
+                <h2 id="account-summary-heading" className="mt-1 text-lg font-semibold text-text1">
+                  {fullName || profile?.email || 'Your account'}
+                </h2>
+                <div className="mt-1 text-xs text-text3">One summary block for identity, membership state, and core account details.</div>
               </div>
               <span className="whitespace-nowrap rounded-full border border-primary/30 bg-[rgba(34,211,238,0.12)] px-3 py-1 text-xs font-semibold text-primary">
                 {membershipLabel}
               </span>
             </div>
 
-            <div className="mt-5 grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-              <div className="space-y-4">
-                <div>
-                  <div className="text-xs uppercase tracking-[0.1em] text-text3">Profile details</div>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    <AccountOverviewItem label="Name" value={fullName || 'Not set'} />
-                    <AccountOverviewItem label="Membership" value={membershipLabel} />
-                    <AccountOverviewItem label="Email" value={profile?.email || '—'} className="sm:col-span-2" />
-                    <AccountOverviewItem label="Role" value={isAdminViewer ? 'Admin' : 'Member'} />
-                    <AccountOverviewItem label="Email verified" value={emailVerified ? 'Yes' : 'No'} valueClassName={emailVerified ? 'text-success' : 'text-warning'} />
-                    <AccountOverviewItem label="Timezone" value={profile?.timezone || 'America/New_York'} />
-                    <AccountOverviewItem label="Member since" value={profile?.createdAt ? formatDate(profile.createdAt) : '—'} />
-                  </div>
-                </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <AccountOverviewItem label="Name" value={fullName || 'Not set'} />
+              <AccountOverviewItem label="Membership" value={membershipLabel} />
+              <AccountOverviewItem label="Email" value={profile?.email || '—'} className="sm:col-span-2 xl:col-span-2" />
+              <AccountOverviewItem label="Renewal" value={entitlementsQuery.data?.currentPeriodEnd ? formatDate(entitlementsQuery.data.currentPeriodEnd) : '—'} />
+              <AccountOverviewItem label="Session" value="Signed in" />
+              <AccountOverviewItem label="Email verified" value={emailVerified ? 'Yes' : 'No'} valueClassName={emailVerified ? 'text-success' : 'text-warning'} />
+              <AccountOverviewItem label="Timezone" value={profile?.timezone || 'America/New_York'} />
+              <AccountOverviewItem label="Member since" value={profile?.createdAt ? formatDate(profile.createdAt) : '—'} />
+            </div>
+          </section>
 
-                {!emailVerified && profile?.email && (
-                  <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3">
-                    <div className="text-xs uppercase tracking-[0.1em] text-text3">Email verification</div>
-                    <div className="mt-2 text-xs text-text3">
-                      Verify your email to keep your account secure. We sent a verification email to{' '}
-                      <span className="text-text2">{profile.email}</span>. If you don’t see it within a few minutes, check your spam/junk folder (and Promotions).
-                    </div>
-                    <button
-                      type="button"
-                      className="btn-secondary mt-3 rounded-lg px-3 py-2 text-xs"
-                      onClick={resendVerificationEmail}
-                      disabled={resendingEmail}
-                    >
-                      {resendingEmail ? 'Sending…' : 'Resend verification email'}
-                    </button>
-                    {resendEmailMessage && <div className="mt-2 text-xs text-success">{resendEmailMessage}</div>}
-                    {resendEmailError && <div className="mt-2 text-xs text-warning">{resendEmailError}</div>}
-                  </div>
-                )}
-              </div>
-
-              <div className="rounded-2xl border border-stroke bg-[rgba(255,255,255,0.02)] p-4">
-                <div className="text-xs uppercase tracking-[0.1em] text-text3">Update profile</div>
-                <div className="mt-3 grid gap-3">
+          <AccountSection
+            title="Identity & Security"
+            description="Profile fields and authentication methods for this customer account."
+          >
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+              <div className="rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
+                <div className="text-xs uppercase tracking-[0.1em] text-text3">Personal info</div>
+                <div className="mt-1 text-base font-semibold text-text1">Edit shared account fields</div>
+                <div className="mt-2 grid gap-3">
                   <label className="flex flex-col gap-1">
                     <span className="text-xs text-text3">First name</span>
                     <input
@@ -376,7 +278,7 @@ export default function AccountPage() {
                       className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
                       value={editTimezone}
                       onChange={(event) => setEditTimezone(event.target.value)}
-                      placeholder="America/New_York"
+                      placeholder="America/New_York…"
                       autoComplete="off"
                     />
                   </label>
@@ -385,187 +287,233 @@ export default function AccountPage() {
                   <button type="button" className="btn rounded-lg px-4 py-2 text-xs" onClick={saveProfile} disabled={!canSaveProfile}>
                     {updateProfileMutation.isPending ? 'Saving…' : 'Save profile'}
                   </button>
-                  <Link className="text-xs text-primary hover:underline" href="/legal/privacy-choices">
-                    Privacy choices
-                  </Link>
                 </div>
-                {hasBlankedExistingName && <div className="mt-2 text-xs text-warning">First and last name cannot be cleared once set.</div>}
-                {profileMessage && <div className="mt-2 text-xs text-success">{profileMessage}</div>}
-                {profileError && <div className="mt-2 text-xs text-warning">{profileError}</div>}
+                {hasBlankedExistingName ? <div className="mt-2 text-xs text-warning">First and last name cannot be cleared once set.</div> : null}
+                {profileMessage ? (
+                  <div className="mt-2 text-xs text-success" aria-live="polite">
+                    {profileMessage}
+                  </div>
+                ) : null}
+                {profileError ? (
+                  <div className="mt-2 text-xs text-warning" aria-live="polite">
+                    {profileError}
+                  </div>
+                ) : null}
               </div>
-            </div>
 
-            <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-stroke/70 pt-4">
-              <button
-                className="btn-secondary rounded-lg px-4 py-2 text-xs"
-                onClick={async () => {
-                  const supabase = getBrowserClient();
-                  if (!supabase) return;
-                  await supabase.auth.signOut();
-                  applyGuestViewerState(queryClient);
-                }}
-              >
-                Sign out
-              </button>
-            </div>
-          </div>
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <div className="md:col-span-2">
-              <BillingPanel />
-            </div>
-            {isAdminViewer && (
-              <div className="md:col-span-2 rounded-2xl border border-primary/20 bg-[rgba(34,211,238,0.06)] p-4 text-sm text-text2">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <div className="text-xs uppercase tracking-[0.1em] text-text3">Admin access testing</div>
-                    <div className="mt-1 text-base font-semibold text-text1">Switch this admin account between anon and premium</div>
-                    <div className="mt-1 text-xs text-text3">
-                      This changes customer access across web, iPhone, and Android. Billing and admin tools stay unchanged.
+              <div className="space-y-4">
+                {!emailVerified && profile?.email ? (
+                  <div className="rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
+                    <div className="text-xs uppercase tracking-[0.1em] text-text3">Email verification</div>
+                    <div className="mt-1 text-base font-semibold text-text1">Verify your email</div>
+                    <div className="mt-2 text-xs text-text3">
+                      We sent a verification email to <span className="text-text2">{profile.email}</span>. If you don’t see it within a few minutes, check your spam/junk folder and Promotions.
                     </div>
+                    <button
+                      type="button"
+                      className="btn-secondary mt-3 rounded-lg px-3 py-2 text-xs"
+                      onClick={resendVerificationEmail}
+                      disabled={resendingEmail}
+                    >
+                      {resendingEmail ? 'Sending…' : 'Resend verification email'}
+                    </button>
+                    {resendEmailMessage ? (
+                      <div className="mt-2 text-xs text-success" aria-live="polite">
+                        {resendEmailMessage}
+                      </div>
+                    ) : null}
+                    {resendEmailError ? (
+                      <div className="mt-2 text-xs text-warning" aria-live="polite">
+                        {resendEmailError}
+                      </div>
+                    ) : null}
                   </div>
-                  <span className="whitespace-nowrap rounded-full border border-primary/30 px-3 py-1 text-xs text-primary">
-                    {adminAccessLabel}
-                  </span>
+                ) : null}
+
+                <AccountLinkCard
+                  eyebrow="Login methods"
+                  title="Manage login methods"
+                  description="Email/password and Sign in with Apple stay in a dedicated security destination."
+                  href="/account/login-methods"
+                  ctaLabel="Manage login methods"
+                />
+
+                <div className="rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
+                  <div className="text-xs uppercase tracking-[0.1em] text-text3">Session</div>
+                  <div className="mt-1 text-base font-semibold text-text1">Sign out on this browser</div>
+                  <p className="mt-2 text-xs text-text3">
+                    Signing out clears the current browser session. Account data and billing remain unchanged.
+                  </p>
+                  <button
+                    className="btn-secondary mt-3 rounded-lg px-4 py-2 text-xs"
+                    onClick={async () => {
+                      const supabase = getBrowserClient();
+                      if (!supabase) return;
+                      await supabase.auth.signOut();
+                      applyGuestViewerState(queryClient);
+                    }}
+                  >
+                    Sign out
+                  </button>
                 </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <AdminAccessButton
-                    label="Use default"
-                    active={adminAccessOverride === null}
-                    disabled={adminAccessOverrideQuery.isPending || updateAdminAccessOverrideMutation.isPending}
-                    onClick={() => void updateAdminAccessOverride(null)}
-                  />
-                  <AdminAccessButton
-                    label="Anon"
-                    active={adminAccessOverride === 'anon'}
-                    disabled={adminAccessOverrideQuery.isPending || updateAdminAccessOverrideMutation.isPending}
-                    onClick={() => void updateAdminAccessOverride('anon')}
-                  />
-                  <AdminAccessButton
-                    label="Premium"
-                    active={adminAccessOverride === 'premium'}
-                    disabled={adminAccessOverrideQuery.isPending || updateAdminAccessOverrideMutation.isPending}
-                    onClick={() => void updateAdminAccessOverride('premium')}
-                  />
-                </div>
-                <div className="mt-3 grid gap-2 text-xs text-text3 sm:grid-cols-3">
-                  <div>
-                    <span className="text-text3">Current access:</span> <span className="text-text2">{adminAccessLabel}</span>
-                  </div>
-                  <div>
-                    <span className="text-text3">Source:</span> <span className="text-text2">{formatEffectiveTierSource(effectiveTierSource)}</span>
-                  </div>
-                  <div>
-                    <span className="text-text3">Real billing:</span> <span className="text-text2">{billingIsPaid ? 'Active' : 'Inactive'}</span>
-                  </div>
-                </div>
-                {adminAccessMessage && <div className="mt-2 text-xs text-success">{adminAccessMessage}</div>}
-                {adminAccessError && <div className="mt-2 text-xs text-warning">{adminAccessError}</div>}
               </div>
-            )}
-            <div className="md:col-span-2">
+            </div>
+          </AccountSection>
+
+          <AccountSection
+            title="Membership & Billing"
+            description="Keep plan status, renewal timing, and billing actions in one owned section."
+          >
+            <BillingPanel />
+          </AccountSection>
+          <AccountSection
+            title="Communications & Alerts"
+            description="Marketing email stays on the account. Launch push alerts stay mobile-only."
+          >
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
+                <div className="text-xs uppercase tracking-[0.1em] text-text3">Marketing emails</div>
+                <div className="mt-1 text-base font-semibold text-text1">Optional product updates</div>
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div id={marketingLabelId} className="text-text3">
+                      Marketing emails
+                    </div>
+                    <div className="text-xs text-text3">Optional product updates and occasional offers. Off by default.</div>
+                  </div>
+                  <ToggleButton
+                    checked={(marketingEmailOptIn ?? false) === true}
+                    disabled={marketingEmailOptIn === null || updateMarketingEmailMutation.isPending}
+                    onChange={(next) => void updateMarketingOptIn(next)}
+                    labelledBy={marketingLabelId}
+                  />
+                </div>
+                <div className="mt-2 text-xs text-text3">
+                  Essential account emails still send even when this is off, including password resets, billing receipts, and security notices.
+                </div>
+                {marketingMessage ? (
+                  <div className="mt-2 text-xs text-success" aria-live="polite">
+                    {marketingMessage}
+                  </div>
+                ) : null}
+                {marketingError ? (
+                  <div className="mt-2 text-xs text-warning" aria-live="polite">
+                    {marketingError}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
+                <div className="text-xs uppercase tracking-[0.1em] text-text3">Launch alerts</div>
+                <div className="mt-1 text-base font-semibold text-text1">Push alerts live in the mobile app</div>
+                <p className="mt-2 text-text3">
+                  Web no longer manages legacy notification subscriptions. Use the native iPhone or Android app to manage device registration, push permissions, and launch alert rules.
+                </p>
+              </div>
+            </div>
+          </AccountSection>
+
+          <AccountSection
+            title="Launch Tools"
+            description="Saved launch tools and Premium integrations stay discoverable, but they no longer compete with core account controls."
+          >
+            <div className="grid gap-4 md:grid-cols-2">
+              <AccountLinkCard
+                eyebrow="Saved items"
+                title="Manage saved items"
+                description="Presets, follows, starred launches, and Premium alert sources live together in one launch-tools destination."
+                href="/account/saved"
+                ctaLabel="Manage saved items"
+              />
+              <AccountLinkCard
+                eyebrow="Integrations"
+                title="Manage integrations"
+                description="Calendar feeds, RSS feeds, and tokenized next-launch widgets stay in a dedicated integrations destination."
+                href="/account/integrations"
+                ctaLabel="Manage integrations"
+              />
+            </div>
+          </AccountSection>
+
+          <AccountSection
+            title="Privacy & Data"
+            description="Keep export, deletion, and privacy preferences under one owner instead of splitting them across account surfaces."
+          >
+            <AccountLinkCard
+              eyebrow="Privacy choices"
+              title="Manage privacy & data requests"
+              description="Export account data, delete your account, and manage embed privacy preferences from one place."
+              href="/legal/privacy-choices"
+              ctaLabel="Manage privacy & data"
+            />
+          </AccountSection>
+
+          <AccountSection
+            title="Support & Extras"
+            description="Low-frequency account extras sit below the primary customer account work."
+          >
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
+                <div className="text-xs uppercase tracking-[0.1em] text-text3">Support</div>
+                <div className="mt-1 text-base font-semibold text-text1">Need account help?</div>
+                <p className="mt-2 text-text3">
+                  Use Support for billing issues, privacy questions, account recovery help, and other customer requests.
+                </p>
+                <Link className="mt-3 inline-flex text-sm text-primary hover:underline" href="/support">
+                  Open support
+                </Link>
+              </div>
+
               <TipJarRecurringPanel />
             </div>
-            <div className="md:col-span-2 rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="text-xs uppercase tracking-[0.1em] text-text3">Login methods</div>
-                  <div className="mt-1 text-base font-semibold text-text1">Email/password and Sign in with Apple</div>
-                  <div className="mt-1 text-xs text-text3">
-                    Link or remove Apple for this account without creating a second profile.
-                  </div>
-                </div>
-                <Link className="shrink-0 text-sm text-primary hover:underline" href="/account/login-methods">
-                  Open
-                </Link>
-              </div>
-            </div>
-            <div className="md:col-span-2 rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="text-xs uppercase tracking-[0.1em] text-text3">Integrations</div>
-                  <div className="mt-1 text-base font-semibold text-text1">Calendar, RSS, embeds</div>
-                  <div className="mt-1 text-xs text-text3">
-                    Manage tokenized links for Premium integrations (rotate/revoke, copy links).
-                  </div>
-                </div>
-                <Link className="shrink-0 text-sm text-primary hover:underline" href="/account/integrations">
-                  Open
-                </Link>
-              </div>
-            </div>
-            <div className="md:col-span-2 rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="text-xs uppercase tracking-[0.1em] text-text3">Saved</div>
-                  <div className="mt-1 text-base font-semibold text-text1">Presets, follows, starred launches</div>
-                  <div className="mt-1 text-xs text-text3">Manage saved views, My Launches rules, and Premium alert sources in one place.</div>
-                </div>
-                <Link className="shrink-0 text-sm text-primary hover:underline" href="/account/saved">
-                  Open
-                </Link>
-              </div>
-            </div>
-            <div className="md:col-span-2 rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
-              <div className="text-xs uppercase tracking-[0.1em] text-text3">Notifications</div>
-              <div className="mt-1 text-base font-semibold text-text1">Push alerts live in the mobile app</div>
-              <p className="mt-2 text-text3">
-                Web no longer manages legacy notification subscriptions. Open the native app to manage alert rules and device registration.
-              </p>
-              <Link className="mt-3 inline-flex text-xs text-primary hover:underline" href={buildPreferencesHref()}>
-                Open native notification settings
-              </Link>
-            </div>
-            <div className="rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
-              <div className="text-xs uppercase tracking-[0.1em] text-text3">Marketing emails</div>
-              <div className="mt-3 flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div id={marketingLabelId} className="text-text3">Marketing emails</div>
-                  <div className="text-xs text-text3">Optional product updates and occasional offers. Off by default.</div>
-                </div>
-                <ToggleButton
-                  checked={(marketingEmailOptIn ?? false) === true}
-                  disabled={marketingEmailOptIn === null || updateMarketingEmailMutation.isPending}
-                  onChange={(next) => void updateMarketingOptIn(next)}
-                  labelledBy={marketingLabelId}
-                />
-              </div>
-              <div className="mt-2 text-xs text-text3">
-                Essential account emails still send even when this is off, including password resets, billing receipts, and security notices.
-              </div>
-              {marketingMessage && <div className="mt-2 text-xs text-success">{marketingMessage}</div>}
-              {marketingError && <div className="mt-2 text-xs text-warning">{marketingError}</div>}
-            </div>
-            <div className="md:col-span-2 rounded-2xl border border-danger/40 bg-[rgba(251,113,133,0.08)] p-4 text-sm text-text2">
-              <div className="text-xs uppercase tracking-[0.1em] text-text3">Danger zone</div>
-              <div className="mt-1 text-lg font-semibold text-text1">Delete account</div>
-              <p className="mt-2 text-text3">
-                This permanently deletes your account and associated data in our database. It does not delete records held by payment providers.
-              </p>
-              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-                <input
-                  type="text"
-                  className="flex-1 rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
-                  placeholder="Type DELETE to confirm"
-                  value={deleteConfirm}
-                  onChange={(event) => setDeleteConfirm(event.target.value)}
-                  autoComplete="off"
-                />
-                <button
-                  type="button"
-                  className="btn-secondary rounded-lg px-4 py-2 text-sm text-danger hover:border-danger/60"
-                  onClick={() => void deleteAccount()}
-                  disabled={deleteAccountMutation.isPending || deleteConfirm.trim().toUpperCase() !== 'DELETE'}
-                >
-                  {deleteAccountMutation.isPending ? 'Deleting…' : 'Delete my account'}
-                </button>
-              </div>
-              <div className="mt-2 text-xs text-text3">
-                If you have an active subscription, we will try to cancel renewal before deletion. If that fails, cancel billing first above.
-              </div>
-            </div>
-          </div>
+          </AccountSection>
         </>
-      )}
+      ) : null}
+    </div>
+  );
+}
+
+function AccountSection({
+  title,
+  description,
+  children
+}: {
+  title: string;
+  description: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="mt-6" aria-label={title}>
+      <div className="mb-3">
+        <h2 className="text-lg font-semibold text-text1">{title}</h2>
+        <p className="mt-1 text-sm text-text3">{description}</p>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function AccountLinkCard({
+  eyebrow,
+  title,
+  description,
+  href,
+  ctaLabel
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  href: string;
+  ctaLabel: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
+      <div className="text-xs uppercase tracking-[0.1em] text-text3">{eyebrow}</div>
+      <div className="mt-1 text-base font-semibold text-text1">{title}</div>
+      <div className="mt-2 text-xs text-text3">{description}</div>
+      <Link className="mt-3 inline-flex text-sm text-primary hover:underline" href={href}>
+        {ctaLabel}
+      </Link>
     </div>
   );
 }
@@ -619,66 +567,16 @@ function ToggleButton({
   );
 }
 
-function AdminAccessButton({
-  label,
-  active,
-  disabled,
-  onClick
-}: {
-  label: string;
-  active: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={`rounded-full border px-3 py-2 text-xs font-semibold transition ${
-        active
-          ? 'border-primary bg-[rgba(34,211,238,0.16)] text-primary'
-          : 'border-stroke bg-surface-0 text-text2 hover:border-primary/40'
-      } ${disabled ? 'cursor-not-allowed opacity-60' : ''}`}
-      onClick={() => {
-        if (!disabled) onClick();
-      }}
-      disabled={disabled}
-    >
-      {label}
-    </button>
-  );
-}
-
 function formatDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(date);
 }
 
-function formatEffectiveTierSource(value: string) {
-  if (value === 'admin_override') return 'Manual override';
-  if (value === 'admin') return 'Admin default';
-  if (value === 'subscription') return 'Paid subscription';
-  if (value === 'free') return 'Signed in without Premium';
-  return 'Guest';
-}
-
 function formatMembershipTierLabel(value: string, isAuthed: boolean) {
-  if (value === 'premium') return 'Premium access';
-  return isAuthed ? 'Free access' : 'Guest access';
-}
-
-function formatAdminAccessTierLabel(value: string) {
-  return value === 'premium' ? 'Premium access' : 'Anon access';
-}
-
-function stableKey(values: string[]) {
-  return Array.from(new Set(values.map((value) => String(value || '').trim()).filter(Boolean)))
-    .sort((left, right) => left.localeCompare(right))
-    .join('|');
-}
-
-function getErrorCode(error: unknown) {
-  return typeof (error as { code?: unknown })?.code === 'string' ? (error as { code: string }).code : null;
+  if (value === 'premium') return 'Full access';
+  void isAuthed;
+  return 'Public access';
 }
 
 function getErrorMessage(error: unknown, fallback: string) {

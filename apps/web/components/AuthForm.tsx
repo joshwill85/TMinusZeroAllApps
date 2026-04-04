@@ -272,7 +272,7 @@ export function AuthForm({
     <form onSubmit={handleSubmit} className="space-y-3 rounded-2xl border border-stroke bg-surface-1 p-4">
       {isSignUp ? (
         <div className="rounded-lg border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-2 text-xs text-text3">
-          This account will be created from a verified Premium purchase. Signing in without Premium only keeps account ownership, recovery, and billing access.
+          This account will be created from a verified Premium purchase. Until Premium is active, access stays on the public tier.
         </div>
       ) : null}
       {appleSignInEnabled ? (

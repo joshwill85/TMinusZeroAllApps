@@ -36,7 +36,7 @@ async function main() {
     isAdmin: false,
     isAuthed: true,
     mode: 'public',
-    effectiveTierSource: 'free',
+    effectiveTierSource: 'anon',
     adminAccessOverride: null,
     refreshIntervalSeconds: 7200,
     capabilities: {

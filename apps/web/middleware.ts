@@ -2,7 +2,17 @@ import { createServerClient } from '@supabase/ssr';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { CANONICAL_HOST, COOKIE_DOMAIN, DOMAIN_APEX } from '@/lib/brand';
-import { isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
+import { getAntiIngestionTokenSecret, isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
+import {
+  APP_CLIENT_HEADER_NAME,
+  APP_GUEST_TOKEN_HEADER_NAME,
+  PUBLIC_VIEW_COOKIE_NAME,
+  buildPublicViewFingerprint,
+  issuePublicViewToken,
+  parseAppClientContext,
+  verifyAppGuestToken,
+  verifyPublicViewToken
+} from '@/lib/security/firstPartyAccess';
 import { buildLegacyCatalogRedirectHref } from '@/lib/utils/catalog';
 import { toProviderSlug } from '@/lib/utils/launchLinks';
 
@@ -42,6 +52,26 @@ const LEGACY_RATE_LIMIT_RULES: Array<{ matches: (pathname: string) => boolean; r
 ];
 
 const RATE_LIMIT_STORE_KEY = '__tmz_legacy_middleware_rate_limit__';
+const PROTECTED_PUBLIC_API_PREFIXES = ['/api/public', '/api/search/index'];
+const PROTECTED_V1_PREFIXES = [
+  '/api/v1/artemis',
+  '/api/v1/blue-origin',
+  '/api/v1/catalog',
+  '/api/v1/content',
+  '/api/v1/contracts',
+  '/api/v1/info',
+  '/api/v1/launches',
+  '/api/v1/locations',
+  '/api/v1/news',
+  '/api/v1/pads',
+  '/api/v1/providers',
+  '/api/v1/rockets',
+  '/api/v1/satellites',
+  '/api/v1/search',
+  '/api/v1/spacex',
+  '/api/v1/starship'
+];
+const LEGACY_NATIVE_APP_USER_AGENT_PATTERNS = [/okhttp/i, /cfnetwork/i, /darwin/i, /expo/i, /tminuszero/i];
 const inMemoryRateLimitStore: Map<string, InMemoryRateLimitWindow> = (() => {
   const globalScope = globalThis as unknown as Record<string, unknown>;
   const existing = globalScope[RATE_LIMIT_STORE_KEY];
@@ -111,11 +141,19 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url, 302);
   }
 
+  const antiIngestionSecret = getAntiIngestionTokenSecret();
+  if (antiIngestionSecret) {
+    const protectedResponse = await maybeEnforceFirstPartyApiAccess(request, pathname, antiIngestionSecret);
+    if (protectedResponse) {
+      return applyApiHardeningHeaders(pathname, protectedResponse);
+    }
+  }
+
   const legacyRateLimitRule = matchLegacyRateLimitRule(pathname);
   if (legacyRateLimitRule) {
     const rateLimited = await enforceLegacyRateLimit(request, legacyRateLimitRule);
     if (rateLimited) {
-      return rateLimited;
+      return applyApiHardeningHeaders(pathname, rateLimited);
     }
   }
 
@@ -136,7 +174,12 @@ export async function middleware(request: NextRequest) {
       response.headers.set('X-Robots-Tag', 'noindex,follow');
     }
   }
-  return response;
+
+  if (antiIngestionSecret && shouldIssuePublicViewCookie(request)) {
+    response = await attachPublicViewCookie(request, response, antiIngestionSecret);
+  }
+
+  return applyApiHardeningHeaders(pathname, response);
 }
 
 function extractLegacyLaunchProviderSlug(pathname: string) {
@@ -180,6 +223,188 @@ function matchLegacyRateLimitRule(pathname: string) {
     }
   }
   return null;
+}
+
+function matchesProtectedPrefix(pathname: string, prefixes: string[]) {
+  return prefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}
+
+function isProtectedPublicApiPath(pathname: string) {
+  return matchesProtectedPrefix(pathname, PROTECTED_PUBLIC_API_PREFIXES);
+}
+
+function isProtectedV1Path(pathname: string) {
+  return matchesProtectedPrefix(pathname, PROTECTED_V1_PREFIXES);
+}
+
+function requestHasBearerToken(request: NextRequest) {
+  const authorization = request.headers.get('authorization') || request.headers.get('Authorization') || '';
+  return authorization.toLowerCase().startsWith('bearer ');
+}
+
+function requestHasSupabaseSessionCookie(request: NextRequest) {
+  return request.cookies.getAll().some((cookie) => cookie.name.startsWith('sb-'));
+}
+
+function requestHasViewerAuth(request: NextRequest) {
+  return requestHasBearerToken(request) || requestHasSupabaseSessionCookie(request);
+}
+
+function looksLikeLegacyNativeAppClient(request: NextRequest) {
+  const userAgent = request.headers.get('user-agent') || '';
+  if (!userAgent) return false;
+  if (request.headers.get(APP_CLIENT_HEADER_NAME) || request.headers.get(APP_GUEST_TOKEN_HEADER_NAME)) {
+    return false;
+  }
+  if (request.headers.get('sec-fetch-site') || request.headers.get('sec-fetch-mode')) {
+    return false;
+  }
+  return LEGACY_NATIVE_APP_USER_AGENT_PATTERNS.some((pattern) => pattern.test(userAgent));
+}
+
+function headerMatchesRequestHost(value: string | null, request: NextRequest) {
+  if (!value) return false;
+
+  try {
+    const url = new URL(value);
+    return url.host.toLowerCase() === request.nextUrl.host.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
+function hasFirstPartyBrowserContext(request: NextRequest) {
+  const secFetchSite = (request.headers.get('sec-fetch-site') || '').trim().toLowerCase();
+  if (secFetchSite === 'same-origin' || secFetchSite === 'same-site') {
+    return true;
+  }
+  if (secFetchSite === 'cross-site') {
+    return false;
+  }
+
+  return (
+    headerMatchesRequestHost(request.headers.get('origin'), request) || headerMatchesRequestHost(request.headers.get('referer'), request)
+  );
+}
+
+function buildFirstPartyRequiredResponse(reason: 'public_view_required' | 'app_guest_token_required') {
+  return NextResponse.json(
+    {
+      error: 'first_party_required',
+      reason
+    },
+    {
+      status: 403,
+      headers: {
+        'Cache-Control': 'no-store'
+      }
+    }
+  );
+}
+
+async function maybeEnforceFirstPartyApiAccess(request: NextRequest, pathname: string, secret: string) {
+  if (request.method === 'OPTIONS') {
+    return null;
+  }
+
+  const isPublicApiPath = isProtectedPublicApiPath(pathname);
+  const isProtectedV1ApiPath = isProtectedV1Path(pathname) && (request.method === 'GET' || request.method === 'HEAD');
+  if (!isPublicApiPath && !isProtectedV1ApiPath) {
+    return null;
+  }
+
+  if (requestHasViewerAuth(request)) {
+    return null;
+  }
+
+  const firstPartyBrowserContext = hasFirstPartyBrowserContext(request);
+  const publicViewFingerprint = await buildPublicViewFingerprint(request.headers);
+  const publicViewCookie = request.cookies.get(PUBLIC_VIEW_COOKIE_NAME)?.value;
+  const publicViewProof =
+    firstPartyBrowserContext && publicViewCookie
+      ? await verifyPublicViewToken(publicViewCookie, secret, publicViewFingerprint)
+      : null;
+
+  if (publicViewProof) {
+    return null;
+  }
+
+  if (isPublicApiPath) {
+    return buildFirstPartyRequiredResponse('public_view_required');
+  }
+
+  const appClientContext = parseAppClientContext(request.headers.get(APP_CLIENT_HEADER_NAME));
+  const appGuestProof = await verifyAppGuestToken(request.headers.get(APP_GUEST_TOKEN_HEADER_NAME), secret, appClientContext);
+  if (appGuestProof) {
+    return null;
+  }
+
+  if (looksLikeLegacyNativeAppClient(request)) {
+    return null;
+  }
+
+  return buildFirstPartyRequiredResponse('app_guest_token_required');
+}
+
+function shouldIssuePublicViewCookie(request: NextRequest) {
+  if (request.method !== 'GET' && request.method !== 'HEAD') return false;
+
+  const pathname = request.nextUrl.pathname;
+  if (pathname === '/api' || pathname.startsWith('/api/')) return false;
+  if (pathname.startsWith('/_next/')) return false;
+  if (pathname.startsWith('/account') || pathname.startsWith('/admin') || pathname.startsWith('/auth') || pathname.startsWith('/me')) return false;
+  if (pathname.startsWith('/embed') || pathname.startsWith('/share')) return false;
+  if (pathname.startsWith('/favicon') || pathname.startsWith('/apple-touch-icon') || pathname.startsWith('/icon-')) return false;
+  return !/\.[^/]+$/.test(pathname);
+}
+
+async function attachPublicViewCookie(request: NextRequest, response: NextResponse, secret: string) {
+  const fingerprint = await buildPublicViewFingerprint(request.headers);
+  const value = await issuePublicViewToken(secret, fingerprint);
+  const hostHeader = request.headers.get('host') || '';
+  const host = hostHeader.split(':')[0]?.trim().toLowerCase();
+  const isProdDomain = host === DOMAIN_APEX || host === CANONICAL_HOST;
+
+  response.cookies.set({
+    name: PUBLIC_VIEW_COOKIE_NAME,
+    value,
+    httpOnly: true,
+    maxAge: 5 * 60,
+    path: '/',
+    sameSite: 'lax',
+    secure: true,
+    ...(isProdDomain ? { domain: COOKIE_DOMAIN } : {})
+  });
+
+  return response;
+}
+
+function applyApiHardeningHeaders(pathname: string, response: NextResponse) {
+  if (!(pathname === '/api' || pathname.startsWith('/api/'))) {
+    return response;
+  }
+
+  const existingRobots = response.headers.get('X-Robots-Tag');
+  if (!existingRobots) {
+    response.headers.set('X-Robots-Tag', 'noindex, nofollow');
+  } else {
+    const parts = existingRobots
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    if (!parts.includes('noindex')) parts.push('noindex');
+    if (!parts.includes('nofollow')) parts.push('nofollow');
+    response.headers.set('X-Robots-Tag', parts.join(', '));
+  }
+
+  const vary = response.headers.get('Vary');
+  const nextVary = ['Sec-Fetch-Site', 'Origin', 'Referer', APP_CLIENT_HEADER_NAME, APP_GUEST_TOKEN_HEADER_NAME]
+    .filter((value) => !(vary || '').split(',').map((entry) => entry.trim()).includes(value))
+    .join(', ');
+  if (nextVary) {
+    response.headers.set('Vary', vary ? `${vary}, ${nextVary}` : nextVary);
+  }
+  return response;
 }
 
 async function hashValue(value: string) {

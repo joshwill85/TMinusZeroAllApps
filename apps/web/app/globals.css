@@ -41,7 +41,7 @@
 }
 
 body {
-  --dock-offset: 88px;
+  --dock-offset: 82px;
   background: radial-gradient(circle at 20% 20%, rgba(124, 92, 255, 0.12), transparent 35%),
     radial-gradient(circle at 80% 0%, rgba(34, 211, 238, 0.12), transparent 30%),
     linear-gradient(135deg, #03040a 0%, #05060a 40%, #070913 100%);
@@ -53,7 +53,7 @@ body {
 
 @media (min-width: 768px) {
   body {
-    --dock-offset: 80px;
+    --dock-offset: 74px;
   }
 }
 

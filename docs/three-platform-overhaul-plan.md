@@ -1,11 +1,12 @@
 # Three-Platform Overhaul Plan
 
-Last updated: 2026-04-03
+Last updated: 2026-04-04
 
 This is the living master checklist for moving T-Minus Zero from a web-only product to a maintainable, high-performance web + iOS + Android product line.
 
 Related implementation plans:
 - `docs/2026-04-03-apple-sign-in-linking-and-rollout-plan.md`
+- `docs/2026-04-04-anon-premium-model-enforcement-plan.md`
 - `docs/2026-03-20-anon-premium-cutover-plan.md`
 - `docs/2026-03-29-push-only-notification-cutover-plan.md`
 - `docs/ar-trajectory-three-surface-best-in-class-validation-plan-2026-04-01.md`
@@ -75,6 +76,14 @@ Related implementation plans:
 
 ## Current Slice Tracker
 
+- 2026-04-04: Anti-ingestion hardening is in progress for `Web`, `iOS`, and `Android`.
+  - Source-of-truth plan: `docs/2026-04-04-anti-ingestion-hardening-plan.md`
+  - Scope: keep SEO HTML public, issue first-party browser proof for site-driven JSON, add a mobile guest bootstrap token, move server product-data reads onto server-owned Supabase clients, and revoke the highest-value external Supabase integration surfaces.
+  - Guardrails: no breaking `/api/v1` response schemas, no mobile auth/session regression, no blocking approved HTML/OG/sitemap bot traffic, and no silent admin/internal scope creep.
+- 2026-04-04: Anon/Premium model enforcement planning is in progress for `Web`, `iOS`, and `Android`.
+  - Source-of-truth plan: `docs/2026-04-04-anon-premium-model-enforcement-plan.md`
+  - Scope: remove unsupported signed-in/non-premium terminology and compatibility assumptions from shared contracts, customer UI, admin labels, docs, and regression assets, while separating account/auth state from customer membership state.
+  - Guardrails: no destructive auth or billing migration, no silent `/api/v1` breakage, no accidental loss of premium claim/recovery/restore flows, and no customer-facing reintroduction of a third membership tier.
 - 2026-04-03: Apple Sign In linking and rollout planning is in progress for `Web` and `iOS`.
   - Source-of-truth plan: `docs/2026-04-03-apple-sign-in-linking-and-rollout-plan.md`
   - Scope: explicit linking for existing accounts, deterministic duplicate prevention, Apple portal configuration, and real-device release verification.
@@ -90,8 +99,8 @@ Related implementation plans:
   - Guardrails: no destructive table or column drops, keep legacy `/api/v1` reads compatibility-safe, reject retired writes explicitly, and preserve the native mobile push v2 path.
 - 2026-03-20: Anon and Premium cutover is in progress for `Web`, `iOS`, and `Android`.
   - Source-of-truth plan: `docs/2026-03-20-anon-premium-cutover-plan.md`
-  - Scope: remove new free sign-up, keep signed-in non-premium users on anon product access, add purchase-first premium claim flows, and preserve read-only saved/integration inventory for signed-in non-premium accounts.
-  - Guardrails: no destructive auth or billing migration, no breaking `/api/v1` removal of `free` during the compatibility window, and keep tokenized premium delivery disabled for non-premium accounts.
+  - Scope: remove standalone public sign-up, keep authenticated unpaid users on anon product access, add purchase-first premium claim flows, and remove stale read-only saved/integration inventory paths for non-premium accounts.
+  - Guardrails: no destructive auth or billing migration, keep shared contracts and `/api/v1` aligned to the `anon|premium` model, and keep tokenized premium delivery disabled for non-premium accounts.
 - 2026-03-20: External media housing is planned for `Web`, `iOS`, and `Android`.
   - Source-of-truth plan: `docs/external-media-housing-plan-2026-03-20.md`
   - Scope: remove NASA and SpaceX media click-through on web, add additive managed-media support, prefer hosted NASA still images, and keep native YouTube playback as a separate follow-up.
@@ -378,7 +387,7 @@ Rollback gate:
 - 2026-03-09: Completed the repo-owned acceptance-readiness validation slice by landing `npm run test:web-regression` as a shared query/navigation regression smoke, `npm run test:billing-regression` as deterministic web-billing continuity plus webhook-idempotency coverage, a simulator-safe E2E push-registration seam for mobile builds, and a checked-in evidence bundle under `docs/evidence/three-platform/`. Validated in pinned Docker with `npm run doctor`, `npm run test:shared-domain`, `npm run test:phase3-web-guard`, `npm run test:web-regression`, `npm run test:billing-regression`, `npm run test:v1-contracts`, `npm run test:mobile-query-guard`, `npm run type-check:mobile`, `npm run lint --workspace @tminuszero/mobile`, `npm run lint`, `npm run test:smoke`, `npm run build`, `npm run type-check:ci` (after build), and `npm run baseline:three-platform -- --out-dir=docs/evidence/three-platform --ttfb-requests=15 --ttfb-warmup=5`. Shared-domain test coverage and web-billing continuity are now repo-proven; real-device push/perf evidence and live store reconciliation remain open.
 - 2026-03-09: Added `npm run acceptance:preflight` plus `.github/workflows/acceptance-preflight.yml` to emit one pinned-toolchain artifact bundle for repo-owned acceptance work, expanded mobile Detox with feed pagination plus artifact-producing `mobile:e2e:acceptance` entrypoints, and upgraded the mobile workflow to upload iOS/Android Detox artifacts. Revalidated in pinned Docker with `npm run acceptance:preflight -- --out-dir=.artifacts/three-platform-acceptance --ttfb-requests=5 --ttfb-warmup=2`, which passed doctor, boundaries, shared-domain, web-regression, billing-regression, `/api/v1` contracts, mobile query guard, mobile lint/typecheck, smoke tests, web build, web type-check-after-build, baseline capture, and billing evidence export. The new billing regression now proves Stripe continuity, source-ordered provider failure guards before mutation boundaries, and webhook replay safety; mobile Detox boxes remain open until simulator/emulator or CI artifacts are attached.
 - 2026-03-09: Hardened the mobile auth surface by removing raw bearer-token acceptance from native callback/reset routes, adding refresh-token-driven mobile session renewal plus 401 retry recovery, enforcing https-only API/Supabase config in non-development mobile builds, claiming verified `https` auth links in Expo config, and adding Apple/Android app-link association routes plus `npm run test:mobile-security-guard` in CI/preflight. Revalidated in pinned Docker with `npm run acceptance:preflight -- --out-dir=.artifacts/mobile-security-hardening --ttfb-requests=5 --ttfb-warmup=2`. Remaining operational follow-up: populate app-link signing identifiers (`APPLE_DEVELOPER_TEAM_ID` or explicit `APPLE_APP_LINK_APP_IDS`, plus `ANDROID_APP_LINK_SHA256_CERT_FINGERPRINTS`) before verified auth links can be proven on devices.
-- 2026-03-10: Added `npm run acceptance:local` plus deterministic local fixtures in `scripts/three-platform-local-fixture.ts` and `scripts/three-platform-local-acceptance-seed.ts`, so the repo-owned acceptance path can reset local Supabase, seed free/premium users plus launch/watchlist/preset/billing data, boot `apps/web`, and emit one local artifact bundle with the seed, pinned preflight output, billing evidence export, rate-limit smoke output, and web server log. The repeatable dry-run bundle now lives under `.artifacts/local-acceptance-dryrun/`.
+- 2026-03-10: Added `npm run acceptance:local` plus deterministic local fixtures in `scripts/three-platform-local-fixture.ts` and `scripts/three-platform-local-acceptance-seed.ts`, so the repo-owned acceptance path can reset local Supabase, seed anon/premium users plus launch/watchlist/preset/billing data, boot `apps/web`, and emit one local artifact bundle with the seed, pinned preflight output, billing evidence export, rate-limit smoke output, and web server log. The repeatable dry-run bundle now lives under `.artifacts/local-acceptance-dryrun/`.
 - 2026-03-10: Fixed local Supabase reset blockers by repairing the malformed `0225_status_name_backfill_from_status_text.sql` CTE scope and guarding remote-storage trigger creation in `20260301141801_remote_commit.sql`, then removed remaining repo-known hot-path read side effects by making legacy search warming a deprecated no-op, disabling read-time Stripe reconciliation in legacy subscription and shared billing-summary reads, and moving correctness-critical rate limiting out of `apps/web/middleware.ts` into route-level Supabase-backed helpers. Added `npm run test:three-platform:hot-path` plus `npm run test:rate-limit-smoke`, and validated the repo-owned local acceptance flow on pinned Node `20.19.6` / npm `10.8.2` with `npm run acceptance:local -- --skip-mobile-e2e --out-dir=.artifacts/local-acceptance-dryrun`. Mobile Detox, real push delivery, low-end-device perf, and live store reconciliation remain open.
-- 2026-03-15: Added `docs/entitlements-alert-rules-realignment-plan-2026-03-15.md` to capture the three-platform anon/free/premium realignment, additive `/api/v1/me/alert-rules` rollout, downgrade behavior, and the verification set before changing shared entitlements plus customer alert behavior.
-- 2026-03-15: Added `docs/entitlement-realignment-plan-2026-03-15.md` to lock the cross-platform tier matrix for free filters/calendar, premium-only saved items/follows, free mobile alerts, premium browser alerts, and tokenized premium integrations before implementation across shared contracts, `/api/v1`, notification workers, web, and mobile.
+- 2026-03-15: Added `docs/entitlements-alert-rules-realignment-plan-2026-03-15.md` to capture the three-platform anon/premium realignment, additive `/api/v1/me/alert-rules` rollout, downgrade behavior, and the verification set before changing shared entitlements plus customer alert behavior.
+- 2026-03-15: Added `docs/entitlement-realignment-plan-2026-03-15.md` to lock the cross-platform tier matrix for public filters/calendar, premium-only saved items/follows, public mobile alerts, premium browser alerts, and tokenized premium integrations before implementation across shared contracts, `/api/v1`, notification workers, web, and mobile.

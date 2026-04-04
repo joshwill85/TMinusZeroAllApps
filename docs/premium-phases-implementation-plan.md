@@ -6,7 +6,7 @@ This document is the tracking plan for Premium roadmap Phases 1–4.
 
 ## Decisions (locked)
 
-- **Presets are Premium-only.** Free users get **no** saved filter presets.
+- **Presets are Premium-only.** Anon viewers get **no** saved filter presets.
 - **Calendar + RSS feeds should use “live” data for Premium.** In our architecture, “live” means reading from `public.launches` (the live table) rather than `public.launches_public_cache`.
 - **Tokenized integrations use per-resource tokens.** Calendar/RSS use per-feed tokens; embeds use per-widget tokens (revocable independently). Legacy per-user tokens remain for backwards compatibility.
 

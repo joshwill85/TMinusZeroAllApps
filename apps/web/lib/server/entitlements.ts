@@ -33,7 +33,7 @@ type SessionScopedClient =
   | ReturnType<typeof createSupabaseServerClient>;
 
 export type AdminAccessOverrideTier = 'anon' | 'premium';
-export type EffectiveTierSource = 'guest' | 'free' | 'subscription' | 'admin' | 'admin_override';
+export type EffectiveTierSource = 'guest' | 'anon' | 'subscription' | 'admin' | 'admin_override';
 
 export type AdminAccessOverride = {
   userId: string;
@@ -388,7 +388,7 @@ function resolveEffectiveTier({
     return { tier: 'premium', source: 'subscription' };
   }
 
-  return { tier: 'anon', source: 'free' };
+  return { tier: 'anon', source: 'anon' };
 }
 
 async function loadAdminAccessOverrideByUserId({

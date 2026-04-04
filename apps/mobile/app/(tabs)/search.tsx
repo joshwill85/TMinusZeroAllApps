@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Linking, Pressable, Text, TextInput, View } from 'react-native';
+import { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { Pressable, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
@@ -7,6 +7,7 @@ import type { SearchResultV1 } from '@tminuszero/contracts';
 import { buildMobileRoute, buildSearchHref, normalizeNativeMobileCustomerHref } from '@tminuszero/navigation';
 import { prefetchLaunchDetail, useSearchQuery, useViewerSessionQuery } from '@/src/api/queries';
 import { useMobileApiClient } from '@/src/api/useMobileApiClient';
+import { getPublicSiteUrl } from '@/src/config/api';
 import { AppScreen } from '@/src/components/AppScreen';
 import {
   CustomerShellActionButton,
@@ -14,11 +15,14 @@ import {
   CustomerShellHero,
   CustomerShellPanel
 } from '@/src/components/CustomerShell';
+import { openExternalCustomerUrl } from '@/src/features/customerRoutes/shared';
 import { resolveNativeProgramHubOrCoreHref } from '@/src/features/programHubs/rollout';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import { formatSearchResultLabel } from '@/src/utils/format';
 
 const SEARCH_EXAMPLES = ['Starship', 'Artemis II', 'type:news starlink'];
+const MOBILE_SEARCH_LIMIT = 3;
+const ROUTE_QUERY_DEBOUNCE_MS = 200;
 
 function getQueryParam(value: string | string[] | undefined) {
   if (Array.isArray(value)) {
@@ -36,28 +40,42 @@ export default function SearchScreen() {
   const viewerSessionQuery = useViewerSessionQuery();
   const routeQuery = getQueryParam(params.q).trim();
   const [draft, setDraft] = useState(routeQuery);
-  const searchQuery = useSearchQuery(routeQuery);
-  const rawResults = useMemo(() => searchQuery.data?.results ?? [], [searchQuery.data?.results]);
-  const results = useMemo(
-    () => rawResults.filter((result) => Boolean(resolveNativeSearchResultHref(viewerSessionQuery.data, result.href) || isExternalHref(result.href))),
-    [rawResults, viewerSessionQuery.data]
-  );
-  const hiddenResultCount = Math.max(0, rawResults.length - results.length);
+  const deferredDraft = useDeferredValue(draft);
+  const trimmedDraft = draft.trim();
+  const liveQuery = deferredDraft.trim();
+  const searchQuery = useSearchQuery(liveQuery, { limit: MOBILE_SEARCH_LIMIT });
+  const results = useMemo(() => searchQuery.data?.results ?? [], [searchQuery.data?.results]);
   const tookMs = searchQuery.data?.tookMs ?? null;
-  const heading = getHeading(routeQuery, searchQuery.isPending, searchQuery.isError, results.length);
+  const heading = getHeading(trimmedDraft, searchQuery.isPending, searchQuery.isError, results.length);
 
   useEffect(() => {
     setDraft(routeQuery);
   }, [routeQuery]);
 
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (!trimmedDraft) {
+        if (routeQuery) {
+          router.replace(buildMobileRoute('search') as Href);
+        }
+        return;
+      }
+
+      if (trimmedDraft !== routeQuery) {
+        router.replace(buildSearchHref(trimmedDraft) as Href);
+      }
+    }, ROUTE_QUERY_DEBOUNCE_MS);
+
+    return () => clearTimeout(timeoutId);
+  }, [routeQuery, router, trimmedDraft]);
+
   const submitSearch = () => {
-    const nextQuery = draft.trim();
-    if (!nextQuery) {
+    if (!trimmedDraft) {
       router.replace(buildMobileRoute('search') as Href);
       return;
     }
 
-    router.replace(buildSearchHref(nextQuery) as Href);
+    router.replace(buildSearchHref(trimmedDraft) as Href);
   };
 
   const runExampleSearch = (example: string) => {
@@ -66,30 +84,23 @@ export default function SearchScreen() {
   };
 
   const openResult = async (result: SearchResultV1) => {
-    if (result.href.startsWith('/launches/')) {
-      const launchId = result.href.split('/').pop() || '';
+    const launchHref = getLaunchHref(result.href);
+    if (launchHref) {
+      const launchId = launchHref.split('/').pop() || '';
       if (launchId) {
         void prefetchLaunchDetail(queryClient, client, launchId);
       }
-      router.push(result.href as Href);
+      router.push(launchHref as Href);
       return;
     }
 
-    const nativeHubHref = resolveNativeProgramHubOrCoreHref(viewerSessionQuery.data, result.href);
-    if (nativeHubHref) {
-      router.push(nativeHubHref as Href);
+    const destination = resolveSearchResultDestination(viewerSessionQuery.data, result.href);
+    if (destination.kind === 'native') {
+      router.push(destination.href as Href);
       return;
     }
 
-    const nativeCustomerHref = normalizeNativeMobileCustomerHref(result.href);
-    if (nativeCustomerHref) {
-      router.push(nativeCustomerHref as Href);
-      return;
-    }
-
-    if (isExternalHref(result.href)) {
-      await Linking.openURL(result.href);
-    }
+    await openExternalCustomerUrl(destination.url);
   };
 
   return (
@@ -97,12 +108,12 @@ export default function SearchScreen() {
       <CustomerShellHero
         eyebrow="Unified Search"
         title={heading}
-        description="Live results update as you type and pull from launches, program hubs, guides, contracts, recovery assets, catalog entities, pages, and news."
+        description="Live results update as you type and return the top 3 matches across launches, program hubs, contracts, manifests, recovery assets, catalog entities, pages, and news."
       >
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
           <CustomerShellBadge label="Launches + programs" tone="accent" />
-          <CustomerShellBadge label="Guides + news" />
-          {tookMs != null && routeQuery.length >= 2 && !searchQuery.isPending && !searchQuery.isError ? (
+          <CustomerShellBadge label="Top 3 results" />
+          {tookMs != null && trimmedDraft.length >= 2 && !searchQuery.isPending && !searchQuery.isError ? (
             <CustomerShellBadge label={`${tookMs} ms`} tone="success" />
           ) : null}
         </View>
@@ -110,7 +121,7 @@ export default function SearchScreen() {
 
       <CustomerShellPanel
         title="Search query"
-        description="Search across launches, missions, providers, guides, and news. Results stay in the route so deep links and relaunches land on the same query."
+        description="Search across customer-facing launches, missions, providers, contracts, manifests, guides, catalog entities, and news. The route stays in sync so deep links and relaunches restore the same query."
       >
         <View
           style={{
@@ -169,35 +180,33 @@ export default function SearchScreen() {
         <CustomerShellActionButton testID="search-submit" label="Search" onPress={submitSearch} />
       </CustomerShellPanel>
 
-      {!routeQuery ? (
+      {!trimmedDraft ? (
         <>
           <CustomerShellPanel
             title="Coverage"
-            description="Native mobile currently returns launches, supported program hubs, contracts, satellites, guides, catalog routes, and account/info pages already shipped in the app."
+            description="Search covers customer-facing launches, supported native screens, and hosted web pages when a result exists but does not yet have a native mobile destination."
           />
           <CustomerShellPanel
             title="Query tips"
-            description="Quoted phrases keep words together. Prefix with `-` to exclude a term. Unsupported customer routes stay hidden until they have a native mobile destination."
+            description="Quoted phrases keep words together. Prefix with `-` to exclude a term. Some hits may open the hosted site when the page is customer-facing but not yet native."
           />
         </>
+      ) : trimmedDraft.length < 2 ? (
+        <CustomerShellPanel
+          title="Keep typing"
+          description="Start with at least 2 characters. Live search will return the top 3 matches as you type."
+        />
       ) : searchQuery.isPending ? (
-        <CustomerShellPanel title="Searching" description={`Running “${routeQuery}” against the shared site index.`} />
+        <CustomerShellPanel title="Searching" description={`Running “${trimmedDraft}” against the shared customer search index.`} />
       ) : searchQuery.isError ? (
         <CustomerShellPanel title="Search unavailable" description={searchQuery.error.message} />
       ) : results.length === 0 ? (
-        <CustomerShellPanel
-          title="No mobile-native matches"
-          description={
-            hiddenResultCount > 0
-              ? `${hiddenResultCount} matching result${hiddenResultCount === 1 ? '' : 's'} are currently hidden because the route is not supported natively on mobile.`
-              : `No results were returned for “${routeQuery}”.`
-          }
-        />
+        <CustomerShellPanel title="No matches" description={`No results were returned for “${trimmedDraft}”.`} />
       ) : (
         <CustomerShellPanel
           testID="search-results-section"
           title="Results"
-          description={`${results.length} native result${results.length === 1 ? '' : 's'} returned${tookMs != null ? ` in ${tookMs} ms` : ''}${hiddenResultCount > 0 ? ` • ${hiddenResultCount} unsupported hidden` : ''}.`}
+          description={`${results.length} result${results.length === 1 ? '' : 's'} returned${tookMs != null ? ` in ${tookMs} ms` : ''}. Showing the top ${MOBILE_SEARCH_LIMIT}.`}
         >
           <View style={{ gap: 12 }}>
             {results.map((result, index) => (
@@ -232,7 +241,7 @@ export default function SearchScreen() {
                   {result.summary || result.subtitle || 'Open the source page for the full launch, program, or article details.'}
                 </Text>
                 <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>
-                  {result.href.startsWith('/launches/') ? 'Open launch detail' : trimRouteLabel(result.href)}
+                  {getResultActionLabel(viewerSessionQuery.data, result)}
                 </Text>
               </Pressable>
             ))}
@@ -243,8 +252,8 @@ export default function SearchScreen() {
   );
 }
 
-function getHeading(routeQuery: string, isPending: boolean, isError: boolean, resultCount: number) {
-  if (routeQuery.length < 2) {
+function getHeading(query: string, isPending: boolean, isError: boolean, resultCount: number) {
+  if (query.length < 2) {
     return 'Search across launches, programs, guides, and news';
   }
   if (isError) {
@@ -253,16 +262,26 @@ function getHeading(routeQuery: string, isPending: boolean, isError: boolean, re
   if (isPending && resultCount === 0) {
     return 'Searching...';
   }
-  return `Results for "${routeQuery}"`;
+  return `Results for "${query}"`;
+}
+
+function getLaunchHref(href: string) {
+  if (!href.startsWith('/launches/')) {
+    return null;
+  }
+
+  return href;
 }
 
 function resolveNativeSearchResultHref(
   session: Parameters<typeof resolveNativeProgramHubOrCoreHref>[0],
   href: string
 ) {
-  if (href.startsWith('/launches/')) {
-    return href;
+  const launchHref = getLaunchHref(href);
+  if (launchHref) {
+    return launchHref;
   }
+
   return resolveNativeProgramHubOrCoreHref(session, href) || normalizeNativeMobileCustomerHref(href);
 }
 
@@ -270,12 +289,53 @@ function isExternalHref(href: string) {
   return /^https?:\/\//i.test(href);
 }
 
-function trimRouteLabel(href: string) {
-  if (/^https?:\/\//i.test(href)) {
-    return href.replace(/^https?:\/\//i, '');
+function buildHostedCustomerUrl(href: string) {
+  return new URL(href, `${getPublicSiteUrl()}/`).toString();
+}
+
+function resolveSearchResultDestination(
+  session: Parameters<typeof resolveNativeProgramHubOrCoreHref>[0],
+  href: string
+): { kind: 'native'; href: string } | { kind: 'browser'; url: string } {
+  const nativeHref = resolveNativeSearchResultHref(session, href);
+  if (nativeHref) {
+    return {
+      kind: 'native',
+      href: nativeHref
+    };
   }
 
-  return href;
+  if (isExternalHref(href)) {
+    return {
+      kind: 'browser',
+      url: href
+    };
+  }
+
+  return {
+    kind: 'browser',
+    url: buildHostedCustomerUrl(href)
+  };
+}
+
+function getResultActionLabel(
+  session: Parameters<typeof resolveNativeProgramHubOrCoreHref>[0],
+  result: SearchResultV1
+) {
+  if (getLaunchHref(result.href)) {
+    return 'Open launch detail';
+  }
+
+  const destination = resolveSearchResultDestination(session, result.href);
+  if (destination.kind === 'native') {
+    return 'Open in app';
+  }
+
+  if (isExternalHref(result.href)) {
+    return 'Open source';
+  }
+
+  return 'Open on web';
 }
 
 function formatResultDate(value: string) {

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import AdminNav from './_components/AdminNav';
+import { requireAdminViewer } from './_lib/requireAdminViewer';
 
 export const metadata: Metadata = {
   robots: {
@@ -8,7 +9,9 @@ export const metadata: Metadata = {
   }
 };
 
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
+export default async function AdminLayout({ children }: { children: React.ReactNode }) {
+  await requireAdminViewer();
+
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-20 border-b border-stroke bg-surface-0/80 backdrop-blur">

@@ -190,3 +190,54 @@ export function AccountToggleRow({
     </Pressable>
   );
 }
+
+export function AccountNavRow({
+  title,
+  description,
+  value,
+  onPress,
+  disabled = false,
+  testID
+}: {
+  title: string;
+  description: string;
+  value?: string | null;
+  onPress: () => void;
+  disabled?: boolean;
+  testID?: string;
+}) {
+  const { theme } = useMobileBootstrap();
+
+  return (
+    <Pressable
+      testID={testID}
+      accessibilityRole="button"
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 14,
+        borderRadius: 18,
+        borderWidth: 1,
+        borderColor: theme.stroke,
+        backgroundColor: pressed ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.03)',
+        opacity: disabled ? 0.5 : 1,
+        paddingHorizontal: 14,
+        paddingVertical: 14
+      })}
+    >
+      <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+        <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{title}</Text>
+        <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>{description}</Text>
+      </View>
+
+      <View style={{ alignItems: 'flex-end', justifyContent: 'center', gap: 6 }}>
+        {value ? (
+          <Text style={{ color: theme.foreground, fontSize: 12, fontWeight: '700', textAlign: 'right' }}>{value}</Text>
+        ) : null}
+        <Text style={{ color: theme.muted, fontSize: 16, fontWeight: '700' }}>{'>'}</Text>
+      </View>
+    </Pressable>
+  );
+}

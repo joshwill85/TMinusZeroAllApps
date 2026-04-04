@@ -39,6 +39,18 @@ export const STATIC_SEARCH_DOCS: readonly StaticSearchDocument[] = [
     boost: 70
   },
   {
+    docId: 'page:calendar',
+    type: 'page',
+    title: 'Launch Calendar',
+    subtitle: 'Calendar',
+    summary: 'Browse launches by day and month with a calendar-first view of the public schedule.',
+    url: '/calendar',
+    aliases: ['calendar', 'launch calendar', 'schedule calendar'],
+    keywords: ['calendar', 'launches', 'schedule'],
+    badge: 'Page',
+    boost: 64
+  },
+  {
     docId: 'page:info',
     type: 'page',
     title: 'Info Deck',
@@ -99,6 +111,18 @@ export const STATIC_SEARCH_DOCS: readonly StaticSearchDocument[] = [
     boost: 58
   },
   {
+    docId: 'page:docs-about',
+    type: 'page',
+    title: 'About The Data',
+    subtitle: 'Docs',
+    summary: 'Read how T-Minus Zero assembles launch, contract, catalog, and editorial coverage across the public site.',
+    url: '/docs/about',
+    aliases: ['docs about', 'about the data', 'data guide'],
+    keywords: ['docs', 'data', 'guide'],
+    badge: 'Page',
+    boost: 38
+  },
+  {
     docId: 'page:docs-faq',
     type: 'page',
     title: 'FAQ',
@@ -145,6 +169,30 @@ export const STATIC_SEARCH_DOCS: readonly StaticSearchDocument[] = [
     keywords: ['privacy', 'legal'],
     badge: 'Page',
     boost: 24
+  },
+  {
+    docId: 'page:privacy-choices',
+    type: 'page',
+    title: 'Privacy Choices',
+    subtitle: 'Legal',
+    summary: 'Manage privacy choices and review the current customer-facing privacy controls.',
+    url: '/legal/privacy-choices',
+    aliases: ['privacy choices', 'privacy controls'],
+    keywords: ['privacy', 'choices', 'legal'],
+    badge: 'Page',
+    boost: 22
+  },
+  {
+    docId: 'page:legal-data',
+    type: 'page',
+    title: 'Data Rights',
+    subtitle: 'Legal',
+    summary: 'Review customer data rights and data-access information.',
+    url: '/legal/data',
+    aliases: ['data rights', 'legal data'],
+    keywords: ['data', 'legal', 'privacy'],
+    badge: 'Page',
+    boost: 22
   },
   {
     docId: 'page:terms',
@@ -219,6 +267,66 @@ export const STATIC_SEARCH_DOCS: readonly StaticSearchDocument[] = [
     boost: 72
   },
   {
+    docId: 'hub:spacex-missions',
+    type: 'hub',
+    title: 'SpaceX Mission Families',
+    subtitle: 'Mission hub',
+    summary: 'Browse SpaceX mission families including Falcon 9, Falcon Heavy, Dragon, and Starship.',
+    url: '/spacex/missions',
+    aliases: ['spacex missions', 'mission families'],
+    keywords: ['spacex', 'missions', 'falcon 9', 'falcon heavy', 'dragon', 'starship'],
+    badge: 'Hub',
+    boost: 72
+  },
+  {
+    docId: 'hub:spacex-flights',
+    type: 'hub',
+    title: 'SpaceX Flights',
+    subtitle: 'Flights hub',
+    summary: 'Browse SpaceX flight history, mission status, and linked launch detail coverage.',
+    url: '/spacex/flights',
+    aliases: ['spacex flights', 'launch history'],
+    keywords: ['spacex', 'flights', 'missions', 'launches'],
+    badge: 'Hub',
+    boost: 66
+  },
+  {
+    docId: 'hub:spacex-vehicles',
+    type: 'hub',
+    title: 'SpaceX Vehicles',
+    subtitle: 'Vehicle hub',
+    summary: 'Browse SpaceX vehicles and hardware profiles across Falcon, Dragon, and Starship programs.',
+    url: '/spacex/vehicles',
+    aliases: ['spacex vehicles', 'spacex hardware'],
+    keywords: ['spacex', 'vehicles', 'hardware', 'rocket'],
+    badge: 'Hub',
+    boost: 64
+  },
+  {
+    docId: 'hub:spacex-engines',
+    type: 'hub',
+    title: 'SpaceX Engines',
+    subtitle: 'Engine hub',
+    summary: 'Browse SpaceX engine profiles, specs, and program links.',
+    url: '/spacex/engines',
+    aliases: ['spacex engines', 'merlin', 'raptor'],
+    keywords: ['spacex', 'engines', 'merlin', 'raptor'],
+    badge: 'Hub',
+    boost: 62
+  },
+  {
+    docId: 'hub:spacex-contracts',
+    type: 'hub',
+    title: 'SpaceX Contracts',
+    subtitle: 'Contracts hub',
+    summary: 'Browse SpaceX contracts and linked public procurement records.',
+    url: '/spacex/contracts',
+    aliases: ['spacex contracts', 'spacex procurement'],
+    keywords: ['spacex', 'contracts', 'procurement'],
+    badge: 'Hub',
+    boost: 60
+  },
+  {
     docId: 'hub:drone-ships',
     type: 'hub',
     title: 'SpaceX Drone Ships Hub',
@@ -241,6 +349,42 @@ export const STATIC_SEARCH_DOCS: readonly StaticSearchDocument[] = [
     keywords: ['new shepard', 'new glenn', 'blue moon', 'blue ring'],
     badge: 'Hub',
     boost: 84
+  },
+  {
+    docId: 'hub:blue-origin-flights',
+    type: 'hub',
+    title: 'Blue Origin Flights',
+    subtitle: 'Flights hub',
+    summary: 'Browse Blue Origin flight history, mission coverage, and linked launch detail pages.',
+    url: '/blue-origin/flights',
+    aliases: ['blue origin flights'],
+    keywords: ['blue origin', 'flights', 'missions', 'launches'],
+    badge: 'Hub',
+    boost: 64
+  },
+  {
+    docId: 'hub:blue-origin-vehicles',
+    type: 'hub',
+    title: 'Blue Origin Vehicles',
+    subtitle: 'Vehicle hub',
+    summary: 'Browse Blue Origin vehicle profiles across New Shepard, New Glenn, Blue Moon, and Blue Ring.',
+    url: '/blue-origin/vehicles',
+    aliases: ['blue origin vehicles', 'blue origin hardware'],
+    keywords: ['blue origin', 'vehicles', 'new shepard', 'new glenn', 'blue moon', 'blue ring'],
+    badge: 'Hub',
+    boost: 62
+  },
+  {
+    docId: 'hub:blue-origin-engines',
+    type: 'hub',
+    title: 'Blue Origin Engines',
+    subtitle: 'Engine hub',
+    summary: 'Browse Blue Origin engine profiles including BE-3 and BE-4 coverage.',
+    url: '/blue-origin/engines',
+    aliases: ['blue origin engines', 'be-3', 'be-4'],
+    keywords: ['blue origin', 'engines', 'be-3', 'be-4'],
+    badge: 'Hub',
+    boost: 60
   },
   {
     docId: 'hub:blue-origin-missions',
@@ -289,6 +433,30 @@ export const STATIC_SEARCH_DOCS: readonly StaticSearchDocument[] = [
     keywords: ['artemis', 'moon to mars'],
     badge: 'Hub',
     boost: 86
+  },
+  {
+    docId: 'hub:artemis-content',
+    type: 'hub',
+    title: 'Artemis Content Archive',
+    subtitle: 'Content hub',
+    summary: 'Browse Artemis public content, program updates, and editorial intelligence.',
+    url: '/artemis/content',
+    aliases: ['artemis content', 'artemis archive'],
+    keywords: ['artemis', 'content', 'program updates'],
+    badge: 'Hub',
+    boost: 68
+  },
+  {
+    docId: 'hub:artemis-awardees',
+    type: 'hub',
+    title: 'Artemis Awardees',
+    subtitle: 'Awardees hub',
+    summary: 'Browse Artemis awardees, recipient pages, and linked contract coverage.',
+    url: '/artemis/awardees',
+    aliases: ['artemis awardees', 'artemis recipients'],
+    keywords: ['artemis', 'awardees', 'recipients', 'contracts'],
+    badge: 'Hub',
+    boost: 66
   },
   {
     docId: 'hub:artemis-contracts',

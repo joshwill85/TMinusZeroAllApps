@@ -32,9 +32,11 @@ type Notice = { tone: NoticeTone; message: string } | null;
 export default function SavedScreen() {
   const { theme } = useMobileBootstrap();
   const entitlementsQuery = useViewerEntitlementsQuery();
-  const watchlistsQuery = useWatchlistsQuery();
-  const filterPresetsQuery = useFilterPresetsQuery();
-  const alertRulesQuery = useAlertRulesQuery();
+  const canUseSavedItems = entitlementsQuery.data?.capabilities.canUseSavedItems ?? false;
+  const canUseAdvancedAlertRules = entitlementsQuery.data?.capabilities.canUseAdvancedAlertRules ?? false;
+  const watchlistsQuery = useWatchlistsQuery({ enabled: canUseSavedItems });
+  const filterPresetsQuery = useFilterPresetsQuery({ enabled: canUseSavedItems });
+  const alertRulesQuery = useAlertRulesQuery({ enabled: canUseSavedItems && canUseAdvancedAlertRules });
   const createWatchlistMutation = useCreateWatchlistMutation();
   const updateWatchlistMutation = useUpdateWatchlistMutation();
   const deleteWatchlistMutation = useDeleteWatchlistMutation();
@@ -52,39 +54,38 @@ export default function SavedScreen() {
   const [editingPresetName, setEditingPresetName] = useState('');
   const tier = getMobileViewerTier(entitlementsQuery.data?.tier ?? 'anon');
   const isAuthed = entitlementsQuery.data?.isAuthed ?? false;
-  const canUseSavedItems = entitlementsQuery.data?.capabilities.canUseSavedItems ?? false;
-  const canUseAdvancedAlertRules = entitlementsQuery.data?.capabilities.canUseAdvancedAlertRules ?? false;
   const limits = entitlementsQuery.data?.limits;
-  const watchlists = watchlistsQuery.data?.watchlists ?? [];
-  const presets = filterPresetsQuery.data?.presets ?? [];
-  const hasSavedInventory = watchlists.length > 0 || presets.length > 0;
+  const watchlists = canUseSavedItems ? watchlistsQuery.data?.watchlists ?? [] : [];
+  const presets = canUseSavedItems ? filterPresetsQuery.data?.presets ?? [] : [];
+  const alertRules = useMemo(
+    () => (canUseSavedItems && canUseAdvancedAlertRules ? alertRulesQuery.data?.rules ?? [] : []),
+    [alertRulesQuery.data?.rules, canUseAdvancedAlertRules, canUseSavedItems]
+  );
   const readOnly = !canUseSavedItems;
   const alertsLoading = canUseSavedItems && canUseAdvancedAlertRules && alertRulesQuery.isPending;
   const presetAlertRuleIds = useMemo(
     () => {
-      const alertRules = alertRulesQuery.data?.rules ?? [];
       return new Map(
         alertRules
           .filter((rule) => rule.kind === 'filter_preset')
           .map((rule) => [rule.presetId, rule.id])
       );
     },
-    [alertRulesQuery.data?.rules]
+    [alertRules]
   );
   const followAlertRuleIds = useMemo(
     () => {
-      const alertRules = alertRulesQuery.data?.rules ?? [];
       return new Map(
         alertRules
           .filter((rule) => rule.kind === 'follow')
           .map((rule) => [buildFollowAlertRuleKey(rule.followRuleType, rule.followRuleValue), rule.id])
       );
     },
-    [alertRulesQuery.data?.rules]
+    [alertRules]
   );
   const savedError =
-    (watchlistsQuery.error instanceof Error ? watchlistsQuery.error.message : null) ||
-    (filterPresetsQuery.error instanceof Error ? filterPresetsQuery.error.message : null) ||
+    (canUseSavedItems && watchlistsQuery.error instanceof Error ? watchlistsQuery.error.message : null) ||
+    (canUseSavedItems && filterPresetsQuery.error instanceof Error ? filterPresetsQuery.error.message : null) ||
     (canUseSavedItems && canUseAdvancedAlertRules && alertRulesQuery.error instanceof Error ? alertRulesQuery.error.message : null);
   const statusMessage = notice?.message ?? savedError;
   const statusTone: NoticeTone = notice?.tone ?? 'warning';
@@ -414,14 +415,16 @@ export default function SavedScreen() {
         eyebrow="Account"
         title="Saved"
         description={
-          isAuthed
-            ? 'Saved views, follows, and My Launches are Premium features. Without Premium, you can still use filters, the calendar, and basic reminders, but saved items do not sync.'
-            : 'Saved views, follows, and My Launches are Premium features. Public mobile browsing keeps filters, the calendar, and basic reminders without saved-item sync.'
+          canUseSavedItems
+            ? 'Saved views, follows, and My Launches stay in sync on this account.'
+            : isAuthed
+              ? 'Saved views, follows, and My Launches require paid access. Without it, you can still use filters, the calendar, and basic reminders, but saved items do not sync.'
+              : 'Saved views, follows, and My Launches require paid access. Public mobile browsing keeps filters, the calendar, and basic reminders without saved-item sync.'
         }
       >
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
           <CustomerShellBadge label={formatTierLabel(tier, isAuthed)} tone={tier === 'premium' ? 'accent' : 'default'} />
-          <CustomerShellBadge label={canUseSavedItems ? 'Premium saved items' : 'Premium required'} tone={canUseSavedItems ? 'success' : 'warning'} />
+          <CustomerShellBadge label={canUseSavedItems ? 'Saved enabled' : 'Public'} tone={canUseSavedItems ? 'success' : 'warning'} />
         </View>
       </CustomerShellHero>
 
@@ -429,24 +432,20 @@ export default function SavedScreen() {
         title="Saved access"
         description={
           tier === 'premium'
-            ? 'Premium saved items are fully enabled across watchlists and reusable filter presets.'
-            : hasSavedInventory
-              ? 'Saved Premium items remain stored on your account, but they stay read-only until Premium is active again.'
-              : isAuthed
-                ? 'Without Premium, you can still browse, use filters, open the calendar, and set basic reminders, but saved views and follows require Premium.'
-                : 'Public browsing lets you use filters, open the calendar, and set basic reminders, but saved views and follows require Premium.'
+            ? 'Saved watchlists and reusable filter presets are available across this account.'
+            : 'Public access does not include saved watchlists or reusable filter presets. Upgrade to Premium to create and manage them.'
         }
       >
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
           <CustomerShellMetric
             label="Access"
             value={formatTierLabel(tier, isAuthed)}
-            caption={limits ? `${limits.watchlistLimit} watchlists · ${limits.presetLimit} presets` : 'Saved items sync to your account'}
+            caption={tier === 'premium' ? (limits ? `${limits.watchlistLimit} watchlists · ${limits.presetLimit} presets` : 'Saved watchlists and presets are available') : 'Premium unlocks saved watchlists and presets'}
           />
           <CustomerShellMetric
             label="Watchlists"
             value={canUseSavedItems ? String(watchlists.length) : '—'}
-            caption={limits ? `${limits.watchlistRuleLimit} rules per watchlist` : 'Premium only'}
+            caption={canUseSavedItems && limits ? `${limits.watchlistRuleLimit} rules per watchlist` : 'Premium only'}
           />
           <CustomerShellMetric
             label="Presets"
@@ -475,54 +474,36 @@ export default function SavedScreen() {
         </View>
       ) : null}
 
-      {!canUseSavedItems && !hasSavedInventory ? null : (
+      {canUseSavedItems ? (
         <>
-          <CustomerShellPanel
-            testID="saved-watchlists-section"
-            title="Watchlists"
-            description={
-              canUseSavedItems
-                ? 'Create and maintain the lists that drive Following across launches, providers, and pads.'
-                : 'Stored Premium follows and starred launches synced from your account. Editing stays locked until Premium is active again.'
-            }
-          >
-            {canUseSavedItems ? (
-              <View
-                style={{
-                  gap: 10,
-                  borderRadius: 18,
-                  borderWidth: 1,
-                  borderColor: theme.stroke,
-                  backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                  padding: 14
+          <CustomerShellPanel testID="saved-watchlists-section" title="Watchlists" description="Create and maintain the lists that drive Following across launches, providers, and pads.">
+            <View
+              style={{
+                gap: 10,
+                borderRadius: 18,
+                borderWidth: 1,
+                borderColor: theme.stroke,
+                backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                padding: 14
+              }}
+            >
+              <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>Create watchlist</Text>
+              <SavedTextInput value={newWatchlistName} onChangeText={setNewWatchlistName} placeholder="My Launches" />
+              <InlineActionButton
+                label={busy['watchlist:create'] ? 'Creating…' : 'Create watchlist'}
+                onPress={() => {
+                  void createWatchlist();
                 }}
-              >
-                <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>Create watchlist</Text>
-                <SavedTextInput
-                  value={newWatchlistName}
-                  onChangeText={setNewWatchlistName}
-                  placeholder="My Launches"
-                />
-                <InlineActionButton
-                  label={busy['watchlist:create'] ? 'Creating…' : 'Create watchlist'}
-                  onPress={() => {
-                    void createWatchlist();
-                  }}
-                  disabled={busy['watchlist:create'] || !newWatchlistName.trim()}
-                  tone="accent"
-                />
-              </View>
-            ) : hasSavedInventory ? (
-              <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>
-                Editing, deletion, and new watchlists remain Premium-only. Existing follows stay visible so you can audit what is stored.
-              </Text>
-            ) : null}
+                disabled={busy['watchlist:create'] || !newWatchlistName.trim()}
+                tone="accent"
+              />
+            </View>
 
             {watchlistsQuery.isPending ? (
               <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>Loading watchlists…</Text>
             ) : watchlists.length === 0 ? (
               <Text testID="saved-watchlists-empty" style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
-                {canUseSavedItems ? 'No watchlists yet. Create one above to start organizing follows.' : 'No stored Premium watchlists are attached to this account right now.'}
+                No watchlists yet. Create one above to start organizing follows.
               </Text>
             ) : (
               <View style={{ gap: 12 }}>
@@ -676,26 +657,11 @@ export default function SavedScreen() {
             )}
           </CustomerShellPanel>
 
-          <CustomerShellPanel
-            title="Filter presets"
-            description={
-              canUseSavedItems
-                ? 'Rename, delete, and promote the saved views that reshape your feed.'
-                : 'Stored Premium presets remain visible, but editing and deletion stay locked until Premium returns.'
-            }
-          >
-            {readOnly && hasSavedInventory ? (
-              <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>
-                Preset management stays read-only on non-Premium plans, including default-view changes.
-              </Text>
-            ) : null}
-
+          <CustomerShellPanel title="Filter presets" description="Rename, delete, and promote the saved views that reshape your feed.">
             {filterPresetsQuery.isPending ? (
               <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>Loading saved filters…</Text>
             ) : presets.length === 0 ? (
-              <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
-                {canUseSavedItems ? 'No saved filters yet. Presets saved from Feed will appear here.' : 'No stored Premium presets are attached to this account right now.'}
-              </Text>
+              <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>No saved filters yet. Presets saved from Feed will appear here.</Text>
             ) : (
               <View style={{ gap: 12 }}>
                 {presets.map((preset) => {
@@ -800,7 +766,7 @@ export default function SavedScreen() {
             )}
           </CustomerShellPanel>
         </>
-      )}
+      ) : null}
     </AppScreen>
   );
 }
@@ -890,10 +856,11 @@ function InlineActionButton({
 }
 
 function formatTierLabel(tier: 'anon' | 'premium', isAuthed = false) {
+  void isAuthed;
   if (tier === 'premium') {
-    return 'Premium';
+    return 'Full access';
   }
-  return isAuthed ? 'Signed in' : 'Public';
+  return 'Public';
 }
 
 function groupWatchlistRules(rules: WatchlistRuleV1[]) {

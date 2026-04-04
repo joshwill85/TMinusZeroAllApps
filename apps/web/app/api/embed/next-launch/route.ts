@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { enforceDurableRateLimit } from '@/lib/server/apiRateLimit';
-import { createSupabaseAdminClient, createSupabaseServerClient } from '@/lib/server/supabaseServer';
+import { createSupabaseAdminClient, createSupabasePublicClient } from '@/lib/server/supabaseServer';
 import { mapLiveLaunchRow, mapPublicCacheRow } from '@/lib/server/transformers';
 import { attachNextLaunchEvents } from '@/lib/server/ll2Events';
 import { isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
@@ -93,7 +93,7 @@ export async function GET(request: Request) {
     }
   }
 
-  const supabase = createSupabaseServerClient();
+  const supabase = createSupabasePublicClient();
   const ok = await validateEmbedToken(supabase, parsedToken);
   if (!ok) return NextResponse.json({ error: 'unauthorized' }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
   const cadenceHint = await resolveLaunchRefreshCadenceHint({ client: supabase, scope: 'public', nowMs });
@@ -135,7 +135,7 @@ function parseToken(token: string | null) {
   return raw;
 }
 
-async function validateEmbedToken(supabase: ReturnType<typeof createSupabaseServerClient>, token: string) {
+async function validateEmbedToken(supabase: ReturnType<typeof createSupabasePublicClient>, token: string) {
   if (!token) return false;
 
   const { data, error } = await supabase.rpc('validate_embed_token', { token_in: token });

@@ -12,7 +12,6 @@ import type { ViewerTier } from '@tminuszero/domain';
 
 type DockingBayProps = {
   profile: RailProfile;
-  isAdmin: boolean;
   viewerTier?: ViewerTier | null;
   onOpenCalendar: () => void;
   onOpenSearch: () => void;
@@ -21,7 +20,7 @@ type DockingBayProps = {
 
 const ANIMATION_MS = 220;
 
-export function DockingBay({ profile, isAdmin, viewerTier, onOpenCalendar, onOpenSearch, onOpenTipJar }: DockingBayProps) {
+export function DockingBay({ profile, viewerTier, onOpenCalendar, onOpenSearch, onOpenTipJar }: DockingBayProps) {
   const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
@@ -45,10 +44,9 @@ export function DockingBay({ profile, isAdmin, viewerTier, onOpenCalendar, onOpe
         { label: 'Support', href: '/support' },
         { label: 'Notifications', href: '/preferences' },
         viewerTier && viewerTier !== 'premium' ? { label: 'Premium · $3.99/mo', href: buildUpgradeHref() } : null,
-        { label: accountLabel, href: accountHref },
-        isAdmin ? { label: 'Admin', href: '/admin' } : null
+        { label: accountLabel, href: accountHref }
       ].filter(Boolean) as Array<{ label: string; href: string }>,
-    [accountHref, accountLabel, isAdmin, viewerTier]
+    [accountHref, accountLabel, viewerTier]
   );
 
   const legalLinks = useMemo(
@@ -114,8 +112,8 @@ export function DockingBay({ profile, isAdmin, viewerTier, onOpenCalendar, onOpe
 
   return (
     <>
-      <div className="fixed inset-x-0 bottom-0 z-50 md:left-[60px] md:w-[calc(100%-60px)]" data-nosnippet>
-        <div className="mx-auto w-full max-w-6xl px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
+      <div className="fixed inset-x-0 bottom-0 z-[70] md:left-[60px] md:w-[calc(100%-60px)]" data-nosnippet>
+        <div className="mx-auto w-full max-w-6xl px-4 pb-[calc(env(safe-area-inset-bottom)+0.35rem)]">
           <div className="rounded-2xl border border-stroke bg-[rgba(7,9,19,0.66)] px-3 py-2 shadow-glow backdrop-blur-xl">
             <div className="grid grid-cols-[1fr_auto_1fr] items-center">
               <div className="flex">
@@ -170,7 +168,7 @@ export function DockingBay({ profile, isAdmin, viewerTier, onOpenCalendar, onOpe
                   type="button"
                   className={clsx(dockIconClass, open && dockIconActiveClass)}
                   onClick={() => (open ? closeSheet() : openSheet())}
-                  aria-label="Open manifest"
+                  aria-label={open ? 'Close manifest' : 'Open manifest'}
                   aria-expanded={open}
                   aria-haspopup="dialog"
                 >
@@ -184,7 +182,10 @@ export function DockingBay({ profile, isAdmin, viewerTier, onOpenCalendar, onOpe
       </div>
 
       {mounted && (
-        <div className="fixed inset-0 z-[60] flex items-end justify-center" data-nosnippet>
+        <div
+          className="fixed inset-0 z-[60] flex items-end justify-center pb-[calc(env(safe-area-inset-bottom)+4.75rem)]"
+          data-nosnippet
+        >
           <button
             type="button"
             className={clsx(

@@ -16,7 +16,7 @@ import {
   type PurchaseProvider
 } from '@/lib/server/providerEntitlements';
 import { resolveStripePromotionCodeId } from '@/lib/server/billingStripe';
-import { createSupabaseAdminClient, createSupabasePublicClient } from '@/lib/server/supabaseServer';
+import { createSupabaseAdminClient, createSupabaseAuthClient } from '@/lib/server/supabaseServer';
 import type { ResolvedViewerSession } from '@/lib/server/viewerSession';
 import { assertPasswordPolicy } from '@tminuszero/domain';
 import {
@@ -536,7 +536,7 @@ export async function createPremiumAccountFromClaim({
   await upsertProfileRow(createdUserData.user.id, normalizedEmail);
   const updatedClaim = await claimToUserId(claimToken, createdUserData.user.id);
 
-  const publicClient = createSupabasePublicClient();
+  const publicClient = createSupabaseAuthClient();
   const { data: authData, error: authError } = await publicClient.auth.signInWithPassword({
     email: normalizedEmail,
     password

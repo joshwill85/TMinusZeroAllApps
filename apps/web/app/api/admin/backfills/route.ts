@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createSupabaseAdminClient, createSupabaseServerClient } from '@/lib/server/supabaseServer';
-import { isSupabaseConfigured } from '@/lib/server/env';
+import { requireAdminRequest } from '../_lib/auth';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -49,24 +48,16 @@ const schema = z.discriminatedUnion('action', [
 ]);
 
 export async function POST(request: Request) {
-  if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'supabase_not_configured' }, { status: 501 });
-  }
-
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-
-  const { data: profile } = await supabase.from('profiles').select('role').eq('user_id', user.id).maybeSingle();
-  if (profile?.role !== 'admin') return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  const gate = await requireAdminRequest({ requireServiceRole: true });
+  if (!gate.ok) return gate.response;
 
   const parsed = schema.safeParse(await request.json().catch(() => undefined));
   if (!parsed.success) return NextResponse.json({ error: 'invalid_body' }, { status: 400 });
 
   const now = new Date().toISOString();
-  const admin = createSupabaseAdminClient();
+  const admin = gate.context.admin;
+  if (!admin) return NextResponse.json({ error: 'supabase_admin_not_configured' }, { status: 501 });
+  const userId = gate.context.user.id;
 
   const updates: Array<{ key: string; value: boolean; updated_at: string; updated_by: string }> = [];
   const miscUpdates: Array<{ key: string; value: unknown; updated_at: string; updated_by: string }> = [];
@@ -77,7 +68,7 @@ export async function POST(request: Request) {
       key: BACKFILL_KEYS[backfill],
       value: parsed.data.enabled,
       updated_at: now,
-      updated_by: user.id
+      updated_by: userId
     });
   } else if (parsed.data.action === 'disable_all') {
     const exclude = new Set(parsed.data.exclude ?? []);
@@ -87,7 +78,7 @@ export async function POST(request: Request) {
         key: BACKFILL_KEYS[backfill],
         value: false,
         updated_at: now,
-        updated_by: user.id
+        updated_by: userId
       });
     });
   } else if (parsed.data.action === 'set_payload_spacecraft_only') {
@@ -95,20 +86,20 @@ export async function POST(request: Request) {
       key: PAYLOAD_BACKFILL_KEYS.spacecraftOnly,
       value: parsed.data.spacecraftOnly,
       updated_at: now,
-      updated_by: user.id
+      updated_by: userId
     });
   } else if (parsed.data.action === 'start_payload_spacecraft_only') {
     const limit = parsed.data.limit ?? 50;
     miscUpdates.push(
-      { key: PAYLOAD_BACKFILL_KEYS.spacecraftOnly, value: true, updated_at: now, updated_by: user.id },
-      { key: BACKFILL_KEYS.ll2_payload_backfill, value: true, updated_at: now, updated_by: user.id },
-      { key: PAYLOAD_BACKFILL_KEYS.done, value: false, updated_at: now, updated_by: user.id },
+      { key: PAYLOAD_BACKFILL_KEYS.spacecraftOnly, value: true, updated_at: now, updated_by: userId },
+      { key: BACKFILL_KEYS.ll2_payload_backfill, value: true, updated_at: now, updated_by: userId },
+      { key: PAYLOAD_BACKFILL_KEYS.done, value: false, updated_at: now, updated_by: userId },
       // system_settings.value is NOT NULL, so clear with empty string (readStringSetting treats it as unset).
-      { key: PAYLOAD_BACKFILL_KEYS.completedAt, value: '', updated_at: now, updated_by: user.id },
-      { key: PAYLOAD_BACKFILL_KEYS.cursor, value: PAYLOAD_BACKFILL_EPOCH, updated_at: now, updated_by: user.id },
-      { key: PAYLOAD_BACKFILL_KEYS.offset, value: 0, updated_at: now, updated_by: user.id },
-      { key: PAYLOAD_BACKFILL_KEYS.limit, value: limit, updated_at: now, updated_by: user.id },
-      { key: PAYLOAD_BACKFILL_KEYS.lastError, value: '', updated_at: now, updated_by: user.id }
+      { key: PAYLOAD_BACKFILL_KEYS.completedAt, value: '', updated_at: now, updated_by: userId },
+      { key: PAYLOAD_BACKFILL_KEYS.cursor, value: PAYLOAD_BACKFILL_EPOCH, updated_at: now, updated_by: userId },
+      { key: PAYLOAD_BACKFILL_KEYS.offset, value: 0, updated_at: now, updated_by: userId },
+      { key: PAYLOAD_BACKFILL_KEYS.limit, value: limit, updated_at: now, updated_by: userId },
+      { key: PAYLOAD_BACKFILL_KEYS.lastError, value: '', updated_at: now, updated_by: userId }
     );
   }
 

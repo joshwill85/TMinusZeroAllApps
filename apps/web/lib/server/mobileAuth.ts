@@ -19,7 +19,7 @@ import {
 } from '@tminuszero/contracts';
 import { enforceDurableRateLimit } from '@/lib/server/apiRateLimit';
 import { getSiteUrl, isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
-import { createSupabaseAdminClient, createSupabasePublicClient } from '@/lib/server/supabaseServer';
+import { createSupabaseAdminClient, createSupabaseAuthClient } from '@/lib/server/supabaseServer';
 
 const MOBILE_AUTH_SESSION_TTL_MS = 5 * 60 * 1000;
 
@@ -600,7 +600,7 @@ export async function signInMobilePassword(request: Request) {
   assertMobileAuthConfigured();
   const parsedBody = mobileAuthPasswordSignInSchemaV1.parse(await request.json().catch(() => undefined));
   const captchaToken = await consumeChallengeCode(parsedBody.riskSessionId, 'sign_in', parsedBody.challengeCode);
-  const supabase = createSupabasePublicClient();
+  const supabase = createSupabaseAuthClient();
   const { data, error } = await supabase.auth.signInWithPassword({
     email: normalizeEmail(parsedBody.email),
     password: parsedBody.password,
@@ -631,7 +631,7 @@ export async function resendMobilePasswordVerification(request: Request) {
   assertMobileAuthConfigured();
   const parsedBody = mobileAuthPasswordResendSchemaV1.parse(await request.json().catch(() => undefined));
   const captchaToken = await consumeChallengeCode(parsedBody.riskSessionId, 'resend', parsedBody.challengeCode);
-  const supabase = createSupabasePublicClient();
+  const supabase = createSupabaseAuthClient();
   const { error } = await supabase.auth.resend({
     type: 'signup',
     email: normalizeEmail(parsedBody.email),
@@ -655,7 +655,7 @@ export async function recoverMobilePassword(request: Request) {
   assertMobileAuthConfigured();
   const parsedBody = mobileAuthPasswordRecoverSchemaV1.parse(await request.json().catch(() => undefined));
   const captchaToken = await consumeChallengeCode(parsedBody.riskSessionId, 'recover', parsedBody.challengeCode);
-  const supabase = createSupabasePublicClient();
+  const supabase = createSupabaseAuthClient();
   const { error } = await supabase.auth.resetPasswordForEmail(normalizeEmail(parsedBody.email), {
     redirectTo: parsedBody.redirectTo,
     captchaToken

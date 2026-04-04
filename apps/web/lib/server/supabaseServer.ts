@@ -28,6 +28,15 @@ function getSupabaseServiceRoleKey() {
   return requireEnv('SUPABASE_SERVICE_ROLE_KEY', process.env.SUPABASE_SERVICE_ROLE_KEY, ['SUPABASE_SERVICE_ROLE_KEY', 'service_role_placeholder', 'service_role_key']);
 }
 
+function getSupabaseSiteReadKey() {
+  const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (serviceRole && !['SUPABASE_SERVICE_ROLE_KEY', 'service_role_placeholder', 'service_role_key'].some((placeholder) => serviceRole === placeholder || serviceRole.includes(placeholder))) {
+    return serviceRole;
+  }
+
+  return getSupabaseAnonKey();
+}
+
 export function createSupabaseServerClient() {
   const cookieStore = cookies();
 
@@ -57,6 +66,12 @@ export function readBearerAccessToken(headers?: HeaderReader | null) {
 }
 
 export function createSupabasePublicClient() {
+  return createClient(getSupabaseUrl(), getSupabaseSiteReadKey(), {
+    auth: { autoRefreshToken: false, persistSession: false }
+  });
+}
+
+export function createSupabaseAuthClient() {
   return createClient(getSupabaseUrl(), getSupabaseAnonKey(), {
     auth: { autoRefreshToken: false, persistSession: false }
   });

@@ -43,18 +43,18 @@ export const viewerTierCardManifest: Record<ViewerTier, ViewerTierCard> = {
   anon: {
     tier: 'anon',
     badgeLabel: 'Public',
-    title: 'Browse on mobile without an account',
+    title: 'Public access is active',
     description:
-      'Browse launches, use filters, and open the calendar without an account. Premium unlocks follows, saved views, recurring calendar feeds, and advanced notifications.',
+      'Public access includes launches, filters, and the calendar. Premium unlocks follows, saved views, recurring calendar feeds, and advanced notifications.',
     ctaLabel: 'View Premium',
     ctaTarget: 'upgrade'
   },
   premium: {
     tier: 'premium',
-    badgeLabel: 'Premium',
-    title: 'Premium is active',
+    badgeLabel: 'Full access',
+    title: 'All features are available',
     description: 'Live refresh, saved presets, follows, advanced alerts, recurring feeds, and the full launch intelligence toolkit are available on this account.',
-    ctaLabel: 'Manage plan',
+    ctaLabel: 'Manage access',
     ctaTarget: 'manage'
   }
 };
@@ -202,20 +202,9 @@ export function getViewerFeatureState(featureKey: ViewerFeatureKey, tier: Viewer
 }
 
 export function getMobileViewerTierCard(tier: ViewerTier, context: ViewerAccessContext = {}) {
+  void context;
   const normalizedTier = normalizeViewerTierForDisplay(tier);
-  if (normalizedTier !== 'anon' || !context.isAuthed) {
-    return getViewerTierCard(normalizedTier);
-  }
-
-  return {
-    ...viewerTierCardManifest.anon,
-    badgeLabel: 'Signed in',
-    title: 'You are signed in without Premium',
-    description:
-      'Your account is active. Upgrade to unlock follows, saved views, default filters, recurring calendar feeds, and advanced notifications on iPhone and Android.',
-    ctaLabel: 'View Premium',
-    ctaTarget: 'upgrade' as const
-  };
+  return getViewerTierCard(normalizedTier);
 }
 
 export function getMobileViewerFeatureState(

@@ -78,7 +78,7 @@ const payloadByPath = new Map<string, MockResponseResolver>([
       isAdmin: false,
       isAuthed: true,
       mode: 'public',
-      effectiveTierSource: 'free',
+      effectiveTierSource: 'anon',
       adminAccessOverride: null,
       refreshIntervalSeconds: 7200,
       capabilities: {
