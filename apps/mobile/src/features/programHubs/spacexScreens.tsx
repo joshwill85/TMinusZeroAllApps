@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Linking, Pressable, Text, View } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import type { SpaceXFlightsResponseV1, SpaceXMissionKeyV1, SpaceXMissionOverviewV1, SpaceXOverviewV1 } from '@tminuszero/api-client';
 import {
@@ -11,6 +11,7 @@ import {
   useSpaceXVehiclesQuery
 } from '@/src/api/queries';
 import { AppScreen } from '@/src/components/AppScreen';
+import { LaunchShareIconButton } from '@/src/components/LaunchShareIconButton';
 import {
   CustomerShellBadge,
   CustomerShellHero,
@@ -18,8 +19,11 @@ import {
   CustomerShellPanel
 } from '@/src/components/CustomerShell';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
+import { shareLaunch } from '@/src/utils/launchShare';
 import {
   buildSpaceXContractHref,
+  buildSpaceXDroneShipHref,
+  buildSpaceXDroneShipsHref,
   buildSpaceXEngineHref,
   buildSpaceXFlightHref,
   buildSpaceXMissionHref,
@@ -110,8 +114,10 @@ export function SpaceXHubScreen() {
 
             <CustomerShellPanel title="Native routes" description="These mirror the current SpaceX pathname family already shipped on the web.">
               <View style={{ gap: 10 }}>
+                <ProgramRow title="Starship workbench" body="Dedicated Starship route family with per-flight navigation and timeline context." onPress={() => router.push('/starship' as Href)} />
                 <ProgramRow title="Missions" body="Mission-specific native routes for Starship, Falcon 9, Falcon Heavy, and Dragon." onPress={() => router.push('/spacex/missions' as Href)} />
                 <ProgramRow title="Flights" body="Flight index backed by the shared SpaceX launch-derived records." onPress={() => router.push('/spacex/flights' as Href)} />
+                <ProgramRow title="Recovery fleet" body="Drone-ship recovery assets, assignments, and ship-level detail routes." onPress={() => router.push(buildSpaceXDroneShipsHref() as Href)} />
                 <ProgramRow title="Vehicles" body="Vehicle catalog for Starship, Falcon, and Dragon systems." onPress={() => router.push('/spacex/vehicles' as Href)} />
                 <ProgramRow title="Engines" body="Engine catalog for Raptor, Merlin, Draco, and SuperDraco." onPress={() => router.push('/spacex/engines' as Href)} />
                 <ProgramRow title="Contracts" body="Program contracts and mission-linked government award context." onPress={() => router.push('/spacex/contracts' as Href)} />
@@ -119,8 +125,86 @@ export function SpaceXHubScreen() {
             </CustomerShellPanel>
 
             <LaunchSummaryPanel title="Next launch" description="The next SpaceX launch routed through the shared launch-detail screen." launch={payload.snapshot.nextLaunch} />
+            <CustomerShellPanel title="Recovery fleet" description={`${payload.droneShips.items.length} drone ship${payload.droneShips.items.length === 1 ? '' : 's'} and ${payload.droneShips.upcomingAssignments.length} upcoming assignment${payload.droneShips.upcomingAssignments.length === 1 ? '' : 's'} in view.`}>
+              <View style={{ gap: 10 }}>
+                {payload.droneShips.items.length ? (
+                  payload.droneShips.items.map((ship) => (
+                    <SimpleRow
+                      key={ship.slug}
+                      title={ship.name}
+                      body={[
+                        ship.abbrev,
+                        ship.status,
+                        ship.homePort,
+                        `${ship.kpis.assignmentsKnown} assignments`
+                      ]
+                        .filter(Boolean)
+                        .join(' • ') || ship.description || 'Recovery asset'}
+                      meta="Open ship detail"
+                      onPress={() => router.push(buildSpaceXDroneShipHref(ship.slug) as Href)}
+                    />
+                  ))
+                ) : (
+                  <TextBlock value="No recovery-fleet records are currently available." />
+                )}
+              </View>
+            </CustomerShellPanel>
+
+            <CustomerShellPanel title="Finance signals" description={payload.finance?.disclaimer || 'Proxy signals and public-record context for a private company.'}>
+              <View style={{ gap: 10 }}>
+                {payload.finance?.items.length ? (
+                  payload.finance.items.map((item) => (
+                    <SimpleRow
+                      key={item.id}
+                      title={item.title}
+                      body={[typeof item.value === 'number' ? `${item.value}${item.unit ? ` ${item.unit}` : ''}` : null, item.period, item.disclaimer].filter(Boolean).join(' • ')}
+                      meta={item.sourceUrl ? 'Open source' : null}
+                      onPress={item.sourceUrl ? () => void Linking.openURL(item.sourceUrl || '') : undefined}
+                    />
+                  ))
+                ) : (
+                  <TextBlock value="No finance proxy signals are currently available." />
+                )}
+              </View>
+            </CustomerShellPanel>
+
+            <CustomerShellPanel title="Contract discovery" description="Unmatched records and USAspending-backed program procurement context.">
+              <View style={{ gap: 10 }}>
+                {payload.discovery.map((item) => (
+                  <SimpleRow
+                    key={item.id}
+                    title={item.title}
+                    body={[item.summary, item.meta].filter(Boolean).join(' • ') || 'Discovery record'}
+                    meta={item.href ? 'Open source' : null}
+                    onPress={item.href ? () => void Linking.openURL(item.href || '') : undefined}
+                  />
+                ))}
+                {payload.usaspending.map((item) => (
+                  <SimpleRow
+                    key={`usaspending:${item.id}`}
+                    title={item.title}
+                    body={[item.summary, item.meta].filter(Boolean).join(' • ') || 'USAspending record'}
+                    meta={item.href ? 'Open source' : null}
+                    onPress={item.href ? () => void Linking.openURL(item.href || '') : undefined}
+                  />
+                ))}
+                {payload.discovery.length === 0 && payload.usaspending.length === 0 ? (
+                  <TextBlock value="No contract-discovery or USAspending records are currently available." />
+                ) : null}
+              </View>
+            </CustomerShellPanel>
+
             <FlightPreviewPanel flights={payload.flights} />
             <MissionCardsPanel />
+            <CustomerShellPanel title="FAQ" description={`${payload.snapshot.faq.length} SpaceX answer${payload.snapshot.faq.length === 1 ? '' : 's'} available.`}>
+              <View style={{ gap: 10 }}>
+                {payload.snapshot.faq.length ? (
+                  payload.snapshot.faq.map((item) => <SimpleRow key={item.question} title={item.question} body={item.answer} />)
+                ) : (
+                  <TextBlock value="No SpaceX FAQ entries are currently available." />
+                )}
+              </View>
+            </CustomerShellPanel>
           </>
         )
       })}
@@ -481,6 +565,21 @@ function LaunchRowsPanel({
               title={launch.name}
               body={[launch.vehicle, launch.padShortCode, formatDate(launch.net), launch.statusText].filter(Boolean).join(' • ')}
               meta="Open launch detail"
+              trailing={
+                <LaunchShareIconButton
+                  onPress={() => {
+                    void shareLaunch({
+                      id: launch.id,
+                      name: launch.name,
+                      net: launch.net,
+                      vehicle: launch.vehicle,
+                      statusText: launch.statusText,
+                      padLabel: launch.padShortCode
+                    });
+                  }}
+                  size={38}
+                />
+              }
               onPress={() => router.push(launch.href as Href)}
             />
           ))
@@ -532,6 +631,21 @@ function LaunchSummaryPanel({
           title={launch.name}
           body={[launch.vehicle, launch.padShortCode, formatDate(launch.net), launch.statusText].filter(Boolean).join(' • ')}
           meta="Open launch detail"
+          trailing={
+            <LaunchShareIconButton
+              onPress={() => {
+                void shareLaunch({
+                  id: launch.id,
+                  name: launch.name,
+                  net: launch.net,
+                  vehicle: launch.vehicle,
+                  statusText: launch.statusText,
+                  padLabel: launch.padShortCode
+                });
+              }}
+              size={38}
+            />
+          }
           onPress={() => router.push(launch.href as Href)}
         />
       ) : (
@@ -557,12 +671,14 @@ function SimpleRow({
   title,
   body,
   meta,
-  onPress
+  onPress,
+  trailing
 }: {
   title: string;
   body: string;
   meta?: string | null;
   onPress?: (() => void) | undefined;
+  trailing?: ReactNode;
 }) {
   const { theme } = useMobileBootstrap();
 
@@ -581,9 +697,14 @@ function SimpleRow({
         opacity: onPress ? 1 : 0.96
       })}
     >
-      <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{title}</Text>
-      {body ? <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>{body}</Text> : null}
-      {meta ? <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>{meta}</Text> : null}
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+        <View style={{ flex: 1, gap: 6 }}>
+          <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{title}</Text>
+          {body ? <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>{body}</Text> : null}
+          {meta ? <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>{meta}</Text> : null}
+        </View>
+        {trailing}
+      </View>
     </Pressable>
   );
 }

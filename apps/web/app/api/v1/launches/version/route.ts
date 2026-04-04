@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { enforceLaunchFeedVersionRateLimit, resolveLaunchFeedScopeFromRequest } from '@/lib/server/launchApiRateLimit';
 import { getViewerTier } from '@/lib/server/viewerTier';
+import { resolveViewerSession } from '@/lib/server/viewerSession';
 import { LaunchFeedApiRouteError, loadVersionedLaunchFeedVersionPayload } from '@/lib/server/v1/launchFeedApi';
 
 export const dynamic = 'force-dynamic';
@@ -12,7 +13,8 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'unsupported_scope' }, { status: 400 });
     }
 
-    const viewer = scope === 'public' ? null : await getViewerTier({ request, reconcileStripe: false });
+    const session = scope === 'public' ? null : await resolveViewerSession(request);
+    const viewer = scope === 'public' ? null : await getViewerTier({ session: session ?? undefined, reconcileStripe: false });
     const rateLimited = await enforceLaunchFeedVersionRateLimit(request, {
       scope,
       viewerId: viewer?.userId ?? null
@@ -22,7 +24,8 @@ export async function GET(request: Request) {
     }
 
     const payload = await loadVersionedLaunchFeedVersionPayload(request, {
-      viewer: viewer ?? undefined
+      viewer: viewer ?? undefined,
+      session: session ?? undefined
     });
     return NextResponse.json(payload, {
       headers: {

@@ -50,6 +50,7 @@ import {
   adminAccessOverrideQueryOptions,
   accountExportQueryOptions,
   alertRulesQueryOptions,
+  authMethodsQueryOptions,
   basicFollowsQueryOptions,
   billingCatalogQueryOptions,
   billingSummaryQueryOptions,
@@ -103,6 +104,7 @@ const viewerScopedQueryKeys = [
   sharedQueryKeys.basicFollows,
   sharedQueryKeys.billingSummary,
   sharedQueryKeys.profile,
+  sharedQueryKeys.authMethods,
   sharedQueryKeys.privacyPreferences,
   sharedQueryKeys.marketingEmail,
   sharedQueryKeys.watchlists,
@@ -490,6 +492,7 @@ export function applyGuestViewerState(queryClient: QueryClient) {
   queryClient.setQueryData(sharedQueryKeys.viewerSession, guestViewerSession);
   queryClient.setQueryData(sharedQueryKeys.entitlements, guestViewerEntitlements);
   queryClient.removeQueries({ queryKey: sharedQueryKeys.profile });
+  queryClient.removeQueries({ queryKey: sharedQueryKeys.authMethods });
   queryClient.removeQueries({ queryKey: sharedQueryKeys.privacyPreferences });
   queryClient.removeQueries({ queryKey: sharedQueryKeys.accountExport });
   queryClient.removeQueries({ queryKey: sharedQueryKeys.billingSummary });
@@ -570,6 +573,15 @@ export function useProfileQuery() {
 
   return useQuery({
     ...profileQueryOptions(() => getSharedProfile()),
+    enabled: Boolean(viewerSessionQuery.data?.viewerId)
+  });
+}
+
+export function useAuthMethodsQuery() {
+  const viewerSessionQuery = useViewerSessionQuery();
+
+  return useQuery({
+    ...authMethodsQueryOptions(() => browserApiClient.getAuthMethods()),
     enabled: Boolean(viewerSessionQuery.data?.viewerId)
   });
 }

@@ -58,6 +58,7 @@ export default function LaunchFaaMapScreen() {
             padJson={JSON.stringify(mapData.pad)}
             height={420}
             interactive
+            renderMode="faa"
           />
         </View>
 

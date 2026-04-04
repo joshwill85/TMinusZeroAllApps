@@ -4,13 +4,19 @@ import { NEXT_LAUNCH_RETENTION_MS } from '@/lib/constants/launchTimeline';
 import { isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
 import { attachNextLaunchEvents } from '@/lib/server/ll2Events';
 import { buildStatusFilterOrClause, parseLaunchStatusFilter } from '@/lib/server/launchStatus';
-import { createSupabaseAdminClient, createSupabasePublicClient, createSupabaseServerClient } from '@/lib/server/supabaseServer';
+import {
+  createSupabaseAccessTokenClient,
+  createSupabaseAdminClient,
+  createSupabasePublicClient,
+  createSupabaseServerClient
+} from '@/lib/server/supabaseServer';
 import { loadPublicLaunchPage } from '@/lib/server/publicLaunchFeed';
 import { resolveLaunchRefreshCadenceHint } from '@/lib/server/launchRefreshCadence';
 import { mapLiveLaunchRow } from '@/lib/server/transformers';
 import { parseLaunchRegion, US_PAD_COUNTRY_CODES } from '@/lib/server/us';
 import { buildPublicStateFilterOrClause } from '@/lib/server/usStates';
 import { getViewerTier, type ViewerTierInfo } from '@/lib/server/viewerTier';
+import { resolveViewerSession, type ResolvedViewerSession } from '@/lib/server/viewerSession';
 import { isLaunchWithinMilestoneWindow } from '@/lib/utils/launchMilestones';
 
 const DEFAULT_PUBLIC_FRESHNESS = 'public-cache-db';
@@ -28,6 +34,10 @@ type LaunchRange = 'today' | '7d' | 'month' | 'year' | 'past' | 'all';
 type LaunchStatusFilter = 'go' | 'hold' | 'scrubbed' | 'tbd' | 'unknown' | null;
 type FeedRegion = ReturnType<typeof parseLaunchRegion>;
 type LaunchQueryClient = ReturnType<typeof createSupabaseServerClient> | ReturnType<typeof createSupabaseAdminClient>;
+type SessionScopedLaunchQueryClient =
+  | ReturnType<typeof createSupabaseAccessTokenClient>
+  | ReturnType<typeof createSupabaseServerClient>
+  | ReturnType<typeof createSupabaseAdminClient>;
 
 type FeedRequest = {
   scope: LaunchFeedScope;
@@ -78,7 +88,10 @@ export class LaunchFeedApiRouteError extends Error {
   }
 }
 
-export async function loadVersionedLaunchFeedPayload(request: Request, options: { viewer?: ViewerTierInfo } = {}) {
+export async function loadVersionedLaunchFeedPayload(
+  request: Request,
+  options: { viewer?: ViewerTierInfo; session?: ResolvedViewerSession } = {}
+) {
   const feedRequest = parseFeedRequest(request);
 
   if (!isSupabaseConfigured()) {
@@ -102,17 +115,25 @@ export async function loadVersionedLaunchFeedPayload(request: Request, options: 
     return loadPublicFeed(feedRequest);
   }
 
-  const viewer = options.viewer ?? (await getViewerTier({ request, reconcileStripe: false }));
+  const session = options.session ?? (await resolveViewerSession(request));
+  const viewer = options.viewer ?? (await getViewerTier({ session, reconcileStripe: false }));
   if (feedRequest.scope === 'live') {
-    return loadLiveFeed(feedRequest, viewer);
+    return loadLiveFeed(feedRequest, viewer, session);
   }
 
-  return loadWatchlistFeed(feedRequest, viewer);
+  return loadWatchlistFeed(feedRequest, viewer, session);
 }
 
-export async function loadVersionedLaunchFeedVersionPayload(request: Request, options: { viewer?: ViewerTierInfo } = {}) {
+export async function loadVersionedLaunchFeedVersionPayload(
+  request: Request,
+  options: { viewer?: ViewerTierInfo; session?: ResolvedViewerSession } = {}
+) {
   const feedRequest = parseFeedRequest(request);
-  const viewer = options.viewer ?? (await getViewerTier({ request, reconcileStripe: false }));
+  const viewer =
+    options.viewer ??
+    (options.session
+      ? await getViewerTier({ session: options.session, reconcileStripe: false })
+      : await getViewerTier({ request, reconcileStripe: false }));
 
   if (feedRequest.scope === 'watchlist') {
     throw new LaunchFeedApiRouteError(400, 'unsupported_scope');
@@ -123,7 +144,8 @@ export async function loadVersionedLaunchFeedVersionPayload(request: Request, op
   }
 
   if (feedRequest.scope === 'live') {
-    return loadLiveFeedVersion(feedRequest, viewer);
+    const session = options.session ?? (await resolveViewerSession(request));
+    return loadLiveFeedVersion(feedRequest, viewer, session);
   }
 
   return loadPublicFeedVersion(feedRequest, viewer);
@@ -328,7 +350,23 @@ async function loadPublicFeedVersion(feedRequest: FeedRequest, viewer: ViewerTie
   });
 }
 
-async function loadLiveFeed(feedRequest: FeedRequest, viewer: ViewerTierInfo) {
+function getSessionScopedLaunchClient(session: ResolvedViewerSession): SessionScopedLaunchQueryClient | null {
+  if (isSupabaseAdminConfigured()) {
+    return createSupabaseAdminClient();
+  }
+
+  if (session.authMode === 'bearer' && session.accessToken) {
+    return createSupabaseAccessTokenClient(session.accessToken);
+  }
+
+  if (session.authMode === 'cookie') {
+    return createSupabaseServerClient();
+  }
+
+  return null;
+}
+
+async function loadLiveFeed(feedRequest: FeedRequest, viewer: ViewerTierInfo, session: ResolvedViewerSession) {
   if (!viewer.isAuthed) {
     throw new LaunchFeedApiRouteError(401, 'unauthorized');
   }
@@ -336,7 +374,10 @@ async function loadLiveFeed(feedRequest: FeedRequest, viewer: ViewerTierInfo) {
     throw new LaunchFeedApiRouteError(402, 'payment_required');
   }
 
-  const supabase = createSupabaseServerClient();
+  const supabase = getSessionScopedLaunchClient(session);
+  if (!supabase) {
+    throw new LaunchFeedApiRouteError(401, 'unauthorized');
+  }
   let query = supabase.from('launches').select('*').eq('hidden', false);
   query = applyStandardLaunchFilters(query, feedRequest);
   query = applySort(query, 'live', feedRequest.sort);
@@ -372,7 +413,7 @@ async function loadLiveFeed(feedRequest: FeedRequest, viewer: ViewerTierInfo) {
   });
 }
 
-async function loadLiveFeedVersion(feedRequest: FeedRequest, viewer: ViewerTierInfo) {
+async function loadLiveFeedVersion(feedRequest: FeedRequest, viewer: ViewerTierInfo, session: ResolvedViewerSession) {
   if (!viewer.isAuthed) {
     throw new LaunchFeedApiRouteError(401, 'unauthorized');
   }
@@ -380,7 +421,10 @@ async function loadLiveFeedVersion(feedRequest: FeedRequest, viewer: ViewerTierI
     throw new LaunchFeedApiRouteError(402, 'payment_required');
   }
 
-  const client = createSupabaseServerClient();
+  const client = getSessionScopedLaunchClient(session);
+  if (!client) {
+    throw new LaunchFeedApiRouteError(401, 'unauthorized');
+  }
   let countQuery = client.from('launches').select('id', { count: 'exact', head: true }).eq('hidden', false);
   countQuery = applyStandardLaunchFilters(countQuery, feedRequest);
 
@@ -417,7 +461,7 @@ async function loadLiveFeedVersion(feedRequest: FeedRequest, viewer: ViewerTierI
   });
 }
 
-async function loadWatchlistFeed(feedRequest: FeedRequest, viewer: ViewerTierInfo) {
+async function loadWatchlistFeed(feedRequest: FeedRequest, viewer: ViewerTierInfo, session: ResolvedViewerSession) {
   if (!viewer.isAuthed || !viewer.userId) {
     throw new LaunchFeedApiRouteError(401, 'unauthorized');
   }
@@ -428,7 +472,10 @@ async function loadWatchlistFeed(feedRequest: FeedRequest, viewer: ViewerTierInf
     throw new LaunchFeedApiRouteError(400, 'invalid_watchlist_id');
   }
 
-  const supabase = createSupabaseServerClient();
+  const supabase = getSessionScopedLaunchClient(session);
+  if (!supabase) {
+    throw new LaunchFeedApiRouteError(401, 'unauthorized');
+  }
   const { data: watchlist, error: watchlistError } = await supabase
     .from('watchlists')
     .select('id')

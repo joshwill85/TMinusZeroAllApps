@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Animated, Modal, PanResponder, Pressable, ScrollView, Text, View } from 'react-native';
 import { type Href, usePathname, useRouter, useSegments } from 'expo-router';
 import { useProfileQuery, useViewerEntitlementsQuery, useViewerSessionQuery } from '@/src/api/queries';
 import { getProgramHubEntryOrCoreHref } from '@/src/features/programHubs/rollout';
@@ -38,7 +38,9 @@ export function MobileDockingBay() {
   const [manifestOpen, setManifestOpen] = useState(false);
   const showDock = shouldShowCustomerDock(segments);
   const viewerTier = viewerEntitlementsQuery.data?.tier ?? 'anon';
+  const isAuthed = Boolean(viewerSessionQuery.data?.viewerId);
   const isPremium = viewerTier === 'premium';
+  const manifestSheetTranslateY = useRef(new Animated.Value(0)).current;
   const profileInitials = getProfileInitials({
     firstName: profileQuery.data?.firstName ?? null,
     lastName: profileQuery.data?.lastName ?? null,
@@ -51,13 +53,82 @@ export function MobileDockingBay() {
     pathname.startsWith('/saved') ||
     pathname.startsWith('/account') ||
     pathname.startsWith('/legal/');
+  const profileRootActive = pathname.startsWith('/profile') || pathname.startsWith('/account');
   const feedActive = pathname === '/' || pathname.startsWith('/feed');
   const calendarActive = pathname.startsWith('/calendar');
   const searchActive = pathname.startsWith('/search');
+  const feedHref = '/feed' as Href;
 
   useEffect(() => {
     setManifestOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    if (!manifestOpen) {
+      manifestSheetTranslateY.stopAnimation();
+      manifestSheetTranslateY.setValue(0);
+    }
+  }, [manifestOpen, manifestSheetTranslateY]);
+
+  const closeManifest = useCallback(() => {
+    manifestSheetTranslateY.stopAnimation();
+    manifestSheetTranslateY.setValue(0);
+    setManifestOpen(false);
+  }, [manifestSheetTranslateY]);
+
+  const replaceDockRoute = useCallback(
+    (href: Href) => {
+      closeManifest();
+      router.replace(href);
+    },
+    [closeManifest, router]
+  );
+
+  const toggleDockRoute = useCallback(
+    (isActive: boolean, href: Href) => {
+      replaceDockRoute(isActive ? feedHref : href);
+    },
+    [feedHref, replaceDockRoute]
+  );
+
+  const manifestHeaderPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gestureState) =>
+          gestureState.dy > 8 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx),
+        onPanResponderMove: (_, gestureState) => {
+          manifestSheetTranslateY.setValue(Math.max(0, gestureState.dy));
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (gestureState.dy > 72 || gestureState.vy > 0.9) {
+            Animated.timing(manifestSheetTranslateY, {
+              toValue: 160,
+              duration: 140,
+              useNativeDriver: true
+            }).start(() => {
+              closeManifest();
+            });
+            return;
+          }
+
+          Animated.spring(manifestSheetTranslateY, {
+            toValue: 0,
+            useNativeDriver: true,
+            bounciness: 0,
+            speed: 20
+          }).start();
+        },
+        onPanResponderTerminate: () => {
+          Animated.spring(manifestSheetTranslateY, {
+            toValue: 0,
+            useNativeDriver: true,
+            bounciness: 0,
+            speed: 20
+          }).start();
+        }
+      }),
+    [closeManifest, manifestSheetTranslateY]
+  );
 
   const manifestSections = useMemo<ManifestSection[]>(() => {
     const artemisHref = getProgramHubEntryOrCoreHref(viewerSessionQuery.data, 'artemis');
@@ -98,7 +169,7 @@ export function MobileDockingBay() {
     if (!isPremium) {
       nativeItems.push({
         key: 'upgrade',
-        title: 'Unlock Premium',
+        title: 'Get Premium',
         description: 'Premium adds follows, saved views, recurring feeds, widgets, and advanced launch tools.',
         href: '/profile',
         badge: 'Premium',
@@ -202,25 +273,11 @@ export function MobileDockingBay() {
         title: 'Info',
         items: [
           {
-            key: 'about',
-            title: 'About',
-            description: 'Founder story and why T-Minus Zero exists.',
-            href: '/about' as Href,
-            testID: 'manifest-link-about'
-          },
-          {
-            key: 'docs-about',
-            title: 'Product Overview',
-            description: 'Short product summary and positioning.',
-            href: '/docs/about' as Href,
-            testID: 'manifest-link-docs-about'
-          },
-          {
-            key: 'faq',
-            title: 'FAQ',
-            description: 'Common product and data questions.',
-            href: '/docs/faq' as Href,
-            testID: 'manifest-link-faq'
+            key: 'support',
+            title: 'Support',
+            description: 'Customer help, billing guidance, and privacy requests.',
+            href: '/support' as Href,
+            testID: 'manifest-link-support'
           },
           {
             key: 'roadmap',
@@ -324,7 +381,7 @@ export function MobileDockingBay() {
                 label="Account"
                 active={profileActive}
                 onPress={() => {
-                  router.replace(profileHref);
+                  toggleDockRoute(profileRootActive, profileHref);
                 }}
               >
                 {profileInitials ? (
@@ -340,7 +397,7 @@ export function MobileDockingBay() {
                   label="Feed"
                   active={feedActive}
                   onPress={() => {
-                    router.replace('/feed');
+                    replaceDockRoute(feedHref);
                   }}
                 >
                   <HomeGlyph color={feedActive ? theme.accent : theme.foreground} />
@@ -350,7 +407,7 @@ export function MobileDockingBay() {
                   label="Calendar"
                   active={calendarActive}
                   onPress={() => {
-                    router.replace('/calendar');
+                    toggleDockRoute(calendarActive, '/calendar');
                   }}
                 >
                   <CalendarGlyph color={calendarActive ? theme.accent : theme.foreground} />
@@ -360,7 +417,7 @@ export function MobileDockingBay() {
                   label="Search"
                   active={searchActive}
                   onPress={() => {
-                    router.replace('/search');
+                    toggleDockRoute(searchActive, '/search');
                   }}
                 >
                   <SearchGlyph color={searchActive ? theme.accent : theme.foreground} />
@@ -372,6 +429,10 @@ export function MobileDockingBay() {
                 label="Manifest"
                 active={manifestOpen}
                 onPress={() => {
+                  if (manifestOpen) {
+                    closeManifest();
+                    return;
+                  }
                   setManifestOpen(true);
                 }}
               >
@@ -389,12 +450,12 @@ export function MobileDockingBay() {
         statusBarTranslucent
         presentationStyle="overFullScreen"
         onRequestClose={() => {
-          setManifestOpen(false);
+          closeManifest();
         }}
       >
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0, 0, 0, 0.4)' }}>
-          <Pressable testID="dock-manifest-backdrop" onPress={() => setManifestOpen(false)} style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }} />
-          <View
+          <Pressable testID="dock-manifest-backdrop" onPress={closeManifest} style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }} />
+          <Animated.View
             testID="dock-manifest"
             style={{
               maxHeight: '76%',
@@ -403,33 +464,57 @@ export function MobileDockingBay() {
               borderTopWidth: 1,
               borderColor: theme.stroke,
               backgroundColor: theme.background,
-              paddingTop: 12
+              paddingTop: 12,
+              transform: [{ translateY: manifestSheetTranslateY }]
             }}
           >
-            <View style={{ alignItems: 'center' }}>
-              <View
-                style={{
-                  width: 44,
-                  height: 4,
-                  borderRadius: 999,
-                  backgroundColor: 'rgba(255, 255, 255, 0.18)'
-                }}
-              />
-            </View>
-
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 14, paddingBottom: 8 }}>
-              <View>
-                <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase' }}>Manifest</Text>
-                <Text style={{ color: theme.foreground, fontSize: 22, fontWeight: '800', marginTop: 4 }}>Customer dock</Text>
+            <View {...manifestHeaderPanResponder.panHandlers}>
+              <View style={{ alignItems: 'center' }}>
+                <View
+                  style={{
+                    width: 44,
+                    height: 4,
+                    borderRadius: 999,
+                    backgroundColor: 'rgba(255, 255, 255, 0.18)'
+                  }}
+                />
               </View>
-              <Pressable
-                onPress={() => {
-                  setManifestOpen(false);
-                }}
-                hitSlop={8}
-              >
-                <Text style={{ color: theme.accent, fontSize: 13, fontWeight: '700' }}>Close</Text>
-              </Pressable>
+
+              <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 14, paddingBottom: 8, gap: 16 }}>
+                <View
+                  style={{
+                    flex: 1
+                  }}
+                >
+                  <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase' }}>Manifest</Text>
+                  <Text style={{ color: theme.foreground, fontSize: 22, fontWeight: '800', marginTop: 4 }}>Customer dock</Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 14, paddingTop: 2 }}>
+                  {!isPremium ? (
+                    <HeaderActionLink
+                      label="Get Premium"
+                      theme={theme}
+                      icon={<PremiumGlyph color={theme.accent} />}
+                      testID="manifest-header-upgrade"
+                      onPress={() => {
+                        closeManifest();
+                        router.push('/profile');
+                      }}
+                    />
+                  ) : null}
+                  {!isAuthed ? (
+                    <HeaderActionLink
+                      label="Sign in"
+                      theme={theme}
+                      testID="manifest-header-sign-in"
+                      onPress={() => {
+                        closeManifest();
+                        router.push('/sign-in');
+                      }}
+                    />
+                  ) : null}
+                </View>
+              </View>
             </View>
 
             <ScrollView
@@ -450,7 +535,7 @@ export function MobileDockingBay() {
                         item={item}
                         theme={theme}
                         onPress={() => {
-                          setManifestOpen(false);
+                          closeManifest();
                           router.replace(item.href);
                         }}
                       />
@@ -459,7 +544,7 @@ export function MobileDockingBay() {
                 </View>
               ))}
             </ScrollView>
-          </View>
+          </Animated.View>
         </View>
       </Modal>
     </>
@@ -547,6 +632,39 @@ function ManifestRow({
         </View>
         <Text style={{ color: theme.muted, fontSize: 18, fontWeight: '700' }}>{'>'}</Text>
       </View>
+    </Pressable>
+  );
+}
+
+function HeaderActionLink({
+  label,
+  theme,
+  onPress,
+  testID,
+  icon
+}: {
+  label: string;
+  theme: { background: string; foreground: string; muted: string; accent: string; stroke: string };
+  onPress: () => void;
+  testID?: string;
+  icon?: ReactNode;
+}) {
+  return (
+    <Pressable
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      hitSlop={8}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        opacity: pressed ? 0.72 : 1
+      })}
+    >
+      {icon}
+      <Text style={{ color: theme.accent, fontSize: 13, fontWeight: '700' }}>{label}</Text>
     </Pressable>
   );
 }
@@ -729,6 +847,66 @@ function MenuGlyph({ color }: { color: string }) {
       {[0, 1, 2].map((line) => (
         <View key={line} style={{ height: 1.8, borderRadius: 999, backgroundColor: color }} />
       ))}
+    </View>
+  );
+}
+
+function PremiumGlyph({ color }: { color: string }) {
+  return (
+    <View style={{ width: 16, height: 14, justifyContent: 'flex-end' }}>
+      <View
+        style={{
+          position: 'absolute',
+          left: 1,
+          right: 1,
+          bottom: 1,
+          height: 7,
+          borderWidth: 1.5,
+          borderTopWidth: 0,
+          borderBottomLeftRadius: 4,
+          borderBottomRightRadius: 4,
+          borderColor: color
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          left: 1,
+          top: 4,
+          width: 4,
+          height: 4,
+          borderLeftWidth: 1.5,
+          borderTopWidth: 1.5,
+          borderColor: color,
+          transform: [{ rotate: '-45deg' }]
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          left: 6.5,
+          top: 0,
+          width: 3,
+          height: 5,
+          borderLeftWidth: 1.5,
+          borderTopWidth: 1.5,
+          borderColor: color,
+          transform: [{ rotate: '45deg' }]
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          right: 1,
+          top: 4,
+          width: 4,
+          height: 4,
+          borderRightWidth: 1.5,
+          borderTopWidth: 1.5,
+          borderColor: color,
+          transform: [{ rotate: '45deg' }]
+        }}
+      />
     </View>
   );
 }

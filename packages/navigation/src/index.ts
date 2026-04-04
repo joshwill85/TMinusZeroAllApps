@@ -181,6 +181,7 @@ function normalizeNativeStaticCustomerHref(pathname: string, suffix: string) {
   if (pathname === '/docs/roadmap') return `/docs/roadmap${suffix}`;
   if (pathname === '/legal/data') return `/legal/data${suffix}`;
   if (pathname === '/account' || pathname === '/profile') return `/profile${suffix}`;
+  if (pathname === '/account/login-methods') return `/account/login-methods${suffix}`;
   if (pathname === '/account/saved' || pathname === '/saved') return `/saved${suffix}`;
   if (pathname === '/me/preferences' || pathname === '/preferences') return `/preferences${suffix}`;
   if (pathname === '/account/integrations') return `/account/integrations${suffix}`;
@@ -210,9 +211,6 @@ export function normalizeNativeMobileCustomerHref(value: string | null | undefin
       return programHubHref;
     }
 
-    if (pathname === '/starship' || pathname.startsWith('/starship/')) {
-      return `/spacex/missions/starship${suffix}`;
-    }
     if (pathname === '/spacex/jellyfish-effect') {
       return `/jellyfish-effect${suffix}`;
     }
@@ -440,6 +438,7 @@ export function getProgramHubKeyFromHref(value: string | null | undefined): Prog
     const pathname = parsed.pathname.replace(/\/+$/g, '') || '/';
     if (pathname === '/blue-origin' || pathname.startsWith('/blue-origin/')) return 'blueOrigin';
     if (pathname === '/spacex' || pathname.startsWith('/spacex/')) return 'spacex';
+    if (pathname === '/starship' || pathname.startsWith('/starship/')) return 'spacex';
     if (pathname === '/artemis' || pathname.startsWith('/artemis/')) return 'artemis';
   } catch {
     return null;
@@ -501,9 +500,15 @@ export function normalizeNativeProgramHubHref(value: string | null | undefined) 
     if (pathname === '/spacex/engines') return `${pathname}${suffix}`;
     if (pathname === '/spacex/contracts') return `${pathname}${suffix}`;
     if (pathname === '/spacex/missions') return `${pathname}${suffix}`;
+    if (pathname === '/spacex/drone-ships') return `${pathname}${suffix}`;
 
     const spaceXMissionMatch = pathname.match(/^\/spacex\/missions\/([^/]+)$/);
     if (spaceXMissionMatch && SPACEX_MISSION_SEGMENTS.has(String(spaceXMissionMatch[1] || '').toLowerCase())) {
+      return `${pathname}${suffix}`;
+    }
+
+    const spaceXDroneShipMatch = pathname.match(/^\/spacex\/drone-ships\/([^/]+)$/);
+    if (spaceXDroneShipMatch && ['ocisly', 'asog', 'jrti'].includes(String(spaceXDroneShipMatch[1] || '').toLowerCase())) {
       return `${pathname}${suffix}`;
     }
 
@@ -525,6 +530,12 @@ export function normalizeNativeProgramHubHref(value: string | null | undefined) 
     const spaceXContractMatch = pathname.match(/^\/spacex\/contracts\/([^/]+)$/);
     if (spaceXContractMatch && String(spaceXContractMatch[1] || '').trim()) {
       return `${pathname}${suffix}`;
+    }
+
+    if (pathname === '/starship') return `${pathname}${suffix}`;
+    const starshipFlightMatch = pathname.match(/^\/starship\/([^/]+)$/);
+    if (starshipFlightMatch && /^flight-\d{1,3}$/i.test(String(starshipFlightMatch[1] || ''))) {
+      return `/starship/${encodeUriSegment(String(starshipFlightMatch[1]))}${suffix}`;
     }
 
     if (pathname === '/artemis') return `${pathname}${suffix}`;

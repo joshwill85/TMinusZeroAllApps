@@ -4,6 +4,7 @@ import { useEffect, useId, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
+import { resolveAdminAccessOverrideErrorMessage } from '@tminuszero/domain';
 import { buildAuthCallbackHref, buildAuthHref, buildPreferencesHref, buildProfileHref } from '@tminuszero/navigation';
 import { BillingPanel } from '@/components/BillingPanel';
 import { TipJarRecurringPanel } from '@/components/TipJarRecurringPanel';
@@ -211,7 +212,7 @@ export default function AccountPage() {
         next === null ? 'Default admin access restored.' : next === 'premium' ? 'Admin premium test mode is active.' : 'Admin free test mode is active.'
       );
     } catch (error: unknown) {
-      setAdminAccessError(getErrorMessage(error, 'Unable to update admin access.'));
+      setAdminAccessError(resolveAdminAccessOverrideErrorMessage(getErrorCode(error), getErrorMessage(error, 'Unable to update admin access.')));
     }
   }
 
@@ -235,6 +236,18 @@ export default function AccountPage() {
         setDeleteError(
           'You have an active subscription and we could not cancel renewal automatically. Cancel billing first, then delete your account.'
         );
+        return;
+      }
+      if (code === 'apple_revocation_not_configured') {
+        setDeleteError('Account deletion for Sign in with Apple is temporarily unavailable. Contact support and try again later.');
+        return;
+      }
+      if (code === 'apple_revocation_unavailable') {
+        setDeleteError('Please sign in with Apple again before deleting this account.');
+        return;
+      }
+      if (code === 'apple_revocation_failed') {
+        setDeleteError('We could not complete the Apple account-revocation step. Try again or contact support.');
         return;
       }
       setDeleteError(getErrorMessage(error, 'Delete failed'));
@@ -437,6 +450,20 @@ export default function AccountPage() {
             )}
             <div className="md:col-span-2">
               <TipJarRecurringPanel />
+            </div>
+            <div className="md:col-span-2 rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="text-xs uppercase tracking-[0.1em] text-text3">Login methods</div>
+                  <div className="mt-1 text-base font-semibold text-text1">Email/password and Sign in with Apple</div>
+                  <div className="mt-1 text-xs text-text3">
+                    Link or remove Apple for this account without creating a second profile.
+                  </div>
+                </div>
+                <Link className="shrink-0 text-sm text-primary hover:underline" href="/account/login-methods">
+                  Open
+                </Link>
+              </div>
             </div>
             <div className="md:col-span-2 rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
               <div className="flex items-start justify-between gap-4">

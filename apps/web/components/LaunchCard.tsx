@@ -679,7 +679,7 @@ export function LaunchCard({
           </div>
         </header>
 
-        <section className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <section className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3">
           <div className="min-w-0">
             {!isPast && (
               <TimeDisplay net={launch.net} netPrecision={launch.netPrecision} />
@@ -717,7 +717,7 @@ export function LaunchCard({
           </div>
 
           {!isPast && (
-            <div className="flex items-end justify-end">
+            <div className="flex items-end justify-end pl-2">
               <div className="flex flex-col items-end gap-2">
                 {dateOnly ? (
                   <span className="rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-text2">Time TBD</span>

@@ -1,5 +1,5 @@
 import { ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Animated, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 
@@ -34,14 +34,23 @@ export function MobileToastProvider({ children }: { children: ReactNode }) {
   const { theme } = useMobileBootstrap();
   const [toast, setToast] = useState<MobileToastState | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const visibility = useRef(new Animated.Value(0)).current;
 
   const hideToast = useCallback(() => {
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
     }
-    setToast(null);
-  }, []);
+    Animated.timing(visibility, {
+      toValue: 0,
+      duration: 180,
+      useNativeDriver: true
+    }).start(({ finished }) => {
+      if (finished) {
+        setToast(null);
+      }
+    });
+  }, [visibility]);
 
   const showToast = useCallback((payload: MobileToastPayload) => {
     const nextToast: MobileToastState = {
@@ -58,16 +67,25 @@ export function MobileToastProvider({ children }: { children: ReactNode }) {
       timeoutRef.current = null;
     }
 
+    visibility.stopAnimation();
+    visibility.setValue(0);
     setToast(nextToast);
-  }, []);
+  }, [visibility]);
 
   useEffect(() => {
     if (!toast) {
       return;
     }
+    Animated.spring(visibility, {
+      toValue: 1,
+      damping: 18,
+      stiffness: 220,
+      mass: 0.85,
+      useNativeDriver: true
+    }).start();
     timeoutRef.current = setTimeout(() => {
       timeoutRef.current = null;
-      setToast(null);
+      hideToast();
     }, toast.durationMs);
 
     return () => {
@@ -76,7 +94,7 @@ export function MobileToastProvider({ children }: { children: ReactNode }) {
         timeoutRef.current = null;
       }
     };
-  }, [toast]);
+  }, [hideToast, toast, visibility]);
 
   const value = useMemo(
     () => ({
@@ -94,13 +112,23 @@ export function MobileToastProvider({ children }: { children: ReactNode }) {
           pointerEvents="box-none"
           style={{
             position: 'absolute',
+            top: Math.max(insets.top + 8, 12),
             right: 16,
-            bottom: Math.max(insets.bottom + 18, 28),
-            left: 16
+            left: 16,
+            zIndex: 1000
           }}
         >
-          <View
+          <Animated.View
             style={{
+              opacity: visibility,
+              transform: [
+                {
+                  translateY: visibility.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [-28, 0]
+                  })
+                }
+              ],
               borderRadius: 18,
               borderWidth: 1,
               borderColor:
@@ -119,9 +147,14 @@ export function MobileToastProvider({ children }: { children: ReactNode }) {
               elevation: 12
             }}
           >
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
               <Text style={{ flex: 1, color: theme.foreground, fontSize: 13, lineHeight: 19 }}>{toast.message}</Text>
-              {toast.actionLabel && toast.onAction ? (
+              <Pressable onPress={hideToast} hitSlop={8}>
+                <Text style={{ color: theme.muted, fontSize: 12, fontWeight: '700' }}>Dismiss</Text>
+              </Pressable>
+            </View>
+            {toast.actionLabel && toast.onAction ? (
+              <View style={{ marginTop: 10 }}>
                 <Pressable
                   onPress={() => {
                     const action = toast.onAction;
@@ -133,12 +166,9 @@ export function MobileToastProvider({ children }: { children: ReactNode }) {
                 >
                   <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '800' }}>{toast.actionLabel}</Text>
                 </Pressable>
-              ) : null}
-              <Pressable onPress={hideToast} hitSlop={8}>
-                <Text style={{ color: theme.muted, fontSize: 12, fontWeight: '700' }}>Dismiss</Text>
-              </Pressable>
-            </View>
-          </View>
+              </View>
+            ) : null}
+          </Animated.View>
         </View>
       ) : null}
     </MobileToastContext.Provider>

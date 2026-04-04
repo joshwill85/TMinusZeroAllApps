@@ -18,6 +18,7 @@ import {
   useBlueOriginVehiclesQuery
 } from '@/src/api/queries';
 import { AppScreen } from '@/src/components/AppScreen';
+import { LaunchShareIconButton } from '@/src/components/LaunchShareIconButton';
 import {
   CustomerShellBadge,
   CustomerShellHero,
@@ -25,6 +26,7 @@ import {
   CustomerShellPanel
 } from '@/src/components/CustomerShell';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
+import { shareLaunch } from '@/src/utils/launchShare';
 
 const BLUE_ORIGIN_MISSIONS: Array<{
   key: Exclude<BlueOriginMissionKeyV1, 'blue-origin-program'>;
@@ -124,10 +126,109 @@ export function BlueOriginHubScreen() {
               launch={payload.snapshot.nextLaunch}
             />
 
+            <CustomerShellPanel title="Timeline" description={`${payload.timeline.length} program event${payload.timeline.length === 1 ? '' : 's'} in preview.`}>
+              <View style={{ gap: 10 }}>
+                {payload.timeline.length ? (
+                  payload.timeline.map((event) => (
+                    <SimpleRow
+                      key={event.id}
+                      title={event.title}
+                      body={[event.missionLabel, formatDate(event.date), event.sourceLabel].filter(Boolean).join(' • ') || event.summary}
+                      meta={event.href ? (event.href.startsWith('/') ? 'Open' : 'Open source') : null}
+                      onPress={
+                        event.href
+                          ? () => {
+                              if (event.href?.startsWith('/')) {
+                                router.push(event.href as Href);
+                                return;
+                              }
+                              void Linking.openURL(event.href || '');
+                            }
+                          : undefined
+                      }
+                    />
+                  ))
+                ) : (
+                  <TextBlock value="No Blue Origin timeline events are currently available." />
+                )}
+              </View>
+            </CustomerShellPanel>
+
+            <CustomerShellPanel title="Procurement ledger" description={`${payload.auditTrail.length} procurement or public-record item${payload.auditTrail.length === 1 ? '' : 's'} in preview.`}>
+              <View style={{ gap: 10 }}>
+                {payload.auditTrail.length ? (
+                  payload.auditTrail.map((item) => (
+                    <SimpleRow
+                      key={item.id}
+                      title={item.title}
+                      body={[item.summary, item.meta].filter(Boolean).join(' • ') || 'Public record'}
+                      meta={item.href ? (item.href.startsWith('/') ? 'Open story' : 'Open source') : null}
+                      onPress={
+                        item.href
+                          ? () => {
+                              if (item.href?.startsWith('/')) {
+                                router.push(item.href as Href);
+                                return;
+                              }
+                              void Linking.openURL(item.href || '');
+                            }
+                          : undefined
+                      }
+                    />
+                  ))
+                ) : (
+                  <TextBlock value="No procurement-ledger items are currently available." />
+                )}
+              </View>
+            </CustomerShellPanel>
+
             <FlightPreviewPanel flights={payload.flights.slice(0, 8)} />
             <TravelerPreviewPanel travelers={payload.travelers.slice(0, 8)} />
             <ContractPreviewPanel contracts={payload.contracts.slice(0, 6)} />
+            <CustomerShellPanel title="Media archive" description="Program posts, video, and imagery pulled into the native root.">
+              <View style={{ gap: 10 }}>
+                {payload.media.social.map((item) => (
+                  <SimpleRow
+                    key={item.id}
+                    title={item.title}
+                    body={[item.sourceLabel, item.postedAt ? formatDate(item.postedAt) : null, item.summary].filter(Boolean).join(' • ') || 'Social post'}
+                    meta="Open source"
+                    onPress={() => void Linking.openURL(item.url)}
+                  />
+                ))}
+                {payload.media.videos.map((item) => (
+                  <SimpleRow
+                    key={item.id}
+                    title={item.title}
+                    body={[item.sourceLabel, item.publishedAt ? formatDate(item.publishedAt) : null, item.summary].filter(Boolean).join(' • ') || 'Video'}
+                    meta="Open video"
+                    onPress={() => void Linking.openURL(item.url)}
+                  />
+                ))}
+                {payload.media.images.map((item) => (
+                  <SimpleRow
+                    key={item.id}
+                    title={item.title}
+                    body={[item.sourceLabel, item.publishedAt ? formatDate(item.publishedAt) : null].filter(Boolean).join(' • ') || 'Image'}
+                    meta={item.sourceUrl ? 'Open source' : null}
+                    onPress={item.sourceUrl ? () => void Linking.openURL(item.sourceUrl || '') : undefined}
+                  />
+                ))}
+                {payload.media.social.length === 0 && payload.media.videos.length === 0 && payload.media.images.length === 0 ? (
+                  <TextBlock value="No media-archive items are currently available." />
+                ) : null}
+              </View>
+            </CustomerShellPanel>
             <MissionCardsPanel />
+            <CustomerShellPanel title="FAQ" description={`${payload.snapshot.faq.length} answer${payload.snapshot.faq.length === 1 ? '' : 's'} available.`}>
+              <View style={{ gap: 10 }}>
+                {payload.snapshot.faq.length ? (
+                  payload.snapshot.faq.map((item) => <SimpleRow key={item.question} title={item.question} body={item.answer} />)
+                ) : (
+                  <TextBlock value="No Blue Origin FAQ entries are currently available." />
+                )}
+              </View>
+            </CustomerShellPanel>
           </>
         )
       })}
@@ -558,6 +659,21 @@ function LaunchSummaryPanel({
           title={launch.name}
           body={[launch.vehicle, launch.padShortCode, formatDate(launch.net), launch.statusText].filter(Boolean).join(' • ')}
           meta="Open launch detail"
+          trailing={
+            <LaunchShareIconButton
+              onPress={() => {
+                void shareLaunch({
+                  id: launch.id,
+                  name: launch.name,
+                  net: launch.net,
+                  vehicle: launch.vehicle,
+                  statusText: launch.statusText,
+                  padLabel: launch.padShortCode
+                });
+              }}
+              size={38}
+            />
+          }
           onPress={() => router.push(launch.href as Href)}
         />
       ) : (
@@ -583,12 +699,14 @@ function SimpleRow({
   title,
   body,
   meta,
-  onPress
+  onPress,
+  trailing
 }: {
   title: string;
   body: string;
   meta?: string | null;
   onPress?: (() => void) | undefined;
+  trailing?: ReactNode;
 }) {
   const { theme } = useMobileBootstrap();
 
@@ -607,9 +725,14 @@ function SimpleRow({
         opacity: onPress ? 1 : 0.96
       })}
     >
-      <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{title}</Text>
-      {body ? <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>{body}</Text> : null}
-      {meta ? <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>{meta}</Text> : null}
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+        <View style={{ flex: 1, gap: 6 }}>
+          <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{title}</Text>
+          {body ? <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>{body}</Text> : null}
+          {meta ? <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>{meta}</Text> : null}
+        </View>
+        {trailing}
+      </View>
     </Pressable>
   );
 }

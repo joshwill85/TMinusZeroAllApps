@@ -3,6 +3,7 @@ import { Pressable, Text, TextInput, View } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import type { CatalogCollectionV1, CatalogDetailV1, CatalogEntityTypeV1, CatalogHubV1 } from '@tminuszero/contracts';
 import { AppScreen } from '@/src/components/AppScreen';
+import { LaunchShareIconButton } from '@/src/components/LaunchShareIconButton';
 import {
   CustomerShellActionButton,
   CustomerShellBadge,
@@ -10,6 +11,7 @@ import {
   CustomerShellMetric,
   CustomerShellPanel
 } from '@/src/components/CustomerShell';
+import { shareLaunch } from '@/src/utils/launchShare';
 import { formatRouteDateTime, formatRouteNumber, openExternalCustomerUrl, RouteKeyValueRow, RouteListRow } from './shared';
 import { useCatalogCollectionQuery, useCatalogDetailQuery, useCatalogHubQuery } from './queries';
 
@@ -338,6 +340,21 @@ export function CatalogDetailScreen({ entity, entityId }: { entity: CatalogEntit
                 title={launch.name}
                 subtitle={[launch.provider, launch.vehicle, launch.net].filter(Boolean).join(' • ')}
                 meta={launch.statusText || 'Launch'}
+                trailing={
+                  <LaunchShareIconButton
+                    onPress={() => {
+                      void shareLaunch({
+                        id: launch.id,
+                        name: launch.name,
+                        net: launch.net,
+                        provider: launch.provider,
+                        vehicle: launch.vehicle,
+                        statusText: launch.statusText
+                      });
+                    }}
+                    size={38}
+                  />
+                }
                 onPress={() => {
                   router.push(launch.href as Href);
                 }}

@@ -2,7 +2,8 @@ import * as SecureStore from 'expo-secure-store';
 import type { FeedLaunchCardData } from '@/src/feed/feedCardData';
 
 const PUBLIC_FEED_SNAPSHOT_KEY = 'tmz.feed.public-snapshot.v1';
-const MAX_PUBLIC_FEED_SNAPSHOT_AGE_MS = 6 * 60 * 60 * 1000;
+const MAX_PUBLIC_FEED_SNAPSHOT_AGE_MS = 2 * 60 * 60 * 1000;
+const MAX_PUBLIC_FEED_SNAPSHOT_LAUNCHES = 8;
 const FEED_SNAPSHOT_OPTIONS: SecureStore.SecureStoreOptions = {
   keychainService: 'tmz.feed.snapshot',
   keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY
@@ -53,7 +54,7 @@ function isSnapshotFresh(savedAt: string) {
 }
 
 function snapshotLaunchesForStorage(launches: FeedLaunchCardData[]) {
-  return launches.slice(0, 4);
+  return launches.slice(0, MAX_PUBLIC_FEED_SNAPSHOT_LAUNCHES);
 }
 
 function normalizeForFingerprint(value: unknown): unknown {

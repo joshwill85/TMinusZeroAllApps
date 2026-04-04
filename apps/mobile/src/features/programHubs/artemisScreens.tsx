@@ -4,6 +4,7 @@ import { useRouter, type Href } from 'expo-router';
 import type { ArtemisMissionKeyV1, ArtemisMissionOverviewV1, ArtemisOverviewV1 } from '@tminuszero/api-client';
 import { useArtemisMissionOverviewQuery, useArtemisOverviewQuery } from '@/src/api/queries';
 import { AppScreen } from '@/src/components/AppScreen';
+import { LaunchShareIconButton } from '@/src/components/LaunchShareIconButton';
 import {
   CustomerShellBadge,
   CustomerShellHero,
@@ -11,6 +12,7 @@ import {
   CustomerShellPanel
 } from '@/src/components/CustomerShell';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
+import { shareLaunch } from '@/src/utils/launchShare';
 import {
   buildArtemisAwardeesHref,
   buildArtemisContentHref,
@@ -61,7 +63,7 @@ export function ArtemisHubScreen() {
       <CustomerShellHero
         eyebrow="Program Hub"
         title="Artemis"
-        description="Native Artemis program hub with mission routing, timeline previews, and source-linked content snapshots."
+        description="Native Artemis Mission Control with mission routing, timeline previews, intel, and procurement context."
       >
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
           <CustomerShellBadge label="Native beta" tone="accent" />
@@ -121,6 +123,80 @@ export function ArtemisHubScreen() {
               </View>
             </CustomerShellPanel>
 
+            <CustomerShellPanel title="Mission Control intel" description={`${payload.intel.length} discovery or intel item${payload.intel.length === 1 ? '' : 's'} in view.`}>
+              <View style={{ gap: 10 }}>
+                {payload.intel.length ? (
+                  payload.intel.map((item) => (
+                    <SimpleRow
+                      key={item.id}
+                      title={item.title}
+                      body={[item.summary, item.meta].filter(Boolean).join(' • ') || 'Program intel item'}
+                      meta={item.href ? 'Open source' : null}
+                      onPress={item.href ? () => void Linking.openURL(item.href || '') : undefined}
+                    />
+                  ))
+                ) : (
+                  <TextBlock value="No Artemis intel items are currently available." />
+                )}
+              </View>
+            </CustomerShellPanel>
+
+            <CustomerShellPanel title="Budget lines" description={`${payload.budget.length} budget line${payload.budget.length === 1 ? '' : 's'} in preview.`}>
+              <View style={{ gap: 10 }}>
+                {payload.budget.length ? (
+                  payload.budget.map((line) => (
+                    <SimpleRow
+                      key={line.id}
+                      title={line.lineItem || line.program || 'Budget line'}
+                      body={[
+                        line.agency,
+                        line.fiscalYear ? `FY${line.fiscalYear}` : null,
+                        line.amountEnacted != null ? `$${Math.round(line.amountEnacted).toLocaleString()}` : null,
+                        line.amountRequested != null ? `Req $${Math.round(line.amountRequested).toLocaleString()}` : null
+                      ]
+                        .filter(Boolean)
+                        .join(' • ') || line.detail || 'Budget line'}
+                      meta={line.sourceUrl ? 'Open source' : null}
+                      onPress={line.sourceUrl ? () => void Linking.openURL(line.sourceUrl || '') : undefined}
+                    />
+                  ))
+                ) : (
+                  <TextBlock value="No Artemis budget lines are currently available." />
+                )}
+              </View>
+            </CustomerShellPanel>
+
+            <CustomerShellPanel title="Procurement" description={`${payload.procurement.length} procurement award${payload.procurement.length === 1 ? '' : 's'} in preview.`}>
+              <View style={{ gap: 10 }}>
+                {payload.procurement.length ? (
+                  payload.procurement.map((award) => (
+                    <SimpleRow
+                      key={award.id}
+                      title={award.title || award.recipient || 'Procurement award'}
+                      body={[
+                        award.recipient,
+                        award.awardedOn ? formatDate(award.awardedOn) : null,
+                        award.obligatedAmount != null ? `$${Math.round(award.obligatedAmount).toLocaleString()}` : null,
+                        award.detail
+                      ]
+                        .filter(Boolean)
+                        .join(' • ') || 'Procurement award'}
+                      meta={award.canonicalPath ? 'Open contract story' : award.sourceUrl ? 'Open source' : null}
+                      onPress={
+                        award.canonicalPath
+                          ? () => router.push(award.canonicalPath as Href)
+                          : award.sourceUrl
+                            ? () => void Linking.openURL(award.sourceUrl || '')
+                            : undefined
+                      }
+                    />
+                  ))
+                ) : (
+                  <TextBlock value="No Artemis procurement awards are currently available." />
+                )}
+              </View>
+            </CustomerShellPanel>
+
             <CustomerShellPanel title="Content preview" description={`${payload.content.length} content item${payload.content.length === 1 ? '' : 's'} in preview.`}>
               <View style={{ gap: 10 }}>
                 {payload.content.length ? (
@@ -134,6 +210,16 @@ export function ArtemisHubScreen() {
                   ))
                 ) : (
                   <TextBlock value="No content previews are currently available." />
+                )}
+              </View>
+            </CustomerShellPanel>
+
+            <CustomerShellPanel title="FAQ" description={`${payload.snapshot.faq.length} answer${payload.snapshot.faq.length === 1 ? '' : 's'} available.`}>
+              <View style={{ gap: 10 }}>
+                {payload.snapshot.faq.length ? (
+                  payload.snapshot.faq.map((item) => <SimpleRow key={item.question} title={item.question} body={item.answer} />)
+                ) : (
+                  <TextBlock value="No Artemis FAQ entries are currently available." />
                 )}
               </View>
             </CustomerShellPanel>
@@ -291,6 +377,21 @@ function LaunchSummaryPanel({
           title={launch.name}
           body={[launch.vehicle, launch.padShortCode, formatDate(launch.net), launch.statusText].filter(Boolean).join(' • ')}
           meta="Open launch detail"
+          trailing={
+            <LaunchShareIconButton
+              onPress={() => {
+                void shareLaunch({
+                  id: launch.id,
+                  name: launch.name,
+                  net: launch.net,
+                  vehicle: launch.vehicle,
+                  statusText: launch.statusText,
+                  padLabel: launch.padShortCode
+                });
+              }}
+              size={38}
+            />
+          }
           onPress={() => router.push(launch.href as Href)}
         />
       ) : (
@@ -358,12 +459,14 @@ function SimpleRow({
   title,
   body,
   meta,
-  onPress
+  onPress,
+  trailing
 }: {
   title: string;
   body: string;
   meta?: string | null;
   onPress?: (() => void) | undefined;
+  trailing?: ReactNode;
 }) {
   const { theme } = useMobileBootstrap();
 
@@ -382,9 +485,14 @@ function SimpleRow({
         opacity: onPress ? 1 : 0.96
       })}
     >
-      <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{title}</Text>
-      {body ? <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>{body}</Text> : null}
-      {meta ? <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>{meta}</Text> : null}
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+        <View style={{ flex: 1, gap: 6 }}>
+          <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{title}</Text>
+          {body ? <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>{body}</Text> : null}
+          {meta ? <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>{meta}</Text> : null}
+        </View>
+        {trailing}
+      </View>
     </Pressable>
   );
 }

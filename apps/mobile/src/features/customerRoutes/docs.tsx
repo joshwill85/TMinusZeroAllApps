@@ -4,7 +4,6 @@ import { AppScreen } from '@/src/components/AppScreen';
 import { CustomerShellBadge, CustomerShellHero, CustomerShellPanel } from '@/src/components/CustomerShell';
 import { RouteListRow } from './shared';
 import {
-  ABOUT_FALLBACK_PAGE,
   ContentPageRouteScreen,
   JELLYFISH_FALLBACK_PAGE,
   buildGenericDocsFallback,
@@ -12,8 +11,7 @@ import {
 } from './content';
 
 const DOC_LINKS = [
-  { title: 'About', href: '/about', subtitle: 'Origin story and product mission.', badge: 'docs' },
-  { title: 'FAQ', href: '/docs/faq', subtitle: 'Common questions about the native app.', badge: 'docs' },
+  { title: 'Support', href: '/support', subtitle: 'Customer help, billing guidance, and privacy requests.', badge: 'help' },
   { title: 'Roadmap', href: '/docs/roadmap', subtitle: 'Implementation phases and future work.', badge: 'docs' },
   { title: 'Notifications', href: '/preferences', subtitle: 'Native push setup and alert controls.', badge: 'docs' },
   { title: 'Privacy Notice', href: '/legal/privacy', subtitle: 'Collection, use, and disclosure overview.', badge: 'legal' },
@@ -28,7 +26,7 @@ export function DocsHubScreen() {
 
   return (
     <AppScreen testID="docs-screen">
-      <CustomerShellHero eyebrow="Docs" title="Documentation & Legal" description="Native docs, guides, and policy pages for the mobile app.">
+      <CustomerShellHero eyebrow="Docs" title="Documentation & Legal" description="Native support, guides, and policy pages for the mobile app.">
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
           <CustomerShellBadge label="Native docs" tone="accent" />
           <CustomerShellBadge label={`${DOC_LINKS.length} entries`} />
@@ -56,49 +54,19 @@ export function DocsHubScreen() {
 
 export function DocsPageRouteScreen({ slug }: { slug: string }) {
   const normalized = normalizeDocsSlug(slug);
+  if (normalized === 'about' || normalized === 'faq') {
+    return <DocsHubScreen />;
+  }
   const fallbackPage = resolveDocsFallbackPage(normalized);
 
   return <ContentPageRouteScreen testID={`docs-${normalized}-screen`} slug={normalized} fallbackPage={fallbackPage} />;
 }
 
 function resolveDocsFallbackPage(slug: string): CustomerRouteStaticPage {
-  if (slug === 'about') return ABOUT_FALLBACK_PAGE;
-  if (slug === 'faq') return FAQ_FALLBACK_PAGE;
   if (slug === 'roadmap') return ROADMAP_FALLBACK_PAGE;
   if (slug === 'jellyfish-effect') return JELLYFISH_FALLBACK_PAGE;
   return buildGenericDocsFallback(slug);
 }
-
-const FAQ_FALLBACK_PAGE: CustomerRouteStaticPage = {
-  eyebrow: 'Docs',
-  title: 'FAQ',
-  description: 'Answers to common questions about the mobile app, refresh cadence, and alerts.',
-  lastUpdated: 'Jan 20, 2026',
-  sections: [
-    {
-      title: 'How updates work',
-      body: 'Mobile uses the shared API and refreshes the current view when you return to it or change the filter state.',
-      bullets: [
-        'Launch and detail screens stay native.',
-        'Reference pages render from the mobile content hooks when available.',
-        'Unsupported customer routes should stay hidden rather than opening a browser.'
-      ]
-    },
-    {
-      title: 'What stays native',
-      body: 'Search, launch details, saved items, account settings, docs, and the supported reference surfaces are all designed to stay in app.',
-      bullets: [
-        'News, contracts, satellites, and catalog browsing are native.',
-        'Account, privacy, and legal content are native.',
-        'External source records still open outside the app.'
-      ]
-    }
-  ],
-  actions: [
-    { label: 'Privacy choices', href: '/legal/privacy-choices' },
-    { label: 'Roadmap', href: '/docs/roadmap', variant: 'secondary' }
-  ]
-};
 
 const ROADMAP_FALLBACK_PAGE: CustomerRouteStaticPage = {
   eyebrow: 'Docs',
@@ -111,7 +79,7 @@ const ROADMAP_FALLBACK_PAGE: CustomerRouteStaticPage = {
       body: 'Finish the customer-facing browse surfaces and internal linking across the remaining mobile gaps.',
       bullets: [
         'News, contracts, satellites, and catalog browsing.',
-        'Docs, legal, about, and guide pages.',
+        'Docs, support, legal, and guide pages.',
         'Native resolution for first-party customer links.'
       ]
     },

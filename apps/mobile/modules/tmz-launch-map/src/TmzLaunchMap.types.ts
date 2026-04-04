@@ -1,6 +1,7 @@
 import type { ViewProps } from 'react-native';
 
 export type TmzLaunchMapProvider = 'apple' | 'google' | 'none';
+export type TmzLaunchMapRenderMode = 'auto' | 'pad' | 'faa';
 
 export type TmzLaunchMapCapabilities = {
   isAvailable: boolean;
@@ -13,4 +14,5 @@ export type TmzLaunchMapViewProps = ViewProps & {
   boundsJson?: string | null;
   padJson?: string | null;
   interactive?: boolean;
+  renderMode?: TmzLaunchMapRenderMode;
 };

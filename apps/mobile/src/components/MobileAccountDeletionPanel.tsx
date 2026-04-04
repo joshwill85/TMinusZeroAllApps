@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Linking, Text, TextInput, View } from 'react-native';
-import { ApiClientError, type BillingSummaryV1 } from '@tminuszero/api-client';
+import type { BillingSummaryV1 } from '@tminuszero/api-client';
 import { useDeleteAccountMutation } from '@/src/api/queries';
+import { describeMobileAccountDeletionError, prepareAppleAccountDeletion } from '@/src/auth/appleAccountDeletion';
 import { signOut } from '@/src/auth/supabaseAuth';
 import { CustomerShellActionButton, CustomerShellPanel } from '@/src/components/CustomerShell';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
@@ -47,6 +48,7 @@ export function MobileAccountDeletionPanel({ billingSummary, onDeleted }: Mobile
 
     try {
       await unregisterCurrentDevice().catch(() => undefined);
+      await prepareAppleAccountDeletion(accessToken);
       await deleteAccountMutation.mutateAsync(confirmText);
       setConfirmText('');
       setIsExpanded(false);
@@ -54,7 +56,7 @@ export function MobileAccountDeletionPanel({ billingSummary, onDeleted }: Mobile
       await clearSession();
       onDeleted('Account deleted. This device is now back in guest mode.');
     } catch (error) {
-      setErrorText(describeDeleteAccountError(error));
+      setErrorText(describeMobileAccountDeletionError(error));
     }
   }
 
@@ -84,6 +86,9 @@ export function MobileAccountDeletionPanel({ billingSummary, onDeleted }: Mobile
           </Text>
           <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
             Some processor-held billing records and limited security or event logs may remain where required by law or needed to prevent fraud and abuse.
+          </Text>
+          <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
+            If you used Sign in with Apple, we may ask Apple for a final authorization refresh so we can revoke that connection before deletion completes.
           </Text>
           {hasActiveStoreSubscription ? (
             <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
@@ -184,22 +189,4 @@ function formatStoreLabel(provider: BillingSummaryV1['provider']) {
     return 'Google Play';
   }
   return 'your store';
-}
-
-function describeDeleteAccountError(error: unknown) {
-  if (error instanceof ApiClientError) {
-    switch (error.code) {
-      case 'confirm_required':
-        return 'Type DELETE to confirm account deletion.';
-      case 'unauthorized':
-        return 'Sign in again before deleting your account.';
-      case 'active_subscription':
-      case 'failed_to_cancel_subscription':
-        return 'We could not stop future renewal automatically. Contact support before deleting this account.';
-      default:
-        return error.detail || error.code || 'Unable to delete the account right now.';
-    }
-  }
-
-  return error instanceof Error ? error.message : 'Unable to delete the account right now.';
 }

@@ -1,6 +1,8 @@
 'use client';
 
 import { useMemo } from 'react';
+import { ThirdPartyEmbedGate } from '@/components/ThirdPartyEmbedGate';
+import { useBlockThirdPartyEmbedsPreference } from '@/lib/privacy/embedPreference';
 
 export type XTweetEmbedProps = {
   tweetId: string;
@@ -28,6 +30,7 @@ export function XTweetEmbed({
     () => (tweetUrl || '').trim() || (safeId ? `https://x.com/i/web/status/${safeId}` : ''),
     [safeId, tweetUrl]
   );
+  const embedsBlocked = useBlockThirdPartyEmbedsPreference();
   const iframeSrc = useMemo(() => {
     if (!safeId) return '';
     const params = new URLSearchParams();
@@ -48,7 +51,24 @@ export function XTweetEmbed({
   if (!safeId) return null;
 
   return (
-    <div className={className}>
+    <ThirdPartyEmbedGate
+      className={className}
+      title="Embedded X post"
+      description="This X post loads content from X only after you choose to load it."
+      loadLabel="Load X post"
+      externalUrl={safeUrl}
+      externalLabel="Open on X"
+      blocked={embedsBlocked}
+      blockedMessage={
+        <>
+          Embedded posts from X are disabled in your Privacy Choices settings.{' '}
+          <a className="text-primary hover:underline" href="/legal/privacy-choices">
+            Update preferences
+          </a>{' '}
+          or open the post on X instead.
+        </>
+      }
+    >
       <div className={`flex ${alignmentClass}`}>
         <iframe
           title={`X post ${safeId}`}
@@ -59,14 +79,6 @@ export function XTweetEmbed({
           allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
         />
       </div>
-      <a
-        href={safeUrl}
-        target="_blank"
-        rel="noreferrer"
-        className="sr-only"
-      >
-        Open X post
-      </a>
-    </div>
+    </ThirdPartyEmbedGate>
   );
 }

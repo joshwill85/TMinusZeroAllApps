@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import type { LaunchFaaAirspaceMapV1 } from '@tminuszero/contracts';
 import type { MobileTheme } from '@tminuszero/design-tokens';
-import { getCapabilitiesAsync, TmzLaunchMapView, type TmzLaunchMapCapabilities } from '@/modules/tmz-launch-map';
+import { getCapabilitiesAsync, TmzLaunchMapView, type TmzLaunchMapCapabilities, type TmzLaunchMapRenderMode } from '@/modules/tmz-launch-map';
 
 type MapPadPayload = {
   latitude: number | null | undefined;
@@ -31,6 +31,7 @@ type NativeLaunchMapViewportProps = {
   padJson: string | null;
   height: number;
   interactive: boolean;
+  renderMode: TmzLaunchMapRenderMode;
 };
 
 export function LaunchFaaMapCard({ theme, mapData, onOpenFullscreen, onOpenPadMap }: LaunchFaaMapCardProps) {
@@ -69,6 +70,7 @@ export function LaunchFaaMapCard({ theme, mapData, onOpenFullscreen, onOpenPadMa
           padJson={padJson}
           interactive={false}
           height={220}
+          renderMode="faa"
           emptyTitle="FAA launch zone map"
           emptyBody={
             mapData?.advisoryCount
@@ -142,6 +144,7 @@ export function PadSatelliteMapCard({ theme, pad, onOpenPadMap }: PadSatelliteMa
           padJson={padJson}
           interactive={false}
           height={220}
+          renderMode="pad"
           emptyTitle="Pad satellite view"
           emptyBody="Native map preview unavailable on this build. Open the pad in your platform map app."
         />
@@ -170,7 +173,8 @@ export function NativeLaunchMapViewport({
   boundsJson,
   padJson,
   height,
-  interactive
+  interactive,
+  renderMode
 }: NativeLaunchMapViewportProps) {
   return (
     <TmzLaunchMapView
@@ -178,6 +182,7 @@ export function NativeLaunchMapViewport({
       boundsJson={boundsJson}
       padJson={padJson}
       interactive={interactive}
+      renderMode={renderMode}
       style={{ height, width: '100%' }}
     />
   );
@@ -191,6 +196,7 @@ function MapViewportFrame({
   padJson,
   interactive,
   height,
+  renderMode,
   emptyTitle,
   emptyBody
 }: {
@@ -201,6 +207,7 @@ function MapViewportFrame({
   padJson: string | null;
   interactive: boolean;
   height: number;
+  renderMode: TmzLaunchMapRenderMode;
   emptyTitle: string;
   emptyBody: string;
 }) {
@@ -215,6 +222,7 @@ function MapViewportFrame({
           padJson={padJson}
           height={height}
           interactive={interactive}
+          renderMode={renderMode}
         />
       ) : (
         <View

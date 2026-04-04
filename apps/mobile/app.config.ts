@@ -89,6 +89,14 @@ function getBuildProfile() {
   return null;
 }
 
+function getNativeBuildConfiguration() {
+  const configuration = normalizeEnv(process.env.CONFIGURATION)?.toLowerCase();
+  if (configuration === 'debug' || configuration === 'release') {
+    return configuration;
+  }
+  return null;
+}
+
 function isReleaseProfile(profile: string | null) {
   return profile === 'preview' || profile === 'production';
 }
@@ -96,8 +104,9 @@ function isReleaseProfile(profile: string | null) {
 export default (): ExpoConfig => {
   const buildProfile = getBuildProfile();
   const buildPlatform = getBuildPlatform();
+  const nativeBuildConfiguration = getNativeBuildConfiguration();
   const associatedDomainHosts = uniqueStrings(getAssociatedDomainHosts());
-  if (isReleaseProfile(buildProfile)) {
+  if (isReleaseProfile(buildProfile) || nativeBuildConfiguration === 'release') {
     assertSecureReleaseUrl('EXPO_PUBLIC_API_BASE_URL', normalizeUrl(process.env.EXPO_PUBLIC_API_BASE_URL));
     assertSecureReleaseUrl('EXPO_PUBLIC_SITE_URL', normalizeUrl(process.env.EXPO_PUBLIC_SITE_URL));
     assertSecureReleaseUrl('EXPO_PUBLIC_SUPABASE_URL', normalizeUrl(process.env.EXPO_PUBLIC_SUPABASE_URL));

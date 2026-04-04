@@ -98,6 +98,19 @@ function resolveArtemisMissionLabel(missionKey: string | null) {
   return missionKey;
 }
 
+function formatCurrency(value: number | null | undefined) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      maximumFractionDigits: 0
+    }).format(value);
+  } catch {
+    return String(value);
+  }
+}
+
 export async function loadArtemisOverviewPayload() {
   const [snapshot, profiles, timeline, content, intel] = await Promise.all([
     fetchArtemisProgramSnapshot(),
@@ -173,6 +186,39 @@ export async function loadArtemisOverviewPayload() {
       publishedAt: item.publishedAt,
       sourceLabel: item.sourceLabel,
       missionLabel: item.missionLabel
+    })),
+    intel: intel.discoveryItems.map((item) => ({
+      id: item.discoveryKey,
+      title: item.title || item.entityName || item.usaspendingAwardId || 'Artemis intel item',
+      summary: item.summary,
+      meta: [item.agencyName, item.publishedAt, formatCurrency(item.amount)].filter(Boolean).join(' • ') || null,
+      href: item.sourceUrl
+    })),
+    budget: intel.budgetLines.slice(0, 8).map((line) => ({
+      id: `${line.fiscalYear || 'fy'}:${line.program || line.lineItem || line.sourceUrl || 'budget'}`,
+      fiscalYear: line.fiscalYear,
+      agency: line.agency,
+      program: line.program,
+      lineItem: line.lineItem,
+      amountRequested: line.amountRequested,
+      amountEnacted: line.amountEnacted,
+      announcedTime: line.announcedTime,
+      detail: line.detail,
+      sourceTitle: line.sourceTitle,
+      sourceUrl: line.sourceUrl
+    })),
+    procurement: intel.procurementAwards.slice(0, 8).map((award) => ({
+      id: award.awardId || award.contractKey || award.sourceUrl || award.title || 'procurement-award',
+      awardId: award.awardId,
+      title: award.title,
+      recipient: award.recipient,
+      obligatedAmount: award.obligatedAmount,
+      awardedOn: award.awardedOn,
+      missionKey: award.missionKey,
+      detail: award.detail,
+      sourceTitle: award.sourceTitle,
+      sourceUrl: award.sourceUrl,
+      canonicalPath: award.storyPresentation.canonicalPath
     }))
   });
 }

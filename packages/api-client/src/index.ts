@@ -4,7 +4,10 @@ import {
   alertRuleEnvelopeSchemaV1,
   alertRulesSchemaV1,
   arTelemetrySessionEventSchemaV1,
+  appleAuthCaptureResponseSchemaV1,
+  appleAuthCaptureSchemaV1,
   appleBillingSyncRequestSchemaV1,
+  authMethodsSchemaV1,
   authContextUpsertSchemaV1,
   billingCatalogSchemaV1,
   adminAccessOverrideSchemaV1,
@@ -23,6 +26,8 @@ import {
   blueOriginTravelersResponseSchemaV1,
   blueOriginVehiclesResponseSchemaV1,
   spaceXContractsResponseSchemaV1,
+  spaceXDroneShipDetailSchemaV1,
+  spaceXDroneShipListResponseSchemaV1,
   spaceXEnginesResponseSchemaV1,
   spaceXFlightsResponseSchemaV1,
   spaceXMissionOverviewSchemaV1,
@@ -35,6 +40,8 @@ import {
   artemisContractsResponseSchemaV1,
   artemisMissionOverviewSchemaV1,
   artemisOverviewSchemaV1,
+  starshipFlightOverviewSchemaV1,
+  starshipOverviewSchemaV1,
   calendarTokenSchemaV1,
   calendarFeedCreateSchemaV1,
   calendarFeedEnvelopeSchemaV1,
@@ -121,6 +128,11 @@ import {
   watchlistRuleEnvelopeSchemaV1,
   watchlistUpdateSchemaV1,
   watchlistsSchemaV1,
+  type AppleAuthCaptureResponseV1,
+  type AppleAuthCaptureSourceV1,
+  type AppleAuthCaptureV1,
+  type AuthMethodV1,
+  type AuthMethodsV1,
   type BasicFollowsV1,
   type AppleBillingSyncRequestV1,
   type AuthContextUpsertV1,
@@ -145,12 +157,16 @@ import {
   type BlueOriginTravelersResponseV1,
   type BlueOriginVehiclesResponseV1,
   type SpaceXMissionKeyV1,
+  type SpaceXDroneShipDetailV1,
+  type SpaceXDroneShipListResponseV1,
   type SpaceXOverviewV1,
   type SpaceXMissionOverviewV1,
   type SpaceXFlightsResponseV1,
   type SpaceXVehiclesResponseV1,
   type SpaceXEnginesResponseV1,
   type SpaceXContractsResponseV1,
+  type StarshipFlightOverviewV1,
+  type StarshipOverviewV1,
   type ArtemisMissionKeyV1,
   type ArtemisContractsResponseV1,
   type ArtemisContractDetailV1,
@@ -706,6 +722,22 @@ export class ApiClient {
     );
   }
 
+  async getSpaceXDroneShips() {
+    return this.request('/api/v1/spacex/drone-ships', spaceXDroneShipListResponseSchemaV1);
+  }
+
+  async getSpaceXDroneShipDetail(slug: string) {
+    return this.request(`/api/v1/spacex/drone-ships/${encodeURIComponent(slug)}`, spaceXDroneShipDetailSchemaV1);
+  }
+
+  async getStarshipOverview() {
+    return this.request('/api/v1/starship', starshipOverviewSchemaV1);
+  }
+
+  async getStarshipFlightOverview(slug: string) {
+    return this.request(`/api/v1/starship/${encodeURIComponent(slug)}`, starshipFlightOverviewSchemaV1);
+  }
+
   async getArtemisOverview() {
     return this.request('/api/v1/artemis', artemisOverviewSchemaV1);
   }
@@ -924,6 +956,23 @@ export class ApiClient {
     return this.request('/api/v1/me/auth/context', successResponseSchemaV1, {
       method: 'POST',
       body: authContextUpsertSchemaV1.parse(payload)
+    });
+  }
+
+  async captureAppleAuth(payload: AppleAuthCaptureV1) {
+    return this.request('/api/v1/me/auth/apple/capture', appleAuthCaptureResponseSchemaV1, {
+      method: 'POST',
+      body: appleAuthCaptureSchemaV1.parse(payload)
+    });
+  }
+
+  async getAuthMethods() {
+    return this.request('/api/v1/me/auth-methods', authMethodsSchemaV1);
+  }
+
+  async clearAppleAuthArtifacts() {
+    return this.request('/api/v1/me/auth/apple', successResponseSchemaV1, {
+      method: 'DELETE'
     });
   }
 
@@ -1297,6 +1346,8 @@ export type {
   AlertRuleV1,
   AlertRulesV1,
   AppleBillingSyncRequestV1,
+  AuthMethodV1,
+  AuthMethodsV1,
   AuthContextUpsertV1,
   BillingCatalogOfferV1,
   BillingCatalogProductV1,
@@ -1319,12 +1370,16 @@ export type {
   BlueOriginTravelersResponseV1,
   BlueOriginVehiclesResponseV1,
   SpaceXMissionKeyV1,
+  SpaceXDroneShipDetailV1,
+  SpaceXDroneShipListResponseV1,
   SpaceXOverviewV1,
   SpaceXMissionOverviewV1,
   SpaceXFlightsResponseV1,
   SpaceXVehiclesResponseV1,
   SpaceXEnginesResponseV1,
   SpaceXContractsResponseV1,
+  StarshipFlightOverviewV1,
+  StarshipOverviewV1,
   ArtemisMissionKeyV1,
   ArtemisContractsResponseV1,
   ArtemisContractDetailV1,

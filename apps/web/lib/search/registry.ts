@@ -123,6 +123,18 @@ export const STATIC_SEARCH_DOCS: readonly StaticSearchDocument[] = [
     boost: 36
   },
   {
+    docId: 'page:support',
+    type: 'page',
+    title: 'Support',
+    subtitle: 'Help',
+    summary: 'Customer support, billing help, privacy requests, and contact information.',
+    url: '/support',
+    aliases: ['support', 'help', 'contact support'],
+    keywords: ['support', 'help', 'contact', 'billing', 'privacy'],
+    badge: 'Page',
+    boost: 28
+  },
+  {
     docId: 'page:privacy',
     type: 'page',
     title: 'Privacy Policy',
@@ -161,10 +173,10 @@ export const STATIC_SEARCH_DOCS: readonly StaticSearchDocument[] = [
   {
     docId: 'hub:starship',
     type: 'hub',
-    title: 'Starship Mission Hub',
-    subtitle: 'Mission hub',
-    summary: 'Track Starship flights, launch systems, timeline, and evidence from the Starship mission hub.',
-    url: '/spacex/missions/starship',
+    title: 'Starship Program Workbench',
+    subtitle: 'Program hub',
+    summary: 'Track Starship flights, launch systems, timeline, and evidence from the dedicated Starship workbench.',
+    url: '/starship',
     aliases: ['starship', 'super heavy'],
     keywords: ['starship', 'super heavy'],
     badge: 'Hub',

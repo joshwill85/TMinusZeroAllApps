@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { enforceLaunchFeedPayloadRateLimit, resolveLaunchFeedScopeFromRequest } from '@/lib/server/launchApiRateLimit';
 import { getViewerTier } from '@/lib/server/viewerTier';
+import { resolveViewerSession } from '@/lib/server/viewerSession';
 import { LaunchFeedApiRouteError, loadVersionedLaunchFeedPayload } from '@/lib/server/v1/launchFeedApi';
 
 export const dynamic = 'force-dynamic';
@@ -8,7 +9,8 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: Request) {
   try {
     const scope = resolveLaunchFeedScopeFromRequest(request);
-    const viewer = scope === 'public' ? null : await getViewerTier({ request, reconcileStripe: false });
+    const session = scope === 'public' ? null : await resolveViewerSession(request);
+    const viewer = scope === 'public' ? null : await getViewerTier({ session: session ?? undefined, reconcileStripe: false });
     const rateLimited = await enforceLaunchFeedPayloadRateLimit(request, {
       scope,
       viewerId: viewer?.userId ?? null
@@ -18,7 +20,8 @@ export async function GET(request: Request) {
     }
 
     const payload = await loadVersionedLaunchFeedPayload(request, {
-      viewer: viewer ?? undefined
+      viewer: viewer ?? undefined,
+      session: session ?? undefined
     });
     const cacheControl =
       payload.scope === 'public'

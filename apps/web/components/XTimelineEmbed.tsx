@@ -2,6 +2,8 @@
 
 import Script from 'next/script';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { ThirdPartyEmbedGate } from '@/components/ThirdPartyEmbedGate';
+import { useBlockThirdPartyEmbedsPreference } from '@/lib/privacy/embedPreference';
 
 declare global {
   interface Window {
@@ -65,6 +67,7 @@ export function XTimelineEmbed({
   const [resolvedBorderColor, setResolvedBorderColor] = useState<string | null>(null);
 
   const screenName = useMemo(() => handle.replace(/^@/, '').trim(), [handle]);
+  const embedsBlocked = useBlockThirdPartyEmbedsPreference();
   const effectiveLinkColor = linkColor ?? resolvedLinkColor ?? undefined;
   const effectiveBorderColor = borderColor ?? resolvedBorderColor ?? undefined;
 
@@ -144,7 +147,24 @@ export function XTimelineEmbed({
   if (!screenName) return null;
 
   return (
-    <div className={className}>
+    <ThirdPartyEmbedGate
+      className={className}
+      title={`Embedded X timeline for @${screenName}`}
+      description="This X timeline loads content from X only after you choose to load it."
+      loadLabel="Load X timeline"
+      externalUrl={`https://x.com/${encodeURIComponent(screenName)}`}
+      externalLabel="Open on X"
+      blocked={embedsBlocked}
+      blockedMessage={
+        <>
+          Embedded posts from X are disabled in your Privacy Choices settings.{' '}
+          <a className="text-primary hover:underline" href="/legal/privacy-choices">
+            Update preferences
+          </a>{' '}
+          or open the timeline on X instead.
+        </>
+      }
+    >
       <div ref={containerRef} />
       <Script
         id="x-widgets"
@@ -152,6 +172,6 @@ export function XTimelineEmbed({
         strategy="afterInteractive"
         onLoad={() => setReady(true)}
       />
-    </div>
+    </ThirdPartyEmbedGate>
   );
 }

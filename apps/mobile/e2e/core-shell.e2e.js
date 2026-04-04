@@ -43,6 +43,19 @@ describe('mobile core shell', () => {
     await waitFor(element(by.id('calendar-selected-day'))).toBeVisible().withTimeout(30000);
   });
 
+  it('returns to the feed when active dock tabs are tapped again', async () => {
+    await element(by.id('tab-search')).tap();
+    await expect(element(by.id('search-screen'))).toBeVisible();
+    await element(by.id('tab-search')).tap();
+    await expect(element(by.id('feed-screen'))).toBeVisible();
+
+    await element(by.id('tab-calendar')).tap();
+    await expect(element(by.id('calendar-screen'))).toBeVisible();
+    await waitFor(element(by.id('calendar-month-summary'))).toBeVisible().withTimeout(30000);
+    await element(by.id('tab-calendar')).tap();
+    await expect(element(by.id('feed-screen'))).toBeVisible();
+  });
+
   it('opens launch detail via deep link routing', async () => {
     await device.launchApp({
       newInstance: true,

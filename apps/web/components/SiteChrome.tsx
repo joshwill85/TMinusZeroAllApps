@@ -19,6 +19,8 @@ function isEditableTarget(target: EventTarget | null) {
   return target.isContentEditable || tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT';
 }
 
+const OPEN_LAUNCH_SEARCH_EVENT = 'tmz:open-launch-search';
+
 export function SiteChrome() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [tipJarOpen, setTipJarOpen] = useState(false);
@@ -74,6 +76,14 @@ export function SiteChrome() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isCameraGuide]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || isCameraGuide) return;
+
+    const onOpenLaunchSearch = () => setSearchOpen(true);
+    window.addEventListener(OPEN_LAUNCH_SEARCH_EVENT, onOpenLaunchSearch);
+    return () => window.removeEventListener(OPEN_LAUNCH_SEARCH_EVENT, onOpenLaunchSearch);
   }, [isCameraGuide]);
 
   useEffect(() => {

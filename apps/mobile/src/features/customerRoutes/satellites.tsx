@@ -2,6 +2,7 @@ import { Text, View } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import type { SatelliteDetailV1, SatelliteOwnerProfileV1, SatelliteOwnersResponseV1, SatellitesResponseV1 } from '@tminuszero/contracts';
 import { AppScreen } from '@/src/components/AppScreen';
+import { LaunchShareIconButton } from '@/src/components/LaunchShareIconButton';
 import {
   CustomerShellActionButton,
   CustomerShellBadge,
@@ -9,6 +10,7 @@ import {
   CustomerShellMetric,
   CustomerShellPanel
 } from '@/src/components/CustomerShell';
+import { shareLaunch } from '@/src/utils/launchShare';
 import { formatRouteDate, formatRouteNumber, openExternalCustomerUrl, RouteKeyValueRow, RouteListRow } from './shared';
 import { useSatelliteDetailQuery, useSatelliteOwnerProfileQuery, useSatelliteOwnersQuery, useSatellitesQuery } from './queries';
 
@@ -176,6 +178,21 @@ export function SatelliteDetailScreen({ noradCatId }: { noradCatId: string }) {
             title={payload.relatedLaunch.name}
             subtitle={[payload.relatedLaunch.provider, payload.relatedLaunch.vehicle, formatRouteDate(payload.relatedLaunch.net)].filter(Boolean).join(' • ')}
             meta={payload.relatedLaunch.statusText || 'Launch'}
+            trailing={
+              <LaunchShareIconButton
+                onPress={() => {
+                  void shareLaunch({
+                    id: payload.relatedLaunch!.id,
+                    name: payload.relatedLaunch!.name,
+                    net: payload.relatedLaunch!.net,
+                    provider: payload.relatedLaunch!.provider,
+                    vehicle: payload.relatedLaunch!.vehicle,
+                    statusText: payload.relatedLaunch!.statusText
+                  });
+                }}
+                size={38}
+              />
+            }
             onPress={() => {
               router.push(payload.relatedLaunch!.href as Href);
             }}
@@ -300,6 +317,21 @@ export function SatelliteOwnerDetailScreen({ owner }: { owner: string }) {
                 title={launch.name}
                 subtitle={[launch.provider, launch.vehicle, formatRouteDate(launch.net)].filter(Boolean).join(' • ')}
                 meta={launch.statusText || 'Launch'}
+                trailing={
+                  <LaunchShareIconButton
+                    onPress={() => {
+                      void shareLaunch({
+                        id: launch.id,
+                        name: launch.name,
+                        net: launch.net,
+                        provider: launch.provider,
+                        vehicle: launch.vehicle,
+                        statusText: launch.statusText
+                      });
+                    }}
+                    size={38}
+                  />
+                }
                 onPress={() => {
                   router.push(launch.href as Href);
                 }}

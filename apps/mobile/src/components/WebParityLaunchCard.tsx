@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react';
-import { Image, Linking, Pressable, Share, Text, View, type DimensionValue } from 'react-native';
-import { buildCountdownSnapshot } from '@tminuszero/domain';
-import { buildLaunchHref } from '@tminuszero/navigation';
-import { getPublicSiteUrl } from '@/src/config/api';
+import { Image, Linking, Pressable, Text, View, type DimensionValue } from 'react-native';
+import { buildCountdownSnapshot, formatLaunchCountdownClock } from '@tminuszero/domain';
 import type { FeedLaunchCardData } from '@/src/feed/feedCardData';
+import { ShareGlyph } from '@/src/components/LaunchShareIconButton';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
+import { shareLaunch } from '@/src/utils/launchShare';
 import { formatTimestamp } from '@/src/utils/format';
 
 type WebParityLaunchCardProps = {
@@ -125,7 +125,6 @@ export function WebParityLaunchCard({
   const weatherSummary = buildWeatherSummary(launch.weatherConcerns);
   const windowSummary = buildWindowSummary(launch.windowStart ?? launch.net, launch.windowEnd ?? launch.windowStart ?? launch.net);
   const timeLabel = launch.netPrecision === 'day' || launch.netPrecision === 'tbd' ? 'NET window' : 'Liftoff';
-  const shareUrl = `${getPublicSiteUrl()}${buildLaunchHref(launch.id)}`;
 
   return (
     <Pressable
@@ -393,9 +392,16 @@ export function WebParityLaunchCard({
           <CardIconButton
             label="Share launch"
             onPress={() => {
-              void Share.share({
-                message: `${launch.name}\n${shareUrl}`,
-                url: shareUrl
+              void shareLaunch({
+                id: launch.id,
+                name: launch.name,
+                net: launch.net,
+                provider: launch.provider,
+                vehicle: launch.vehicle,
+                statusText: launch.statusText,
+                status: launch.status,
+                padLabel: launch.pad.shortCode || launch.pad.name,
+                padLocation: launch.pad.locationName || launch.pad.state
               });
             }}
           >
@@ -523,7 +529,10 @@ function CardIconButton({
   return (
     <Pressable
       accessibilityLabel={label}
-      onPress={onPress}
+      onPress={(event) => {
+        event.stopPropagation();
+        onPress();
+      }}
       style={({ pressed }) => ({
         width: 44,
         height: 44,
@@ -719,50 +728,6 @@ function PlayGlyph({ color, active = false }: { color: string; active?: boolean 
           }}
         />
       ) : null}
-    </View>
-  );
-}
-
-function ShareGlyph({ color }: { color: string }) {
-  return (
-    <View style={{ width: 18, height: 18 }}>
-      <View
-        style={{
-          position: 'absolute',
-          left: 3,
-          bottom: 2,
-          width: 11,
-          height: 10,
-          borderWidth: 1.6,
-          borderTopWidth: 0,
-          borderColor: color,
-          borderRadius: 3
-        }}
-      />
-      <View
-        style={{
-          position: 'absolute',
-          left: 8,
-          top: 1,
-          width: 1.8,
-          height: 10,
-          borderRadius: 999,
-          backgroundColor: color
-        }}
-      />
-      <View
-        style={{
-          position: 'absolute',
-          left: 5,
-          top: 1.5,
-          width: 6,
-          height: 6,
-          borderTopWidth: 1.8,
-          borderRightWidth: 1.8,
-          borderColor: color,
-          transform: [{ rotate: '-45deg' }]
-        }}
-      />
     </View>
   );
 }
@@ -1074,21 +1039,7 @@ function buildWindowSummary(startValue: string | undefined, endValue: string | u
 function buildCountdownDisplay(net: string | null | undefined) {
   const snapshot = buildCountdownSnapshot(net ?? null);
   if (!snapshot) return 'NET TBD';
-
-  const prefix = snapshot.isPast ? 'T+' : 'T-';
-  const totalSeconds = Math.max(0, Math.floor(Math.abs(snapshot.totalMs) / 1000));
-  const days = Math.floor(totalSeconds / 86_400);
-  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
-  const minutes = Math.floor((totalSeconds % 3_600) / 60);
-  const seconds = totalSeconds % 60;
-
-  if (days > 0) {
-    return `${prefix}${days}d ${padNumber(hours)}:${padNumber(minutes)}`;
-  }
-  if (hours > 0) {
-    return `${prefix}${padNumber(hours)}:${padNumber(minutes)}:${padNumber(seconds)}`;
-  }
-  return `${prefix}${padNumber(minutes)}:${padNumber(seconds)}`;
+  return formatLaunchCountdownClock(snapshot.totalMs);
 }
 
 function normalizeKnownValue(value: string | null | undefined) {
@@ -1113,8 +1064,4 @@ function safeParseDate(value: string | undefined) {
 
 function clampNumber(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
-}
-
-function padNumber(value: number) {
-  return String(Math.max(0, value)).padStart(2, '0');
 }

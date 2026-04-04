@@ -32,9 +32,11 @@ import { MissionTab } from '@/src/components/launch/tabs/MissionTab';
 import { OverviewTab } from '@/src/components/launch/tabs/OverviewTab';
 import { RelatedTab } from '@/src/components/launch/tabs/RelatedTab';
 import { VehicleTab } from '@/src/components/launch/tabs/VehicleTab';
+import { LaunchShareIconButton } from '@/src/components/LaunchShareIconButton';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
+import { shareLaunch } from '@/src/utils/launchShare';
 import { formatTimestamp } from '@/src/utils/format';
-import { buildCountdownSnapshot } from '@tminuszero/domain';
+import { buildCountdownSnapshot, formatLaunchCountdownClock } from '@tminuszero/domain';
 
 function getLaunchId(value: string | string[] | undefined) {
   if (Array.isArray(value)) {
@@ -72,10 +74,10 @@ export default function LaunchDetailTabsScreen() {
   // Update default tab when data loads
   useEffect(() => {
     const newDefault = getDefaultActiveTab(detail, tabVisibility);
-    if (newDefault !== activeTab && visibleTabs.some(t => t.id === newDefault)) {
+    if (newDefault !== activeTab && visibleTabs.some((tab) => tab.id === newDefault)) {
       setActiveTab(newDefault);
     }
-  }, [detail, tabVisibility]);
+  }, [activeTab, detail, tabVisibility, visibleTabs]);
 
   // Loading state
   if (launchDetailQuery.isLoading || !detail) {
@@ -106,6 +108,7 @@ export default function LaunchDetailTabsScreen() {
   const missionData = extractMissionData(detail);
   const vehicleData = extractVehicleData(detail);
   const relatedData = extractRelatedData(detail);
+  const launchData = detail.launchData ?? null;
 
   // Format countdown
   const countdown = buildCountdownSnapshot(hero?.net ?? null);
@@ -117,6 +120,23 @@ export default function LaunchDetailTabsScreen() {
 
   // Format NET time
   const netTime = hero?.net ? formatTimestamp(hero.net) : null;
+  const handleShare = () => {
+    if (!launchData) {
+      return;
+    }
+
+    void shareLaunch({
+      id: launchData.id,
+      name: launchData.name,
+      net: launchData.net,
+      provider: launchData.provider,
+      vehicle: launchData.vehicle || launchData.rocket?.fullName,
+      statusText: launchData.statusText,
+      status: launchData.status,
+      padLabel: launchData.pad.shortCode || launchData.pad.name,
+      padLocation: launchData.pad.locationName || launchData.pad.state
+    });
+  };
 
   return (
     <AppScreen>
@@ -154,7 +174,13 @@ export default function LaunchDetailTabsScreen() {
           location={hero?.location ?? null}
           scrollY={scrollY}
           actionButtons={
-            null
+            <LaunchShareIconButton
+              onPress={handleShare}
+              size={44}
+              borderColor="rgba(255, 255, 255, 0.16)"
+              backgroundColor="rgba(7, 9, 19, 0.34)"
+              pressedBackgroundColor="rgba(255, 255, 255, 0.12)"
+            />
           }
         />
 
@@ -210,21 +236,5 @@ function getStatusTone(status: string | null): 'default' | 'success' | 'warning'
 }
 
 function formatCountdown(totalMs: number): string {
-  const totalSec = Math.abs(Math.floor(totalMs / 1000));
-  const days = Math.floor(totalSec / 86400);
-  const hours = Math.floor((totalSec % 86400) / 3600);
-  const minutes = Math.floor((totalSec % 3600) / 60);
-  const seconds = totalSec % 60;
-
-  const prefix = totalMs < 0 ? 'T+' : 'T-';
-
-  if (days > 0) {
-    return `${prefix} ${days}d ${hours}h ${minutes}m`;
-  } else if (hours > 0) {
-    return `${prefix} ${hours}h ${minutes}m ${seconds}s`;
-  } else if (minutes > 0) {
-    return `${prefix} ${minutes}m ${seconds}s`;
-  } else {
-    return `${prefix} ${seconds}s`;
-  }
+  return formatLaunchCountdownClock(totalMs);
 }

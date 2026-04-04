@@ -45,6 +45,7 @@
       ],
       "./plugins/withGoogleMapsAndroidApiKey",
       "./plugins/withIosUserScriptSandboxDisabled",
+      "./plugins/withExpoConstantsManifestWorkaround",
       "expo-iap"
     ],
     "extra": {

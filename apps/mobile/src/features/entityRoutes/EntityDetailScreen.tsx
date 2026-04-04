@@ -6,10 +6,14 @@ import {
   useLocationDetailQuery,
   usePadDetailQuery,
   useProviderDetailQuery,
-  useRocketDetailQuery
+  useRocketDetailQuery,
+  useViewerSessionQuery
 } from '@/src/api/queries';
 import { AppScreen } from '@/src/components/AppScreen';
+import { LaunchShareIconButton } from '@/src/components/LaunchShareIconButton';
 import { CustomerShellBadge, CustomerShellHero, CustomerShellPanel } from '@/src/components/CustomerShell';
+import { resolveNativeProgramHubOrCoreHref } from '@/src/features/programHubs/rollout';
+import { shareLaunch } from '@/src/utils/launchShare';
 import { RouteKeyValueRow, RouteListRow, formatRouteDateTime, openExternalCustomerUrl } from '@/src/features/customerRoutes/shared';
 
 type CoreEntityDetail = ProviderDetailV1 | RocketDetailV1 | LocationDetailV1 | PadDetailV1;
@@ -50,6 +54,7 @@ function EntityDetailShell({
 }) {
   const detail = query.data ?? null;
   const router = useRouter();
+  const viewerSessionQuery = useViewerSessionQuery();
 
   const openLink = (href: string, external = false) => {
     if (!href) return;
@@ -58,7 +63,8 @@ function EntityDetailShell({
       return;
     }
 
-    const nativeHref = normalizeNativeMobileCustomerHref(href) || href;
+    const nativeHref =
+      resolveNativeProgramHubOrCoreHref(viewerSessionQuery.data, href) || normalizeNativeMobileCustomerHref(href) || href;
     if (nativeHref.startsWith('/')) {
       router.push(nativeHref as Href);
       return;
@@ -235,6 +241,22 @@ function LaunchSection({
             subtitle={[launch.provider, launch.vehicle, launch.statusText].filter(Boolean).join(' • ') || 'Launch'}
             meta={launch.net ? formatRouteDateTime(launch.net) : null}
             badge={launch.status || null}
+            trailing={
+              <LaunchShareIconButton
+                onPress={() => {
+                  void shareLaunch({
+                    id: launch.id,
+                    name: launch.name,
+                    net: launch.net,
+                    provider: launch.provider,
+                    vehicle: launch.vehicle,
+                    statusText: launch.statusText,
+                    status: launch.status
+                  });
+                }}
+                size={38}
+              />
+            }
             onPress={() => {
               onOpen(launch.href);
             }}

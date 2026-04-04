@@ -2,6 +2,7 @@ import type { SpaceXMissionKeyV1 } from '@tminuszero/api-client';
 
 const SPACE_X_VEHICLE_SEGMENTS = new Set(['starship-super-heavy', 'falcon-9', 'falcon-heavy', 'dragon']);
 const SPACE_X_ENGINE_SEGMENTS = new Set(['raptor', 'merlin-1d', 'merlin-vac', 'draco', 'superdraco']);
+const SPACE_X_DRONE_SHIP_SEGMENTS = new Set(['ocisly', 'asog', 'jrti']);
 
 export const SPACE_X_VEHICLE_ENGINES: Record<string, string[]> = {
   'starship-super-heavy': ['raptor'],
@@ -68,11 +69,31 @@ export function normalizeSpaceXContractParam(value: string | string[] | undefine
 }
 
 export function buildSpaceXMissionHref(mission: SpaceXMissionKeyV1) {
-  return mission === 'spacex-program' ? '/spacex' : `/spacex/missions/${mission}`;
+  if (mission === 'spacex-program') return '/spacex';
+  if (mission === 'starship') return '/starship';
+  return `/spacex/missions/${mission}`;
 }
 
 export function buildSpaceXFlightHref(flightSlug: string) {
   return `/spacex/flights/${encodeURIComponent(normalizeSpaceXFlightParam(flightSlug) || flightSlug)}`;
+}
+
+export function buildStarshipHref() {
+  return '/starship';
+}
+
+export function normalizeStarshipFlightParam(value: string | string[] | undefined) {
+  const normalized = takeFirst(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '');
+
+  if (!/^flight-\d{1,3}$/.test(normalized)) return null;
+  return normalized;
+}
+
+export function buildStarshipFlightHref(flightSlug: string) {
+  return `/starship/${encodeURIComponent(normalizeStarshipFlightParam(flightSlug) || flightSlug)}`;
 }
 
 export function buildSpaceXVehicleHref(vehicleSlug: string) {
@@ -85,6 +106,23 @@ export function buildSpaceXEngineHref(engineSlug: string) {
 
 export function buildSpaceXContractHref(contractKey: string) {
   return `/spacex/contracts/${encodeURIComponent(normalizeSpaceXContractParam(contractKey) || 'contract')}`;
+}
+
+export function buildSpaceXDroneShipsHref() {
+  return '/spacex/drone-ships';
+}
+
+export function normalizeSpaceXDroneShipParam(value: string | string[] | undefined) {
+  const normalized = takeFirst(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '');
+
+  return SPACE_X_DRONE_SHIP_SEGMENTS.has(normalized) ? normalized : null;
+}
+
+export function buildSpaceXDroneShipHref(slug: string) {
+  return `/spacex/drone-ships/${encodeURIComponent(normalizeSpaceXDroneShipParam(slug) || slug)}`;
 }
 
 export function spaceXMissionLabel(mission: SpaceXMissionKeyV1) {

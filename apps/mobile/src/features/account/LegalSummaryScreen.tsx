@@ -8,6 +8,7 @@ import {
   CustomerShellPanel
 } from '@/src/components/CustomerShell';
 import { MOBILE_SUPPORT_EMAIL } from '@/src/features/account/constants';
+import { openExternalCustomerUrl } from '@/src/features/customerRoutes/shared';
 
 type LegalSummarySection = {
   title: string;
@@ -17,7 +18,8 @@ type LegalSummarySection = {
 
 type LegalSummaryAction = {
   label: string;
-  href: string;
+  href?: string;
+  externalUrl?: string;
   variant?: 'primary' | 'secondary';
 };
 
@@ -54,11 +56,17 @@ export function LegalSummaryScreen({
           <View style={{ gap: 10 }}>
             {actions.map((action) => (
               <CustomerShellActionButton
-                key={`${action.label}:${action.href}`}
+                key={`${action.label}:${action.href || action.externalUrl || 'action'}`}
                 label={action.label}
                 variant={action.variant ?? 'primary'}
                 onPress={() => {
-                  router.push(action.href as Href);
+                  if (action.externalUrl) {
+                    void openExternalCustomerUrl(action.externalUrl);
+                    return;
+                  }
+                  if (action.href) {
+                    router.push(action.href as Href);
+                  }
                 }}
               />
             ))}

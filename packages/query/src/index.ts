@@ -430,6 +430,10 @@ export const sharedQueryKeys = {
     const normalized = normalizeSpaceXMissionQueryOptions(options);
     return ['spacex-contracts', normalized.mission] as const;
   },
+  spaceXDroneShips: ['spacex-drone-ships'] as const,
+  spaceXDroneShipDetail: (slug: string) => ['spacex-drone-ship-detail', normalizeToken(slug)] as const,
+  starshipOverview: ['starship-overview'] as const,
+  starshipFlightOverview: (slug: string) => ['starship-flight-overview', normalizeToken(slug)] as const,
   artemisOverview: ['artemis-overview'] as const,
   artemisMissionOverview: (mission: string) => ['artemis-mission-overview', normalizeToken(mission)] as const,
   artemisContracts: ['artemis-contracts'] as const,
@@ -483,6 +487,7 @@ export const sharedQueryKeys = {
   search: (query: string, options: SearchQueryKeyOptions = {}) =>
     ['search', normalizeSearchQuery(query), options.limit ?? null, normalizeSearchTypes(options.types).join(',')] as const,
   profile: ['profile'] as const,
+  authMethods: ['auth-methods'] as const,
   privacyPreferences: ['privacy-preferences'] as const,
   accountExport: ['account-export'] as const,
   billingSummary: ['billing-summary'] as const,
@@ -530,6 +535,10 @@ export const sharedQueryStaleTimes = {
   spaceXVehicles: 300_000,
   spaceXEngines: 300_000,
   spaceXContracts: 300_000,
+  spaceXDroneShips: 300_000,
+  spaceXDroneShipDetail: 300_000,
+  starshipOverview: 120_000,
+  starshipFlightOverview: 120_000,
   artemisOverview: 120_000,
   artemisMissionOverview: 120_000,
   artemisContracts: 300_000,
@@ -555,6 +564,7 @@ export const sharedQueryStaleTimes = {
   padDetail: 300_000,
   search: 15_000,
   profile: 60_000,
+  authMethods: 60_000,
   privacyPreferences: 30_000,
   accountExport: 0,
   billingSummary: 30_000,
@@ -800,6 +810,38 @@ export function spaceXContractsQueryOptions<T>(queryFn: QueryLoader<T>, options:
   });
 }
 
+export function spaceXDroneShipsQueryOptions<T>(queryFn: QueryLoader<T>) {
+  return queryOptions({
+    queryKey: sharedQueryKeys.spaceXDroneShips,
+    queryFn,
+    staleTime: sharedQueryStaleTimes.spaceXDroneShips
+  });
+}
+
+export function spaceXDroneShipDetailQueryOptions<T>(slug: string, queryFn: QueryLoader<T>) {
+  return queryOptions({
+    queryKey: sharedQueryKeys.spaceXDroneShipDetail(slug),
+    queryFn,
+    staleTime: sharedQueryStaleTimes.spaceXDroneShipDetail
+  });
+}
+
+export function starshipOverviewQueryOptions<T>(queryFn: QueryLoader<T>) {
+  return queryOptions({
+    queryKey: sharedQueryKeys.starshipOverview,
+    queryFn,
+    staleTime: sharedQueryStaleTimes.starshipOverview
+  });
+}
+
+export function starshipFlightOverviewQueryOptions<T>(slug: string, queryFn: QueryLoader<T>) {
+  return queryOptions({
+    queryKey: sharedQueryKeys.starshipFlightOverview(slug),
+    queryFn,
+    staleTime: sharedQueryStaleTimes.starshipFlightOverview
+  });
+}
+
 export function artemisOverviewQueryOptions<T>(queryFn: QueryLoader<T>) {
   return queryOptions({
     queryKey: sharedQueryKeys.artemisOverview,
@@ -999,6 +1041,14 @@ export function profileQueryOptions<T>(queryFn: QueryLoader<T>) {
     queryKey: sharedQueryKeys.profile,
     queryFn,
     staleTime: sharedQueryStaleTimes.profile
+  });
+}
+
+export function authMethodsQueryOptions<T>(queryFn: QueryLoader<T>) {
+  return queryOptions({
+    queryKey: sharedQueryKeys.authMethods,
+    queryFn,
+    staleTime: sharedQueryStaleTimes.authMethods
   });
 }
 

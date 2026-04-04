@@ -13,7 +13,6 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
-  Share as NativeShare,
   Text,
   View,
   type LayoutChangeEvent
@@ -25,6 +24,7 @@ import {
   buildCountdownSnapshot,
   buildDetailVersionToken,
   canAutoRefreshActiveSurface,
+  formatLaunchCountdownClock,
   getNextAdaptiveLaunchRefreshMs,
   getRecommendedLaunchRefreshIntervalSeconds,
   getVisibleDetailUpdatedAt,
@@ -41,16 +41,19 @@ import {
   useLaunchFaaAirspaceMapQuery,
   useMobilePushRulesQuery,
   useUpsertMobilePushLaunchPreferenceMutation,
-  useViewerEntitlementsQuery
+  useViewerEntitlementsQuery,
+  useViewerSessionQuery
 } from '@/src/api/queries';
 import { AppScreen } from '@/src/components/AppScreen';
 import { LaunchAlertsPanel } from '@/src/components/LaunchAlertsPanel';
 import { LaunchCalendarSheet } from '@/src/components/LaunchCalendarSheet';
 import { LaunchFollowSheet } from '@/src/components/LaunchFollowSheet';
+import { LaunchShareIconButton } from '@/src/components/LaunchShareIconButton';
 import { EmptyStateCard, ErrorStateCard, LoadingStateCard, SectionCard } from '@/src/components/SectionCard';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import { useMobilePush } from '@/src/providers/MobilePushProvider';
 import { useMobileToast } from '@/src/providers/MobileToastProvider';
+import { type LaunchShareInput, shareLaunch } from '@/src/utils/launchShare';
 import { formatTimestamp, formatSearchResultLabel } from '@/src/utils/format';
 import { buildAppleMapsSatelliteUrl, buildPlatformPadMapUrl } from '@/src/utils/mapLinks';
 import type { LaunchCalendarLaunch } from '@/src/calendar/launchCalendar';
@@ -74,12 +77,14 @@ import { CollapsibleSection } from '@/src/components/launch/CollapsibleSection';
 import { SectionNav, StickyNavPills, type NavSection } from '@/src/components/launch/StickyNavPills';
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 import { TmzLaunchMapView, getTmzLaunchMapCapabilitiesAsync, type TmzLaunchMapCapabilities } from '@/modules/tmz-launch-map';
+import { resolveNativeProgramHubOrCoreHref } from '@/src/features/programHubs/rollout';
 
 type LegacyLaunchSummary = LaunchDetailV1['launch'];
 type RichLaunchSummary = NonNullable<LaunchDetailV1['launchData']>;
 type LaunchSummary = LegacyLaunchSummary | RichLaunchSummary;
 type LaunchExternalContentItem = LaunchDetailV1['enrichment']['externalContent'][number];
 type LaunchExternalContentResource = LaunchExternalContentItem['resources'][number];
+type LaunchFaaAirspaceAdvisoryView = NonNullable<LaunchDetailV1['enrichment']>['faaAdvisories'][number];
 type WatchLinkView = { url: string; label: string; meta: string; imageUrl: string | null; host?: string | null; kind?: string | null };
 type ExternalLinkView = { url: string; label: string; meta: string; host?: string | null; kind?: string | null };
 type RefreshNotice = {
@@ -125,6 +130,7 @@ export default function LaunchDetailScreen() {
     enabled: Boolean(launchId)
   });
   const entitlementsQuery = useViewerEntitlementsQuery();
+  const viewerSessionQuery = useViewerSessionQuery();
   const detail = launchDetailQuery.data ?? null;
   const legacyLaunch = detail?.launch ?? null;
   const launch = detail?.launchData ?? null;
@@ -152,6 +158,7 @@ export default function LaunchDetailScreen() {
   const [appStateStatus, setAppStateStatus] = useState(AppState.currentState);
   const [launchMapCapabilities, setLaunchMapCapabilities] = useState<TmzLaunchMapCapabilities | null>(null);
   const [faaMapModalOpen, setFaaMapModalOpen] = useState(false);
+  const [expandedFaaRawTextIds, setExpandedFaaRawTextIds] = useState<Record<string, boolean>>({});
   const [refreshNotice, setRefreshNotice] = useState<RefreshNotice | null>(null);
   const watchlistState = usePrimaryWatchlist({
     enabled: isAuthed && canUseSavedItems,
@@ -172,6 +179,17 @@ export default function LaunchDetailScreen() {
     scheduledRefreshIntervalSeconds,
     fallbackRefreshIntervalSeconds
   );
+
+  useEffect(() => {
+    setExpandedFaaRawTextIds({});
+  }, [launchId]);
+
+  const toggleFaaRawText = useCallback((matchId: string) => {
+    setExpandedFaaRawTextIds((current) => ({
+      ...current,
+      [matchId]: !current[matchId]
+    }));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -310,12 +328,12 @@ export default function LaunchDetailScreen() {
         intervalSeconds: refreshIntervalSeconds,
         cadenceAnchorNet
       });
-      setRefreshNotice({
-        tone: 'info',
-        kind: 'anon_refresh',
+      setRefreshNotice((current) => (current?.kind === 'anon_refresh' ? null : current));
+      showToast({
         message: `Public launch data refreshes next around ${formatRefreshTimeLabel(nextRefreshAt)}.`,
         actionLabel: 'Go Premium for near-live data',
-        onAction: openPremiumGate
+        onAction: openPremiumGate,
+        durationMs: 7000
       });
       return;
     }
@@ -324,6 +342,7 @@ export default function LaunchDetailScreen() {
     try {
       if (pendingDetailRefresh) {
         await applyResolvedDetailRefresh(pendingDetailRefresh.version);
+        showToast({ message: 'Launch detail updated.', tone: 'success' });
         return;
       }
 
@@ -344,11 +363,23 @@ export default function LaunchDetailScreen() {
 
       if (!shouldApply) {
         lastSeenVersionRef.current = nextVersion;
-        showToast({ message: 'Up to date.' });
+        showToast({
+          message: `Launch detail is up to date. Next live check around ${formatRefreshTimeLabel(
+            getNextAdaptiveLaunchRefreshMs({
+              nowMs: Date.now(),
+              intervalSeconds: getRecommendedLaunchRefreshIntervalSeconds(
+                payload.recommendedIntervalSeconds,
+                fallbackRefreshIntervalSeconds
+              ),
+              cadenceAnchorNet: typeof payload.cadenceAnchorNet === 'string' ? payload.cadenceAnchorNet : cadenceAnchorNet
+            })
+          )}.`
+        });
         return;
       }
 
       await applyResolvedDetailRefresh(nextVersion);
+      showToast({ message: 'Launch detail updated.', tone: 'success' });
     } catch (error) {
       const status = error instanceof ApiClientError ? error.status : null;
       if (status === 401 || status === 402) {
@@ -589,6 +620,9 @@ export default function LaunchDetailScreen() {
       fallbackLocationHref: launchInfoLocationHref
     });
     const launchInfoPadHref = Platform.OS === 'ios' ? platformPadMapHref || launchInfoPadCatalogHref : launchInfoPadCatalogHref;
+    const handleShareLaunch = () => {
+      void shareLaunch(buildLaunchShareInput(launch));
+    };
     const launchFaaAirspaceMap = launchFaaAirspaceMapQuery.data ?? null;
     const nativeLaunchMapsSupported = launchMapCapabilities?.isAvailable === true;
     const faaMapPayload = launchFaaAirspaceMap;
@@ -605,7 +639,8 @@ export default function LaunchDetailScreen() {
         router.push(target as Href);
         return;
       }
-      const nativeCustomerHref = normalizeNativeMobileCustomerHref(target);
+      const nativeCustomerHref =
+        resolveNativeProgramHubOrCoreHref(viewerSessionQuery.data, target) || normalizeNativeMobileCustomerHref(target);
       if (nativeCustomerHref) {
         router.push(nativeCustomerHref as Href);
         return;
@@ -1164,16 +1199,14 @@ export default function LaunchDetailScreen() {
               </Text>
             </View>
             <View style={{ flex: 1, alignItems: 'flex-end' }}>
-              <Pressable
-                onPress={() => {
-                  void NativeShare.share({
-                    message: buildShareMessage(launch)
-                  });
-                }}
-                hitSlop={8}
-              >
-                <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Share</Text>
-              </Pressable>
+              <LaunchShareIconButton
+                onPress={handleShareLaunch}
+                size={38}
+                iconColor={theme.accent}
+                borderColor={theme.stroke}
+                backgroundColor="rgba(255, 255, 255, 0.03)"
+                pressedBackgroundColor="rgba(255, 255, 255, 0.08)"
+              />
             </View>
           </View>
         </View>
@@ -1436,15 +1469,6 @@ export default function LaunchDetailScreen() {
                 }}
                 variant="secondary"
               />
-              <ActionButton
-                label="Share launch"
-                onPress={() => {
-                  void NativeShare.share({
-                    message: buildShareMessage(launch)
-                  });
-                }}
-                variant="secondary"
-              />
             </View>
 
             <View style={{ gap: 10 }}>
@@ -1691,6 +1715,7 @@ export default function LaunchDetailScreen() {
                   >
                     <NativeLaunchMapPreview
                       payload={padMapPayload}
+                      renderMode="pad"
                       theme={theme}
                       height={196}
                       interactive={false}
@@ -1883,6 +1908,7 @@ export default function LaunchDetailScreen() {
                       >
                         <NativeLaunchMapPreview
                           payload={faaMapPayload}
+                          renderMode="faa"
                           theme={theme}
                           height={224}
                           interactive={false}
@@ -1918,60 +1944,15 @@ export default function LaunchDetailScreen() {
                 </SectionCard>
               ) : null}
               {detail.enrichment.faaAdvisories.map((advisory) => {
-                const advisoryWindowLabel = formatFaaAdvisoryWindow(advisory.validStart, advisory.validEnd);
                 return (
-                  <View
+                  <FaaNoticeCard
                     key={advisory.matchId}
-                    style={{
-                      borderRadius: 16,
-                      borderWidth: 1,
-                      borderColor: theme.stroke,
-                      backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                      padding: 14,
-                      gap: 6
+                    advisory={advisory}
+                    expandedRawText={Boolean(expandedFaaRawTextIds[advisory.matchId])}
+                    onToggleRawText={() => {
+                      toggleFaaRawText(advisory.matchId);
                     }}
-                  >
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                      <View style={{ flex: 1, gap: 6 }}>
-                        <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{advisory.title}</Text>
-                        <Text style={{ color: theme.muted, fontSize: 13 }}>
-                          {[advisory.state, advisory.facility, advisory.type].filter(Boolean).join(' • ')}
-                        </Text>
-                      </View>
-                      <DetailChip label={advisory.isActiveNow ? 'Active now' : advisory.status} tone={advisory.isActiveNow ? 'accent' : 'default'} />
-                    </View>
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                      <DetailChip label={advisory.matchStatus} />
-                      <DetailChip label={`confidence ${advisory.matchConfidence != null ? `${Math.round(advisory.matchConfidence)}%` : 'n/a'}`} />
-                      {advisory.notamId ? <DetailChip label={advisory.notamId} /> : null}
-                    </View>
-                    {advisoryWindowLabel ? <Text style={{ color: theme.muted, fontSize: 13 }}>{advisoryWindowLabel}</Text> : null}
-                    <Text style={{ color: theme.muted, fontSize: 13 }}>
-                      {advisory.shapeCount} shape{advisory.shapeCount === 1 ? '' : 's'}
-                    </Text>
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-                      {advisory.sourceGraphicUrl || advisory.sourceUrl ? (
-                        <Pressable
-                          onPress={() => {
-                            void Linking.openURL(advisory.sourceGraphicUrl || advisory.sourceUrl || '');
-                          }}
-                        >
-                          <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>
-                            {advisory.sourceGraphicUrl ? 'Open FAA graphic page' : 'View FAA source'}
-                          </Text>
-                        </Pressable>
-                      ) : null}
-                      {advisory.sourceRawUrl && advisory.sourceRawUrl !== advisory.sourceGraphicUrl && advisory.sourceRawUrl !== advisory.sourceUrl ? (
-                        <Pressable
-                          onPress={() => {
-                            void Linking.openURL(advisory.sourceRawUrl || '');
-                          }}
-                        >
-                          <Text style={{ color: theme.muted, fontSize: 12, fontWeight: '700' }}>View raw NOTAM text</Text>
-                        </Pressable>
-                      ) : null}
-                    </View>
-                  </View>
+                  />
                 );
               })}
             </View>
@@ -2605,6 +2586,7 @@ export default function LaunchDetailScreen() {
             open={faaMapModalOpen}
             onClose={() => setFaaMapModalOpen(false)}
             payload={faaMapPayload}
+            renderMode="faa"
             title="Launch zone map"
             description="Launch-day FAA polygons and launch pad context."
             externalMapHref={platformPadMapHref}
@@ -2650,11 +2632,13 @@ export default function LaunchDetailScreen() {
 
 function NativeLaunchMapPreview({
   payload,
+  renderMode,
   theme,
   height,
   interactive
 }: {
   payload: LaunchFaaAirspaceMapV1;
+  renderMode: 'pad' | 'faa';
   theme: { stroke: string; foreground: string; muted: string };
   height: number;
   interactive: boolean;
@@ -2678,6 +2662,7 @@ function NativeLaunchMapPreview({
         boundsJson={mapViewProps.boundsJson}
         padJson={mapViewProps.padJson}
         interactive={interactive}
+        renderMode={renderMode}
       />
     </View>
   );
@@ -2687,6 +2672,7 @@ function LaunchMapModal({
   open,
   onClose,
   payload,
+  renderMode,
   title,
   description,
   externalMapHref,
@@ -2696,6 +2682,7 @@ function LaunchMapModal({
   open: boolean;
   onClose: () => void;
   payload: LaunchFaaAirspaceMapV1;
+  renderMode: 'pad' | 'faa';
   title: string;
   description: string;
   externalMapHref: string | null;
@@ -2767,6 +2754,7 @@ function LaunchMapModal({
               boundsJson={mapViewProps.boundsJson}
               padJson={mapViewProps.padJson}
               interactive
+              renderMode={renderMode}
             />
           </View>
         </View>
@@ -3064,6 +3052,214 @@ function FactGrid({
   );
 }
 
+function FaaNoticeCard({
+  advisory,
+  expandedRawText,
+  onToggleRawText
+}: {
+  advisory: LaunchFaaAirspaceAdvisoryView;
+  expandedRawText: boolean;
+  onToggleRawText: () => void;
+}) {
+  const { theme } = useMobileBootstrap();
+  const advisoryWindowLabel = formatFaaAdvisoryWindow(advisory.validStart, advisory.validEnd);
+  const rawTextAvailable = Boolean(advisory.rawText);
+  const noticeSummary = buildFaaNoticeSummary(advisory, advisoryWindowLabel);
+  const noticePreview = buildFaaNoticePreview(advisory.rawText);
+  const factItems: FactGridItem[] = [
+    { label: 'Notice', value: advisory.notamId || 'FAA notice' },
+    { label: 'Window', value: advisoryWindowLabel || 'Official schedule pending' },
+    { label: 'Facility', value: [advisory.facility, advisory.state].filter(Boolean).join(', ') || 'FAA' },
+    { label: 'Coverage', value: formatFaaCoverageLabel(advisory.shapeCount, advisory.hasShape) },
+    { label: 'Launch overlap', value: formatFaaOverlapLabel(advisory.matchStatus, advisory.matchConfidence) }
+  ];
+
+  return (
+    <View
+      style={{
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: theme.stroke,
+        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+        padding: 14,
+        gap: 12
+      }}
+    >
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+        <View style={{ flex: 1, gap: 6 }}>
+          <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{advisory.title}</Text>
+          <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>{noticeSummary}</Text>
+        </View>
+        <DetailChip label={advisory.isActiveNow ? 'Active now' : formatFaaStatusLabel(advisory.status)} tone={advisory.isActiveNow ? 'accent' : 'default'} />
+      </View>
+
+      <FactGrid items={factItems} />
+
+      {noticePreview ? (
+        <View
+          style={{
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: theme.stroke,
+            backgroundColor: 'rgba(255, 255, 255, 0.02)',
+            padding: 12,
+            gap: 6
+          }}
+        >
+          <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>
+            Restriction summary
+          </Text>
+          <Text style={{ color: theme.foreground, fontSize: 13, lineHeight: 20 }}>{noticePreview}</Text>
+        </View>
+      ) : null}
+
+      {rawTextAvailable ? (
+        <View
+          style={{
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: theme.stroke,
+            backgroundColor: 'rgba(255, 255, 255, 0.02)',
+            padding: 12,
+            gap: 8
+          }}
+        >
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={{ color: theme.foreground, fontSize: 13, fontWeight: '700' }}>Official notice text</Text>
+              <Text style={{ color: theme.muted, fontSize: 12 }}>
+                {advisory.rawTextFetchedAt ? `Saved ${formatTimestamp(advisory.rawTextFetchedAt)}` : 'Saved FAA detail cache'}
+              </Text>
+            </View>
+            <Pressable onPress={onToggleRawText}>
+              <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>
+                {expandedRawText ? 'Hide text' : 'View text'}
+              </Text>
+            </Pressable>
+          </View>
+          {expandedRawText ? (
+            <Text
+              selectable
+              style={{
+                color: theme.foreground,
+                fontSize: 12,
+                lineHeight: 18,
+                fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace'
+              }}
+            >
+              {advisory.rawText}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+        {advisory.sourceGraphicUrl || advisory.sourceUrl ? (
+          <Pressable
+            onPress={() => {
+              void Linking.openURL(advisory.sourceGraphicUrl || advisory.sourceUrl || '');
+            }}
+          >
+            <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>
+              {advisory.sourceGraphicUrl ? 'Open FAA graphic page' : 'View FAA source'}
+            </Text>
+          </Pressable>
+        ) : null}
+        {!rawTextAvailable && advisory.sourceRawUrl && advisory.sourceRawUrl !== advisory.sourceGraphicUrl && advisory.sourceRawUrl !== advisory.sourceUrl ? (
+          <Pressable
+            onPress={() => {
+              void Linking.openURL(advisory.sourceRawUrl || '');
+            }}
+          >
+            <Text style={{ color: theme.muted, fontSize: 12, fontWeight: '700' }}>View official notice text</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function buildFaaNoticeSummary(advisory: LaunchFaaAirspaceAdvisoryView, advisoryWindowLabel: string | null) {
+  const facilityLabel = [advisory.facility, advisory.state].filter(Boolean).join(', ') || 'the FAA';
+  const overlapLabel = formatFaaOverlapSummary(advisory.matchStatus, advisory.matchConfidence);
+  const windowLabel = advisoryWindowLabel ? ` Window: ${advisoryWindowLabel}.` : '';
+  return `${facilityLabel} has a ${advisory.title.toLowerCase()} notice tied to this launch. ${overlapLabel}.${windowLabel}`;
+}
+
+function buildFaaNoticePreview(rawText: string | null | undefined) {
+  const normalized = normalizeFaaNoticeText(rawText);
+  if (!normalized) return null;
+
+  const withoutHeader = normalized
+    .replace(/^!FDC\s+\S+\s+[A-Z]{2,4}\s+[A-Z]{2}\.\.?/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!withoutHeader) return null;
+
+  if (withoutHeader.length <= 220) {
+    return withoutHeader;
+  }
+
+  return `${withoutHeader.slice(0, 217).trimEnd()}...`;
+}
+
+function normalizeFaaNoticeText(value: string | null | undefined) {
+  const normalized = String(value || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/\u00a0/g, ' ')
+    .trim();
+  return normalized.length ? normalized : null;
+}
+
+function formatFaaCoverageLabel(shapeCount: number, hasShape: boolean) {
+  if (shapeCount > 0) {
+    return `${shapeCount} mapped area${shapeCount === 1 ? '' : 's'}`;
+  }
+  return hasShape ? 'Restricted area' : 'Notice only';
+}
+
+function formatFaaOverlapLabel(matchStatus: LaunchFaaAirspaceAdvisoryView['matchStatus'], matchConfidence: number | null) {
+  switch (matchStatus) {
+    case 'matched':
+      return typeof matchConfidence === 'number' && matchConfidence >= 90 ? 'Confirmed' : 'Likely';
+    case 'ambiguous':
+      return 'Possible';
+    case 'manual':
+      return 'Manual review';
+    default:
+      return 'Unknown';
+  }
+}
+
+function formatFaaOverlapSummary(matchStatus: LaunchFaaAirspaceAdvisoryView['matchStatus'], matchConfidence: number | null) {
+  switch (matchStatus) {
+    case 'matched':
+      return typeof matchConfidence === 'number' && matchConfidence >= 90
+        ? 'This looks like a confirmed overlap with the launch window'
+        : 'This looks like a likely overlap with the launch window';
+    case 'ambiguous':
+      return 'This may overlap the launch window';
+    case 'manual':
+      return 'This was attached by manual review';
+    default:
+      return 'This notice is linked to the launch';
+  }
+}
+
+function formatFaaStatusLabel(status: LaunchFaaAirspaceAdvisoryView['status']) {
+  switch (status) {
+    case 'active':
+      return 'Active';
+    case 'expired':
+      return 'Expired';
+    case 'manual':
+      return 'Manual';
+    default:
+      return status;
+  }
+}
+
 function LegacyLaunchDetail({
   legacyLaunch,
   launchId,
@@ -3076,6 +3272,9 @@ function LegacyLaunchDetail({
   canUseArTrajectory: boolean;
 }) {
   const { theme } = useMobileBootstrap();
+  const handleShare = () => {
+    void shareLaunch(buildLaunchShareInput(legacyLaunch));
+  };
 
   return (
     <>
@@ -3104,9 +3303,19 @@ function LegacyLaunchDetail({
             }}
           />
         ) : null}
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-          <DetailChip label={(legacyLaunch.status || 'Status pending').toUpperCase()} tone="accent" />
-          {legacyLaunch.provider ? <DetailChip label={legacyLaunch.provider.toUpperCase()} /> : null}
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+          <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+            <DetailChip label={(legacyLaunch.status || 'Status pending').toUpperCase()} tone="accent" />
+            {legacyLaunch.provider ? <DetailChip label={legacyLaunch.provider.toUpperCase()} /> : null}
+          </View>
+          <LaunchShareIconButton
+            onPress={handleShare}
+            size={38}
+            iconColor={theme.accent}
+            borderColor={theme.stroke}
+            backgroundColor="rgba(255, 255, 255, 0.03)"
+            pressedBackgroundColor="rgba(255, 255, 255, 0.08)"
+          />
         </View>
         <View style={{ gap: 8 }}>
           <Text style={{ color: theme.foreground, fontSize: 30, fontWeight: '800', lineHeight: 35 }}>{legacyLaunch.name}</Text>
@@ -3588,8 +3797,32 @@ function getPrimaryResourceUrl(launch: LaunchSummary) {
   return firstNonSpaceXInfoUrl || launch.launchVidUrls?.[0]?.url || null;
 }
 
-function buildShareMessage(launch: LaunchSummary) {
-  return [launch.name, getPrimaryWatchUrl(launch) || getPrimaryResourceUrl(launch) || formatTimestamp(launch.net)].filter(Boolean).join('\n');
+function buildLaunchShareInput(launch: LaunchSummary): LaunchShareInput {
+  if (isRichLaunchSummary(launch)) {
+    return {
+      id: launch.id,
+      name: launch.name,
+      net: launch.net,
+      provider: launch.provider,
+      vehicle: launch.vehicle || launch.rocket?.fullName,
+      statusText: launch.statusText,
+      status: launch.status,
+      padLabel: launch.pad.shortCode || launch.pad.name,
+      padLocation: launch.pad.locationName || launch.pad.state
+    };
+  }
+
+  return {
+    id: launch.id,
+    name: launch.name,
+    net: launch.net,
+    provider: launch.provider,
+    vehicle: launch.rocketName,
+    statusText: launch.launchStatusDescription,
+    status: launch.status,
+    padLabel: launch.padName,
+    padLocation: launch.padLocation
+  };
 }
 
 function getStatusTone(status: string): 'default' | 'success' | 'warning' | 'danger' {
@@ -3701,25 +3934,7 @@ function buildCountdownLabel(net: string | null | undefined) {
 function buildCountdownDisplay(net: string | null | undefined) {
   const snapshot = buildCountdownSnapshot(net ?? null);
   if (!snapshot) return 'NET TBD';
-
-  const prefix = snapshot.isPast ? 'T+' : 'T-';
-  const totalSeconds = Math.max(0, Math.floor(Math.abs(snapshot.totalMs) / 1000));
-  const days = Math.floor(totalSeconds / 86_400);
-  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
-  const minutes = Math.floor((totalSeconds % 3_600) / 60);
-  const seconds = totalSeconds % 60;
-
-  if (days > 0) {
-    return `${prefix}${padNumber(days)}D ${padNumber(hours)}H`;
-  }
-  if (hours > 0) {
-    return `${prefix}${padNumber(hours)}:${padNumber(minutes)}:${padNumber(seconds)}`;
-  }
-  return `${prefix}${padNumber(minutes)}:${padNumber(seconds)}`;
-}
-
-function padNumber(value: number) {
-  return String(Math.max(0, value)).padStart(2, '0');
+  return formatLaunchCountdownClock(snapshot.totalMs);
 }
 
 function formatRefreshTimeLabel(timestampMs: number) {

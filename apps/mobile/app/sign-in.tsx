@@ -142,7 +142,9 @@ export default function SignInScreen() {
       });
       await recordMobileAuthContext(result.session.accessToken, {
         provider: result.provider,
-        eventType: 'oauth_callback'
+        eventType: 'sign_in',
+        displayName: result.displayName ?? null,
+        emailIsPrivateRelay: result.emailIsPrivateRelay === true
       }).catch(() => {});
       if (claimToken) {
         const attachResult = await attachPremiumClaimToSession(result.session.accessToken, claimToken);
@@ -265,6 +267,9 @@ export default function SignInScreen() {
                       onPress={() => void handleAppleSignIn()}
                     />
                   )}
+                  <Text style={styles.helperText}>
+                    Existing account with a different email or Apple private relay? Sign in first, then link Apple in Login Methods.
+                  </Text>
                   <Text style={styles.oauthDivider}>or continue with email</Text>
                 </>
               ) : null}
@@ -388,6 +393,12 @@ const styles = StyleSheet.create({
   oauthDivider: {
     color: mobileColorTokens.muted,
     fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center'
+  },
+  helperText: {
+    color: mobileColorTokens.muted,
+    fontSize: 12,
     lineHeight: 18,
     textAlign: 'center'
   },

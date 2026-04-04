@@ -1,9 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, Share, Text, View } from 'react-native';
-import type { WatchlistRuleV1 } from '@tminuszero/api-client';
+import { Pressable, ScrollView, Share, Text, View } from 'react-native';
+import type { LaunchFeedV1, WatchlistRuleV1 } from '@tminuszero/api-client';
 import type { Href } from 'expo-router';
 import { useRouter } from 'expo-router';
-import { buildCalendarMonthDays, getCalendarMonthBounds, getMobileViewerTier, groupItemsByLocalDate, toLocalDateKey } from '@tminuszero/domain';
+import {
+  buildCalendarMonthDays,
+  buildCountdownSnapshot,
+  formatLaunchCountdownClock,
+  getCalendarMonthBounds,
+  getMobileViewerTier,
+  groupItemsByLocalDate,
+  toLocalDateKey
+} from '@tminuszero/domain';
 import { buildLaunchHref } from '@tminuszero/navigation';
 import {
   useCalendarFeedsQuery,
@@ -17,6 +25,7 @@ import {
 } from '@/src/api/queries';
 import { AppScreen } from '@/src/components/AppScreen';
 import { LaunchCalendarSheet } from '@/src/components/LaunchCalendarSheet';
+import { LaunchShareIconButton } from '@/src/components/LaunchShareIconButton';
 import { ErrorStateCard, LoadingStateCard, SectionCard } from '@/src/components/SectionCard';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
 import { ViewerTierCard } from '@/src/components/ViewerTierCard';
@@ -24,15 +33,21 @@ import { getPublicSiteUrl } from '@/src/config/api';
 import { useMobileToast } from '@/src/providers/MobileToastProvider';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import type { LaunchCalendarLaunch } from '@/src/calendar/launchCalendar';
+import { shareLaunch } from '@/src/utils/launchShare';
 import {
   formatWatchlistRuleCaption,
   formatWatchlistRuleLabel,
   resolvePrimaryWatchlist
 } from '@/src/watchlists/usePrimaryWatchlist';
 
+const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+const EMPTY_GRID_SLOT_LABEL = 'Open';
+
 type CalendarFollowRule = WatchlistRuleV1 & {
   ruleType: 'launch' | 'provider' | 'pad';
 };
+
+type CalendarLaunchItem = LaunchFeedV1['launches'][number];
 
 function isCalendarFollowRule(rule: WatchlistRuleV1): rule is CalendarFollowRule {
   return rule.ruleType === 'launch' || rule.ruleType === 'provider' || rule.ruleType === 'pad';
@@ -59,7 +74,7 @@ export default function CalendarScreen() {
     const today = new Date();
     return new Date(today.getFullYear(), today.getMonth(), 1);
   });
-  const monthKey = useMemo(() => month.toISOString().slice(0, 7), [month]);
+  const monthKey = useMemo(() => formatMonthKey(month), [month]);
   const monthBounds = useMemo(() => getCalendarMonthBounds(month), [month]);
   const calendarQuery = useLaunchFeedPageQuery(
     {
@@ -78,13 +93,33 @@ export default function CalendarScreen() {
   const calendarDays = useMemo(() => buildCalendarMonthDays(month), [month]);
   const launches = useMemo(() => calendarQuery.data?.launches ?? [], [calendarQuery.data?.launches]);
   const groupedLaunches = useMemo(() => groupItemsByLocalDate(launches, (launch) => launch.net), [launches]);
+  const launchDayKeys = useMemo(() => [...groupedLaunches.keys()].sort(), [groupedLaunches]);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [pendingSelectedDay, setPendingSelectedDay] = useState<string | null>(null);
   const [calendarSheetLaunch, setCalendarSheetLaunch] = useState<LaunchCalendarLaunch | null>(null);
   const [didInitializeSelection, setDidInitializeSelection] = useState(false);
-
+  const selectedLaunches = selectedDay ? groupedLaunches.get(selectedDay) ?? [] : [];
   const launchDayCount = groupedLaunches.size;
   const nextLaunch = launches[0] ?? null;
   const hasMonthLaunches = launches.length > 0;
+  const calendarFeeds = useMemo(() => calendarFeedsQuery.data?.feeds ?? [], [calendarFeedsQuery.data?.feeds]);
+  const filterPresets = filterPresetsQuery.data?.presets ?? [];
+  const primaryWatchlist = useMemo(
+    () => resolvePrimaryWatchlist(watchlistsQuery.data?.watchlists ?? []),
+    [watchlistsQuery.data?.watchlists]
+  );
+  const followRules = useMemo(
+    () => (primaryWatchlist?.rules ?? []).filter(isCalendarFollowRule),
+    [primaryWatchlist?.rules]
+  );
+  const localTimeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local time', []);
+  const todayKey = toLocalDateKey(new Date());
+  const nearestLaunchDay = useMemo(() => getNearestLaunchDayKey(launchDayKeys, selectedDay), [launchDayKeys, selectedDay]);
+
+  const allLaunchesFeed = useMemo(
+    () => calendarFeeds.find((feed) => feed.sourceKind === 'all_launches') ?? null,
+    [calendarFeeds]
+  );
 
   useEffect(() => {
     setSelectedDay(null);
@@ -96,9 +131,16 @@ export default function CalendarScreen() {
       return;
     }
 
-    const todayKey = toLocalDateKey(new Date());
-    const todayInMonth = todayKey && todayKey.startsWith(monthKey) ? todayKey : null;
-    const firstLaunchDay = [...groupedLaunches.keys()].sort()[0] ?? null;
+    if (pendingSelectedDay && pendingSelectedDay.startsWith(monthKey)) {
+      setSelectedDay(pendingSelectedDay);
+      setPendingSelectedDay(null);
+      setDidInitializeSelection(true);
+      return;
+    }
+
+    const currentTodayKey = toLocalDateKey(new Date());
+    const todayInMonth = currentTodayKey && currentTodayKey.startsWith(monthKey) ? currentTodayKey : null;
+    const firstLaunchDay = launchDayKeys[0] ?? null;
     const initialSelectedDay =
       (todayInMonth && groupedLaunches.has(todayInMonth) ? todayInMonth : null) ||
       firstLaunchDay ||
@@ -107,24 +149,15 @@ export default function CalendarScreen() {
 
     setSelectedDay(initialSelectedDay);
     setDidInitializeSelection(true);
-  }, [calendarQuery.isError, calendarQuery.isPending, didInitializeSelection, groupedLaunches, monthKey]);
-
-  const selectedLaunches = selectedDay ? groupedLaunches.get(selectedDay) ?? [] : [];
-  const calendarFeeds = useMemo(() => calendarFeedsQuery.data?.feeds ?? [], [calendarFeedsQuery.data?.feeds]);
-  const filterPresets = filterPresetsQuery.data?.presets ?? [];
-  const primaryWatchlist = useMemo(
-    () => resolvePrimaryWatchlist(watchlistsQuery.data?.watchlists ?? []),
-    [watchlistsQuery.data?.watchlists]
-  );
-  const followRules = useMemo(
-    () => (primaryWatchlist?.rules ?? []).filter(isCalendarFollowRule),
-    [primaryWatchlist?.rules]
-  );
-
-  const allLaunchesFeed = useMemo(
-    () => calendarFeeds.find((feed) => feed.sourceKind === 'all_launches') ?? null,
-    [calendarFeeds]
-  );
+  }, [
+    calendarQuery.isError,
+    calendarQuery.isPending,
+    didInitializeSelection,
+    groupedLaunches,
+    launchDayKeys,
+    monthKey,
+    pendingSelectedDay
+  ]);
 
   function buildCalendarFeedUrl(token: string) {
     return `${getPublicSiteUrl()}/api/calendar/${encodeURIComponent(token)}.ics`;
@@ -143,6 +176,45 @@ export default function CalendarScreen() {
           String(feed.followRuleValue || '').trim().toLowerCase() === String(ruleValue || '').trim().toLowerCase()
       ) ?? null
     );
+  }
+
+  function openSelectedDay(dayKey: string) {
+    const parsedDay = parseDayKey(dayKey);
+    if (!parsedDay) {
+      return;
+    }
+
+    const nextMonth = new Date(parsedDay.getFullYear(), parsedDay.getMonth(), 1);
+    if (formatMonthKey(nextMonth) !== monthKey) {
+      setPendingSelectedDay(dayKey);
+      setMonth(nextMonth);
+      return;
+    }
+
+    setSelectedDay(dayKey);
+    setDidInitializeSelection(true);
+  }
+
+  function navigateMonth(offset: number) {
+    setPendingSelectedDay(null);
+    setMonth(new Date(month.getFullYear(), month.getMonth() + offset, 1));
+  }
+
+  function jumpToToday() {
+    if (!todayKey) {
+      return;
+    }
+
+    openSelectedDay(todayKey);
+  }
+
+  function navigateDay(offset: number) {
+    const nextDayKey = shiftDayKey(selectedDay || `${monthKey}-01`, offset);
+    if (!nextDayKey) {
+      return;
+    }
+
+    openSelectedDay(nextDayKey);
   }
 
   async function shareFeedUrl(token: string) {
@@ -232,11 +304,11 @@ export default function CalendarScreen() {
       <AppScreen testID="calendar-screen">
         <ScreenHeader
           eyebrow={tier === 'premium' ? 'Premium calendar' : 'Launch calendar'}
-          title={`${month.toLocaleString('default', { month: 'long' })} Launch Calendar`}
+          title={`${formatMonthLabel(month)} Launch Calendar`}
           description={
             tier === 'premium'
-              ? 'Browse this month’s schedule, open launch detail, and use Premium exports on top of one-off calendar adds.'
-              : 'Browse this month’s schedule, open launch detail, and add individual launches to your calendar.'
+              ? 'Browse launch dates, tap into the day’s schedule, and use Premium exports on top of one-off calendar adds.'
+              : 'Browse launch dates, tap into the day’s schedule, and add individual launches to your calendar.'
           }
         />
 
@@ -255,18 +327,9 @@ export default function CalendarScreen() {
         ) : (
           <>
             <View style={{ flexDirection: 'row', gap: 10 }}>
-              <MonthButton
-                label="Prev"
-                onPress={() => {
-                  setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1));
-                }}
-              />
-              <MonthButton
-                label="Next"
-                onPress={() => {
-                  setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1));
-                }}
-              />
+              <MonthButton label="Prev month" onPress={() => navigateMonth(-1)} />
+              <MonthButton label="Jump to today" onPress={jumpToToday} primary disabled={!todayKey} />
+              <MonthButton label="Next month" onPress={() => navigateMonth(1)} />
             </View>
 
             <SectionCard
@@ -278,21 +341,40 @@ export default function CalendarScreen() {
                   : 'No launches are currently scheduled for this month.'
               }
             >
-              {nextLaunch ? (
-                <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
-                  Next launch: {nextLaunch.name} on {formatLaunchTiming(nextLaunch.net, nextLaunch.netPrecision)}.
-                </Text>
-              ) : (
-                <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
-                  Check another month to browse the next scheduled missions.
-                </Text>
-              )}
+              <View style={{ gap: 8 }}>
+                {nextLaunch ? (
+                  <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
+                    Next launch: {nextLaunch.name} on {formatLaunchTiming(nextLaunch.net, nextLaunch.netPrecision)}.
+                  </Text>
+                ) : (
+                  <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
+                    Check another month to browse the next scheduled missions.
+                  </Text>
+                )}
+                <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>Times are shown in {localTimeZone}.</Text>
+              </View>
             </SectionCard>
 
-            <SectionCard title="Month view" description="Tap any day to read that date’s schedule.">
+            {launchDayKeys.length > 0 ? (
+              <SectionCard title="Launch dates" description="Jump straight to the dates that already have scheduled launches.">
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingRight: 4 }}>
+                  {launchDayKeys.map((dayKey) => (
+                    <LaunchDateChip
+                      key={dayKey}
+                      dayKey={dayKey}
+                      count={groupedLaunches.get(dayKey)?.length ?? 0}
+                      selected={selectedDay === dayKey}
+                      onPress={() => openSelectedDay(dayKey)}
+                    />
+                  ))}
+                </ScrollView>
+              </SectionCard>
+            ) : null}
+
+            <SectionCard title="Month view" description="Tap a day to reveal launch cards below. Dots mark scheduled launches.">
               <View style={{ gap: 8 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                  {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label) => (
+                  {WEEKDAY_LABELS.map((label) => (
                     <Text
                       key={label}
                       style={{
@@ -308,38 +390,48 @@ export default function CalendarScreen() {
                     </Text>
                   ))}
                 </View>
+
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                   {calendarDays.map((day) => {
                     const dayLaunches = groupedLaunches.get(day.key) ?? [];
                     const isSelected = selectedDay === day.key;
+                    const isToday = todayKey === day.key;
                     return (
                       <Pressable
                         key={day.key}
-                        onPress={() => setSelectedDay(day.key)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${formatSelectedDay(day.key)}${dayLaunches.length ? `, ${dayLaunches.length} launch${dayLaunches.length === 1 ? '' : 'es'}` : ', no launches'}`}
+                        accessibilityState={{ selected: isSelected }}
+                        onPress={() => openSelectedDay(day.key)}
                         style={({ pressed }) => ({
                           width: '13.2%',
-                          minHeight: 72,
+                          minHeight: 86,
                           borderRadius: 18,
                           borderWidth: 1,
-                          borderColor: isSelected ? 'rgba(34, 211, 238, 0.32)' : theme.stroke,
+                          borderColor: isSelected ? 'rgba(34, 211, 238, 0.32)' : isToday ? 'rgba(34, 211, 238, 0.24)' : theme.stroke,
                           backgroundColor: isSelected
                             ? 'rgba(34, 211, 238, 0.12)'
                             : pressed
                               ? 'rgba(255, 255, 255, 0.06)'
                               : 'rgba(255, 255, 255, 0.03)',
-                          paddingHorizontal: 6,
+                          paddingHorizontal: 7,
                           paddingVertical: 8,
                           justifyContent: 'space-between'
                         })}
                       >
-                        <Text style={{ color: day.isCurrentMonth ? theme.foreground : theme.muted, fontSize: 12, fontWeight: '700', textAlign: 'center' }}>
-                          {day.date.getDate()}
-                        </Text>
-                        {dayLaunches.length > 0 ? (
-                          <Text style={{ color: theme.accent, fontSize: 11, fontWeight: '700', textAlign: 'center' }}>{dayLaunches.length}</Text>
-                        ) : (
-                          <View />
-                        )}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                          <Text style={{ color: day.isCurrentMonth ? theme.foreground : theme.muted, fontSize: 12, fontWeight: '700' }}>
+                            {day.date.getDate()}
+                          </Text>
+                          {isToday ? <View style={{ width: 7, height: 7, borderRadius: 999, backgroundColor: theme.accent }} /> : null}
+                        </View>
+
+                        <View style={{ gap: 6 }}>
+                          <CalendarDayDots count={dayLaunches.length} />
+                          <Text style={{ color: dayLaunches.length ? theme.accent : theme.muted, fontSize: 10, fontWeight: '700', textAlign: 'center' }}>
+                            {dayLaunches.length ? `${dayLaunches.length} launch${dayLaunches.length === 1 ? '' : 'es'}` : day.isCurrentMonth ? EMPTY_GRID_SLOT_LABEL : 'Month'}
+                          </Text>
+                        </View>
                       </Pressable>
                     );
                   })}
@@ -356,62 +448,45 @@ export default function CalendarScreen() {
                   : 'No launches are currently scheduled this month.'
               }
             >
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                <InlineActionButton label="Previous day" onPress={() => navigateDay(-1)} />
+                <InlineActionButton label="Next day" onPress={() => navigateDay(1)} />
+                {nearestLaunchDay && selectedLaunches.length === 0 && nearestLaunchDay !== selectedDay ? (
+                  <InlineActionButton label={`Jump to ${formatCompactDay(nearestLaunchDay)}`} onPress={() => openSelectedDay(nearestLaunchDay)} primary />
+                ) : null}
+              </View>
+
               {!hasMonthLaunches ? (
                 <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>No launches scheduled this month.</Text>
               ) : selectedLaunches.length === 0 ? (
-                <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>No launches on this date.</Text>
+                <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
+                  No launches on this date. Keep stepping through past and future dates or jump to the nearest scheduled day.
+                </Text>
               ) : (
                 <View style={{ gap: 12 }}>
                   {selectedLaunches.map((launch) => (
-                    <View
+                    <CalendarLaunchCard
                       key={launch.id}
-                      style={{
-                        borderRadius: 18,
-                        borderWidth: 1,
-                        borderColor: theme.stroke,
-                        backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                        padding: 14,
-                        gap: 10
+                      launch={launch}
+                      onOpenDetails={() => {
+                        router.push(buildLaunchHref(launch.id) as Href);
                       }}
-                    >
-                      <View style={{ gap: 4 }}>
-                        <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{launch.name}</Text>
-                        <Text style={{ color: theme.muted, fontSize: 13 }}>
-                          {launch.provider} • {launch.vehicle}
-                        </Text>
-                        <Text style={{ color: theme.muted, fontSize: 13 }}>
-                          {formatLaunchTiming(launch.net, launch.netPrecision)} • {launch.pad.locationName || launch.pad.name}
-                        </Text>
-                      </View>
-
-                      <View style={{ flexDirection: 'row', gap: 10 }}>
-                        <CalendarRowButton
-                          label="Details"
-                          onPress={() => {
-                            router.push(buildLaunchHref(launch.id) as Href);
-                          }}
-                          primary
-                        />
-                        <CalendarRowButton
-                          label="Add"
-                          onPress={() => {
-                            setCalendarSheetLaunch({
-                              id: launch.id,
-                              name: launch.name,
-                              provider: launch.provider,
-                              vehicle: launch.vehicle,
-                              net: launch.net,
-                              netPrecision: launch.netPrecision,
-                              windowEnd: launch.windowEnd ?? null,
-                              pad: {
-                                name: launch.pad.name,
-                                state: launch.pad.state
-                              }
-                            });
-                          }}
-                        />
-                      </View>
-                    </View>
+                      onAddToCalendar={() => {
+                        setCalendarSheetLaunch({
+                          id: launch.id,
+                          name: launch.name,
+                          provider: launch.provider,
+                          vehicle: launch.vehicle,
+                          net: launch.net,
+                          netPrecision: launch.netPrecision,
+                          windowEnd: launch.windowEnd ?? null,
+                          pad: {
+                            name: launch.pad.name,
+                            state: launch.pad.state
+                          }
+                        });
+                      }}
+                    />
                   ))}
                 </View>
               )}
@@ -569,24 +644,204 @@ export default function CalendarScreen() {
   );
 }
 
-function MonthButton({ label, onPress }: { label: string; onPress: () => void }) {
+function MonthButton({
+  label,
+  onPress,
+  primary = false,
+  disabled = false
+}: {
+  label: string;
+  onPress: () => void;
+  primary?: boolean;
+  disabled?: boolean;
+}) {
+  const { theme } = useMobileBootstrap();
+
+  return (
+    <Pressable
+      onPress={disabled ? undefined : onPress}
+      style={({ pressed }) => ({
+        flex: 1,
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: primary ? 'rgba(34, 211, 238, 0.24)' : theme.stroke,
+        backgroundColor: primary ? 'rgba(34, 211, 238, 0.1)' : pressed ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.03)',
+        paddingHorizontal: 12,
+        paddingVertical: 12,
+        opacity: disabled ? 0.5 : pressed ? 0.88 : 1
+      })}
+    >
+      <Text style={{ color: primary ? theme.accent : theme.foreground, fontSize: 13, fontWeight: '700', textAlign: 'center' }}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function LaunchDateChip({
+  dayKey,
+  count,
+  selected,
+  onPress
+}: {
+  dayKey: string;
+  count: number;
+  selected: boolean;
+  onPress: () => void;
+}) {
   const { theme } = useMobileBootstrap();
 
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => ({
-        flex: 1,
-        borderRadius: 14,
+        minWidth: 108,
+        borderRadius: 16,
         borderWidth: 1,
-        borderColor: theme.stroke,
-        backgroundColor: pressed ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.03)',
-        paddingHorizontal: 14,
-        paddingVertical: 12
+        borderColor: selected ? 'rgba(34, 211, 238, 0.28)' : theme.stroke,
+        backgroundColor: selected ? 'rgba(34, 211, 238, 0.1)' : pressed ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.03)',
+        paddingHorizontal: 12,
+        paddingVertical: 12,
+        gap: 4
       })}
     >
-      <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700', textAlign: 'center' }}>{label}</Text>
+      <Text style={{ color: theme.foreground, fontSize: 13, fontWeight: '700' }}>{formatCompactDay(dayKey)}</Text>
+      <Text style={{ color: count ? theme.accent : theme.muted, fontSize: 11, fontWeight: '700' }}>
+        {count} launch{count === 1 ? '' : 'es'}
+      </Text>
     </Pressable>
+  );
+}
+
+function CalendarDayDots({ count }: { count: number }) {
+  const { theme } = useMobileBootstrap();
+  const dots = Math.min(Math.max(count, 0), 3);
+
+  return (
+    <View style={{ minHeight: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+      {dots > 0
+        ? Array.from({ length: dots }).map((_, index) => (
+            <View key={index} style={{ width: 6, height: 6, borderRadius: 999, backgroundColor: theme.accent }} />
+          ))
+        : null}
+    </View>
+  );
+}
+
+function CalendarLaunchCard({
+  launch,
+  onOpenDetails,
+  onAddToCalendar
+}: {
+  launch: CalendarLaunchItem;
+  onOpenDetails: () => void;
+  onAddToCalendar: () => void;
+}) {
+  const { theme } = useMobileBootstrap();
+  const countdownLabel = buildLaunchCountdownLabel(launch.net, launch.netPrecision);
+  const locationLabel = launch.pad.locationName || launch.pad.name;
+  const windowLabel = buildWindowLabel(launch.net, launch.windowEnd ?? null);
+  const statusLabel = String(launch.statusText || launch.status || 'Unknown').trim();
+
+  return (
+    <View
+      style={{
+        borderRadius: 18,
+        borderWidth: 1,
+        borderColor: theme.stroke,
+        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+        padding: 14,
+        gap: 12
+      }}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+        <View style={{ flex: 1, gap: 4 }}>
+          <Text style={{ color: theme.foreground, fontSize: 16, fontWeight: '700' }}>{launch.name}</Text>
+          <Text style={{ color: theme.muted, fontSize: 13 }}>
+            {launch.provider} • {launch.vehicle}
+          </Text>
+        </View>
+        <CalendarStatusPill status={launch.status} label={statusLabel} />
+      </View>
+
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        <CalendarInfoPill label={formatLaunchTiming(launch.net, launch.netPrecision)} emphasis />
+        {countdownLabel ? <CalendarInfoPill label={countdownLabel} /> : null}
+      </View>
+
+      <View style={{ gap: 4 }}>
+        <Text style={{ color: theme.muted, fontSize: 13 }}>{locationLabel}</Text>
+        {windowLabel ? <Text style={{ color: theme.muted, fontSize: 13 }}>{windowLabel}</Text> : null}
+      </View>
+
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <CalendarRowButton label="Details" onPress={onOpenDetails} primary />
+        <CalendarRowButton label="Add" onPress={onAddToCalendar} />
+        <LaunchShareIconButton
+          onPress={() => {
+            void shareLaunch({
+              id: launch.id,
+              name: launch.name,
+              net: launch.net,
+              provider: launch.provider,
+              vehicle: launch.vehicle,
+              statusText: launch.statusText,
+              status: launch.status,
+              padLabel: launch.pad.shortCode || launch.pad.name,
+              padLocation: launch.pad.locationName || launch.pad.state
+            });
+          }}
+          size={40}
+          iconColor={theme.foreground}
+          borderColor={theme.stroke}
+          backgroundColor="rgba(255, 255, 255, 0.03)"
+          pressedBackgroundColor="rgba(255, 255, 255, 0.08)"
+        />
+      </View>
+    </View>
+  );
+}
+
+function CalendarInfoPill({ label, emphasis = false }: { label: string; emphasis?: boolean }) {
+  const { theme } = useMobileBootstrap();
+
+  return (
+    <View
+      style={{
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: emphasis ? 'rgba(34, 211, 238, 0.2)' : theme.stroke,
+        backgroundColor: emphasis ? 'rgba(34, 211, 238, 0.08)' : 'rgba(255, 255, 255, 0.03)',
+        paddingHorizontal: 10,
+        paddingVertical: 6
+      }}
+    >
+      <Text style={{ color: emphasis ? theme.accent : theme.foreground, fontSize: 12, fontWeight: '700' }}>{label}</Text>
+    </View>
+  );
+}
+
+function CalendarStatusPill({
+  status,
+  label
+}: {
+  status: CalendarLaunchItem['status'];
+  label: string;
+}) {
+  const { theme } = useMobileBootstrap();
+  const tone = getStatusTone(status, theme.accent);
+
+  return (
+    <View
+      style={{
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: tone.border,
+        backgroundColor: tone.background,
+        paddingHorizontal: 10,
+        paddingVertical: 6
+      }}
+    >
+      <Text style={{ color: tone.text, fontSize: 11, fontWeight: '800', textTransform: 'uppercase' }}>{label}</Text>
+    </View>
   );
 }
 
@@ -625,6 +880,35 @@ function CalendarFeedSourceRow({
   );
 }
 
+function InlineActionButton({
+  label,
+  onPress,
+  primary = false
+}: {
+  label: string;
+  onPress: () => void;
+  primary?: boolean;
+}) {
+  const { theme } = useMobileBootstrap();
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => ({
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: primary ? 'rgba(34, 211, 238, 0.22)' : theme.stroke,
+        backgroundColor: primary ? 'rgba(34, 211, 238, 0.08)' : pressed ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.03)',
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        opacity: pressed ? 0.88 : 1
+      })}
+    >
+      <Text style={{ color: primary ? theme.accent : theme.foreground, fontSize: 12, fontWeight: '700' }}>{label}</Text>
+    </Pressable>
+  );
+}
+
 function CalendarRowButton({
   label,
   onPress,
@@ -657,8 +941,56 @@ function CalendarRowButton({
   );
 }
 
+function formatMonthKey(value: Date) {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function formatMonthLabel(value: Date) {
+  return value.toLocaleDateString(undefined, {
+    month: 'long',
+    year: 'numeric'
+  });
+}
+
+function parseDayKey(value: string) {
+  const parsed = new Date(`${value}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function shiftDayKey(dayKey: string, offset: number) {
+  const parsed = parseDayKey(dayKey);
+  if (!parsed) {
+    return null;
+  }
+
+  parsed.setDate(parsed.getDate() + offset);
+  return toLocalDateKey(parsed);
+}
+
+function formatCompactDay(dayKey: string) {
+  const parsed = parseDayKey(dayKey);
+  if (!parsed) {
+    return dayKey;
+  }
+
+  return parsed.toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric'
+  });
+}
+
 function formatSelectedDay(dayKey: string) {
-  return new Date(`${dayKey}T12:00:00`).toLocaleDateString(undefined, {
+  const parsed = parseDayKey(dayKey);
+  if (!parsed) {
+    return dayKey;
+  }
+
+  return parsed.toLocaleDateString(undefined, {
     month: 'long',
     day: 'numeric',
     weekday: 'short'
@@ -677,4 +1009,78 @@ function formatLaunchTiming(net: string, netPrecision: string) {
     hour: 'numeric',
     minute: '2-digit'
   });
+}
+
+function buildLaunchCountdownLabel(net: string, netPrecision: string) {
+  if (netPrecision === 'day' || netPrecision === 'month' || netPrecision === 'tbd') {
+    return null;
+  }
+
+  const snapshot = buildCountdownSnapshot(net);
+  if (!snapshot) {
+    return null;
+  }
+
+  return formatLaunchCountdownClock(snapshot.totalMs);
+}
+
+function buildWindowLabel(net: string, windowEnd: string | null) {
+  if (!windowEnd || windowEnd === net) {
+    return null;
+  }
+
+  return `Window closes ${formatLaunchTiming(windowEnd, 'minute')}`;
+}
+
+function getNearestLaunchDayKey(dayKeys: string[], selectedDay: string | null) {
+  if (!dayKeys.length) {
+    return null;
+  }
+
+  const reference = parseDayKey(selectedDay || dayKeys[0]);
+  if (!reference) {
+    return dayKeys[0];
+  }
+
+  const referenceMs = reference.getTime();
+  return dayKeys.reduce((closest, candidate) => {
+    const candidateDate = parseDayKey(candidate);
+    const closestDate = parseDayKey(closest);
+    if (!candidateDate || !closestDate) {
+      return closest;
+    }
+
+    const candidateDistance = Math.abs(candidateDate.getTime() - referenceMs);
+    const closestDistance = Math.abs(closestDate.getTime() - referenceMs);
+    return candidateDistance < closestDistance ? candidate : closest;
+  }, dayKeys[0]);
+}
+
+function getStatusTone(status: CalendarLaunchItem['status'], accent: string) {
+  switch (status) {
+    case 'go':
+      return {
+        text: '#7ff0bc',
+        background: 'rgba(52, 211, 153, 0.16)',
+        border: 'rgba(52, 211, 153, 0.24)'
+      };
+    case 'hold':
+      return {
+        text: '#ffd36e',
+        background: 'rgba(251, 191, 36, 0.16)',
+        border: 'rgba(251, 191, 36, 0.24)'
+      };
+    case 'scrubbed':
+      return {
+        text: '#ff9aab',
+        background: 'rgba(251, 113, 133, 0.16)',
+        border: 'rgba(251, 113, 133, 0.24)'
+      };
+    default:
+      return {
+        text: accent,
+        background: 'rgba(34, 211, 238, 0.1)',
+        border: 'rgba(34, 211, 238, 0.2)'
+      };
+  }
 }

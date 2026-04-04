@@ -52,9 +52,10 @@ import {
   watchlistUpdateSchemaV1,
   watchlistsSchemaV1
 } from '@tminuszero/contracts';
+import { AccountDeletionError, deleteAccountWithGuards } from '@/lib/server/accountDeletion';
 import { loadArTrajectorySummary } from '@/lib/server/arTrajectory';
 import { fetchBlueOriginPassengersDatabaseOnly, fetchBlueOriginPayloads } from '@/lib/server/blueOriginPeoplePayloads';
-import { isStripeConfigured, isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
+import { isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
 import { getViewerEntitlement, type ViewerEntitlement } from '@/lib/server/entitlements';
 import { fetchLaunchFaaAirspace } from '@/lib/server/faaAirspace';
 import { fetchLaunchJepScore } from '@/lib/server/jep';
@@ -101,15 +102,13 @@ import {
   isBlueOriginProgramLaunch,
   normalizeBlueOriginTravelerRole
 } from '@/lib/utils/blueOrigin';
-import { stripe } from '@/lib/api/stripe';
-import { recordBillingEvent } from '@/lib/server/billingEvents';
-import { isSubscriptionActive } from '@/lib/server/subscription';
 import { loadVersionedLaunchFeedPayload } from '@/lib/server/v1/launchFeedApi';
 
 type PrivilegedClient =
   | ReturnType<typeof createSupabaseAccessTokenClient>
   | ReturnType<typeof createSupabaseAdminClient>
   | ReturnType<typeof createSupabaseServerClient>;
+type AdminSelfServiceClient = PrivilegedClient;
 
 type SearchRpcRow = {
   id?: unknown;
@@ -2674,6 +2673,22 @@ function getPrivilegedClient(session: ResolvedViewerSession): PrivilegedClient |
   return null;
 }
 
+function getAdminSelfServiceClient(session: ResolvedViewerSession): AdminSelfServiceClient | null {
+  if (session.authMode === 'bearer' && session.accessToken) {
+    return createSupabaseAccessTokenClient(session.accessToken);
+  }
+
+  if (session.authMode === 'cookie') {
+    return createSupabaseServerClient();
+  }
+
+  if (isSupabaseAdminConfigured()) {
+    return createSupabaseAdminClient();
+  }
+
+  return null;
+}
+
 async function requirePremiumNotificationAccess(session: ResolvedViewerSession) {
   const { entitlement } = await getViewerEntitlement({ session, reconcileStripe: false });
   if (!entitlement.isAuthed || !session.userId) {
@@ -3078,21 +3093,22 @@ async function requireAdminSelfServiceSession(session: ResolvedViewerSession) {
     throw new MobileApiRouteError(403, 'forbidden');
   }
 
-  if (!isSupabaseAdminConfigured()) {
-    throw new MobileApiRouteError(503, 'supabase_admin_not_configured');
+  const client = getAdminSelfServiceClient(session);
+  if (!client) {
+    throw new MobileApiRouteError(401, 'unauthorized');
   }
 
   return {
     entitlement,
-    admin: createSupabaseAdminClient()
+    client
   };
 }
 
 async function loadAdminAccessOverrideState(
-  admin: ReturnType<typeof createSupabaseAdminClient>,
+  client: AdminSelfServiceClient,
   userId: string
 ): Promise<{ adminAccessOverride: 'anon' | 'premium' | null; updatedAt: string | null }> {
-  const { data, error } = await admin
+  const { data, error } = await client
     .from('admin_access_overrides')
     .select('effective_tier_override, updated_at')
     .eq('user_id', userId)
@@ -3114,8 +3130,8 @@ async function loadAdminAccessOverrideState(
 }
 
 export async function loadAdminAccessOverridePayload(session: ResolvedViewerSession) {
-  const { entitlement, admin } = await requireAdminSelfServiceSession(session);
-  const state = await loadAdminAccessOverrideState(admin, session.userId as string);
+  const { entitlement, client } = await requireAdminSelfServiceSession(session);
+  const state = await loadAdminAccessOverrideState(client, session.userId as string);
   return buildAdminAccessOverrideEnvelope({
     entitlement,
     adminAccessOverride: state.adminAccessOverride,
@@ -3124,16 +3140,16 @@ export async function loadAdminAccessOverridePayload(session: ResolvedViewerSess
 }
 
 export async function updateAdminAccessOverridePayload(session: ResolvedViewerSession, request: Request) {
-  const { admin } = await requireAdminSelfServiceSession(session);
+  const { client } = await requireAdminSelfServiceSession(session);
   const userId = session.userId as string;
   const parsedBody = adminAccessOverrideUpdateSchemaV1.parse(await request.json().catch(() => undefined));
   const nextOverride = parsedBody.adminAccessOverride;
-  const previous = await loadAdminAccessOverrideState(admin, userId);
+  const previous = await loadAdminAccessOverrideState(client, userId);
   const now = new Date().toISOString();
 
   if (previous.adminAccessOverride !== nextOverride) {
     if (nextOverride) {
-      const { error } = await admin.from('admin_access_overrides').upsert({
+      const { error } = await client.from('admin_access_overrides').upsert({
         user_id: userId,
         effective_tier_override: nextOverride,
         updated_at: now,
@@ -3147,7 +3163,7 @@ export async function updateAdminAccessOverridePayload(session: ResolvedViewerSe
         throw error;
       }
     } else {
-      const { error } = await admin.from('admin_access_overrides').delete().eq('user_id', userId);
+      const { error } = await client.from('admin_access_overrides').delete().eq('user_id', userId);
       if (error) {
         const code = typeof error.code === 'string' ? error.code : '';
         if (isMissingAdminAccessOverrideRelationCode(code)) {
@@ -3157,7 +3173,7 @@ export async function updateAdminAccessOverridePayload(session: ResolvedViewerSe
       }
     }
 
-    const { error: eventError } = await admin.from('admin_access_override_events').insert({
+    const { error: eventError } = await client.from('admin_access_override_events').insert({
       user_id: userId,
       updated_by: userId,
       previous_override: previous.adminAccessOverride,
@@ -3169,13 +3185,13 @@ export async function updateAdminAccessOverridePayload(session: ResolvedViewerSe
       if (isMissingAdminAccessOverrideRelationCode(code)) {
         console.warn('admin access override audit table missing; continuing without event log');
       } else {
-      console.error('admin access override event log error', eventError);
+        console.error('admin access override event log error', eventError);
       }
     }
   }
 
   const { entitlement } = await getViewerEntitlement({ session, reconcileStripe: false });
-  const state = await loadAdminAccessOverrideState(admin, userId);
+  const state = await loadAdminAccessOverrideState(client, userId);
   return buildAdminAccessOverrideEnvelope({
     entitlement,
     adminAccessOverride: state.adminAccessOverride,
@@ -5087,58 +5103,19 @@ export async function deleteAccountPayload(session: ResolvedViewerSession, reque
   if (!session.userId) {
     return null;
   }
-  if (!isSupabaseAdminConfigured()) {
-    throw new MobileApiRouteError(501, 'supabase_service_role_missing');
-  }
-
   const parsedBody = deleteAccountSchema.parse(await request.json().catch(() => undefined));
-  if (parsedBody.confirm.trim().toUpperCase() !== 'DELETE') {
-    throw new MobileApiRouteError(400, 'confirm_required');
-  }
-
-  const admin = createSupabaseAdminClient();
-  const { data: subscription, error: subscriptionError } = await admin
-    .from('subscriptions')
-    .select('status, stripe_subscription_id')
-    .eq('user_id', session.userId)
-    .maybeSingle();
-
-  if (subscriptionError) {
-    throw subscriptionError;
-  }
-
-  if (isSubscriptionActive(subscription)) {
-    if (!isStripeConfigured() || !subscription?.stripe_subscription_id) {
-      throw new MobileApiRouteError(409, 'active_subscription');
+  try {
+    return await deleteAccountWithGuards({
+      userId: session.userId,
+      email: session.email ?? null,
+      confirm: parsedBody.confirm
+    });
+  } catch (error) {
+    if (error instanceof AccountDeletionError) {
+      throw new MobileApiRouteError(error.status, error.code);
     }
-
-    try {
-      const updated = await stripe.subscriptions.update(subscription.stripe_subscription_id, { cancel_at_period_end: true });
-      const currentPeriodEnd = updated.current_period_end ? new Date(updated.current_period_end * 1000).toISOString() : null;
-      await recordBillingEvent({
-        admin,
-        userId: session.userId,
-        email: session.email ?? null,
-        eventType: 'subscription_cancel_requested',
-        source: 'account_delete',
-        stripeSubscriptionId: updated.id,
-        status: updated.status || 'unknown',
-        cancelAtPeriodEnd: Boolean(updated.cancel_at_period_end),
-        currentPeriodEnd,
-        sendEmail: false
-      });
-    } catch (error) {
-      console.error('account delete stripe cancel error', error);
-      throw new MobileApiRouteError(502, 'failed_to_cancel_subscription');
-    }
+    throw error;
   }
-
-  const { error: deleteError } = await admin.auth.admin.deleteUser(session.userId);
-  if (deleteError) {
-    throw deleteError;
-  }
-
-  return successResponseSchemaV1.parse({ ok: true });
 }
 
 export async function loadLaunchNotificationPreferencePayload(

@@ -7,33 +7,19 @@ import { buildAuthHref, buildPrivacyChoicesHref, buildProfileHref } from '@tminu
 import { getBrowserClient } from '@/lib/api/supabase';
 import { applyGuestViewerState, fetchAccountExport, useDeleteAccountMutation, usePrivacyPreferencesQuery, useProfileQuery, useUpdatePrivacyPreferencesMutation, useViewerSessionQuery } from '@/lib/api/queries';
 import { BRAND_NAME, SUPPORT_EMAIL } from '@/lib/brand';
-import { PRIVACY_COOKIES, type PrivacyCookieName } from '@/lib/privacy/choices';
+import { PRIVACY_COOKIES } from '@/lib/privacy/choices';
 import { deleteCookie, readCookie, setCookie } from '@/lib/privacy/clientCookies';
+import { notifyPrivacyPreferencesChanged } from '@/lib/privacy/embedPreference';
 import { ApiClientError } from '@tminuszero/api-client';
 
 type PrivacyPreferenceUpdates = {
-  optOutSaleShare?: boolean;
-  limitSensitive?: boolean;
   blockThirdPartyEmbeds?: boolean;
-  gpcEnabled?: boolean;
 };
-
-function isGpcEnabled() {
-  if (typeof navigator === 'undefined') return false;
-  return (navigator as any).globalPrivacyControl === true;
-}
 
 function readCookiePreferences() {
   return {
-    optOutSaleShare: readCookie(PRIVACY_COOKIES.optOutSaleShare) === '1',
-    limitSensitive: readCookie(PRIVACY_COOKIES.limitSensitive) === '1',
     blockEmbeds: readCookie(PRIVACY_COOKIES.blockEmbeds) === '1'
   };
-}
-
-function syncCookiePreference(name: PrivacyCookieName, enabled: boolean) {
-  if (enabled) setCookie(name, '1');
-  else deleteCookie(name);
 }
 
 function toMessage(error: unknown, fallback: string) {
@@ -59,11 +45,8 @@ export function PrivacyChoicesClient() {
   const [requestError, setRequestError] = useState<string | null>(null);
   const [prefsMessage, setPrefsMessage] = useState<string | null>(null);
   const [prefsError, setPrefsError] = useState<string | null>(null);
-  const [optOutSaleShare, setOptOutSaleShare] = useState(false);
-  const [limitSensitive, setLimitSensitive] = useState(false);
   const [blockEmbeds, setBlockEmbeds] = useState(false);
 
-  const gpcEnabled = useMemo(() => isGpcEnabled(), []);
   const authStatus: 'loading' | 'authed' | 'guest' =
     viewerSessionQuery.isPending && !viewerSessionQuery.data
       ? 'loading'
@@ -78,6 +61,10 @@ export function PrivacyChoicesClient() {
   }, [profileQuery.data, viewerSessionQuery.data?.email]);
   const signInHref = buildAuthHref('sign-in', { returnTo: buildPrivacyChoicesHref() });
   const accountHref = buildProfileHref();
+  const gpcEnabled = useMemo(() => {
+    if (typeof navigator === 'undefined') return false;
+    return (navigator as any).globalPrivacyControl === true;
+  }, []);
 
   const saveAccountPreferences = useCallback(
     async (updates: PrivacyPreferenceUpdates, options?: { silent?: boolean }) => {
@@ -105,43 +92,31 @@ export function PrivacyChoicesClient() {
 
   useEffect(() => {
     const cookiePrefs = readCookiePreferences();
-    setOptOutSaleShare(cookiePrefs.optOutSaleShare);
-    setLimitSensitive(cookiePrefs.limitSensitive);
     setBlockEmbeds(cookiePrefs.blockEmbeds);
+    deleteCookie(PRIVACY_COOKIES.optOutSaleShare);
+    deleteCookie(PRIVACY_COOKIES.limitSensitive);
+    notifyPrivacyPreferencesChanged();
   }, []);
-
-  useEffect(() => {
-    if (!gpcEnabled) return;
-    setOptOutSaleShare(true);
-    setCookie(PRIVACY_COOKIES.optOutSaleShare, '1');
-  }, [gpcEnabled]);
 
   useEffect(() => {
     if (authStatus !== 'authed' || !privacyPreferencesQuery.data) return;
 
     const cookiePrefs = readCookiePreferences();
     const accountPrefs = privacyPreferencesQuery.data;
-    const nextSaleShare = gpcEnabled || cookiePrefs.optOutSaleShare || accountPrefs.optOutSaleShare;
-    const nextSensitive = cookiePrefs.limitSensitive || accountPrefs.limitSensitive;
     const nextEmbeds = cookiePrefs.blockEmbeds || accountPrefs.blockThirdPartyEmbeds;
 
-    setOptOutSaleShare(nextSaleShare);
-    setLimitSensitive(nextSensitive);
     setBlockEmbeds(nextEmbeds);
 
-    syncCookiePreference(PRIVACY_COOKIES.optOutSaleShare, nextSaleShare);
-    syncCookiePreference(PRIVACY_COOKIES.limitSensitive, nextSensitive);
-    syncCookiePreference(PRIVACY_COOKIES.blockEmbeds, nextEmbeds);
+    if (nextEmbeds) setCookie(PRIVACY_COOKIES.blockEmbeds, '1');
+    else deleteCookie(PRIVACY_COOKIES.blockEmbeds);
+    notifyPrivacyPreferencesChanged();
 
     const promote: PrivacyPreferenceUpdates = {};
-    if (nextSaleShare && !accountPrefs.optOutSaleShare) promote.optOutSaleShare = true;
-    if (nextSensitive && !accountPrefs.limitSensitive) promote.limitSensitive = true;
     if (nextEmbeds && !accountPrefs.blockThirdPartyEmbeds) promote.blockThirdPartyEmbeds = true;
-    if (gpcEnabled && !accountPrefs.gpcEnabled) promote.gpcEnabled = true;
     if (Object.keys(promote).length > 0) {
       void saveAccountPreferences(promote, { silent: true });
     }
-  }, [authStatus, gpcEnabled, privacyPreferencesQuery.data, saveAccountPreferences]);
+  }, [authStatus, privacyPreferencesQuery.data, saveAccountPreferences]);
 
   async function downloadExport() {
     setExporting(true);
@@ -190,6 +165,12 @@ export function PrivacyChoicesClient() {
           setRequestError(
             'You have an active subscription and we could not cancel renewal automatically. Cancel billing first, then delete your account.'
           );
+        } else if (error.code === 'apple_revocation_not_configured') {
+          setRequestError('Account deletion for Sign in with Apple is temporarily unavailable. Contact support and try again later.');
+        } else if (error.code === 'apple_revocation_unavailable') {
+          setRequestError('Please sign in with Apple again before deleting this account.');
+        } else if (error.code === 'apple_revocation_failed') {
+          setRequestError('We could not complete the Apple account-revocation step. Try again or contact support.');
         } else {
           setRequestError(error.code || 'Delete failed');
         }
@@ -206,55 +187,33 @@ export function PrivacyChoicesClient() {
       <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
         <h2 className="text-lg font-semibold text-text1">Privacy Preferences</h2>
         <p className="mt-1 text-sm text-text3">
-          The current build does not “sell” or “share” personal information. These preferences are provided to support state privacy opt-outs and to prepare for future optional
-          features.
+          The current web build does not use a sitewide analytics or advertising cookie banner. Embedded X posts and third-party video players only load after you choose to load them.
         </p>
         <p className="mt-2 text-sm text-text3">
-          If you are signed in, we save these choices to your account. Otherwise, they are stored in this browser (cookies).
+          The one browser-level preference that materially changes current behavior is whether to always keep third-party media external-only. If you are signed in, we also save that choice to
+          your account.
         </p>
         {gpcEnabled && (
           <div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
-            Your browser’s Global Privacy Control (GPC) signal is enabled. We treat this as an opt-out of sale/sharing where applicable.
+            Your browser’s Global Privacy Control (GPC) signal is enabled. The current build does not use ad-tech or sale/sharing cookies, and third-party media still requires an explicit load
+            action.
           </div>
         )}
 
         <div className="mt-4 grid gap-3">
           <Toggle
-            label="Opt out of sale/sharing of personal information"
-            checked={optOutSaleShare}
-            disabled={gpcEnabled}
-            onChange={(checked) => {
-              setOptOutSaleShare(checked);
-              syncCookiePreference(PRIVACY_COOKIES.optOutSaleShare, checked);
-              setPrefsMessage(null);
-              setPrefsError(null);
-              void saveAccountPreferences({ optOutSaleShare: checked });
-            }}
-            helper="If we ever engage in “sale” or “sharing” as defined by certain state laws, this opt-out will be applied."
-          />
-          <Toggle
-            label="Limit use of sensitive personal information"
-            checked={limitSensitive}
-            onChange={(checked) => {
-              setLimitSensitive(checked);
-              syncCookiePreference(PRIVACY_COOKIES.limitSensitive, checked);
-              setPrefsMessage(null);
-              setPrefsError(null);
-              void saveAccountPreferences({ limitSensitive: checked });
-            }}
-            helper="We only use sensitive data as needed to run the Service (authentication, security, billing). This preference is provided for state-law “limit” choices."
-          />
-          <Toggle
-            label="Block third-party video embeds (YouTube/Vimeo)"
+            label="Always block third-party embeds (X, YouTube, Vimeo)"
             checked={blockEmbeds}
             onChange={(checked) => {
               setBlockEmbeds(checked);
-              syncCookiePreference(PRIVACY_COOKIES.blockEmbeds, checked);
+              if (checked) setCookie(PRIVACY_COOKIES.blockEmbeds, '1');
+              else deleteCookie(PRIVACY_COOKIES.blockEmbeds);
+              notifyPrivacyPreferencesChanged();
               setPrefsMessage(null);
               setPrefsError(null);
               void saveAccountPreferences({ blockThirdPartyEmbeds: checked });
             }}
-            helper="When enabled, embedded video players are disabled and you can use the external stream link instead."
+            helper="When enabled, supported third-party posts and video players stay external-only in this browser and, if you are signed in, on your account."
           />
         </div>
 
@@ -265,25 +224,20 @@ export function PrivacyChoicesClient() {
             deleteCookie(PRIVACY_COOKIES.optOutSaleShare);
             deleteCookie(PRIVACY_COOKIES.limitSensitive);
             deleteCookie(PRIVACY_COOKIES.blockEmbeds);
-            setOptOutSaleShare(false);
-            setLimitSensitive(false);
+            notifyPrivacyPreferencesChanged();
             setBlockEmbeds(false);
             setPrefsMessage(null);
             setPrefsError(null);
             void saveAccountPreferences(
               {
-                optOutSaleShare: false,
-                limitSensitive: false,
-                blockThirdPartyEmbeds: false,
-                gpcEnabled: false
+                blockThirdPartyEmbeds: false
               },
               { silent: true }
             );
-            setPrefsMessage(authStatus === 'authed' ? 'Privacy preferences cleared for your account and this browser.' : 'Privacy preferences cleared for this browser.');
+            setPrefsMessage(authStatus === 'authed' ? 'Browser and account media-loading preference cleared.' : 'Browser media-loading preference cleared.');
           }}
-          disabled={gpcEnabled}
         >
-          Clear preferences
+          Reset media preference
         </button>
 
         {prefsMessage && <div className="mt-3 text-sm text-success">{prefsMessage}</div>}

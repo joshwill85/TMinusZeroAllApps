@@ -6,9 +6,15 @@ internal final class TmzLaunchMapView: ExpoView, MKMapViewDelegate {
   var boundsJson: String?
   var padJson: String?
   var interactive: Bool = false
+  var renderMode: String = "auto"
 
   private let mapView = MKMapView(frame: .zero)
   private let decoder = JSONDecoder()
+  private let padPreviewDistanceMeters: CLLocationDistance = 1_200
+  private let boundsEdgePadding = UIEdgeInsets(top: 28, left: 28, bottom: 28, right: 28)
+  private var pendingBounds: BoundsPayload?
+  private var pendingPad: PadPayload?
+  private var hasPendingViewportUpdate = false
 
   private struct CoordinatePayload: Codable {
     let latitude: Double
@@ -60,6 +66,15 @@ internal final class TmzLaunchMapView: ExpoView, MKMapViewDelegate {
     ])
   }
 
+  deinit {
+    teardown()
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    updateVisibleRegionIfReady()
+  }
+
   func onPropsUpdated() {
     mapView.mapType = .satellite
     mapView.isScrollEnabled = interactive
@@ -106,9 +121,12 @@ internal final class TmzLaunchMapView: ExpoView, MKMapViewDelegate {
     mapView.removeOverlays(mapView.overlays)
     mapView.removeAnnotations(mapView.annotations)
 
-    let advisories = decodeArray([AdvisoryPayload].self, from: advisoriesJson) ?? []
+    let advisories = shouldRenderAdvisories ? (decodeArray([AdvisoryPayload].self, from: advisoriesJson) ?? []) : []
     let pad = decodeValue(PadPayload.self, from: padJson)
-    let bounds = decodeValue(BoundsPayload.self, from: boundsJson)
+    let bounds = shouldUseBounds ? decodeValue(BoundsPayload.self, from: boundsJson) : nil
+    pendingBounds = bounds
+    pendingPad = pad
+    hasPendingViewportUpdate = true
 
     for advisory in advisories {
       for polygon in advisory.polygons {
@@ -137,31 +155,45 @@ internal final class TmzLaunchMapView: ExpoView, MKMapViewDelegate {
       mapView.addAnnotation(annotation)
     }
 
-    applyVisibleRegion(bounds: bounds, pad: pad)
+    updateVisibleRegionIfReady()
+  }
+
+  private func updateVisibleRegionIfReady() {
+    guard hasPendingViewportUpdate, mapView.bounds.width > 0, mapView.bounds.height > 0 else {
+      return
+    }
+
+    applyVisibleRegion(bounds: pendingBounds, pad: pendingPad)
+    hasPendingViewportUpdate = false
   }
 
   private func applyVisibleRegion(bounds: BoundsPayload?, pad: PadPayload?) {
-    if let bounds {
-      let latitudeDelta = max(0.08, abs(bounds.maxLatitude - bounds.minLatitude) * 1.25)
-      let longitudeDelta = max(0.08, abs(bounds.maxLongitude - bounds.minLongitude) * 1.25)
-      let region = MKCoordinateRegion(
-        center: CLLocationCoordinate2D(
-          latitude: (bounds.minLatitude + bounds.maxLatitude) / 2,
-          longitude: (bounds.minLongitude + bounds.maxLongitude) / 2
-        ),
-        span: MKCoordinateSpan(latitudeDelta: latitudeDelta, longitudeDelta: longitudeDelta)
-      )
-      mapView.setRegion(region, animated: false)
+    if let bounds, hasArea(bounds) {
+      let rect = mapRect(for: bounds)
+      mapView.setVisibleMapRect(rect, edgePadding: boundsEdgePadding, animated: false)
       return
     }
 
     if let padLatitude = pad?.latitude, let padLongitude = pad?.longitude {
       let region = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: padLatitude, longitude: padLongitude),
-        span: MKCoordinateSpan(latitudeDelta: 0.08, longitudeDelta: 0.08)
+        latitudinalMeters: padPreviewDistanceMeters,
+        longitudinalMeters: padPreviewDistanceMeters
       )
-      mapView.setRegion(region, animated: false)
+      mapView.setRegion(mapView.regionThatFits(region), animated: false)
     }
+  }
+
+  private func hasArea(_ bounds: BoundsPayload) -> Bool {
+    abs(bounds.maxLatitude - bounds.minLatitude) > 0.0001 || abs(bounds.maxLongitude - bounds.minLongitude) > 0.0001
+  }
+
+  private var shouldRenderAdvisories: Bool {
+    renderMode != "pad"
+  }
+
+  private var shouldUseBounds: Bool {
+    renderMode != "pad"
   }
 
   private func decodeArray<T: Decodable>(_ type: T.Type, from json: String?) -> T? {
@@ -181,5 +213,16 @@ internal final class TmzLaunchMapView: ExpoView, MKMapViewDelegate {
   private func makePolygon(coordinates: [CLLocationCoordinate2D], interiorPolygons: [MKPolygon] = []) -> MKPolygon {
     var mutableCoordinates = coordinates
     return MKPolygon(coordinates: &mutableCoordinates, count: mutableCoordinates.count, interiorPolygons: interiorPolygons)
+  }
+
+  private func mapRect(for bounds: BoundsPayload) -> MKMapRect {
+    let southWest = MKMapPoint(CLLocationCoordinate2D(latitude: bounds.minLatitude, longitude: bounds.minLongitude))
+    let northEast = MKMapPoint(CLLocationCoordinate2D(latitude: bounds.maxLatitude, longitude: bounds.maxLongitude))
+    let origin = MKMapPoint(x: min(southWest.x, northEast.x), y: min(southWest.y, northEast.y))
+    let size = MKMapSize(
+      width: max(1, abs(northEast.x - southWest.x)),
+      height: max(1, abs(northEast.y - southWest.y))
+    )
+    return MKMapRect(origin: origin, size: size)
   }
 }

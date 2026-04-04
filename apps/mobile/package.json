@@ -3,6 +3,14 @@
   "version": "0.0.0",
   "private": true,
   "main": "expo-router/entry",
+  "expo": {
+    "autolinking": {
+      "nativeModulesDir": "./modules/tmz-ar-trajectory",
+      "searchPaths": [
+        "./modules/tmz-launch-map"
+      ]
+    }
+  },
   "scripts": {
     "dev": "expo start",
     "ios": "expo run:ios",

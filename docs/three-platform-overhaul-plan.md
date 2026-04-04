@@ -1,10 +1,11 @@
 # Three-Platform Overhaul Plan
 
-Last updated: 2026-04-01
+Last updated: 2026-04-03
 
 This is the living master checklist for moving T-Minus Zero from a web-only product to a maintainable, high-performance web + iOS + Android product line.
 
 Related implementation plans:
+- `docs/2026-04-03-apple-sign-in-linking-and-rollout-plan.md`
 - `docs/2026-03-20-anon-premium-cutover-plan.md`
 - `docs/2026-03-29-push-only-notification-cutover-plan.md`
 - `docs/ar-trajectory-three-surface-best-in-class-validation-plan-2026-04-01.md`
@@ -74,6 +75,10 @@ Related implementation plans:
 
 ## Current Slice Tracker
 
+- 2026-04-03: Apple Sign In linking and rollout planning is in progress for `Web` and `iOS`.
+  - Source-of-truth plan: `docs/2026-04-03-apple-sign-in-linking-and-rollout-plan.md`
+  - Scope: explicit linking for existing accounts, deterministic duplicate prevention, Apple portal configuration, and real-device release verification.
+  - Guardrails: no destructive auth merges, additive `/api/v1` changes only, keep email/password as the release-safe fallback, and do not heuristically merge private-relay accounts.
 - 2026-04-01: AR trajectory three-surface best-in-class validation planning is in progress for `Web`, `iOS`, and `Android`.
   - Source-of-truth plan: `docs/ar-trajectory-three-surface-best-in-class-validation-plan-2026-04-01.md`
   - Scope: establish one shared trajectory truth gate plus platform-native excellence gates for web browsers, native iOS, and native Android.

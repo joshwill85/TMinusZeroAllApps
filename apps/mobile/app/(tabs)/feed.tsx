@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSegments } from 'expo-router';
 import type { Href } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
@@ -9,7 +9,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   DEFAULT_LAUNCH_FILTERS,
   areLaunchFilterValuesEqual,
-  buildPendingFeedRefreshMessage,
   canAutoRefreshActiveSurface,
   countActiveLaunchFilters,
   formatLaunchFilterLocationOptionLabel,
@@ -42,7 +41,7 @@ import {
   useViewerSessionQuery,
   useWatchlistsQuery
 } from '@/src/api/queries';
-import { EmptyStateCard, ErrorStateCard } from '@/src/components/SectionCard';
+import { EmptyStateCard, ErrorStateCard, SectionCard } from '@/src/components/SectionCard';
 import { useApiClient } from '@/src/api/client';
 import { LaunchAlertsPanel } from '@/src/components/LaunchAlertsPanel';
 import { LaunchFollowSheet, type LaunchFollowSheetOption } from '@/src/components/LaunchFollowSheet';
@@ -85,6 +84,8 @@ type FeedNotice = {
   onAction?: () => void;
 };
 
+const FLOATING_FEED_BAR_HEIGHT = 52;
+
 export default function FeedScreen() {
   const router = useRouter();
   const segments = useSegments();
@@ -117,9 +118,12 @@ export default function FeedScreen() {
   const [notice, setNotice] = useState<FeedNotice | null>(null);
   const [pendingRefresh, setPendingRefresh] = useState<PendingFeedRefresh | null>(null);
   const [refreshApplying, setRefreshApplying] = useState(false);
+  const [didAttemptEmptyPublicRecovery, setDidAttemptEmptyPublicRecovery] = useState(false);
+  const [didAttemptEmptyLiveRecovery, setDidAttemptEmptyLiveRecovery] = useState(false);
   const [appStateStatus, setAppStateStatus] = useState(AppState.currentState);
   const [followLaunch, setFollowLaunch] = useState<FeedLaunchCardData | null>(null);
   const [cachedLaunches, setCachedLaunches] = useState<FeedLaunchCardData[]>([]);
+  const [retainedDefaultLaunches, setRetainedDefaultLaunches] = useState<FeedLaunchCardData[]>([]);
   const [snapshotHydrated, setSnapshotHydrated] = useState(false);
   const [deferredMediaReady, setDeferredMediaReady] = useState(false);
   const didApplyInitialDefaultPresetRef = useRef(false);
@@ -275,13 +279,15 @@ export default function FeedScreen() {
     [canManageFilterPresets, filterPresetsQuery.data]
   );
   const activeFilterCount = countActiveLaunchFilters(filters);
+  const shouldRetainDefaultSchedule = !isFollowingFeed && activeFilterCount === 0;
   const showsInternationalLaunches = (filters.region ?? DEFAULT_LAUNCH_FILTERS.region) !== 'us';
   const launchFeedQuery = useLaunchFeedQuery(feedRequest, {
     staleTimeMs: launchFeedQueryStaleTimeMs
   });
   const refetchLaunchFeed = launchFeedQuery.refetch;
   const launches = useMemo(() => launchFeedQuery.data?.pages.flatMap((page) => page.launches) ?? [], [launchFeedQuery.data?.pages]);
-  const shouldHydratePublicSnapshot = feedRequest.scope === 'public';
+  const shouldHydratePublicSnapshot = shouldRetainDefaultSchedule;
+  const isPublicDefaultSchedule = shouldHydratePublicSnapshot && feedScope === 'public';
   const feedSnapshotKey = useMemo(
     () =>
       JSON.stringify({
@@ -307,10 +313,61 @@ export default function FeedScreen() {
       feedRequest.status
     ]
   );
+  const publicFeedSnapshotKey = useMemo(
+    () =>
+      JSON.stringify({
+        scope: 'public',
+        range: filters.range ?? DEFAULT_LAUNCH_FILTERS.range,
+        region: filters.region ?? DEFAULT_LAUNCH_FILTERS.region,
+        location: filters.location ?? null,
+        state: filters.state ?? null,
+        pad: filters.pad ?? null,
+        provider: filters.provider ?? null,
+        sort: filters.sort ?? DEFAULT_LAUNCH_FILTERS.sort,
+        status: filters.status && filters.status !== 'all' ? filters.status : null
+      }),
+    [
+      filters.location,
+      filters.pad,
+      filters.provider,
+      filters.range,
+      filters.region,
+      filters.sort,
+      filters.state,
+      filters.status
+    ]
+  );
   const hasResolvedLiveFeed = launchFeedQuery.isSuccess || launchFeedQuery.isError;
+  const shouldUseCachedPublicFallback =
+    isPublicDefaultSchedule &&
+    cachedLaunches.length > 0 &&
+    launches.length === 0 &&
+    (launchFeedQuery.isSuccess || launchFeedQuery.isError);
+  const shouldUseCachedLiveFallback =
+    feedScope === 'live' &&
+    shouldRetainDefaultSchedule &&
+    cachedLaunches.length > 0 &&
+    launches.length === 0 &&
+    (launchFeedQuery.isSuccess || launchFeedQuery.isError);
+  const primaryRenderedLaunches = useMemo<FeedLaunchCardData[]>(
+    () =>
+      launches.length > 0
+        ? launches.map((launch) => toFeedLaunchCardData(launch))
+        : shouldUseCachedPublicFallback ||
+            shouldUseCachedLiveFallback ||
+            (shouldRetainDefaultSchedule && !hasResolvedLiveFeed && cachedLaunches.length > 0)
+          ? cachedLaunches
+          : [],
+    [cachedLaunches, hasResolvedLiveFeed, launches, shouldRetainDefaultSchedule, shouldUseCachedLiveFallback, shouldUseCachedPublicFallback]
+  );
+  const shouldUseRetainedLiveFallback =
+    shouldRetainDefaultSchedule &&
+    feedScope === 'live' &&
+    retainedDefaultLaunches.length > 0 &&
+    primaryRenderedLaunches.length === 0;
   const renderedLaunches = useMemo<FeedLaunchCardData[]>(
-    () => (launches.length > 0 ? launches.map((launch) => toFeedLaunchCardData(launch)) : !hasResolvedLiveFeed && cachedLaunches.length > 0 ? cachedLaunches : []),
-    [cachedLaunches, hasResolvedLiveFeed, launches]
+    () => (shouldUseRetainedLiveFallback ? retainedDefaultLaunches : primaryRenderedLaunches),
+    [primaryRenderedLaunches, retainedDefaultLaunches, shouldUseRetainedLiveFallback]
   );
   const nextLaunch = renderedLaunches[0] ?? null;
   const activePreset = presetList.find((preset) => preset.id === activePresetId) ?? null;
@@ -349,12 +406,6 @@ export default function FeedScreen() {
     launches,
     isFollowingFeed
   };
-  const pendingRefreshMessage = useMemo(() => {
-    if (!pendingRefresh) {
-      return null;
-    }
-    return buildPendingFeedRefreshMessage();
-  }, [pendingRefresh]);
   const canAutoRefreshFeed = canAutoRefreshActiveSurface({
     isFocused,
     appStateStatus,
@@ -364,6 +415,8 @@ export default function FeedScreen() {
   const contentBottomPadding = showDock
     ? insets.bottom + MOBILE_DOCK_HEIGHT + MOBILE_DOCK_BOTTOM_OFFSET + MOBILE_DOCK_CONTENT_GAP
     : Math.max(insets.bottom + 24, 40);
+  const floatingFeedBarTop = Math.max(insets.top - 10, 8);
+  const floatingFeedBarOffset = floatingFeedBarTop + FLOATING_FEED_BAR_HEIGHT + 22;
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
@@ -378,6 +431,8 @@ export default function FeedScreen() {
   useEffect(() => {
     lastSeenVersionRef.current = null;
     setPendingRefresh(null);
+    setDidAttemptEmptyPublicRecovery(false);
+    setDidAttemptEmptyLiveRecovery(false);
   }, [feedMode, feedScope, filters, isFollowingFeed, primaryWatchlistId]);
 
   useEffect(() => {
@@ -513,7 +568,7 @@ export default function FeedScreen() {
     }
 
     setSnapshotHydrated(false);
-    void readPublicFeedSnapshot(feedSnapshotKey)
+    void readPublicFeedSnapshot(publicFeedSnapshotKey)
       .then((snapshot) => {
         if (cancelled) {
           return;
@@ -532,18 +587,64 @@ export default function FeedScreen() {
     return () => {
       cancelled = true;
     };
-  }, [feedSnapshotKey, shouldHydratePublicSnapshot]);
+  }, [publicFeedSnapshotKey, shouldHydratePublicSnapshot]);
 
   useEffect(() => {
-    if (!shouldHydratePublicSnapshot || launches.length === 0) {
+    if (!isPublicDefaultSchedule || launches.length === 0) {
       return;
     }
 
     void writePublicFeedSnapshot(
-      feedSnapshotKey,
+      publicFeedSnapshotKey,
       launches.map((launch) => toFeedLaunchCardData(launch))
     );
-  }, [feedSnapshotKey, launches, shouldHydratePublicSnapshot]);
+  }, [isPublicDefaultSchedule, launches, publicFeedSnapshotKey]);
+
+  useEffect(() => {
+    if (!shouldRetainDefaultSchedule) {
+      setRetainedDefaultLaunches([]);
+      return;
+    }
+    if (primaryRenderedLaunches.length === 0) {
+      return;
+    }
+    setRetainedDefaultLaunches(primaryRenderedLaunches);
+  }, [primaryRenderedLaunches, shouldRetainDefaultSchedule]);
+
+  useEffect(() => {
+    if (!isPublicDefaultSchedule || didAttemptEmptyPublicRecovery) {
+      return;
+    }
+    if (!launchFeedQuery.isSuccess || launches.length > 0) {
+      return;
+    }
+
+    setDidAttemptEmptyPublicRecovery(true);
+    void refetchLaunchFeed().catch((error) => {
+      console.error('mobile feed empty public recovery failed', error);
+    });
+  }, [didAttemptEmptyPublicRecovery, isPublicDefaultSchedule, launchFeedQuery.isSuccess, launches.length, refetchLaunchFeed]);
+
+  useEffect(() => {
+    if (feedScope !== 'live' || !shouldRetainDefaultSchedule || didAttemptEmptyLiveRecovery) {
+      return;
+    }
+    if (!launchFeedQuery.isSuccess || launches.length > 0) {
+      return;
+    }
+
+    setDidAttemptEmptyLiveRecovery(true);
+    void refetchLaunchFeed().catch((error) => {
+      console.error('mobile feed empty live recovery failed', error);
+    });
+  }, [
+    didAttemptEmptyLiveRecovery,
+    feedScope,
+    launchFeedQuery.isSuccess,
+    launches.length,
+    refetchLaunchFeed,
+    shouldRetainDefaultSchedule
+  ]);
 
   useEffect(() => {
     setDeferredMediaReady(false);
@@ -689,6 +790,43 @@ export default function FeedScreen() {
     refreshIntervalSeconds
   ]);
 
+  const applyPendingFeedRefresh = useCallback(
+    async ({ announce = true }: { announce?: boolean } = {}) => {
+      if (!pendingRefresh || refreshApplying) {
+        return;
+      }
+
+      setRefreshApplying(true);
+      try {
+        await refetchLaunchFeed();
+        lastSeenVersionRef.current = pendingRefresh.version;
+        setPendingRefresh(null);
+        setNotice((current) => (current?.kind === 'anon_refresh' ? null : current));
+        if (announce) {
+          showToast({
+            message: 'Launch schedule updated.',
+            tone: 'success'
+          });
+        }
+      } catch (error) {
+        setNotice({
+          tone: 'warning',
+          message: error instanceof Error ? error.message : 'Unable to refresh the launch feed.'
+        });
+      } finally {
+        setRefreshApplying(false);
+      }
+    },
+    [pendingRefresh, refreshApplying, refetchLaunchFeed, showToast]
+  );
+
+  useEffect(() => {
+    if (!pendingRefresh || refreshApplying) {
+      return;
+    }
+    void applyPendingFeedRefresh({ announce: false });
+  }, [applyPendingFeedRefresh, pendingRefresh, refreshApplying]);
+
   async function applyFeedRefresh() {
     if (feedScope !== 'live') {
       const nextRefreshAt = getNextAdaptiveLaunchRefreshMs({
@@ -696,12 +834,13 @@ export default function FeedScreen() {
         intervalSeconds: refreshIntervalSeconds,
         cadenceAnchorNet
       });
-      setNotice({
-        tone: 'info',
-        kind: 'anon_refresh',
-        message: `Public launch data refreshes next around ${formatRefreshTimeLabel(nextRefreshAt)}.`,
+      const message = `Public launch data refreshes next around ${formatRefreshTimeLabel(nextRefreshAt)}.`;
+      setNotice((current) => (current?.kind === 'anon_refresh' ? null : current));
+      showToast({
+        message,
         actionLabel: 'Go Premium for near-live data',
-        onAction: openPremiumGate
+        onAction: openPremiumGate,
+        durationMs: 7000
       });
       return;
     }
@@ -713,25 +852,12 @@ export default function FeedScreen() {
         cadenceAnchorNet
       });
       showToast({
-        message: `No newer live data yet. Next live check around ${formatRefreshTimeLabel(nextRefreshAt)}.`
+        message: `Launch schedule is up to date. Next live check around ${formatRefreshTimeLabel(nextRefreshAt)}.`
       });
       return;
     }
 
-    setRefreshApplying(true);
-    try {
-      await refetchLaunchFeed();
-      lastSeenVersionRef.current = pendingRefresh?.version ?? null;
-      setPendingRefresh(null);
-      setNotice((current) => (current?.kind === 'anon_refresh' ? null : current));
-    } catch (error) {
-      setNotice({
-        tone: 'warning',
-        message: error instanceof Error ? error.message : 'Unable to refresh the launch feed.'
-      });
-    } finally {
-      setRefreshApplying(false);
-    }
+    await applyPendingFeedRefresh({ announce: true });
   }
 
   async function handleSavePreset(name: string) {
@@ -1310,62 +1436,71 @@ export default function FeedScreen() {
         ]
     : [];
   const showFeedSkeletons = !snapshotHydrated || (launchFeedQuery.isPending && cachedLaunches.length === 0);
-  const showCachedFeedWarning = launchFeedQuery.isError && launches.length === 0 && cachedLaunches.length > 0;
+  const retainedLiveFeedWarningMessage =
+    shouldUseRetainedLiveFallback && launchFeedQuery.isError
+      ? 'Keeping the last loaded launch schedule visible while the live feed reconnects.'
+      : shouldUseRetainedLiveFallback
+        ? 'Keeping the last loaded launch schedule visible while your live access catches up.'
+        : null;
+  const cachedFeedWarningMessage =
+    launchFeedQuery.isError && launches.length === 0 && cachedLaunches.length > 0
+      ? feedScope === 'live'
+        ? 'Showing the latest saved public schedule while live launch data is unavailable.'
+        : 'Showing saved launches while the latest feed refresh is unavailable.'
+      : shouldUseCachedPublicFallback
+        ? 'Showing the latest saved public schedule while the current refresh catches up.'
+        : shouldUseCachedLiveFallback
+          ? 'Showing the latest saved public schedule while live launch data catches up.'
+        : retainedLiveFeedWarningMessage;
+  const emptyFeedState =
+    isFollowingFeed && (primaryWatchlist?.rules.length ?? 0) === 0
+      ? {
+          title: 'Following is empty',
+          body: 'Follow a launch, provider, rocket, pad, or launch site to populate this feed.',
+          primaryActionLabel: 'Show For You',
+          onPrimaryAction: () => {
+            setFeedMode('for-you');
+          },
+          secondaryActionLabel: null,
+          onSecondaryAction: null
+        }
+      : isFollowingFeed
+        ? {
+            title: activeFilterCount > 0 ? 'No followed launches match this view' : 'No followed launches match right now',
+            body:
+              activeFilterCount > 0
+                ? activePreset
+                ? `${activePreset.name} is narrowing your followed launches right now. Reset filters or switch back to For You.`
+                : 'Your current filters are narrowing your followed launches. Reset filters or switch back to For You.'
+                : 'Your followed launches do not currently match this feed range.',
+            primaryActionLabel: 'Show For You',
+            onPrimaryAction: () => {
+              setFeedMode('for-you');
+            },
+            secondaryActionLabel: activeFilterCount > 0 ? 'Reset filters' : null,
+            onSecondaryAction:
+              activeFilterCount > 0
+                ? () => {
+                    clearFiltersToDefault();
+                  }
+                : null
+          }
+        : activeFilterCount > 0
+          ? {
+              title: activePreset ? `${activePreset.name} has no matches` : 'No launches match these filters',
+              body: activePreset
+                ? `${activePreset.name} is narrowing the launch schedule right now. Reset filters to see the full schedule.`
+                : 'Your current filters are narrowing the launch schedule. Reset them to see the full schedule.',
+              primaryActionLabel: 'Reset filters',
+              onPrimaryAction: () => {
+                clearFiltersToDefault();
+              },
+              secondaryActionLabel: null,
+              onSecondaryAction: null
+            }
+          : null;
   const listHeader = (
     <View style={{ gap: 16, paddingBottom: 16 }}>
-      <View
-        style={{
-          marginTop: Math.max(insets.top - 10, 8),
-          overflow: 'hidden',
-          borderRadius: 999,
-          borderWidth: 1,
-          borderColor: theme.stroke,
-          backgroundColor: 'rgba(7, 9, 19, 0.72)',
-          paddingHorizontal: 16,
-          paddingVertical: 11
-        }}
-      >
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <View style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: theme.accent }} />
-            <Text numberOfLines={1} style={{ color: theme.foreground, fontSize: 11, fontWeight: '700' }}>
-              T-Minus Zero
-            </Text>
-          </View>
-          <View style={{ flex: 1, alignItems: 'center' }}>
-            <Text
-              numberOfLines={1}
-              style={{ color: theme.muted, fontSize: 10, fontWeight: '700', letterSpacing: 1.8, textTransform: 'uppercase' }}
-            >
-              Comm Link
-            </Text>
-          </View>
-          <View style={{ flex: 1, alignItems: 'flex-end' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-              <Pressable
-                testID="feed-filters-button"
-                onPress={() => {
-                  setFiltersOpen(true);
-                }}
-                hitSlop={8}
-              >
-                <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>
-                  Filters{activeFilterCount > 0 ? ` ${activeFilterCount}` : ''}
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  router.push('/search');
-                }}
-                hitSlop={8}
-              >
-                <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Search</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </View>
-
       <View style={{ gap: 8 }}>
         <Text
           style={{
@@ -1400,16 +1535,52 @@ export default function FeedScreen() {
             style={({ pressed }) => ({
               flex: 1,
               minWidth: 0,
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: 16,
+              gap: 10,
+              borderRadius: 18,
+              borderWidth: 1,
+              borderColor: pressed ? theme.accent : theme.stroke,
+              backgroundColor: pressed ? 'rgba(255, 255, 255, 0.07)' : theme.surface,
               paddingHorizontal: 12,
-              paddingVertical: 10,
-              opacity: pressed ? 0.85 : 1
+              paddingVertical: 12
             })}
             accessibilityLabel={item.accessibilityLabel}
           >
-            <Image source={item.logo} resizeMode="contain" style={item.logoStyle} />
+            <View
+              style={{
+                minHeight: 58,
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: 14,
+                borderWidth: 1,
+                borderColor: 'rgba(255, 255, 255, 0.06)',
+                backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                paddingHorizontal: 8
+              }}
+            >
+              <Image source={item.logo} resizeMode="contain" style={item.logoStyle} />
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <Text
+                numberOfLines={1}
+                style={{ flex: 1, color: theme.foreground, fontSize: 11, fontWeight: '800', letterSpacing: 0.8, textTransform: 'uppercase' }}
+              >
+                {item.label}
+              </Text>
+              <View
+                style={{
+                  width: 20,
+                  height: 20,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: 'rgba(255, 255, 255, 0.1)',
+                  backgroundColor: 'rgba(255, 255, 255, 0.04)'
+                }}
+              >
+                <ChevronGlyph color={theme.muted} />
+              </View>
+            </View>
           </Pressable>
         ))}
       </View>
@@ -1438,7 +1609,7 @@ export default function FeedScreen() {
         </View>
       ) : null}
 
-      {showCachedFeedWarning ? (
+      {cachedFeedWarningMessage ? (
         <View
           style={{
             borderRadius: 18,
@@ -1450,39 +1621,7 @@ export default function FeedScreen() {
           }}
         >
           <Text style={{ color: 'rgba(179, 225, 255, 0.95)', fontSize: 14, lineHeight: 20 }}>
-            Showing saved launches while the latest feed refresh is unavailable.
-          </Text>
-        </View>
-      ) : null}
-
-      {pendingRefresh && pendingRefreshMessage ? (
-        <View
-          style={{
-            gap: 10,
-            borderRadius: 20,
-            borderWidth: 1,
-            borderColor: 'rgba(123, 204, 255, 0.38)',
-            backgroundColor: 'rgba(14, 30, 56, 0.94)',
-            paddingHorizontal: 16,
-            paddingVertical: 14
-          }}
-        >
-          <Text
-            style={{
-              color: 'rgba(179, 225, 255, 0.95)',
-              fontSize: 11,
-              fontWeight: '800',
-              letterSpacing: 1.1,
-              textTransform: 'uppercase'
-            }}
-          >
-            Refresh ready
-          </Text>
-          <Text style={{ color: theme.foreground, fontSize: 18, fontWeight: '800', lineHeight: 24 }}>
-            {pendingRefreshMessage}
-          </Text>
-          <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>
-            Pull down and release to refresh this list.
+            {cachedFeedWarningMessage}
           </Text>
         </View>
       ) : null}
@@ -1578,6 +1717,99 @@ export default function FeedScreen() {
 
   return (
     <View testID="feed-screen" style={{ flex: 1, backgroundColor: theme.background }}>
+      <View
+        pointerEvents="box-none"
+        style={{
+          position: 'absolute',
+          top: floatingFeedBarTop,
+          left: 20,
+          right: 20,
+          zIndex: 20
+        }}
+      >
+        <View
+          style={{
+            minHeight: FLOATING_FEED_BAR_HEIGHT,
+            overflow: 'hidden',
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: theme.stroke,
+            backgroundColor: 'rgba(7, 9, 19, 0.78)',
+            paddingHorizontal: 16,
+            paddingVertical: 10
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <View style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: theme.accent }} />
+              <Text numberOfLines={1} style={{ color: theme.foreground, fontSize: 11, fontWeight: '700' }}>
+                T-Minus Zero
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Pressable
+                testID="feed-filters-button"
+                onPress={() => {
+                  setFiltersOpen(true);
+                }}
+                style={({ pressed }) => ({
+                  minHeight: 32,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 6,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: pressed ? theme.accent : 'rgba(255, 255, 255, 0.1)',
+                  backgroundColor: pressed ? 'rgba(255, 255, 255, 0.07)' : 'rgba(255, 255, 255, 0.04)',
+                  paddingHorizontal: 12,
+                  paddingVertical: 7
+                })}
+                hitSlop={8}
+              >
+                <Text style={{ color: theme.foreground, fontSize: 12, fontWeight: '700' }}>Filters</Text>
+                {activeFilterCount > 0 ? (
+                  <View
+                    style={{
+                      minWidth: 18,
+                      height: 18,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderRadius: 999,
+                      backgroundColor: 'rgba(34, 211, 238, 0.16)',
+                      paddingHorizontal: 5
+                    }}
+                  >
+                    <Text style={{ color: theme.accent, fontSize: 10, fontWeight: '800' }}>{activeFilterCount}</Text>
+                  </View>
+                ) : null}
+              </Pressable>
+              <Pressable
+                testID={isAuthed ? 'feed-search-button' : 'feed-sign-in-button'}
+                onPress={() => {
+                  router.push(isAuthed ? '/search' : '/sign-in');
+                }}
+                style={({ pressed }) => ({
+                  minHeight: 32,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: pressed ? theme.accent : 'rgba(255, 255, 255, 0.1)',
+                  backgroundColor: pressed ? 'rgba(255, 255, 255, 0.07)' : 'rgba(255, 255, 255, 0.04)',
+                  paddingHorizontal: 12,
+                  paddingVertical: 7
+                })}
+                hitSlop={8}
+              >
+                <Text style={{ color: theme.foreground, fontSize: 12, fontWeight: '700' }}>
+                  {isAuthed ? 'Search' : 'Sign in'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </View>
+
       <FlatList
         data={renderedLaunches}
         keyExtractor={(launch) => launch.id}
@@ -1655,7 +1887,7 @@ export default function FeedScreen() {
         style={{ flex: 1 }}
         contentContainerStyle={{
           paddingHorizontal: 20,
-          paddingTop: 20,
+          paddingTop: floatingFeedBarOffset,
           paddingBottom: contentBottomPadding
         }}
         ItemSeparatorComponent={() => <View style={{ height: 14 }} />}
@@ -1669,6 +1901,49 @@ export default function FeedScreen() {
             </View>
           ) : launchFeedQuery.isError ? (
             <ErrorStateCard title="Feed unavailable" body={launchFeedQuery.error.message} />
+          ) : emptyFeedState ? (
+            <SectionCard title={emptyFeedState.title} body={emptyFeedState.body} testID="feed-empty-state">
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                <Pressable
+                  testID="feed-empty-primary-action"
+                  onPress={emptyFeedState.onPrimaryAction}
+                  style={({ pressed }) => ({
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: theme.stroke,
+                    backgroundColor: pressed ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.03)',
+                    paddingHorizontal: 16,
+                    paddingVertical: 12
+                  })}
+                >
+                  <Text style={{ color: theme.foreground, fontSize: 13, fontWeight: '700' }}>
+                    {emptyFeedState.primaryActionLabel}
+                  </Text>
+                </Pressable>
+                {emptyFeedState.secondaryActionLabel && emptyFeedState.onSecondaryAction ? (
+                  <Pressable
+                    testID="feed-empty-secondary-action"
+                    onPress={emptyFeedState.onSecondaryAction}
+                    style={({ pressed }) => ({
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: theme.stroke,
+                      backgroundColor: pressed ? 'rgba(255, 255, 255, 0.03)' : 'transparent',
+                      paddingHorizontal: 16,
+                      paddingVertical: 12
+                    })}
+                  >
+                    <Text style={{ color: theme.accent, fontSize: 13, fontWeight: '700' }}>
+                      {emptyFeedState.secondaryActionLabel}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </SectionCard>
           ) : (
             <EmptyStateCard title="No upcoming launches right now" body={`We could not find any scheduled launches. Data source: ${baseUrl}.`} />
           )
@@ -1817,6 +2092,21 @@ function ModeButton({
     >
       <Text style={{ color: active ? theme.background : theme.foreground, fontSize: 12, fontWeight: '700' }}>{label}</Text>
     </Pressable>
+  );
+}
+
+function ChevronGlyph({ color }: { color: string }) {
+  return (
+    <View
+      style={{
+        width: 7,
+        height: 7,
+        borderTopWidth: 1.6,
+        borderRightWidth: 1.6,
+        borderColor: color,
+        transform: [{ rotate: '45deg' }]
+      }}
+    />
   );
 }
 

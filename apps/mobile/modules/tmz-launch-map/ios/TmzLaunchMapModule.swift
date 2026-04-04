@@ -29,12 +29,12 @@ public final class TmzLaunchMapModule: Module {
         view.interactive = interactive
       }
 
-      OnViewDidUpdateProps { view in
-        view.onPropsUpdated()
+      Prop("renderMode", "auto") { (view: TmzLaunchMapView, renderMode: String) in
+        view.renderMode = renderMode
       }
 
-      OnViewDestroys { view in
-        view.teardown()
+      OnViewDidUpdateProps { view in
+        view.onPropsUpdated()
       }
     }
   }

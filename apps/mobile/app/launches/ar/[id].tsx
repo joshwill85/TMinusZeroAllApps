@@ -19,7 +19,9 @@ import {
   useLaunchTrajectoryQuery,
   useViewerEntitlementsQuery
 } from '@/src/api/queries';
+import { LaunchShareIconButton } from '@/src/components/LaunchShareIconButton';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
+import { shareLaunch } from '@/src/utils/launchShare';
 import { formatTimestamp } from '@/src/utils/format';
 import {
   getCapabilitiesAsync,
@@ -379,6 +381,38 @@ export default function LaunchArTrajectoryScreen() {
   const detail = detailQuery.data ?? null;
   const launch = detail?.launchData ?? detail?.launch ?? null;
   const arTrajectory = detail?.arTrajectory ?? null;
+  const handleShareLaunch = () => {
+    if (!launch) {
+      return;
+    }
+
+    if ('pad' in launch) {
+      void shareLaunch({
+        id: launch.id,
+        name: launch.name,
+        net: launch.net,
+        provider: launch.provider,
+        vehicle: launch.vehicle || launch.rocket?.fullName,
+        statusText: launch.statusText,
+        status: launch.status,
+        padLabel: launch.pad.shortCode || launch.pad.name,
+        padLocation: launch.pad.locationName || launch.pad.state
+      });
+      return;
+    }
+
+    void shareLaunch({
+      id: launch.id,
+      name: launch.name,
+      net: launch.net,
+      provider: launch.provider,
+      vehicle: launch.rocketName,
+      statusText: launch.launchStatusDescription,
+      status: launch.status,
+      padLabel: launch.padName,
+      padLocation: launch.padLocation
+    });
+  };
   const canUseArTrajectory = entitlementsQuery.data?.capabilities.canUseArTrajectory ?? false;
   const isIpad = Platform.OS === 'ios' && Platform.isPad === true;
   const isIphone = Platform.OS === 'ios' && Platform.isPad !== true;
@@ -1336,14 +1370,26 @@ export default function LaunchArTrajectoryScreen() {
           >
             Native AR trajectory
           </Text>
-          <Pressable
-            onPress={() => {
-              router.push((`/launches/${launchId}`) as Href);
-            }}
-            hitSlop={8}
-          >
-            <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Launch</Text>
-          </Pressable>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            {launch ? (
+              <LaunchShareIconButton
+                onPress={handleShareLaunch}
+                size={38}
+                iconColor={theme.accent}
+                borderColor={theme.stroke}
+                backgroundColor="rgba(255, 255, 255, 0.03)"
+                pressedBackgroundColor="rgba(255, 255, 255, 0.08)"
+              />
+            ) : null}
+            <Pressable
+              onPress={() => {
+                router.push((`/launches/${launchId}`) as Href);
+              }}
+              hitSlop={8}
+            >
+              <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Launch</Text>
+            </Pressable>
+          </View>
         </View>
 
         {content}

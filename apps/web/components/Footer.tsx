@@ -19,6 +19,9 @@ export function Footer() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-4">
+          <a className="hover:text-text1" href="/support">
+            Support
+          </a>
           <a className="hover:text-text1" href="/legal/terms">
             Terms
           </a>

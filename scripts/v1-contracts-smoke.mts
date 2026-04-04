@@ -374,6 +374,8 @@ async function main() {
           isActiveNow: true,
           hasShape: true,
           shapeCount: 1,
+          rawText: '!FDC 6/5918 ZJX FL..SPACE OPERATIONS..TEMPORARY FLIGHT RESTRICTIONS WITHIN AN AREA DEFINED AS 285100N/0804100W TO 284900N/0804200W TO 285300N/0803000W.',
+          rawTextFetchedAt: '2026-03-08T11:56:00.000Z',
           sourceGraphicUrl: 'https://tfr.faa.gov/tfr3/?page=detail_6_5918.html',
           sourceRawUrl: 'https://tfr.faa.gov/tfrapi/getWebText?notamId=6%2F5918',
           sourceUrl: 'https://tfr.faa.gov/tfr3/?page=detail_6_5918.html',
@@ -491,6 +493,342 @@ async function main() {
       product: {
         renderTier: 1
       }
+    },
+    spaceXDroneShips: {
+      generatedAt: '2026-03-08T12:00:00.000Z',
+      items: [
+        {
+          slug: 'asog',
+          name: 'A Shortfall of Gravitas',
+          abbrev: 'ASOG',
+          status: 'active',
+          description: 'Atlantic drone ship supporting Falcon booster recovery.',
+          wikidataId: null,
+          wikiSourceUrl: null,
+          wikipediaUrl: null,
+          wikimediaCommonsCategory: null,
+          wikiLastSyncedAt: '2026-03-08T10:00:00.000Z',
+          imageUrl: null,
+          imageSourceUrl: null,
+          imageLicense: null,
+          imageLicenseUrl: null,
+          imageCredit: null,
+          imageAlt: null,
+          lengthM: 91.4,
+          yearBuilt: 2021,
+          homePort: 'Port Canaveral',
+          ownerName: 'SpaceX',
+          operatorName: 'SpaceX',
+          countryName: 'United States',
+          kpis: {
+            assignmentsKnown: 12,
+            upcomingAssignments: 2,
+            assignmentsPastYear: 5,
+            distinctBoostersRecovered: 4,
+            distinctLaunchSitesServed: 2,
+            coveragePercent: 82.5,
+            firstAssignmentDate: '2024-01-01T00:00:00.000Z',
+            lastAssignmentDate: '2026-03-01T00:00:00.000Z'
+          }
+        }
+      ],
+      coverage: {
+        generatedAt: '2026-03-08T12:00:00.000Z',
+        totalSpaceXLaunches: 100,
+        knownLandingAssignments: 82,
+        coveragePercent: 82,
+        upcomingKnownAssignments: 2,
+        lastVerifiedAt: '2026-03-08T11:45:00.000Z'
+      },
+      upcomingAssignments: [
+        {
+          launchId,
+          ll2LaunchUuid: 'll2-sample-launch',
+          launchName: 'Starlink Group 99',
+          launchSlug: 'sample-launch',
+          launchNet: '2026-03-08T12:00:00.000Z',
+          launchHref: `/launches/${launchId}`,
+          flightSlug: 'falcon-9',
+          missionKey: 'falcon-9',
+          missionLabel: 'Falcon 9',
+          provider: 'SpaceX',
+          vehicle: 'Falcon 9',
+          padName: 'SLC-40',
+          padShortCode: 'SLC-40',
+          padLocationName: 'Cape Canaveral',
+          shipSlug: 'asog',
+          shipName: 'A Shortfall of Gravitas',
+          shipAbbrev: 'ASOG',
+          landingResult: 'unknown',
+          landingAttempt: true,
+          landingSuccess: null,
+          landingTime: null,
+          source: 'internal',
+          sourceLandingId: null,
+          lastVerifiedAt: '2026-03-08T11:45:00.000Z'
+        }
+      ]
+    },
+    spaceXDroneShipDetail: {
+      generatedAt: '2026-03-08T12:00:00.000Z',
+      ship: {
+        slug: 'asog',
+        name: 'A Shortfall of Gravitas',
+        abbrev: 'ASOG',
+        status: 'active',
+        description: 'Atlantic drone ship supporting Falcon booster recovery.',
+        wikidataId: null,
+        wikiSourceUrl: null,
+        wikipediaUrl: null,
+        wikimediaCommonsCategory: null,
+        wikiLastSyncedAt: '2026-03-08T10:00:00.000Z',
+        imageUrl: null,
+        imageSourceUrl: null,
+        imageLicense: null,
+        imageLicenseUrl: null,
+        imageCredit: null,
+        imageAlt: null,
+        lengthM: 91.4,
+        yearBuilt: 2021,
+        homePort: 'Port Canaveral',
+        ownerName: 'SpaceX',
+        operatorName: 'SpaceX',
+        countryName: 'United States',
+        kpis: {
+          assignmentsKnown: 12,
+          upcomingAssignments: 2,
+          assignmentsPastYear: 5,
+          distinctBoostersRecovered: 4,
+          distinctLaunchSitesServed: 2,
+          coveragePercent: 82.5,
+          firstAssignmentDate: '2024-01-01T00:00:00.000Z',
+          lastAssignmentDate: '2026-03-01T00:00:00.000Z'
+        }
+      },
+      coverage: {
+        generatedAt: '2026-03-08T12:00:00.000Z',
+        totalSpaceXLaunches: 100,
+        knownLandingAssignments: 82,
+        coveragePercent: 82,
+        upcomingKnownAssignments: 2,
+        lastVerifiedAt: '2026-03-08T11:45:00.000Z'
+      },
+      upcomingAssignments: [
+        {
+          launchId,
+          ll2LaunchUuid: 'll2-sample-launch',
+          launchName: 'Starlink Group 99',
+          launchSlug: 'sample-launch',
+          launchNet: '2026-03-08T12:00:00.000Z',
+          launchHref: `/launches/${launchId}`,
+          flightSlug: 'falcon-9',
+          missionKey: 'falcon-9',
+          missionLabel: 'Falcon 9',
+          provider: 'SpaceX',
+          vehicle: 'Falcon 9',
+          padName: 'SLC-40',
+          padShortCode: 'SLC-40',
+          padLocationName: 'Cape Canaveral',
+          shipSlug: 'asog',
+          shipName: 'A Shortfall of Gravitas',
+          shipAbbrev: 'ASOG',
+          landingResult: 'unknown',
+          landingAttempt: true,
+          landingSuccess: null,
+          landingTime: null,
+          source: 'internal',
+          sourceLandingId: null,
+          lastVerifiedAt: '2026-03-08T11:45:00.000Z'
+        }
+      ],
+      recentAssignments: [
+        {
+          launchId,
+          ll2LaunchUuid: 'll2-sample-launch',
+          launchName: 'Crew-11',
+          launchSlug: 'crew-11',
+          launchNet: '2026-02-01T12:00:00.000Z',
+          launchHref: `/launches/${launchId}`,
+          flightSlug: 'falcon-9',
+          missionKey: 'falcon-9',
+          missionLabel: 'Falcon 9',
+          provider: 'SpaceX',
+          vehicle: 'Falcon 9',
+          padName: 'LC-39A',
+          padShortCode: '39A',
+          padLocationName: 'Kennedy Space Center',
+          shipSlug: 'asog',
+          shipName: 'A Shortfall of Gravitas',
+          shipAbbrev: 'ASOG',
+          landingResult: 'success',
+          landingAttempt: true,
+          landingSuccess: true,
+          landingTime: '2026-02-01T12:12:00.000Z',
+          source: 'internal',
+          sourceLandingId: 'landing-1',
+          lastVerifiedAt: '2026-02-01T12:30:00.000Z'
+        }
+      ],
+      launchSites: [
+        {
+          name: 'Cape Canaveral',
+          count: 9
+        }
+      ],
+      missionMix: [
+        {
+          missionKey: 'falcon-9',
+          missionLabel: 'Falcon 9',
+          count: 12
+        }
+      ],
+      boosters: [
+        {
+          ll2LauncherId: 123,
+          serialNumber: 'B1075',
+          missions: 4
+        }
+      ]
+    },
+    starshipOverview: {
+      generatedAt: '2026-03-08T12:00:00.000Z',
+      title: 'Starship Program Workbench',
+      description: 'Native mobile workbench for Starship flights, timeline, and next-launch context.',
+      snapshot: {
+        generatedAt: '2026-03-08T12:00:00.000Z',
+        lastUpdated: '2026-03-08T11:45:00.000Z',
+        nextLaunch: {
+          id: launchId,
+          name: 'Starship Flight 10',
+          provider: 'SpaceX',
+          vehicle: 'Starship',
+          net: '2026-04-15T12:00:00.000Z',
+          netPrecision: 'minute',
+          status: 'go',
+          statusText: 'Go',
+          imageUrl: null,
+          padName: 'Orbital Launch Mount A',
+          padShortCode: 'OLM-A',
+          padLocation: 'Starbase',
+          missionName: 'Integrated flight test',
+          missionKey: 'starship',
+          flightSlug: 'flight-10',
+          href: '/starship/flight-10'
+        },
+        upcoming: [],
+        recent: [],
+        faq: [
+          {
+            question: 'What does the workbench track?',
+            answer: 'Native flight previews, timeline events, and next-launch context.'
+          }
+        ]
+      },
+      stats: {
+        upcomingLaunches: 1,
+        recentLaunches: 2,
+        flightsTracked: 10,
+        timelineEvents: 4
+      },
+      flights: [
+        {
+          flightNumber: 10,
+          flightSlug: 'flight-10',
+          label: 'Flight 10',
+          nextLaunch: {
+            id: launchId,
+            name: 'Starship Flight 10',
+            provider: 'SpaceX',
+            vehicle: 'Starship',
+            net: '2026-04-15T12:00:00.000Z',
+            netPrecision: 'minute',
+            status: 'go',
+            statusText: 'Go',
+            imageUrl: null,
+            padName: 'Orbital Launch Mount A',
+            padShortCode: 'OLM-A',
+            padLocation: 'Starbase',
+            missionName: 'Integrated flight test',
+            missionKey: 'starship',
+            flightSlug: 'flight-10',
+            href: '/starship/flight-10'
+          },
+          upcomingCount: 1,
+          recentCount: 0,
+          lastUpdated: '2026-03-08T11:45:00.000Z'
+        }
+      ],
+      timeline: [
+        {
+          id: 'timeline-1',
+          missionLabel: 'Flight 10',
+          title: 'Static fire campaign',
+          summary: 'Vehicle completed a multi-engine static fire ahead of launch window targeting.',
+          date: '2026-03-05T18:00:00.000Z',
+          status: 'completed',
+          sourceLabel: 'Program note',
+          href: '/starship/flight-10'
+        }
+      ]
+    },
+    starshipFlightOverview: {
+      generatedAt: '2026-03-08T12:00:00.000Z',
+      title: 'Starship Flight 10',
+      description: 'Flight-level mobile summary for Starship integrated flight testing.',
+      snapshot: {
+        generatedAt: '2026-03-08T12:00:00.000Z',
+        lastUpdated: '2026-03-08T11:45:00.000Z',
+        missionName: 'Starship Flight 10',
+        flightNumber: 10,
+        flightSlug: 'flight-10',
+        nextLaunch: {
+          id: launchId,
+          name: 'Starship Flight 10',
+          provider: 'SpaceX',
+          vehicle: 'Starship',
+          net: '2026-04-15T12:00:00.000Z',
+          netPrecision: 'minute',
+          status: 'go',
+          statusText: 'Go',
+          imageUrl: null,
+          padName: 'Orbital Launch Mount A',
+          padShortCode: 'OLM-A',
+          padLocation: 'Starbase',
+          missionName: 'Integrated flight test',
+          missionKey: 'starship',
+          flightSlug: 'flight-10',
+          href: '/starship/flight-10'
+        },
+        upcoming: [],
+        recent: [],
+        crewHighlights: ['Booster hot-staging iteration', 'Ship reentry profile update'],
+        changes: [
+          {
+            title: 'Window retargeted',
+            summary: 'Launch window moved later in the month while range work closes out.',
+            date: '2026-03-07T16:00:00.000Z',
+            href: '/starship/flight-10'
+          }
+        ],
+        faq: [
+          {
+            question: 'Why a dedicated flight screen?',
+            answer: 'Starship flights carry richer native change tracking than the generic mission shell.'
+          }
+        ]
+      },
+      timeline: [
+        {
+          id: 'timeline-1',
+          missionLabel: 'Flight 10',
+          title: 'Static fire campaign',
+          summary: 'Vehicle completed a multi-engine static fire ahead of launch window targeting.',
+          date: '2026-03-05T18:00:00.000Z',
+          status: 'completed',
+          sourceLabel: 'Program note',
+          href: '/starship/flight-10'
+        }
+      ]
     },
     search: {
       query: 'starlink',
@@ -914,6 +1252,14 @@ async function main() {
       payload = payloads.launchFaaAirspaceMap;
     } else if (url.pathname === `/api/v1/launches/${launchId}/trajectory`) {
       payload = payloads.launchTrajectory;
+    } else if (url.pathname === '/api/v1/spacex/drone-ships') {
+      payload = payloads.spaceXDroneShips;
+    } else if (url.pathname === '/api/v1/spacex/drone-ships/asog') {
+      payload = payloads.spaceXDroneShipDetail;
+    } else if (url.pathname === '/api/v1/starship') {
+      payload = payloads.starshipOverview;
+    } else if (url.pathname === '/api/v1/starship/flight-10') {
+      payload = payloads.starshipFlightOverview;
     } else if (url.pathname === '/api/v1/search') {
       payload = {
         ...payloads.search,
@@ -1110,6 +1456,10 @@ async function main() {
   assert.equal(typeof guestClient.getLaunchDetailVersion, 'function');
   assert.equal(typeof guestClient.getLaunchFaaAirspaceMap, 'function');
   assert.equal(typeof guestClient.getLaunchTrajectory, 'function');
+  assert.equal(typeof guestClient.getSpaceXDroneShips, 'function');
+  assert.equal(typeof guestClient.getSpaceXDroneShipDetail, 'function');
+  assert.equal(typeof guestClient.getStarshipOverview, 'function');
+  assert.equal(typeof guestClient.getStarshipFlightOverview, 'function');
   assert.equal(typeof guestClient.postArTelemetrySession, 'function');
   assert.equal(typeof guestClient.search, 'function');
   assert.equal(typeof cookieClient.getProfile, 'function');
@@ -1224,6 +1574,22 @@ async function main() {
 
   await bearerClient.getLaunchTrajectory(launchId);
   expectBearer(popLastRequest(), `/api/v1/launches/${launchId}/trajectory`);
+
+  const droneShips = await guestClient.getSpaceXDroneShips();
+  expectGuest(popLastRequest(), '/api/v1/spacex/drone-ships');
+  assert.deepEqual(droneShips, payloads.spaceXDroneShips);
+
+  const droneShipDetail = await guestClient.getSpaceXDroneShipDetail('asog');
+  expectGuest(popLastRequest(), '/api/v1/spacex/drone-ships/asog');
+  assert.deepEqual(droneShipDetail, payloads.spaceXDroneShipDetail);
+
+  const starshipOverview = await guestClient.getStarshipOverview();
+  expectGuest(popLastRequest(), '/api/v1/starship');
+  assert.deepEqual(starshipOverview, payloads.starshipOverview);
+
+  const starshipFlightOverview = await guestClient.getStarshipFlightOverview('flight-10');
+  expectGuest(popLastRequest(), '/api/v1/starship/flight-10');
+  assert.deepEqual(starshipFlightOverview, payloads.starshipFlightOverview);
 
   await bearerClient.postArTelemetrySession({
     type: 'start',

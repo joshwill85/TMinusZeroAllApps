@@ -42,6 +42,7 @@ export function DockingBay({ profile, isAdmin, viewerTier, onOpenCalendar, onOpe
         { label: 'News', href: '/news' },
         { label: 'About', href: '/about' },
         { label: 'FAQ', href: '/docs/faq' },
+        { label: 'Support', href: '/support' },
         { label: 'Notifications', href: '/preferences' },
         viewerTier && viewerTier !== 'premium' ? { label: 'Premium · $3.99/mo', href: buildUpgradeHref() } : null,
         { label: accountLabel, href: accountHref },
@@ -52,6 +53,7 @@ export function DockingBay({ profile, isAdmin, viewerTier, onOpenCalendar, onOpe
 
   const legalLinks = useMemo(
     () => [
+      { label: 'Support', href: '/support' },
       { label: 'Terms', href: '/legal/terms' },
       { label: 'Privacy', href: '/legal/privacy' },
       { label: 'Privacy Choices', href: buildPrivacyChoicesHref() },

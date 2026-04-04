@@ -1,15 +1,14 @@
-import { useEffect, useState } from 'react';
-import { Share as NativeShare, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Linking, Share as NativeShare, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { ApiClientError, type AccountExportV1 } from '@tminuszero/api-client';
+import type { AccountExportV1 } from '@tminuszero/api-client';
 import {
   useAccountExportQuery,
   useDeleteAccountMutation,
-  usePrivacyPreferencesQuery,
   useProfileQuery,
-  useUpdatePrivacyPreferencesMutation,
   useViewerSessionQuery
 } from '@/src/api/queries';
+import { prepareAppleAccountDeletion, describeMobileAccountDeletionError } from '@/src/auth/appleAccountDeletion';
 import { AppScreen } from '@/src/components/AppScreen';
 import {
   CustomerShellActionButton,
@@ -19,30 +18,24 @@ import {
 } from '@/src/components/CustomerShell';
 import {
   AccountNotice,
-  AccountTextField,
-  AccountToggleRow
+  AccountTextField
 } from '@/src/features/account/AccountUi';
+import { getPublicSiteUrl } from '@/src/config/api';
 import { MOBILE_SUPPORT_EMAIL } from '@/src/features/account/constants';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 
 export default function PrivacyChoicesScreen() {
   const router = useRouter();
-  const { clearAuthedQueryState, clearSession } = useMobileBootstrap();
+  const { accessToken, clearAuthedQueryState, clearSession } = useMobileBootstrap();
+  const publicSiteUrl = getPublicSiteUrl();
   const viewerSessionQuery = useViewerSessionQuery();
   const profileQuery = useProfileQuery();
-  const privacyPreferencesQuery = usePrivacyPreferencesQuery();
   const accountExportQuery = useAccountExportQuery({
     enabled: Boolean(viewerSessionQuery.data?.viewerId)
   });
-  const updatePrivacyPreferencesMutation = useUpdatePrivacyPreferencesMutation();
   const deleteAccountMutation = useDeleteAccountMutation();
-  const [prefsMessage, setPrefsMessage] = useState<string | null>(null);
-  const [prefsError, setPrefsError] = useState<string | null>(null);
   const [requestMessage, setRequestMessage] = useState<string | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
-  const [optOutSaleShare, setOptOutSaleShare] = useState(false);
-  const [limitSensitive, setLimitSensitive] = useState(false);
-  const [blockEmbeds, setBlockEmbeds] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState('');
 
   const authStatus: 'loading' | 'authed' | 'guest' =
@@ -52,50 +45,7 @@ export default function PrivacyChoicesScreen() {
         ? 'authed'
         : 'guest';
 
-  useEffect(() => {
-    if (!privacyPreferencesQuery.data) {
-      return;
-    }
-
-    setOptOutSaleShare(privacyPreferencesQuery.data.optOutSaleShare);
-    setLimitSensitive(privacyPreferencesQuery.data.limitSensitive);
-    setBlockEmbeds(privacyPreferencesQuery.data.blockThirdPartyEmbeds);
-  }, [privacyPreferencesQuery.data]);
-
   const accountExport = (accountExportQuery.data ?? null) as AccountExportV1 | null;
-
-  async function savePreference(
-    key: 'optOutSaleShare' | 'limitSensitive' | 'blockThirdPartyEmbeds',
-    value: boolean
-  ) {
-    if (authStatus !== 'authed') {
-      setPrefsError('Sign in to manage account privacy preferences.');
-      return;
-    }
-
-    const previous = {
-      optOutSaleShare,
-      limitSensitive,
-      blockThirdPartyEmbeds: blockEmbeds
-    };
-
-    setPrefsMessage(null);
-    setPrefsError(null);
-
-    if (key === 'optOutSaleShare') setOptOutSaleShare(value);
-    if (key === 'limitSensitive') setLimitSensitive(value);
-    if (key === 'blockThirdPartyEmbeds') setBlockEmbeds(value);
-
-    try {
-      await updatePrivacyPreferencesMutation.mutateAsync({ [key]: value });
-      setPrefsMessage('Privacy preferences updated.');
-    } catch (error) {
-      setOptOutSaleShare(previous.optOutSaleShare);
-      setLimitSensitive(previous.limitSensitive);
-      setBlockEmbeds(previous.blockThirdPartyEmbeds);
-      setPrefsError(toPrivacyMessage(error, 'Unable to save preferences.'));
-    }
-  }
 
   async function shareExport() {
     if (authStatus !== 'authed') {
@@ -116,7 +66,7 @@ export default function PrivacyChoicesScreen() {
       });
       setRequestMessage('Account export is ready to share.');
     } catch (error) {
-      setRequestError(toPrivacyMessage(error, 'Unable to prepare account export.'));
+      setRequestError(error instanceof Error ? error.message : 'Unable to prepare account export.');
     }
   }
 
@@ -130,12 +80,13 @@ export default function PrivacyChoicesScreen() {
     setRequestError(null);
 
     try {
+      await prepareAppleAccountDeletion(accessToken);
       await deleteAccountMutation.mutateAsync(deleteConfirm);
       await clearSession();
       await clearAuthedQueryState();
       router.replace('/sign-in');
     } catch (error) {
-      setRequestError(toDeleteAccountMessage(error));
+      setRequestError(describeMobileAccountDeletionError(error));
     }
   }
 
@@ -144,13 +95,35 @@ export default function PrivacyChoicesScreen() {
       <CustomerShellHero
         eyebrow="Privacy"
         title="Privacy Choices"
-        description="Manage account-level privacy preferences, data export, and account deletion without leaving the native app."
+        description="Use the native app for account export and deletion, and use the web for browser-specific media and cookie controls."
       >
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
           <CustomerShellBadge label={authStatus === 'authed' ? 'Signed in' : authStatus === 'loading' ? 'Loading' : 'Guest'} tone={authStatus === 'authed' ? 'success' : 'warning'} />
           <CustomerShellBadge label="Account controls" tone="accent" />
+          <CustomerShellBadge label="Web media controls" />
         </View>
       </CustomerShellHero>
+
+      <CustomerShellPanel
+        title="Web media and browser controls"
+        description="Browser cookie and third-party media controls apply on the website, not inside the native app."
+      >
+        <View style={{ gap: 10 }}>
+          <Text style={{ color: '#d4e0eb', fontSize: 14, lineHeight: 21 }}>
+            The current website does not use a broad analytics or advertising cookie banner. Embedded X, YouTube, and Vimeo content only loads after the user explicitly chooses to load it.
+          </Text>
+          <Text style={{ color: '#d4e0eb', fontSize: 14, lineHeight: 21 }}>
+            If you want to keep supported third-party media external-only in the browser, use the web Privacy Choices page.
+          </Text>
+          <CustomerShellActionButton
+            label="Open web privacy choices"
+            variant="secondary"
+            onPress={() => {
+              void Linking.openURL(`${publicSiteUrl}/legal/privacy-choices`);
+            }}
+          />
+        </View>
+      </CustomerShellPanel>
 
       {authStatus === 'guest' ? (
         <CustomerShellPanel title="Sign in required" description="Privacy choices that affect your account are available after sign-in.">
@@ -163,43 +136,6 @@ export default function PrivacyChoicesScreen() {
         </CustomerShellPanel>
       ) : (
         <>
-          <AccountNotice message={prefsMessage} tone="success" />
-          <AccountNotice message={prefsError} tone="error" />
-          <CustomerShellPanel
-            title="Privacy preferences"
-            description="These settings are saved to your account and used by the mobile app and other signed-in surfaces."
-          >
-            <View style={{ gap: 10 }}>
-              <AccountToggleRow
-                label="Opt out of sale or sharing"
-                description="If state privacy laws apply, this preference records an account-level opt-out."
-                enabled={optOutSaleShare}
-                disabled={updatePrivacyPreferencesMutation.isPending || privacyPreferencesQuery.isPending}
-                onPress={() => {
-                  void savePreference('optOutSaleShare', !optOutSaleShare);
-                }}
-              />
-              <AccountToggleRow
-                label="Limit sensitive-data use"
-                description="Record a state-law sensitive-data limitation request where applicable."
-                enabled={limitSensitive}
-                disabled={updatePrivacyPreferencesMutation.isPending || privacyPreferencesQuery.isPending}
-                onPress={() => {
-                  void savePreference('limitSensitive', !limitSensitive);
-                }}
-              />
-              <AccountToggleRow
-                label="Block third-party embeds"
-                description="Disable third-party video/embed loading in supported experiences."
-                enabled={blockEmbeds}
-                disabled={updatePrivacyPreferencesMutation.isPending || privacyPreferencesQuery.isPending}
-                onPress={() => {
-                  void savePreference('blockThirdPartyEmbeds', !blockEmbeds);
-                }}
-              />
-            </View>
-          </CustomerShellPanel>
-
           <AccountNotice message={requestMessage} tone="success" />
           <AccountNotice message={requestError} tone="error" />
           <CustomerShellPanel
@@ -224,7 +160,7 @@ export default function PrivacyChoicesScreen() {
 
           <CustomerShellPanel
             title="Delete account"
-            description="Type DELETE to permanently remove your account. Active billing may need to be canceled first."
+            description="Type DELETE to permanently remove your account. Active billing may need to be canceled first, and Sign in with Apple accounts may require a final Apple re-auth step."
           >
             <View style={{ gap: 12 }}>
               <AccountTextField
@@ -258,26 +194,6 @@ export default function PrivacyChoicesScreen() {
       />
     </AppScreen>
   );
-}
-
-function toPrivacyMessage(error: unknown, fallback: string) {
-  if (error instanceof ApiClientError) {
-    if (error.code === 'unauthorized') return 'Sign in to manage account privacy preferences.';
-    if (error.code === 'no_changes') return 'No changes to save.';
-  }
-  return error instanceof Error ? error.message : fallback;
-}
-
-function toDeleteAccountMessage(error: unknown) {
-  if (error instanceof ApiClientError) {
-    if (error.code === 'confirm_required') return 'Type DELETE to confirm.';
-    if (error.code === 'unauthorized') return 'Sign in to delete your account.';
-    if (error.code === 'active_subscription') {
-      return 'Cancel any active billing first, then retry account deletion.';
-    }
-    return error.code || 'Unable to delete account.';
-  }
-  return error instanceof Error ? error.message : 'Unable to delete account.';
 }
 
 function formatDateTime(value: string) {

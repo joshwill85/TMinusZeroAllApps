@@ -11,7 +11,7 @@ export default function TermsPage() {
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 text-sm text-text2 md:px-6">
       <h1 className="text-3xl font-semibold text-text1">Terms of Service</h1>
-      <p className="mt-3 text-text3">Last updated: March 19, 2026</p>
+      <p className="mt-3 text-text3">Last updated: April 3, 2026</p>
 
       <section className="mt-6 space-y-4">
         <p>
@@ -37,8 +37,8 @@ export default function TermsPage() {
         </p>
 
         <h2 className="text-xl font-semibold text-text1">Subscriptions</h2>
-        <p>Some parts of the Service require a paid subscription. Pricing and plan details are shown before you check out.</p>
-        <p>Subscriptions renew automatically each billing period until canceled.</p>
+        <p>Some parts of the Service require a paid subscription. Pricing, plan details, and renewal terms are shown before you check out.</p>
+        <p>Subscriptions renew automatically each billing period until canceled. App Store and Google Play subscriptions are managed through the respective store after purchase.</p>
 
         <h2 className="text-xl font-semibold text-text1">Acceptable Use</h2>
         <p>You agree not to misuse the Service.</p>
@@ -50,7 +50,11 @@ export default function TermsPage() {
 
         <h2 className="text-xl font-semibold text-text1">Contact</h2>
         <p>
-          For questions, contact:{' '}
+          For questions or support, visit{' '}
+          <a className="text-primary hover:underline" href="/support">
+            Support
+          </a>{' '}
+          or email{' '}
           <a className="text-primary hover:underline" href={`mailto:${SUPPORT_EMAIL}`}>
             {SUPPORT_EMAIL}
           </a>

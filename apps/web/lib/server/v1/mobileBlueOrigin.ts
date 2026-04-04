@@ -9,6 +9,7 @@ import {
   type BlueOriginMissionKeyV1
 } from '@tminuszero/contracts';
 import { fetchBlueOriginFlightIndex, fetchBlueOriginMissionSnapshot, fetchBlueOriginProgramSnapshot } from '@/lib/server/blueOrigin';
+import { fetchBlueOriginAuditTrailPage } from '@/lib/server/blueOriginAuditTrail';
 import { fetchBlueOriginContentViewModel } from '@/lib/server/blueOriginContent';
 import {
   fetchBlueOriginContracts,
@@ -20,8 +21,10 @@ import {
   fetchBlueOriginVehicles,
   parseBlueOriginEntityMissionFilter
 } from '@/lib/server/blueOriginEntities';
+import { fetchBlueOriginMediaImages, fetchBlueOriginSocialPosts, fetchBlueOriginYouTubeVideos } from '@/lib/server/blueOriginProgramMedia';
 import { fetchBlueOriginPayloads, fetchBlueOriginPassengers } from '@/lib/server/blueOriginPeoplePayloads';
 import { fetchBlueOriginTravelerIndex } from '@/lib/server/blueOriginTravelers';
+import { fetchBlueOriginTimelineViewModel } from '@/lib/server/blueOriginUi';
 import type { Launch } from '@/lib/types/launch';
 import { extractBlueOriginFlightCode, getBlueOriginMissionKeyFromLaunch } from '@/lib/utils/blueOrigin';
 import { buildLaunchHref } from '@/lib/utils/launchLinks';
@@ -141,15 +144,70 @@ function buildMissionCards() {
   }));
 }
 
+function resolveBlueOriginMissionLabel(missionKey: BlueOriginMissionKeyV1) {
+  switch (missionKey) {
+    case 'blue-origin-program':
+      return 'Program';
+    case 'new-shepard':
+      return 'New Shepard';
+    case 'new-glenn':
+      return 'New Glenn';
+    case 'blue-moon':
+      return 'Blue Moon';
+    case 'blue-ring':
+      return 'Blue Ring';
+    case 'be-4':
+      return 'BE-4';
+  }
+}
+
+function formatDateLabel(value: string | null | undefined) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
+}
+
+function formatCurrency(value: number | null | undefined) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      maximumFractionDigits: 0
+    }).format(value);
+  } catch {
+    return String(value);
+  }
+}
+
 export async function loadBlueOriginOverviewPayload() {
-  const [snapshot, flights, travelers, vehicles, engines, contracts, content] = await Promise.all([
+  const [snapshot, flights, travelers, vehicles, engines, contracts, content, timeline, auditTrail, socialPosts, videos, images] = await Promise.all([
     fetchBlueOriginProgramSnapshot(),
     fetchBlueOriginFlightIndex(),
     fetchBlueOriginTravelerIndex(),
     fetchBlueOriginVehicles('all'),
     fetchBlueOriginEngines('all'),
     fetchBlueOriginContracts('all'),
-    fetchBlueOriginContentViewModel({ mission: 'all', kind: 'all', limit: 12, cursor: null })
+    fetchBlueOriginContentViewModel({ mission: 'all', kind: 'all', limit: 12, cursor: null }),
+    fetchBlueOriginTimelineViewModel({
+      mode: 'quick',
+      mission: 'all',
+      sourceType: 'all',
+      includeSuperseded: false,
+      from: null,
+      to: null,
+      cursor: null,
+      limit: 12
+    }),
+    fetchBlueOriginAuditTrailPage(8),
+    fetchBlueOriginSocialPosts(5),
+    fetchBlueOriginYouTubeVideos(5),
+    fetchBlueOriginMediaImages(8)
   ]);
 
   return blueOriginOverviewSchemaV1.parse({
@@ -199,7 +257,53 @@ export async function loadBlueOriginOverviewPayload() {
     vehicles: vehicles.items,
     engines: engines.items,
     contracts: contracts.items,
-    content: content.items
+    content: content.items,
+    timeline: timeline.events.map((event) => ({
+      id: event.id,
+      missionKey: event.mission,
+      missionLabel: resolveBlueOriginMissionLabel(event.mission),
+      title: event.title,
+      summary: event.summary,
+      date: event.date,
+      status: event.status,
+      sourceLabel: event.source.label,
+      href: event.launch ? buildLaunchHref(event.launch) : event.source.href || null
+    })),
+    auditTrail: auditTrail.items.map((item) => ({
+      id: item.id,
+      title: item.title,
+      summary: item.storyPresentation.canonicalPath ? item.storyPresentation.state : item.sourceLabel || item.type,
+      meta: [item.agency || null, formatDateLabel(item.postedDate), formatCurrency(item.amount)].filter(Boolean).join(' • ') || null,
+      href: item.linkTo || item.url || null
+    })),
+    media: {
+      social: socialPosts.map((item) => ({
+        id: item.id,
+        title: item.launchName || 'Blue Origin update',
+        summary: item.summary,
+        url: item.url,
+        postedAt: item.postedAt,
+        imageUrl: item.mediaImageUrl,
+        sourceLabel: `@${item.handle}`
+      })),
+      videos: videos.map((item) => ({
+        id: item.id,
+        title: item.title,
+        summary: item.summary,
+        url: item.url,
+        thumbnailUrl: item.thumbnailUrl,
+        publishedAt: item.publishedAt,
+        sourceLabel: 'Blue Origin YouTube'
+      })),
+      images: images.map((item) => ({
+        id: item.id,
+        title: item.title,
+        imageUrl: item.imageUrl,
+        sourceUrl: item.sourceUrl,
+        publishedAt: item.publishedAt,
+        sourceLabel: item.sourceLabel
+      }))
+    }
   });
 }
 

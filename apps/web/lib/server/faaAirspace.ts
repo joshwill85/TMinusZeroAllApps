@@ -69,6 +69,15 @@ type NotamDetailRow = {
   notam_id: string;
   parsed: Record<string, unknown> | null;
   fetched_at: string | null;
+  web_text: string | null;
+  notam_text: string | null;
+};
+
+type ParsedNotamDetail = {
+  validStart: string | null;
+  validEnd: string | null;
+  rawText: string | null;
+  fetchedAt: string | null;
 };
 
 type LaunchTimingContext = {
@@ -109,6 +118,8 @@ export type LaunchFaaAirspaceAdvisory = {
   isActiveNow: boolean;
   hasShape: boolean;
   shapeCount: number;
+  rawText: string | null;
+  rawTextFetchedAt: string | null;
   sourceGraphicUrl: string | null;
   sourceRawUrl: string | null;
   sourceUrl: string | null;
@@ -349,7 +360,7 @@ async function loadLaunchFaaAirspaceSnapshot({
     shapeById.set(geometryRow.id, geometryRow);
   }
 
-  const preciseWindowByNotamId = await loadPreciseNotamWindows((recordRows || []) as TfrRecordRow[]);
+  const notamDetailsByNotamId = await loadNotamDetails((recordRows || []) as TfrRecordRow[]);
   const nowMs = Date.now();
 
   const advisories = matches
@@ -357,9 +368,9 @@ async function loadLaunchFaaAirspaceSnapshot({
       const record = recordById.get(match.faa_tfr_record_id);
       if (!record) return null;
 
-      const preciseWindow = preciseWindowByNotamId.get(normalizeNonEmptyString(record.notam_id) || '');
-      const validStart = preciseWindow?.validStart ?? normalizeNonEmptyString(record.valid_start);
-      const validEnd = preciseWindow?.validEnd ?? normalizeNonEmptyString(record.valid_end);
+      const notamDetail = notamDetailsByNotamId.get(normalizeNonEmptyString(record.notam_id) || '');
+      const validStart = notamDetail?.validStart ?? normalizeNonEmptyString(record.valid_start);
+      const validEnd = notamDetail?.validEnd ?? normalizeNonEmptyString(record.valid_end);
       const title =
         normalizeNonEmptyString(record.title) ||
         normalizeNonEmptyString(record.description) ||
@@ -390,6 +401,8 @@ async function loadLaunchFaaAirspaceSnapshot({
         isActiveNow: isActiveInWindow(validStart, validEnd, nowMs),
         hasShape: Boolean(record.has_shape),
         shapeCount: shapeCountByRecordId.get(record.id) || 0,
+        rawText: notamDetail?.rawText ?? null,
+        rawTextFetchedAt: notamDetail?.fetchedAt ?? null,
         sourceGraphicUrl,
         sourceRawUrl,
         sourceUrl: sourceGraphicUrl || sourceRawUrl,
@@ -584,7 +597,7 @@ function buildLaunchTimingContext(row: LaunchWindowRow | null): LaunchTimingCont
   };
 }
 
-async function loadPreciseNotamWindows(recordRows: TfrRecordRow[]): Promise<Map<string, { validStart: string | null; validEnd: string | null }>> {
+async function loadNotamDetails(recordRows: TfrRecordRow[]): Promise<Map<string, ParsedNotamDetail>> {
   const notamIds = Array.from(
     new Set(
       recordRows
@@ -600,7 +613,7 @@ async function loadPreciseNotamWindows(recordRows: TfrRecordRow[]): Promise<Map<
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase
     .from('faa_notam_details')
-    .select('notam_id, parsed, fetched_at')
+    .select('notam_id, parsed, fetched_at, web_text, notam_text')
     .in('notam_id', notamIds)
     .order('fetched_at', { ascending: false });
 
@@ -609,17 +622,23 @@ async function loadPreciseNotamWindows(recordRows: TfrRecordRow[]): Promise<Map<
     return new Map();
   }
 
-  const preciseWindowByNotamId = new Map<string, { validStart: string | null; validEnd: string | null }>();
+  const detailByNotamId = new Map<string, ParsedNotamDetail>();
   for (const row of (data || []) as NotamDetailRow[]) {
     const notamId = normalizeNonEmptyString(row.notam_id);
-    if (!notamId || preciseWindowByNotamId.has(notamId)) continue;
+    if (!notamId || detailByNotamId.has(notamId)) continue;
 
     const window = parseNotamDetailWindow(row.parsed);
-    if (!window.validStart && !window.validEnd) continue;
-    preciseWindowByNotamId.set(notamId, window);
+    const rawText = normalizeNotamRawText(row.notam_text, row.web_text);
+    if (!window.validStart && !window.validEnd && !rawText) continue;
+    detailByNotamId.set(notamId, {
+      validStart: window.validStart,
+      validEnd: window.validEnd,
+      rawText,
+      fetchedAt: normalizeNonEmptyString(row.fetched_at)
+    });
   }
 
-  return preciseWindowByNotamId;
+  return detailByNotamId;
 }
 
 function parseNotamDetailWindow(parsed: Record<string, unknown> | null) {
@@ -632,6 +651,36 @@ function parseNotamDetailWindow(parsed: Record<string, unknown> | null) {
     validStart: normalizeNonEmptyString(dateWindow?.validStart),
     validEnd: normalizeNonEmptyString(dateWindow?.validEnd)
   };
+}
+
+function normalizeNotamRawText(notamText: string | null, webText: string | null) {
+  const primary = normalizeMultilineText(notamText);
+  if (primary) return primary;
+  const fallback = normalizeMultilineText(webText);
+  if (!fallback) return null;
+  return stripHtmlToPlainText(fallback);
+}
+
+function normalizeMultilineText(value: string | null | undefined) {
+  const raw = typeof value === 'string' ? value : '';
+  const normalized = raw
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/\u00a0/g, ' ')
+    .trim();
+  return normalized.length ? normalized : null;
+}
+
+function stripHtmlToPlainText(value: string) {
+  return value
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
 }
 
 function advisoryAppliesToLaunchWindow(advisory: LaunchFaaAirspaceAdvisory, launchTiming: LaunchTimingContext | null) {

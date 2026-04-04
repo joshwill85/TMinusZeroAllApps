@@ -217,6 +217,61 @@ const blueOriginContentItemSchemaV1 = z.object({
   confidence: blueOriginConfidenceSchemaV1
 });
 
+const hubLinkedRecordPreviewSchemaV1 = z.object({
+  id: z.string(),
+  title: z.string(),
+  summary: z.string().nullable(),
+  meta: z.string().nullable(),
+  href: z.string().nullable()
+});
+
+const blueOriginTimelinePreviewSchemaV1 = z.object({
+  id: z.string(),
+  missionKey: blueOriginMissionKeySchemaV1,
+  missionLabel: z.string(),
+  title: z.string(),
+  summary: z.string(),
+  date: z.string(),
+  status: z.enum(['completed', 'upcoming', 'tentative', 'superseded']),
+  sourceLabel: z.string(),
+  href: z.string().nullable()
+});
+
+const blueOriginSocialPreviewSchemaV1 = z.object({
+  id: z.string(),
+  title: z.string(),
+  summary: z.string().nullable(),
+  url: z.string(),
+  postedAt: z.string().nullable(),
+  imageUrl: z.string().nullable(),
+  sourceLabel: z.string()
+});
+
+const blueOriginVideoPreviewSchemaV1 = z.object({
+  id: z.string(),
+  title: z.string(),
+  summary: z.string().nullable(),
+  url: z.string(),
+  thumbnailUrl: z.string().nullable(),
+  publishedAt: z.string().nullable(),
+  sourceLabel: z.string()
+});
+
+const blueOriginImagePreviewSchemaV1 = z.object({
+  id: z.string(),
+  title: z.string(),
+  imageUrl: z.string(),
+  sourceUrl: z.string().nullable(),
+  publishedAt: z.string().nullable(),
+  sourceLabel: z.string()
+});
+
+const blueOriginMediaPreviewSchemaV1 = z.object({
+  social: z.array(blueOriginSocialPreviewSchemaV1).default([]),
+  videos: z.array(blueOriginVideoPreviewSchemaV1).default([]),
+  images: z.array(blueOriginImagePreviewSchemaV1).default([])
+});
+
 const blueOriginMissionCardSchemaV1 = z.object({
   missionKey: blueOriginMissionKeySchemaV1,
   title: z.string(),
@@ -249,7 +304,14 @@ export const blueOriginOverviewSchemaV1 = z.object({
   vehicles: z.array(blueOriginVehicleSchemaV1),
   engines: z.array(blueOriginEngineSchemaV1),
   contracts: z.array(blueOriginContractSchemaV1),
-  content: z.array(blueOriginContentItemSchemaV1)
+  content: z.array(blueOriginContentItemSchemaV1),
+  timeline: z.array(blueOriginTimelinePreviewSchemaV1).default([]),
+  auditTrail: z.array(hubLinkedRecordPreviewSchemaV1).default([]),
+  media: blueOriginMediaPreviewSchemaV1.default({
+    social: [],
+    videos: [],
+    images: []
+  })
 });
 
 export const blueOriginMissionOverviewSchemaV1 = z.object({
@@ -427,6 +489,109 @@ const spaceXPayloadSchemaV1 = z.object({
   confidence: blueOriginConfidenceSchemaV1
 });
 
+const spaceXDroneShipKpisSchemaV1 = z.object({
+  assignmentsKnown: z.number().int().nonnegative(),
+  upcomingAssignments: z.number().int().nonnegative(),
+  assignmentsPastYear: z.number().int().nonnegative(),
+  distinctBoostersRecovered: z.number().int().nonnegative(),
+  distinctLaunchSitesServed: z.number().int().nonnegative(),
+  coveragePercent: z.number().nonnegative(),
+  firstAssignmentDate: z.string().nullable(),
+  lastAssignmentDate: z.string().nullable()
+});
+
+const spaceXDroneShipSchemaV1 = z.object({
+  slug: z.enum(['ocisly', 'asog', 'jrti']),
+  name: z.string(),
+  abbrev: z.string().nullable(),
+  status: z.enum(['active', 'retired', 'unknown']),
+  description: z.string().nullable(),
+  wikidataId: z.string().nullable(),
+  wikiSourceUrl: z.string().nullable(),
+  wikipediaUrl: z.string().nullable(),
+  wikimediaCommonsCategory: z.string().nullable(),
+  wikiLastSyncedAt: z.string().nullable(),
+  imageUrl: z.string().nullable(),
+  imageSourceUrl: z.string().nullable(),
+  imageLicense: z.string().nullable(),
+  imageLicenseUrl: z.string().nullable(),
+  imageCredit: z.string().nullable(),
+  imageAlt: z.string().nullable(),
+  lengthM: z.number().nullable(),
+  yearBuilt: z.number().int().nullable(),
+  homePort: z.string().nullable(),
+  ownerName: z.string().nullable(),
+  operatorName: z.string().nullable(),
+  countryName: z.string().nullable(),
+  kpis: spaceXDroneShipKpisSchemaV1
+});
+
+const spaceXDroneShipAssignmentSchemaV1 = z.object({
+  launchId: z.string(),
+  ll2LaunchUuid: z.string().nullable(),
+  launchName: z.string(),
+  launchSlug: z.string().nullable(),
+  launchNet: z.string().nullable(),
+  launchHref: z.string(),
+  flightSlug: z.string(),
+  missionKey: spaceXMissionKeySchemaV1,
+  missionLabel: z.string(),
+  provider: z.string().nullable(),
+  vehicle: z.string().nullable(),
+  padName: z.string().nullable(),
+  padShortCode: z.string().nullable(),
+  padLocationName: z.string().nullable(),
+  shipSlug: z.enum(['ocisly', 'asog', 'jrti']),
+  shipName: z.string(),
+  shipAbbrev: z.string().nullable(),
+  landingResult: z.enum(['success', 'failure', 'no_attempt', 'unknown']),
+  landingAttempt: z.boolean().nullable(),
+  landingSuccess: z.boolean().nullable(),
+  landingTime: z.string().nullable(),
+  source: z.string(),
+  sourceLandingId: z.string().nullable(),
+  lastVerifiedAt: z.string().nullable()
+});
+
+const spaceXDroneShipCoverageSchemaV1 = z.object({
+  generatedAt: z.string(),
+  totalSpaceXLaunches: z.number().int().nonnegative(),
+  knownLandingAssignments: z.number().int().nonnegative(),
+  coveragePercent: z.number().nonnegative(),
+  upcomingKnownAssignments: z.number().int().nonnegative(),
+  lastVerifiedAt: z.string().nullable()
+});
+
+const spaceXDroneShipBoosterStatSchemaV1 = z.object({
+  ll2LauncherId: z.number().int(),
+  serialNumber: z.string().nullable(),
+  missions: z.number().int().nonnegative()
+});
+
+const spaceXFinanceSignalSchemaV1 = z.object({
+  id: z.string(),
+  company: z.literal('SpaceX'),
+  kind: z.enum(['government-obligations', 'announced-deal-value', 'launch-cadence', 'private-company-disclosure']),
+  title: z.string(),
+  value: z.number().nullable(),
+  unit: z.string().nullable(),
+  period: z.string().nullable(),
+  asOfDate: z.string().nullable(),
+  sourceLabel: z.string(),
+  sourceUrl: z.string().nullable(),
+  confidence: blueOriginConfidenceSchemaV1,
+  disclaimer: z.string(),
+  metadata: z.record(z.unknown())
+});
+
+const spaceXFinanceResponseSchemaV1 = z.object({
+  generatedAt: z.string(),
+  company: z.literal('SpaceX'),
+  publicEarningsAvailable: z.boolean(),
+  disclaimer: z.string(),
+  items: z.array(spaceXFinanceSignalSchemaV1)
+});
+
 const spaceXMissionCardSchemaV1 = z.object({
   missionKey: spaceXMissionKeySchemaV1,
   title: z.string(),
@@ -457,7 +622,19 @@ export const spaceXOverviewSchemaV1 = z.object({
   flights: z.array(spaceXFlightRecordSchemaV1),
   vehicles: z.array(spaceXVehicleSchemaV1),
   engines: z.array(spaceXEngineSchemaV1),
-  contracts: z.array(spaceXContractSchemaV1)
+  contracts: z.array(spaceXContractSchemaV1),
+  droneShips: z.object({
+    items: z.array(spaceXDroneShipSchemaV1).default([]),
+    coverage: spaceXDroneShipCoverageSchemaV1.nullable().default(null),
+    upcomingAssignments: z.array(spaceXDroneShipAssignmentSchemaV1).default([])
+  }).default({
+    items: [],
+    coverage: null,
+    upcomingAssignments: []
+  }),
+  finance: spaceXFinanceResponseSchemaV1.nullable().default(null),
+  discovery: z.array(hubLinkedRecordPreviewSchemaV1).default([]),
+  usaspending: z.array(hubLinkedRecordPreviewSchemaV1).default([])
 });
 
 export const spaceXMissionOverviewSchemaV1 = z.object({
@@ -492,6 +669,35 @@ export const spaceXContractsResponseSchemaV1 = z.object({
   generatedAt: z.string(),
   mission: z.union([spaceXMissionKeySchemaV1, z.literal('all')]),
   items: z.array(spaceXContractSchemaV1)
+});
+
+export const spaceXDroneShipListResponseSchemaV1 = z.object({
+  generatedAt: z.string(),
+  items: z.array(spaceXDroneShipSchemaV1),
+  coverage: spaceXDroneShipCoverageSchemaV1,
+  upcomingAssignments: z.array(spaceXDroneShipAssignmentSchemaV1)
+});
+
+export const spaceXDroneShipDetailSchemaV1 = z.object({
+  generatedAt: z.string(),
+  ship: spaceXDroneShipSchemaV1,
+  coverage: spaceXDroneShipCoverageSchemaV1,
+  upcomingAssignments: z.array(spaceXDroneShipAssignmentSchemaV1),
+  recentAssignments: z.array(spaceXDroneShipAssignmentSchemaV1),
+  launchSites: z.array(
+    z.object({
+      name: z.string(),
+      count: z.number().int().nonnegative()
+    })
+  ),
+  missionMix: z.array(
+    z.object({
+      missionKey: spaceXMissionKeySchemaV1,
+      missionLabel: z.string(),
+      count: z.number().int().nonnegative()
+    })
+  ),
+  boosters: z.array(spaceXDroneShipBoosterStatSchemaV1)
 });
 
 export const artemisMissionKeySchemaV1 = z.enum([
@@ -820,6 +1026,34 @@ const artemisContentCoverageSchemaV1 = z.object({
   sourceKeys: z.array(z.string())
 });
 
+const artemisBudgetPreviewSchemaV1 = z.object({
+  id: z.string(),
+  fiscalYear: z.number().int().nullable(),
+  agency: z.string().nullable(),
+  program: z.string().nullable(),
+  lineItem: z.string().nullable(),
+  amountRequested: z.number().nullable(),
+  amountEnacted: z.number().nullable(),
+  announcedTime: z.string().nullable(),
+  detail: z.string().nullable(),
+  sourceTitle: z.string().nullable(),
+  sourceUrl: z.string().nullable()
+});
+
+const artemisProcurementPreviewSchemaV1 = z.object({
+  id: z.string(),
+  awardId: z.string().nullable(),
+  title: z.string().nullable(),
+  recipient: z.string().nullable(),
+  obligatedAmount: z.number().nullable(),
+  awardedOn: z.string().nullable(),
+  missionKey: z.string().nullable(),
+  detail: z.string().nullable(),
+  sourceTitle: z.string().nullable(),
+  sourceUrl: z.string().nullable(),
+  canonicalPath: z.string().nullable()
+});
+
 export const artemisOverviewSchemaV1 = z.object({
   generatedAt: z.string(),
   title: z.string(),
@@ -828,7 +1062,10 @@ export const artemisOverviewSchemaV1 = z.object({
   stats: artemisOverviewStatsSchemaV1,
   missions: z.array(artemisMissionCardSchemaV1),
   timeline: z.array(artemisTimelinePreviewSchemaV1),
-  content: z.array(artemisContentPreviewSchemaV1)
+  content: z.array(artemisContentPreviewSchemaV1),
+  intel: z.array(hubLinkedRecordPreviewSchemaV1).default([]),
+  budget: z.array(artemisBudgetPreviewSchemaV1).default([]),
+  procurement: z.array(artemisProcurementPreviewSchemaV1).default([])
 });
 
 export const artemisMissionOverviewSchemaV1 = z.object({
@@ -883,6 +1120,83 @@ export const artemisContentResponseSchemaV1 = z.object({
   items: z.array(artemisContentItemSchemaV1),
   nextCursor: z.string().nullable(),
   sourceCoverage: artemisContentCoverageSchemaV1
+});
+
+const starshipFaqItemSchemaV1 = z.object({
+  question: z.string(),
+  answer: z.string()
+});
+
+const starshipChangeItemSchemaV1 = z.object({
+  title: z.string(),
+  summary: z.string(),
+  date: z.string(),
+  href: z.string().optional()
+});
+
+const starshipTimelinePreviewSchemaV1 = z.object({
+  id: z.string(),
+  missionLabel: z.string(),
+  title: z.string(),
+  summary: z.string(),
+  date: z.string(),
+  status: z.enum(['completed', 'upcoming', 'tentative', 'superseded']),
+  sourceLabel: z.string(),
+  href: z.string().nullable()
+});
+
+const starshipFlightIndexItemSchemaV1 = z.object({
+  flightNumber: z.number().int().positive(),
+  flightSlug: z.string(),
+  label: z.string(),
+  nextLaunch: spaceXLaunchSummarySchemaV1.nullable(),
+  upcomingCount: z.number().int().nonnegative(),
+  recentCount: z.number().int().nonnegative(),
+  lastUpdated: z.string().nullable()
+});
+
+const starshipOverviewStatsSchemaV1 = z.object({
+  upcomingLaunches: z.number().int().nonnegative(),
+  recentLaunches: z.number().int().nonnegative(),
+  flightsTracked: z.number().int().nonnegative(),
+  timelineEvents: z.number().int().nonnegative()
+});
+
+export const starshipOverviewSchemaV1 = z.object({
+  generatedAt: z.string(),
+  title: z.string(),
+  description: z.string(),
+  snapshot: z.object({
+    generatedAt: z.string(),
+    lastUpdated: z.string().nullable(),
+    nextLaunch: spaceXLaunchSummarySchemaV1.nullable(),
+    upcoming: z.array(spaceXLaunchSummarySchemaV1),
+    recent: z.array(spaceXLaunchSummarySchemaV1),
+    faq: z.array(starshipFaqItemSchemaV1)
+  }),
+  stats: starshipOverviewStatsSchemaV1,
+  flights: z.array(starshipFlightIndexItemSchemaV1),
+  timeline: z.array(starshipTimelinePreviewSchemaV1)
+});
+
+export const starshipFlightOverviewSchemaV1 = z.object({
+  generatedAt: z.string(),
+  title: z.string(),
+  description: z.string(),
+  snapshot: z.object({
+    generatedAt: z.string(),
+    lastUpdated: z.string().nullable(),
+    missionName: z.string(),
+    flightNumber: z.number().int().positive(),
+    flightSlug: z.string(),
+    nextLaunch: spaceXLaunchSummarySchemaV1.nullable(),
+    upcoming: z.array(spaceXLaunchSummarySchemaV1),
+    recent: z.array(spaceXLaunchSummarySchemaV1),
+    crewHighlights: z.array(z.string()),
+    changes: z.array(starshipChangeItemSchemaV1),
+    faq: z.array(starshipFaqItemSchemaV1)
+  }),
+  timeline: z.array(starshipTimelinePreviewSchemaV1)
 });
 
 export const entitlementCapabilitiesSchemaV1 = z.object({
@@ -2557,6 +2871,73 @@ export const authContextEventTypeSchemaV1 = z.enum([
   'sign_out'
 ]);
 
+export const appleAuthCaptureSourceSchemaV1 = z.enum([
+  'ios_native_code',
+  'web_provider_refresh',
+  'web_provider_access'
+]);
+
+export const appleAuthCaptureSchemaV1 = z
+  .object({
+    source: appleAuthCaptureSourceSchemaV1,
+    authorizationCode: z.string().trim().min(1).max(4096).optional(),
+    providerToken: z.string().trim().min(1).max(8192).optional(),
+    appleUserId: z.string().trim().min(1).max(255).nullable().optional(),
+    email: z.string().trim().email().nullable().optional(),
+    emailIsPrivateRelay: z.boolean().optional(),
+    firstName: z.string().trim().min(1).max(80).nullable().optional(),
+    lastName: z.string().trim().min(1).max(80).nullable().optional()
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.source === 'ios_native_code' && !value.authorizationCode) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'authorizationCode is required for native Apple auth capture.',
+        path: ['authorizationCode']
+      });
+    }
+
+    if ((value.source === 'web_provider_refresh' || value.source === 'web_provider_access') && !value.providerToken) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'providerToken is required for web Apple auth capture.',
+        path: ['providerToken']
+      });
+    }
+  });
+
+export const appleAuthCaptureResponseSchemaV1 = z
+  .object({
+    ok: z.literal(true),
+    tokenKind: z.enum(['refresh_token', 'access_token']),
+    storedAt: z.string()
+  })
+  .strict();
+
+export const authMethodProviderSchemaV1 = z.enum(['email_password', 'apple']);
+
+export const authMethodSchemaV1 = z
+  .object({
+    provider: authMethodProviderSchemaV1,
+    linked: z.boolean(),
+    linkedAt: z.string().nullable(),
+    email: z.string().trim().email().nullable().optional(),
+    emailIsPrivateRelay: z.boolean().optional(),
+    canLink: z.boolean(),
+    canUnlink: z.boolean(),
+    unlinkBlockedReason: z.enum(['backup_method_required']).nullable().optional()
+  })
+  .strict();
+
+export const authMethodsSchemaV1 = z
+  .object({
+    viewerId: z.string().uuid(),
+    email: z.string().trim().email().nullable(),
+    methods: z.array(authMethodSchemaV1).length(2)
+  })
+  .strict();
+
 export const authContextUpsertSchemaV1 = z
   .object({
     provider: authProviderSchemaV1,
@@ -3039,6 +3420,8 @@ const launchFaaAirspaceAdvisorySchemaV1 = z.object({
   isActiveNow: z.boolean(),
   hasShape: z.boolean(),
   shapeCount: z.number().int().nonnegative(),
+  rawText: z.string().nullable(),
+  rawTextFetchedAt: z.string().nullable(),
   sourceGraphicUrl: z.string().nullable(),
   sourceRawUrl: z.string().nullable(),
   sourceUrl: z.string().nullable(),
@@ -3603,6 +3986,8 @@ export type SpaceXFlightsResponseV1 = z.infer<typeof spaceXFlightsResponseSchema
 export type SpaceXVehiclesResponseV1 = z.infer<typeof spaceXVehiclesResponseSchemaV1>;
 export type SpaceXEnginesResponseV1 = z.infer<typeof spaceXEnginesResponseSchemaV1>;
 export type SpaceXContractsResponseV1 = z.infer<typeof spaceXContractsResponseSchemaV1>;
+export type SpaceXDroneShipListResponseV1 = z.infer<typeof spaceXDroneShipListResponseSchemaV1>;
+export type SpaceXDroneShipDetailV1 = z.infer<typeof spaceXDroneShipDetailSchemaV1>;
 export type ArtemisMissionKeyV1 = z.infer<typeof artemisMissionKeySchemaV1>;
 export type ArtemisOverviewV1 = z.infer<typeof artemisOverviewSchemaV1>;
 export type ArtemisMissionOverviewV1 = z.infer<typeof artemisMissionOverviewSchemaV1>;
@@ -3611,6 +3996,8 @@ export type ArtemisContractDetailV1 = z.infer<typeof artemisContractDetailSchema
 export type ArtemisAwardeesResponseV1 = z.infer<typeof artemisAwardeesResponseSchemaV1>;
 export type ArtemisAwardeeDetailV1 = z.infer<typeof artemisAwardeeDetailSchemaV1>;
 export type ArtemisContentResponseV1 = z.infer<typeof artemisContentResponseSchemaV1>;
+export type StarshipOverviewV1 = z.infer<typeof starshipOverviewSchemaV1>;
+export type StarshipFlightOverviewV1 = z.infer<typeof starshipFlightOverviewSchemaV1>;
 export type EntitlementCapabilitiesV1 = z.infer<typeof entitlementCapabilitiesSchemaV1>;
 export type EntitlementLimitsV1 = z.infer<typeof entitlementLimitsSchemaV1>;
 export type EntitlementsV1 = z.infer<typeof entitlementSchemaV1>;
@@ -3734,6 +4121,12 @@ export type MobileAuthPasswordSignUpV1 = z.infer<typeof mobileAuthPasswordSignUp
 export type MobileAuthPasswordSignUpResponseV1 = z.infer<typeof mobileAuthPasswordSignUpResponseSchemaV1>;
 export type MobileAuthPasswordResendV1 = z.infer<typeof mobileAuthPasswordResendSchemaV1>;
 export type MobileAuthPasswordRecoverV1 = z.infer<typeof mobileAuthPasswordRecoverSchemaV1>;
+export type AppleAuthCaptureSourceV1 = z.infer<typeof appleAuthCaptureSourceSchemaV1>;
+export type AppleAuthCaptureV1 = z.infer<typeof appleAuthCaptureSchemaV1>;
+export type AppleAuthCaptureResponseV1 = z.infer<typeof appleAuthCaptureResponseSchemaV1>;
+export type AuthMethodProviderV1 = z.infer<typeof authMethodProviderSchemaV1>;
+export type AuthMethodV1 = z.infer<typeof authMethodSchemaV1>;
+export type AuthMethodsV1 = z.infer<typeof authMethodsSchemaV1>;
 export type AuthContextEventTypeV1 = z.infer<typeof authContextEventTypeSchemaV1>;
 export type AuthContextUpsertV1 = z.infer<typeof authContextUpsertSchemaV1>;
 export type ProfileV1 = z.infer<typeof profileSchemaV1>;

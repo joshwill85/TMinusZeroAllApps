@@ -285,6 +285,9 @@ export function AuthForm({
           >
             {loading ? 'Working...' : 'Continue with Apple'}
           </button>
+          <div className="text-center text-xs text-text3">
+            Existing account with a different email or Apple private relay? Sign in first, then link Apple from Login Methods.
+          </div>
           <div className="text-center text-xs uppercase tracking-[0.08em] text-text3">Or use email</div>
         </>
       ) : null}

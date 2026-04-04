@@ -25,6 +25,7 @@ internal class TmzLaunchMapView(context: Context, appContext: AppContext) : Expo
   var boundsJson: String? = null
   var padJson: String? = null
   var interactive: Boolean = false
+  var renderMode: String = "auto"
 
   private val mapView = MapView(context)
   private val reactContext = appContext.reactContext as? ReactContext
@@ -99,9 +100,9 @@ internal class TmzLaunchMapView(context: Context, appContext: AppContext) : Expo
     map.uiSettings.isZoomControlsEnabled = false
     map.uiSettings.isZoomGesturesEnabled = interactive
 
-    val advisories = parseAdvisories(advisoriesJson)
+    val advisories = if (shouldRenderAdvisories()) parseAdvisories(advisoriesJson) else emptyList()
     val pad = parsePad(padJson)
-    val bounds = parseBounds(boundsJson)
+    val bounds = if (shouldUseBounds()) parseBounds(boundsJson) else null
 
     advisories.forEach { advisory ->
       advisory.polygons.forEach { polygon ->
@@ -153,6 +154,14 @@ internal class TmzLaunchMapView(context: Context, appContext: AppContext) : Expo
 
   private fun hasArea(bounds: BoundsPayload): Boolean {
     return abs(bounds.maxLatitude - bounds.minLatitude) > 0.0001 || abs(bounds.maxLongitude - bounds.minLongitude) > 0.0001
+  }
+
+  private fun shouldRenderAdvisories(): Boolean {
+    return renderMode != "pad"
+  }
+
+  private fun shouldUseBounds(): Boolean {
+    return renderMode != "pad"
   }
 
   private fun parseAdvisories(json: String): List<AdvisoryPayload> {

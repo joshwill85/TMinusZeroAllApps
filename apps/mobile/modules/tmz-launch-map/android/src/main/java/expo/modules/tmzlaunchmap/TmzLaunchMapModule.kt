@@ -36,6 +36,10 @@ class TmzLaunchMapModule : Module() {
         view.interactive = interactive
       }
 
+      Prop("renderMode", "auto") { view: TmzLaunchMapView, renderMode: String ->
+        view.renderMode = renderMode
+      }
+
       OnViewDidUpdateProps { view ->
         view.onPropsUpdated()
       }

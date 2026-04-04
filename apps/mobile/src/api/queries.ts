@@ -59,6 +59,7 @@ import type {
 import {
   adminAccessOverrideQueryOptions,
   alertRulesQueryOptions,
+  authMethodsQueryOptions,
   billingCatalogQueryOptions,
   billingSummaryQueryOptions,
   calendarFeedsQueryOptions,
@@ -103,11 +104,15 @@ import {
   sharedQueryStaleTimes,
   sharedQueryKeys,
   spaceXContractsQueryOptions,
+  spaceXDroneShipDetailQueryOptions,
+  spaceXDroneShipsQueryOptions,
   spaceXEnginesQueryOptions,
   spaceXFlightsQueryOptions,
   spaceXMissionOverviewQueryOptions,
   spaceXOverviewQueryOptions,
   spaceXVehiclesQueryOptions,
+  starshipFlightOverviewQueryOptions,
+  starshipOverviewQueryOptions,
   viewerEntitlementsQueryOptions,
   viewerSessionQueryOptions,
   watchlistsQueryOptions
@@ -478,6 +483,42 @@ export function useSpaceXContractsQuery(request: SpaceXMissionFilterRequest = {}
   });
 }
 
+export function useSpaceXDroneShipsQuery(options?: { enabled?: boolean }) {
+  const client = useMobileApiClient();
+
+  return useQuery({
+    ...spaceXDroneShipsQueryOptions(() => client.getSpaceXDroneShips()),
+    enabled: options?.enabled ?? true
+  });
+}
+
+export function useSpaceXDroneShipDetailQuery(slug: string | null, options?: { enabled?: boolean }) {
+  const client = useMobileApiClient();
+
+  return useQuery({
+    ...spaceXDroneShipDetailQueryOptions(slug || 'missing', () => client.getSpaceXDroneShipDetail(String(slug))),
+    enabled: (options?.enabled ?? true) && Boolean(slug)
+  });
+}
+
+export function useStarshipOverviewQuery(options?: { enabled?: boolean }) {
+  const client = useMobileApiClient();
+
+  return useQuery({
+    ...starshipOverviewQueryOptions(() => client.getStarshipOverview()),
+    enabled: options?.enabled ?? true
+  });
+}
+
+export function useStarshipFlightOverviewQuery(slug: string | null, options?: { enabled?: boolean }) {
+  const client = useMobileApiClient();
+
+  return useQuery({
+    ...starshipFlightOverviewQueryOptions(slug || 'missing', () => client.getStarshipFlightOverview(String(slug))),
+    enabled: (options?.enabled ?? true) && Boolean(slug)
+  });
+}
+
 export function useArtemisOverviewQuery(options?: { enabled?: boolean }) {
   const client = useMobileApiClient();
 
@@ -696,6 +737,16 @@ export function useProfileQuery() {
   return useQuery({
     ...profileQueryOptions(() => client.getProfile()),
     enabled: isAuthHydrated && Boolean(accessToken),
+  });
+}
+
+export function useAuthMethodsQuery(options?: { enabled?: boolean }) {
+  const client = useMobileApiClient();
+  const { accessToken, isAuthHydrated } = useMobileBootstrap();
+
+  return useQuery({
+    ...authMethodsQueryOptions(() => client.getAuthMethods()),
+    enabled: isAuthHydrated && Boolean(accessToken) && (options?.enabled ?? true)
   });
 }
 

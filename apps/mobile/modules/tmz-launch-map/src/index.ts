@@ -2,7 +2,7 @@ import { requireOptionalNativeModule } from 'expo-modules-core';
 import TmzLaunchMapView from './TmzLaunchMapView';
 import type { TmzLaunchMapCapabilities } from './TmzLaunchMap.types';
 
-export type { TmzLaunchMapCapabilities, TmzLaunchMapProvider, TmzLaunchMapViewProps } from './TmzLaunchMap.types';
+export type { TmzLaunchMapCapabilities, TmzLaunchMapProvider, TmzLaunchMapRenderMode, TmzLaunchMapViewProps } from './TmzLaunchMap.types';
 
 type TmzLaunchMapNativeModule = {
   getCapabilitiesAsync(): Promise<TmzLaunchMapCapabilities>;

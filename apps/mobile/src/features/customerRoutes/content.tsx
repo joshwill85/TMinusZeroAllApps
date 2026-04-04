@@ -193,7 +193,7 @@ export function InfoHubFallbackScreen({ testID }: { testID: string }) {
           <RouteListRow title="News" subtitle="Mission coverage and launch-linked articles." onPress={() => router.push('/news' as Href)} />
           <RouteListRow title="Contracts" subtitle="Canonical government contract intelligence." onPress={() => router.push('/contracts' as Href)} />
           <RouteListRow title="Satellites" subtitle="NORAD catalog and owner hubs." onPress={() => router.push('/satellites' as Href)} />
-          <RouteListRow title="Docs" subtitle="FAQ, roadmap, and notification guidance." onPress={() => router.push('/docs' as Href)} />
+          <RouteListRow title="Docs" subtitle="Support, roadmap, and notification guidance." onPress={() => router.push('/docs' as Href)} />
           <RouteListRow title="Legal" subtitle="Privacy, data, and notification policy." onPress={() => router.push('/legal/privacy' as Href)} />
           <RouteListRow title="Jellyfish Effect" subtitle="Guide to rocket jellyfish viewing." onPress={() => router.push('/jellyfish-effect' as Href)} />
         </View>
@@ -205,33 +205,6 @@ export function InfoHubFallbackScreen({ testID }: { testID: string }) {
 function formatHubCount(count: number) {
   return `${count} card${count === 1 ? '' : 's'}`;
 }
-
-export const ABOUT_FALLBACK_PAGE: CustomerRouteStaticPage = {
-  eyebrow: 'About',
-  title: 'Hi, I am Josh.',
-  description: 'The story behind T-Minus Zero and the launch-watching habit that turned into a product.',
-  lastUpdated: 'Jan 20, 2026',
-  sections: [
-    {
-      title: 'Where it started',
-      body: 'Launches were part of life growing up in Central Florida, especially when sonic booms rolled inland from the coast.',
-      bullets: [
-        'A launch could feel distant until the house shook.',
-        'Some landings and return-to-land profiles made the sky feel close.',
-        'The goal was always to catch the moment in time, not later in a news recap.'
-      ]
-    },
-    {
-      title: 'Why the product exists',
-      body: 'The site is designed to make launches easier to follow, easier to remember, and easier to share.',
-      bullets: [
-        'See what is launching and when.',
-        'Get reminders so you actually look up.',
-        'Keep the most relevant updates in one place.'
-      ]
-    }
-  ]
-};
 
 export const JELLYFISH_FALLBACK_PAGE: CustomerRouteStaticPage = {
   eyebrow: 'Guide',
@@ -262,7 +235,6 @@ export const JELLYFISH_FALLBACK_PAGE: CustomerRouteStaticPage = {
 
 export function buildGenericDocsFallback(slug: string): CustomerRouteStaticPage {
   const cleanSlug = String(slug || '').trim().toLowerCase() || 'docs';
-  if (cleanSlug === 'about') return ABOUT_FALLBACK_PAGE;
   if (cleanSlug === 'jellyfish-effect') return JELLYFISH_FALLBACK_PAGE;
 
   return {

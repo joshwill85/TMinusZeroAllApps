@@ -128,87 +128,90 @@ export function LaunchDetailHero({
         ]}
       >
         {/* Top: Badges */}
-        <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-          {status && (
-            <View
-              style={{
-                paddingHorizontal: 12,
-                paddingVertical: 6,
-                borderRadius: 999,
-                backgroundColor: statusColor.bg,
-                borderWidth: 1,
-                borderColor: statusColor.border,
-              }}
-            >
-              <Text
-                style={{
-                  fontSize: 12,
-                  fontWeight: '700',
-                  color: statusColor.text,
-                  textTransform: 'uppercase',
-                }}
-              >
-                {status}
-              </Text>
-            </View>
-          )}
-          {tier && (
-            <View
-              style={{
-                paddingHorizontal: 12,
-                paddingVertical: 6,
-                borderRadius: 999,
-                backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                borderWidth: 1,
-                borderColor: theme.stroke,
-              }}
-            >
-              <Text
-                style={{
-                  fontSize: 12,
-                  fontWeight: '600',
-                  color: theme.muted,
-                  textTransform: 'uppercase',
-                }}
-              >
-                {tier}
-              </Text>
-            </View>
-          )}
-          {webcastLive && (
-            <View
-              style={{
-                paddingHorizontal: 12,
-                paddingVertical: 6,
-                borderRadius: 999,
-                backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                borderWidth: 1,
-                borderColor: 'rgba(239, 68, 68, 0.4)',
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 6,
-              }}
-            >
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+          <View style={{ flex: 1, flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+            {status && (
               <View
                 style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: 3,
-                  backgroundColor: '#ef4444',
-                }}
-              />
-              <Text
-                style={{
-                  fontSize: 12,
-                  fontWeight: '700',
-                  color: '#fca5a5',
-                  textTransform: 'uppercase',
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 999,
+                  backgroundColor: statusColor.bg,
+                  borderWidth: 1,
+                  borderColor: statusColor.border,
                 }}
               >
-                LIVE
-              </Text>
-            </View>
-          )}
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontWeight: '700',
+                    color: statusColor.text,
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {status}
+                </Text>
+              </View>
+            )}
+            {tier && (
+              <View
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 999,
+                  backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                  borderWidth: 1,
+                  borderColor: theme.stroke,
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontWeight: '600',
+                    color: theme.muted,
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {tier}
+                </Text>
+              </View>
+            )}
+            {webcastLive && (
+              <View
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 999,
+                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                  borderWidth: 1,
+                  borderColor: 'rgba(239, 68, 68, 0.4)',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                <View
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: 3,
+                    backgroundColor: '#ef4444',
+                  }}
+                />
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontWeight: '700',
+                    color: '#fca5a5',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  LIVE
+                </Text>
+              </View>
+            )}
+          </View>
+          {actionButtons ? <View style={{ marginLeft: 'auto' }}>{actionButtons}</View> : null}
         </View>
 
         <HeroContentSurface style={{ gap: 16 }}>
@@ -296,9 +299,6 @@ export function LaunchDetailHero({
                 </View>
               )}
             </View>
-
-            {/* Action Buttons */}
-            {actionButtons}
           </View>
         </HeroContentSurface>
       </Animated.View>

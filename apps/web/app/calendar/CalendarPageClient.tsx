@@ -4,7 +4,14 @@ import type { LaunchFeedV1 } from '@tminuszero/api-client';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { buildCalendarMonthDays, getCalendarMonthBounds, groupItemsByLocalDate, toLocalDateKey } from '@tminuszero/domain';
+import {
+  buildCalendarMonthDays,
+  buildCountdownSnapshot,
+  formatLaunchCountdownClock,
+  getCalendarMonthBounds,
+  groupItemsByLocalDate,
+  toLocalDateKey
+} from '@tminuszero/domain';
 import { buildAuthHref, buildUpgradeHref } from '@tminuszero/navigation';
 import clsx from 'clsx';
 import { AddToCalendarButton } from '@/components/AddToCalendarButton';
@@ -15,6 +22,7 @@ import { buildLaunchHref, buildProviderHref } from '@/lib/utils/launchLinks';
 import { resolveProviderLogoUrl } from '@/lib/utils/providerLogo';
 
 const MONTH_PARAM_PATTERN = /^(\d{4})-(\d{2})$/;
+const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 const STATUS_OPTIONS: Array<{ value: LaunchStatus | 'all'; label: string }> = [
   { value: 'all', label: 'All statuses' },
   { value: 'go', label: 'Go' },
@@ -29,6 +37,7 @@ const REGION_OPTIONS = [
   { value: 'non-us', label: 'Non-US only' }
 ] as const;
 const US_COUNTRY_CODES = new Set(['US', 'USA']);
+
 type CalendarLaunch = LaunchFeedV1['launches'][number];
 
 export function CalendarPageClient() {
@@ -42,9 +51,10 @@ export function CalendarPageClient() {
   const regionFilter = parseRegionParam(searchParams.get('region'));
   const providerFilter = String(searchParams.get('provider') || '').trim();
   const monthBounds = useMemo(() => getCalendarMonthBounds(month), [month]);
-  const monthKey = useMemo(() => month.toISOString().slice(0, 7), [month]);
+  const monthKey = useMemo(() => formatMonthKey(month), [month]);
   const localTimeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', []);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [pendingSelectedDay, setPendingSelectedDay] = useState<string | null>(null);
   const canUseRecurringCalendarFeeds = viewer?.capabilities.canUseRecurringCalendarFeeds === true;
   const calendarScope = viewer?.capabilities.canUseLiveFeed ? 'live' : 'public';
 
@@ -83,23 +93,81 @@ export function CalendarPageClient() {
     [allMonthLaunches, providerFilter, regionFilter, statusFilter]
   );
 
-  const launchesByDay = useMemo(
-    () => groupItemsByLocalDate(filteredLaunches, (launch) => launch.net),
-    [filteredLaunches]
-  );
+  const launchesByDay = useMemo(() => groupItemsByLocalDate(filteredLaunches, (launch) => launch.net), [filteredLaunches]);
+  const launchDayKeys = useMemo(() => [...launchesByDay.keys()].sort(), [launchesByDay]);
   const calendarDays = useMemo(() => buildCalendarMonthDays(month), [month]);
   const selectedLaunches = selectedDay ? launchesByDay.get(selectedDay) ?? [] : [];
-  const exportHref = useMemo(() => buildCalendarExportHref(monthBounds, { providerFilter, regionFilter, statusFilter }), [monthBounds, providerFilter, regionFilter, statusFilter]);
+  const nearestLaunchDay = useMemo(() => getNearestLaunchDayKey(launchDayKeys, selectedDay), [launchDayKeys, selectedDay]);
+  const exportHref = useMemo(
+    () => buildCalendarExportHref(monthBounds, { providerFilter, regionFilter, statusFilter }),
+    [monthBounds, providerFilter, regionFilter, statusFilter]
+  );
   const returnTo = useMemo(() => {
     const query = searchParams.toString();
     return `${pathname}${query ? `?${query}` : ''}`;
   }, [pathname, searchParams]);
 
   useEffect(() => {
+    if (monthQuery.isPending || monthQuery.isError) {
+      return;
+    }
+
+    if (pendingSelectedDay && pendingSelectedDay.startsWith(monthKey)) {
+      setSelectedDay(pendingSelectedDay);
+      setPendingSelectedDay(null);
+      return;
+    }
+
     const todayKey = toLocalDateKey(new Date());
-    const inCurrentMonth = todayKey?.startsWith(monthKey);
-    setSelectedDay(inCurrentMonth ? todayKey : `${monthKey}-01`);
-  }, [monthKey]);
+    const todayInMonth = todayKey && todayKey.startsWith(monthKey) ? todayKey : null;
+    const firstLaunchDay = launchDayKeys[0] ?? null;
+    const nextSelectedDay =
+      (todayInMonth && launchesByDay.has(todayInMonth) ? todayInMonth : null) ||
+      firstLaunchDay ||
+      todayInMonth ||
+      `${monthKey}-01`;
+
+    setSelectedDay(nextSelectedDay);
+  }, [launchDayKeys, launchesByDay, monthKey, monthQuery.isError, monthQuery.isPending, pendingSelectedDay]);
+
+  function openSelectedDay(dayKey: string) {
+    const parsedDay = parseDayKey(dayKey);
+    if (!parsedDay) {
+      return;
+    }
+
+    const nextMonthKey = formatMonthKey(new Date(parsedDay.getFullYear(), parsedDay.getMonth(), 1));
+    if (nextMonthKey !== monthKey) {
+      setPendingSelectedDay(dayKey);
+      updateCalendarQuery(router, pathname, searchParams, { month: nextMonthKey });
+      return;
+    }
+
+    setSelectedDay(dayKey);
+  }
+
+  function navigateMonth(offset: number) {
+    setPendingSelectedDay(null);
+    updateCalendarQuery(router, pathname, searchParams, { month: shiftMonth(month, offset) });
+  }
+
+  function jumpToToday() {
+    const todayKey = toLocalDateKey(new Date());
+    if (!todayKey) {
+      return;
+    }
+
+    openSelectedDay(todayKey);
+  }
+
+  function navigateDay(offset: number) {
+    const nextDayKey = shiftDayKey(selectedDay || `${monthKey}-01`, offset);
+    if (!nextDayKey) {
+      return;
+    }
+
+    openSelectedDay(nextDayKey);
+  }
 
   if (entitlementsQuery.isPending) {
     return (
@@ -141,13 +209,11 @@ export function CalendarPageClient() {
           <div className="text-xs uppercase tracking-[0.14em] text-text3">
             {canUseRecurringCalendarFeeds ? 'Premium calendar' : 'Launch calendar'}
           </div>
-          <h1 className="mt-2 text-3xl font-semibold text-text1">
-            {month.toLocaleString('default', { month: 'long' })} {month.getFullYear()}
-          </h1>
+          <h1 className="mt-2 text-3xl font-semibold text-text1">{formatMonthLabel(month)}</h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-text2">
             {canUseRecurringCalendarFeeds
-              ? 'Read the monthly launch schedule at a glance, add individual launches, and export premium calendar feeds.'
-              : 'Read the monthly launch schedule at a glance, open any mission, and add individual launches to your calendar.'}
+              ? 'Read the monthly schedule at a glance, tap into any date, and export premium calendar feeds.'
+              : 'Read the monthly schedule at a glance, tap into any date, and add launches to your calendar.'}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -168,140 +234,190 @@ export function CalendarPageClient() {
         </div>
       </div>
 
-      <div className="mt-6 grid gap-4 rounded-3xl border border-stroke bg-surface-1 p-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <div>
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                className="btn-secondary rounded-lg px-3 py-2 text-sm"
-                onClick={() => updateCalendarQuery(router, pathname, searchParams, { month: shiftMonth(month, -1) })}
-              >
-                ← Prev
-              </button>
-              <button
-                type="button"
-                className="btn-secondary rounded-lg px-3 py-2 text-sm"
-                onClick={() => updateCalendarQuery(router, pathname, searchParams, { month: shiftMonth(month, 1) })}
-              >
-                Next →
-              </button>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-3">
-              <select
-                aria-label="Filter launch region"
-                className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
-                value={regionFilter}
-                onChange={(event) => updateCalendarQuery(router, pathname, searchParams, { region: event.target.value })}
-              >
-                {REGION_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <select
-                aria-label="Filter launch status"
-                className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
-                value={statusFilter}
-                onChange={(event) => updateCalendarQuery(router, pathname, searchParams, { status: event.target.value })}
-              >
-                {STATUS_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <select
-                aria-label="Filter launch provider"
-                className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
-                value={providerFilter}
-                onChange={(event) => updateCalendarQuery(router, pathname, searchParams, { provider: event.target.value })}
-              >
-                <option value="">All providers</option>
-                {providerOptions.map((provider) => (
-                  <option key={provider} value={provider}>
-                    {provider}
-                  </option>
-                ))}
-              </select>
-            </div>
+      <div className="mt-6 rounded-3xl border border-stroke bg-surface-1 p-4 md:p-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" className="btn-secondary rounded-lg px-3 py-2 text-sm" onClick={() => navigateMonth(-1)}>
+              Prev month
+            </button>
+            <button type="button" className="btn-secondary rounded-lg px-3 py-2 text-sm" onClick={jumpToToday}>
+              Jump to today
+            </button>
+            <button type="button" className="btn-secondary rounded-lg px-3 py-2 text-sm" onClick={() => navigateMonth(1)}>
+              Next month
+            </button>
           </div>
-
-          {monthQuery.isPending ? <div className="mt-4 text-sm text-text3">Loading launches…</div> : null}
-          {monthQuery.isError ? (
-            <div className="mt-4 rounded-2xl border border-danger/30 bg-danger/10 p-4 text-sm text-danger">
-              Unable to load the launch calendar.
-            </div>
-          ) : null}
-
-          <div className="mt-4 overflow-x-auto pb-2">
-            <div className="grid min-w-[620px] grid-cols-7 gap-2">
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label) => (
-                <div key={label} className="text-center text-xs uppercase tracking-[0.08em] text-text3">
-                  {label}
-                </div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            <select
+              aria-label="Filter launch region"
+              className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
+              value={regionFilter}
+              onChange={(event) => updateCalendarQuery(router, pathname, searchParams, { region: event.target.value })}
+            >
+              {REGION_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
               ))}
-              {calendarDays.map((day) => {
-                const items = launchesByDay.get(day.key) ?? [];
-                const isSelected = selectedDay === day.key;
-                return (
-                  <button
-                    key={day.key}
-                    type="button"
-                    onClick={() => setSelectedDay(day.key)}
-                    className={clsx(
-                      'flex h-[112px] min-h-[112px] flex-col rounded-2xl border px-3 py-3 text-left transition',
-                      day.isCurrentMonth ? 'text-text1' : 'text-text3',
-                      isSelected ? 'border-primary bg-primary/10' : 'border-stroke bg-surface-0/70 hover:border-primary/50'
-                    )}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-semibold">{day.date.getDate()}</span>
-                      {items.length > 0 ? (
-                        <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[11px] text-primary">{items.length}</span>
-                      ) : null}
-                    </div>
-                    <div className="mt-3 space-y-1 overflow-hidden">
-                      {items.slice(0, 3).map((launch) => (
-                        <div key={launch.id} className="truncate text-xs text-text2">
-                          {launch.provider}
-                        </div>
-                      ))}
-                      {items.length > 3 ? <div className="text-[11px] text-text3">+{items.length - 3} more</div> : null}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+            </select>
+            <select
+              aria-label="Filter launch status"
+              className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
+              value={statusFilter}
+              onChange={(event) => updateCalendarQuery(router, pathname, searchParams, { status: event.target.value })}
+            >
+              {STATUS_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Filter launch provider"
+              className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
+              value={providerFilter}
+              onChange={(event) => updateCalendarQuery(router, pathname, searchParams, { provider: event.target.value })}
+            >
+              <option value="">All providers</option>
+              {providerOptions.map((provider) => (
+                <option key={provider} value={provider}>
+                  {provider}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 
-        <div className="rounded-2xl border border-stroke bg-surface-0/70 p-4">
-          <div className="flex items-center justify-between gap-3">
+        <div className="mt-4 rounded-2xl border border-stroke bg-surface-0/70 p-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <div className="text-xs uppercase tracking-[0.1em] text-text3">Selected day</div>
+              <div className="text-xs uppercase tracking-[0.1em] text-text3">Month summary</div>
               <div className="mt-1 text-lg font-semibold text-text1">
-                {selectedDay ? formatSelectedDay(selectedDay, localTimeZone) : 'Select a day'}
+                {filteredLaunches.length} launch{filteredLaunches.length === 1 ? '' : 'es'} across {launchDayKeys.length} active day{launchDayKeys.length === 1 ? '' : 's'}
               </div>
             </div>
-            <div className="text-xs text-text3">{formatLaunchCountLabel(selectedLaunches.length)}</div>
+            <div className="text-sm text-text3">Times shown in {localTimeZone}</div>
           </div>
-
-          <div className="mt-4 space-y-3">
-            {selectedLaunches.length === 0 ? (
-              <div className="rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text3">No launches on this date.</div>
-            ) : (
-              selectedLaunches.map((launch) => (
-                <CalendarAgendaCard key={launch.id} launch={launch} localTimeZone={localTimeZone} />
-              ))
-            )}
+          <div className="mt-3 text-sm text-text2">
+            {filteredLaunches[0]
+              ? `Next launch: ${filteredLaunches[0].name} on ${formatLaunchTiming(filteredLaunches[0], localTimeZone)}.`
+              : 'No launches match the current month and filter combination.'}
           </div>
-
-          {monthQuery.data?.hasMore ? (
-            <p className="mt-4 text-xs text-text3">Showing the first 1000 launches returned for this month.</p>
-          ) : null}
         </div>
+
+        {launchDayKeys.length > 0 ? (
+          <div className="mt-4">
+            <div className="text-xs uppercase tracking-[0.1em] text-text3">Launch dates</div>
+            <div className="mt-3 flex gap-2 overflow-x-auto pb-2">
+              {launchDayKeys.map((dayKey) => (
+                <button
+                  key={dayKey}
+                  type="button"
+                  onClick={() => openSelectedDay(dayKey)}
+                  className={clsx(
+                    'shrink-0 rounded-2xl border px-4 py-3 text-left transition',
+                    selectedDay === dayKey ? 'border-primary bg-primary/10 text-primary' : 'border-stroke bg-surface-0 text-text1 hover:border-primary/50'
+                  )}
+                >
+                  <div className="text-sm font-semibold">{formatCompactDay(dayKey)}</div>
+                  <div className="mt-1 text-xs text-text3">
+                    {launchesByDay.get(dayKey)?.length ?? 0} launch{(launchesByDay.get(dayKey)?.length ?? 0) === 1 ? '' : 'es'}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {monthQuery.isPending ? <div className="mt-4 text-sm text-text3">Loading launches…</div> : null}
+        {monthQuery.isError ? (
+          <div className="mt-4 rounded-2xl border border-danger/30 bg-danger/10 p-4 text-sm text-danger">
+            Unable to load the launch calendar.
+          </div>
+        ) : null}
+
+        <div className="mt-4 overflow-x-auto pb-2">
+          <div className="grid min-w-[620px] grid-cols-7 gap-2">
+            {WEEKDAY_LABELS.map((label) => (
+              <div key={label} className="text-center text-xs uppercase tracking-[0.08em] text-text3">
+                {label}
+              </div>
+            ))}
+            {calendarDays.map((day) => {
+              const items = launchesByDay.get(day.key) ?? [];
+              const isSelected = selectedDay === day.key;
+              const isToday = toLocalDateKey(new Date()) === day.key;
+              return (
+                <button
+                  key={day.key}
+                  type="button"
+                  onClick={() => openSelectedDay(day.key)}
+                  className={clsx(
+                    'flex min-h-[112px] flex-col justify-between rounded-2xl border px-3 py-3 text-left transition',
+                    day.isCurrentMonth ? 'text-text1' : 'text-text3',
+                    isSelected ? 'border-primary bg-primary/10' : isToday ? 'border-primary/50 bg-surface-0/80' : 'border-stroke bg-surface-0/70 hover:border-primary/50'
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold">{day.date.getDate()}</span>
+                    {isToday ? <span className="h-2 w-2 rounded-full bg-primary" aria-hidden="true" /> : null}
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-center gap-1">
+                      {items.slice(0, 3).map((launch) => (
+                        <span key={launch.id} className="h-2 w-2 rounded-full bg-primary" aria-hidden="true" />
+                      ))}
+                    </div>
+                    <div className={clsx('text-center text-[11px] font-semibold', items.length ? 'text-primary' : 'text-text3')}>
+                      {items.length ? `${items.length} launch${items.length === 1 ? '' : 'es'}` : day.isCurrentMonth ? 'Open' : 'Month'}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-3xl border border-stroke bg-surface-1 p-4 md:p-5">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="text-xs uppercase tracking-[0.1em] text-text3">Selected day</div>
+            <div className="mt-1 text-xl font-semibold text-text1">
+              {selectedDay ? formatSelectedDay(selectedDay, localTimeZone) : 'Select a day'}
+            </div>
+            <div className="mt-1 text-sm text-text3">{formatLaunchCountLabel(selectedLaunches.length)}</div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn-secondary rounded-lg px-3 py-2 text-sm" onClick={() => navigateDay(-1)}>
+              Previous day
+            </button>
+            <button type="button" className="btn-secondary rounded-lg px-3 py-2 text-sm" onClick={() => navigateDay(1)}>
+              Next day
+            </button>
+            {nearestLaunchDay && selectedLaunches.length === 0 && nearestLaunchDay !== selectedDay ? (
+              <button type="button" className="btn-secondary rounded-lg px-3 py-2 text-sm" onClick={() => openSelectedDay(nearestLaunchDay)}>
+                Jump to {formatCompactDay(nearestLaunchDay)}
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          {selectedLaunches.length === 0 ? (
+            <div className="rounded-2xl border border-stroke bg-surface-0/70 p-4 text-sm text-text3">
+              No launches on this date. Keep stepping through past and future dates or jump to the nearest scheduled day.
+            </div>
+          ) : (
+            selectedLaunches.map((launch) => (
+              <CalendarAgendaCard key={launch.id} launch={launch} localTimeZone={localTimeZone} />
+            ))
+          )}
+        </div>
+
+        {monthQuery.data?.hasMore ? (
+          <p className="mt-4 text-xs text-text3">Showing the first 1000 launches returned for this month.</p>
+        ) : null}
       </div>
     </div>
   );
@@ -309,39 +425,69 @@ export function CalendarPageClient() {
 
 function CalendarAgendaCard({ launch, localTimeZone }: { launch: CalendarLaunch; localTimeZone: string }) {
   const providerHref = buildProviderHref(launch.provider);
+  const countdownLabel = buildLaunchCountdownLabel(launch.net, launch.netPrecision);
+  const statusTone = getStatusTone(launch.status);
+  const windowLabel = buildWindowLabel(launch.net, launch.windowEnd ?? null, localTimeZone);
 
   return (
-    <div className="rounded-2xl border border-stroke bg-surface-1 p-3">
-      <div className="flex items-start gap-3">
-        <ProviderLogo provider={launch.provider} logoUrl={resolveProviderLogoUrl(launch)} />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <Link href={buildLaunchHref(launch)} className="block truncate text-sm font-semibold text-text1 hover:text-primary">
-                {launch.name}
-              </Link>
-              <div className="mt-1 text-xs text-text3">
-                {providerHref ? (
-                  <Link href={providerHref} className="hover:text-text1">
-                    {launch.provider}
-                  </Link>
-                ) : (
-                  launch.provider
-                )}{' '}
-                • {launch.vehicle}
+    <div className="rounded-2xl border border-stroke bg-surface-0/70 p-4">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div className="flex min-w-0 flex-1 gap-3">
+          <ProviderLogo provider={launch.provider} logoUrl={resolveProviderLogoUrl(launch)} />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <Link href={buildLaunchHref(launch)} className="block truncate text-base font-semibold text-text1 hover:text-primary">
+                  {launch.name}
+                </Link>
+                <div className="mt-1 text-xs text-text3">
+                  {providerHref ? (
+                    <Link href={providerHref} className="hover:text-text1">
+                      {launch.provider}
+                    </Link>
+                  ) : (
+                    launch.provider
+                  )}{' '}
+                  • {launch.vehicle}
+                </div>
               </div>
-              <div className="mt-1 text-xs text-text3">
-                {isDateOnlyNet(launch.net, launch.netPrecision, localTimeZone)
-                  ? formatDateOnly(launch.net, localTimeZone)
-                  : formatNetLabel(launch.net, localTimeZone)}{' '}
-                • {launch.pad.locationName || launch.pad.name}
-              </div>
+              <span
+                className={clsx(
+                  'rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em]',
+                  statusTone.border,
+                  statusTone.background,
+                  statusTone.text
+                )}
+              >
+                {launch.statusText || launch.status}
+              </span>
             </div>
-            <AddToCalendarButton launch={launch} variant="icon" isAuthed />
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <InlinePill label={formatLaunchTiming(launch, localTimeZone)} emphasis />
+              {countdownLabel ? <InlinePill label={countdownLabel} /> : null}
+            </div>
+
+            <div className="mt-3 text-sm text-text2">{launch.pad.locationName || launch.pad.name}</div>
+            {windowLabel ? <div className="mt-1 text-sm text-text3">{windowLabel}</div> : null}
           </div>
         </div>
+        <AddToCalendarButton launch={launch} variant="icon" isAuthed />
       </div>
     </div>
+  );
+}
+
+function InlinePill({ label, emphasis = false }: { label: string; emphasis?: boolean }) {
+  return (
+    <span
+      className={clsx(
+        'rounded-full border px-2.5 py-1 text-xs font-semibold',
+        emphasis ? 'border-primary/30 bg-primary/10 text-primary' : 'border-stroke bg-surface-1 text-text1'
+      )}
+    >
+      {label}
+    </span>
   );
 }
 
@@ -388,6 +534,15 @@ function parseMonthParam(value: string | null) {
   return new Date(year, monthIndex, 1);
 }
 
+function parseDayKey(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = new Date(`${value}T12:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function parseStatusParam(value: string | null): LaunchStatus | 'all' {
   return STATUS_OPTIONS.some((option) => option.value === value) ? (value as LaunchStatus | 'all') : 'all';
 }
@@ -396,9 +551,29 @@ function parseRegionParam(value: string | null): (typeof REGION_OPTIONS)[number]
   return REGION_OPTIONS.some((option) => option.value === value) ? (value as (typeof REGION_OPTIONS)[number]['value']) : 'all';
 }
 
+function formatMonthKey(value: Date) {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function formatMonthLabel(value: Date) {
+  return value.toLocaleDateString(undefined, {
+    month: 'long',
+    year: 'numeric'
+  });
+}
+
 function shiftMonth(value: Date, delta: number) {
-  const shifted = new Date(value.getFullYear(), value.getMonth() + delta, 1);
-  return shifted.toISOString().slice(0, 7);
+  return formatMonthKey(new Date(value.getFullYear(), value.getMonth() + delta, 1));
+}
+
+function shiftDayKey(dayKey: string, delta: number) {
+  const parsed = parseDayKey(dayKey);
+  if (!parsed) {
+    return null;
+  }
+
+  parsed.setDate(parsed.getDate() + delta);
+  return toLocalDateKey(parsed);
 }
 
 function updateCalendarQuery(
@@ -438,10 +613,99 @@ function buildCalendarExportHref(
   return `/api/launches/ics?${params.toString()}`;
 }
 
+function formatCompactDay(dayKey: string) {
+  const parsed = parseDayKey(dayKey);
+  if (!parsed) {
+    return dayKey;
+  }
+
+  return parsed.toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric'
+  });
+}
+
 function formatSelectedDay(dayKey: string, localTimeZone: string) {
   return formatDateOnly(`${dayKey}T12:00:00`, localTimeZone);
 }
 
 function formatLaunchCountLabel(count: number) {
   return `${count} launch${count === 1 ? '' : 'es'}`;
+}
+
+function formatLaunchTiming(launch: CalendarLaunch, localTimeZone: string) {
+  return isDateOnlyNet(launch.net, launch.netPrecision, localTimeZone)
+    ? formatDateOnly(launch.net, localTimeZone)
+    : formatNetLabel(launch.net, localTimeZone);
+}
+
+function buildLaunchCountdownLabel(net: string, netPrecision: string) {
+  if (netPrecision === 'day' || netPrecision === 'month' || netPrecision === 'tbd') {
+    return null;
+  }
+
+  const snapshot = buildCountdownSnapshot(net);
+  return snapshot ? formatLaunchCountdownClock(snapshot.totalMs) : null;
+}
+
+function buildWindowLabel(net: string, windowEnd: string | null, localTimeZone: string) {
+  if (!windowEnd || windowEnd === net) {
+    return null;
+  }
+
+  return `Window closes ${formatNetLabel(windowEnd, localTimeZone)}`;
+}
+
+function getNearestLaunchDayKey(dayKeys: string[], selectedDay: string | null) {
+  if (!dayKeys.length) {
+    return null;
+  }
+
+  const reference = parseDayKey(selectedDay || dayKeys[0]);
+  if (!reference) {
+    return dayKeys[0];
+  }
+
+  const referenceMs = reference.getTime();
+  return dayKeys.reduce((closest, candidate) => {
+    const candidateDate = parseDayKey(candidate);
+    const closestDate = parseDayKey(closest);
+    if (!candidateDate || !closestDate) {
+      return closest;
+    }
+
+    const candidateDistance = Math.abs(candidateDate.getTime() - referenceMs);
+    const closestDistance = Math.abs(closestDate.getTime() - referenceMs);
+    return candidateDistance < closestDistance ? candidate : closest;
+  }, dayKeys[0]);
+}
+
+function getStatusTone(status: CalendarLaunch['status']) {
+  switch (status) {
+    case 'go':
+      return {
+        text: 'text-emerald-300',
+        background: 'bg-emerald-500/10',
+        border: 'border-emerald-500/20'
+      };
+    case 'hold':
+      return {
+        text: 'text-amber-300',
+        background: 'bg-amber-500/10',
+        border: 'border-amber-500/20'
+      };
+    case 'scrubbed':
+      return {
+        text: 'text-rose-300',
+        background: 'bg-rose-500/10',
+        border: 'border-rose-500/20'
+      };
+    default:
+      return {
+        text: 'text-primary',
+        background: 'bg-primary/10',
+        border: 'border-primary/20'
+      };
+  }
 }

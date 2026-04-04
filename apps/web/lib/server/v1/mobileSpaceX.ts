@@ -1,15 +1,20 @@
 import {
   spaceXContractsResponseSchemaV1,
+  spaceXDroneShipDetailSchemaV1,
+  spaceXDroneShipListResponseSchemaV1,
   spaceXEnginesResponseSchemaV1,
   spaceXFlightsResponseSchemaV1,
   spaceXMissionOverviewSchemaV1,
   spaceXOverviewSchemaV1,
   spaceXVehiclesResponseSchemaV1,
+  starshipFlightOverviewSchemaV1,
+  starshipOverviewSchemaV1,
   type SpaceXMissionKeyV1
 } from '@tminuszero/contracts';
 import {
   fetchSpaceXContracts,
   fetchSpaceXEngines,
+  fetchSpaceXFinanceSignals,
   fetchSpaceXFlights,
   fetchSpaceXMissionSnapshot,
   fetchSpaceXPassengers,
@@ -18,6 +23,11 @@ import {
   fetchSpaceXVehicles,
   parseSpaceXMissionKey
 } from '@/lib/server/spacexProgram';
+import { fetchProgramContractDiscoveryPage } from '@/lib/server/programContractDiscovery';
+import { fetchSpaceXDroneShipDetail, fetchSpaceXDroneShipsIndex, parseSpaceXDroneShipSlug } from '@/lib/server/spacexDroneShips';
+import { fetchStarshipFlightIndex, fetchStarshipFlightSnapshotBySlug, fetchStarshipProgramSnapshot } from '@/lib/server/starship';
+import { fetchStarshipTimelineViewModel } from '@/lib/server/starshipUi';
+import { fetchProgramUsaspendingAwardsPage } from '@/lib/server/usaspendingProgramAwards';
 import type { Launch } from '@/lib/types/launch';
 import { buildLaunchHref } from '@/lib/utils/launchLinks';
 import { buildSpaceXFlightSlug, getSpaceXMissionKeyFromLaunch, getSpaceXMissionLabel, parseSpaceXMissionFilter } from '@/lib/utils/spacexProgram';
@@ -91,21 +101,107 @@ function buildMissionCards() {
     missionKey: mission.missionKey,
     title: mission.title,
     description: mission.description,
-    href: `/spacex/missions/${mission.missionKey}`,
+    href: mission.missionKey === 'starship' ? '/starship' : `/spacex/missions/${mission.missionKey}`,
     statusLabel: mission.statusLabel,
     highlight: mission.highlight
   }));
 }
 
+function formatDateLabel(value: string | null | undefined) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
+}
+
+function formatCurrency(value: number | null | undefined) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      maximumFractionDigits: 0
+    }).format(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function mapDiscoveryPreviewItem(item: {
+  discoveryKey: string;
+  title: string | null;
+  summary: string | null;
+  entityName: string | null;
+  agencyName: string | null;
+  publishedAt: string | null;
+  amount: number | null;
+  sourceUrl: string | null;
+}) {
+  return {
+    id: item.discoveryKey,
+    title: item.title || item.entityName || 'Unmatched contract record',
+    summary: item.summary,
+    meta: [item.agencyName, formatDateLabel(item.publishedAt), formatCurrency(item.amount)].filter(Boolean).join(' • ') || null,
+    href: item.sourceUrl
+  };
+}
+
+function mapUsaspendingPreviewItem(item: {
+  awardId: string | null;
+  title: string | null;
+  recipient: string | null;
+  awardedOn: string | null;
+  obligatedAmount: number | null;
+  sourceUrl: string | null;
+}) {
+  return {
+    id: item.awardId || item.title || item.sourceUrl || 'usaspending-award',
+    title: item.title || item.recipient || 'USAspending award',
+    summary: item.recipient,
+    meta: [formatDateLabel(item.awardedOn), formatCurrency(item.obligatedAmount)].filter(Boolean).join(' • ') || null,
+    href: item.sourceUrl
+  };
+}
+
+function mapStarshipTimelinePreview(event: {
+  id: string;
+  mission: string;
+  title: string;
+  summary: string;
+  date: string;
+  status: 'completed' | 'upcoming' | 'tentative' | 'superseded';
+  source: { label: string; href?: string };
+  launch?: Launch | null;
+}) {
+  return {
+    id: event.id,
+    missionLabel: event.mission === 'starship-program' ? 'Starship Program' : event.mission.replace(/^flight-/, 'Flight '),
+    title: event.title,
+    summary: event.summary,
+    date: event.date,
+    status: event.status,
+    sourceLabel: event.source.label,
+    href: event.launch ? buildLaunchHref(event.launch) : event.source.href || null
+  };
+}
+
 export async function loadSpaceXOverviewPayload() {
-  const [snapshot, flights, vehicles, engines, contracts, passengers, payloads] = await Promise.all([
+  const [snapshot, flights, vehicles, engines, contracts, passengers, payloads, droneShips, finance, discoveryPage, usaspendingPage] = await Promise.all([
     fetchSpaceXProgramSnapshot(),
     fetchSpaceXFlights('all'),
     fetchSpaceXVehicles('all'),
     fetchSpaceXEngines('all'),
     fetchSpaceXContracts('all'),
     fetchSpaceXPassengers('all'),
-    fetchSpaceXPayloads('all')
+    fetchSpaceXPayloads('all'),
+    fetchSpaceXDroneShipsIndex(),
+    fetchSpaceXFinanceSignals(),
+    fetchProgramContractDiscoveryPage('spacex', { limit: 8 }),
+    fetchProgramUsaspendingAwardsPage('spacex', { limit: 8 })
   ]);
 
   return spaceXOverviewSchemaV1.parse({
@@ -137,7 +233,15 @@ export async function loadSpaceXOverviewPayload() {
     })),
     vehicles: vehicles.items,
     engines: engines.items,
-    contracts: contracts.items.slice(0, 8)
+    contracts: contracts.items.slice(0, 8),
+    droneShips: {
+      items: droneShips.items,
+      coverage: droneShips.coverage,
+      upcomingAssignments: droneShips.upcomingAssignments
+    },
+    finance,
+    discovery: discoveryPage.items.map(mapDiscoveryPreviewItem),
+    usaspending: usaspendingPage.items.map(mapUsaspendingPreviewItem)
   });
 }
 
@@ -199,4 +303,99 @@ export async function loadSpaceXContractsPayload(mission: string | null) {
   const parsedMission = parseSpaceXMissionFilter(mission);
   if (!parsedMission) return null;
   return spaceXContractsResponseSchemaV1.parse(await fetchSpaceXContracts(parsedMission));
+}
+
+export async function loadSpaceXDroneShipsPayload() {
+  return spaceXDroneShipListResponseSchemaV1.parse(await fetchSpaceXDroneShipsIndex());
+}
+
+export async function loadSpaceXDroneShipDetailPayload(slug: string | null | undefined) {
+  const shipSlug = parseSpaceXDroneShipSlug(slug);
+  if (!shipSlug) return null;
+  const payload = await fetchSpaceXDroneShipDetail(shipSlug);
+  if (!payload) return null;
+  return spaceXDroneShipDetailSchemaV1.parse(payload);
+}
+
+export async function loadStarshipOverviewPayload() {
+  const [snapshot, flights, timeline] = await Promise.all([
+    fetchStarshipProgramSnapshot(),
+    fetchStarshipFlightIndex(),
+    fetchStarshipTimelineViewModel({
+      mode: 'quick',
+      mission: 'all',
+      sourceType: 'all',
+      includeSuperseded: false,
+      from: null,
+      to: null,
+      cursor: null,
+      limit: 12
+    })
+  ]);
+
+  return starshipOverviewSchemaV1.parse({
+    generatedAt: snapshot.generatedAt,
+    title: 'Starship',
+    description: 'Dedicated Starship workbench with per-flight routing, launch snapshots, and timeline evidence.',
+    snapshot: {
+      generatedAt: snapshot.generatedAt,
+      lastUpdated: snapshot.lastUpdated,
+      nextLaunch: snapshot.nextLaunch ? mapLaunchSummary(snapshot.nextLaunch) : null,
+      upcoming: snapshot.upcoming.map(mapLaunchSummary),
+      recent: snapshot.recent.map(mapLaunchSummary),
+      faq: snapshot.faq
+    },
+    stats: {
+      upcomingLaunches: snapshot.upcoming.length,
+      recentLaunches: snapshot.recent.length,
+      flightsTracked: flights.length,
+      timelineEvents: timeline.kpis.totalEvents
+    },
+    flights: flights.map((entry) => ({
+      ...entry,
+      nextLaunch: entry.nextLaunch ? mapLaunchSummary(entry.nextLaunch) : null
+    })),
+    timeline: timeline.events.map(mapStarshipTimelinePreview)
+  });
+}
+
+export async function loadStarshipFlightOverviewPayload(slug: string | null | undefined) {
+  const normalizedSlug = String(slug || '').trim().toLowerCase();
+  if (!/^flight-\d{1,3}$/.test(normalizedSlug)) return null;
+
+  const [snapshot, timeline] = await Promise.all([
+    fetchStarshipFlightSnapshotBySlug(normalizedSlug),
+    fetchStarshipTimelineViewModel({
+      mode: 'quick',
+      mission: normalizedSlug as `flight-${number}`,
+      sourceType: 'all',
+      includeSuperseded: false,
+      from: null,
+      to: null,
+      cursor: null,
+      limit: 16
+    })
+  ]);
+
+  if (!snapshot) return null;
+
+  return starshipFlightOverviewSchemaV1.parse({
+    generatedAt: snapshot.generatedAt,
+    title: snapshot.missionName,
+    description: `${snapshot.missionName} native route with launch snapshots, recent changes, and timeline evidence.`,
+    snapshot: {
+      generatedAt: snapshot.generatedAt,
+      lastUpdated: snapshot.lastUpdated,
+      missionName: snapshot.missionName,
+      flightNumber: snapshot.flightNumber,
+      flightSlug: snapshot.flightSlug,
+      nextLaunch: snapshot.nextLaunch ? mapLaunchSummary(snapshot.nextLaunch) : null,
+      upcoming: snapshot.upcoming.map(mapLaunchSummary),
+      recent: snapshot.recent.map(mapLaunchSummary),
+      crewHighlights: snapshot.crewHighlights,
+      changes: snapshot.changes,
+      faq: snapshot.faq
+    },
+    timeline: timeline.events.map(mapStarshipTimelinePreview)
+  });
 }

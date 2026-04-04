@@ -52,12 +52,11 @@ export function CommLinkHeader() {
     >
       <div className="mx-auto w-full max-w-[560px] px-4 pt-1">
         <div className="flex h-9 items-center justify-between rounded-full border border-stroke bg-[rgba(7,9,19,0.72)] px-4 shadow-glow backdrop-blur-xl">
-          <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-3">
+          <div className="flex w-full items-center justify-between gap-3">
             <Link href="/" className="flex items-center gap-2" aria-label={`${BRAND_NAME} home`}>
               <Image src="/rocket.svg" alt="" width={22} height={22} className="h-[22px] w-[22px]" priority />
               <span className="text-[12px] font-semibold text-text1">{BRAND_NAME}</span>
             </Link>
-            <span className="text-center text-[10px] uppercase tracking-[0.24em] text-text4">Comm Link</span>
             <div className="flex items-center justify-end gap-2">
               {xUrl && (
                 <a

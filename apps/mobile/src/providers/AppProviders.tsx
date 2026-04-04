@@ -1,7 +1,9 @@
-import { ReactNode, useCallback, useState } from 'react';
+import { ReactNode, useCallback, useEffect, useState } from 'react';
+import { AppState } from 'react-native';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { createSharedQueryClient, sharedQueryKeys } from '@tminuszero/query';
 import { useViewerEntitlementsQuery, useViewerSessionQuery } from '@/src/api/queries';
+import { addAppleCredentialRevokedListener, clearStoredAppleAuthIdentity, getStoredAppleCredentialState } from '@/src/auth/appleAuth';
 import { useAuthBootstrap } from '@/src/bootstrap/useAuthBootstrap';
 import { useThemeBootstrap } from '@/src/bootstrap/useThemeBootstrap';
 import { MobilePushProvider } from '@/src/providers/MobilePushProvider';
@@ -19,6 +21,70 @@ function BootstrapPrefetcher() {
   return null;
 }
 
+function AppleCredentialGuard() {
+  const { accessToken, clearSession, isAuthHydrated } = useMobileBootstrap();
+
+  const clearRevokedAppleSession = useCallback(async () => {
+    await clearStoredAppleAuthIdentity().catch(() => undefined);
+    if (accessToken) {
+      await clearSession().catch(() => undefined);
+    }
+  }, [accessToken, clearSession]);
+
+  const verifyStoredAppleCredential = useCallback(async () => {
+    if (!isAuthHydrated) {
+      return;
+    }
+
+    const credentialState = await getStoredAppleCredentialState().catch(() => null);
+    if (!credentialState) {
+      return;
+    }
+
+    if (credentialState.state === 'authorized' || credentialState.state === 'unknown') {
+      return;
+    }
+
+    await clearRevokedAppleSession();
+  }, [clearRevokedAppleSession, isAuthHydrated]);
+
+  useEffect(() => {
+    void verifyStoredAppleCredential();
+  }, [verifyStoredAppleCredential]);
+
+  useEffect(() => {
+    if (!isAuthHydrated) {
+      return;
+    }
+
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void verifyStoredAppleCredential();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [isAuthHydrated, verifyStoredAppleCredential]);
+
+  useEffect(() => {
+    if (!isAuthHydrated) {
+      return;
+    }
+
+    const subscription = addAppleCredentialRevokedListener(() => {
+      void clearRevokedAppleSession();
+    });
+
+    return () => {
+      subscription?.remove();
+    };
+  }, [clearRevokedAppleSession, isAuthHydrated]);
+
+  return null;
+}
+
 function isAuthScopedQueryKey(queryKey: readonly unknown[]) {
   const [root, scope] = queryKey;
   if (typeof root !== 'string') {
@@ -29,6 +95,7 @@ function isAuthScopedQueryKey(queryKey: readonly unknown[]) {
     root === sharedQueryKeys.viewerSession[0] ||
     root === sharedQueryKeys.entitlements[0] ||
     root === sharedQueryKeys.profile[0] ||
+    root === sharedQueryKeys.authMethods[0] ||
     root === sharedQueryKeys.privacyPreferences[0] ||
     root === sharedQueryKeys.accountExport[0] ||
     root === sharedQueryKeys.billingSummary[0] ||
@@ -83,6 +150,7 @@ export function AppProviders({ children }: AppProvidersProps) {
         <MobileToastProvider>
           <MobilePushProvider>
             <BootstrapPrefetcher />
+            <AppleCredentialGuard />
             {children}
           </MobilePushProvider>
         </MobileToastProvider>

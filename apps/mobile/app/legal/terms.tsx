@@ -1,16 +1,20 @@
 import { LegalSummaryScreen } from '@/src/features/account/LegalSummaryScreen';
+import { getPublicSiteUrl } from '@/src/config/api';
 
 export default function TermsScreen() {
+  const publicSiteUrl = getPublicSiteUrl();
+
   return (
     <LegalSummaryScreen
       testID="legal-terms-screen"
       eyebrow="Legal"
       title="Terms of Service"
       description="Core customer terms for using T-Minus Zero, including subscriptions, push alerts, and acceptable use."
-      lastUpdated="Jan 30, 2026"
+      lastUpdated="Apr 3, 2026"
       actions={[
         { label: 'Privacy notice', href: '/legal/privacy' },
-        { label: 'Notification settings', href: '/preferences', variant: 'secondary' }
+        { label: 'Support', href: '/support', variant: 'secondary' },
+        { label: 'Full terms on web', externalUrl: `${publicSiteUrl}/legal/terms`, variant: 'secondary' }
       ]}
       sections={[
         {
@@ -27,7 +31,9 @@ export default function TermsScreen() {
           body: 'You are responsible for account activity and any recurring subscription charges you authorize.',
           bullets: [
             'Keep login credentials secure and current.',
+            'Pricing and plan details are shown before you confirm purchase.',
             'Subscriptions renew until canceled.',
+            'Store-billed subscriptions are managed through the App Store or Google Play after purchase. Web-billed subscriptions are managed on the web.',
             'Cancellation stops future renewal and access continues through the current paid period unless stated otherwise.',
             'Fees are generally non-refundable except where required by law.'
           ]
@@ -57,7 +63,8 @@ export default function TermsScreen() {
           bullets: [
             'Third-party data sources and embedded services keep their own terms and ownership.',
             'The service may change over time and terms may be updated with a revised date.',
-            'Deleting an account while subscribed may still require subscription cancellation handling.'
+            'Deleting an account while subscribed may still require subscription cancellation handling.',
+            'Support and account-request details are available from the native Support and Privacy surfaces.'
           ]
         }
       ]}

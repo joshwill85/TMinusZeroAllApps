@@ -45,6 +45,13 @@ export function resolveNativeProgramHubHref(session: ViewerSessionV1 | null | un
   return normalizeNativeProgramHubHref(href);
 }
 
+export function resolveExternalProgramHubHref(session: ViewerSessionV1 | null | undefined, href: string | null | undefined) {
+  const hub = getProgramHubKeyFromHref(href);
+  if (!hub) return null;
+  if (!isExternalProgramHubDeepLinksEnabled(session, hub)) return null;
+  return normalizeNativeProgramHubHref(href);
+}
+
 export function getProgramHubEntryHref(session: ViewerSessionV1 | null | undefined, hub: ProgramHubKey) {
   return isNativeProgramHubEnabled(session, hub) ? buildProgramHubHref(hub) : null;
 }
@@ -52,14 +59,9 @@ export function getProgramHubEntryHref(session: ViewerSessionV1 | null | undefin
 export function resolveNativeProgramHubOrCoreHref(session: ViewerSessionV1 | null | undefined, href: string | null | undefined) {
   const normalizedHubHref = normalizeNativeProgramHubHref(href);
   const hub = getProgramHubKeyFromHref(href);
-  if (normalizedHubHref && hub) {
-    if (isNativeProgramHubEnabled(session, hub) || normalizedHubHref !== buildProgramHubHref(hub)) {
-      return normalizedHubHref;
-    }
+  if (normalizedHubHref && hub && isNativeProgramHubEnabled(session, hub)) {
+    return normalizedHubHref;
   }
-
-  const nativeHubHref = resolveNativeProgramHubHref(session, href);
-  if (nativeHubHref) return nativeHubHref;
 
   if (!hub) return null;
   return PROGRAM_HUB_CORE_FALLBACK_ROUTES[hub] ?? null;

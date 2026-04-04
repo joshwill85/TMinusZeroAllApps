@@ -102,10 +102,52 @@ async function main() {
 
   assertPattern(
     'apps/mobile/app/(tabs)/feed.tsx',
-    /if \(feedScope !== 'live'\) \{[\s\S]*kind:\s*'anon_refresh'[\s\S]*Go Premium for near-live data[\s\S]*return;\s*\}/s,
+    /async function applyFeedRefresh\(\) \{[\s\S]*if \(feedScope !== 'live'\) \{[\s\S]*Public launch data refreshes next around[\s\S]*actionLabel:\s*'Go Premium for near-live data'[\s\S]*return;/s,
     'mobile feed anon pull-to-refresh stays local and surfaces the scheduled refresh/upgrade notice'
   );
   sourceAssertions.push('mobile feed anon pull-to-refresh avoids network fetches');
+
+  assertPattern(
+    'apps/mobile/app/(tabs)/feed.tsx',
+    /const shouldUseCachedPublicFallback =[\s\S]*launches\.length === 0[\s\S]*launchFeedQuery\.isSuccess \|\| launchFeedQuery\.isError/s,
+    'mobile feed can keep showing the saved public schedule when the default public query resolves empty'
+  );
+  sourceAssertions.push('mobile feed can fall back to the saved public schedule on anomalous empty public results');
+
+  assertPattern(
+    'apps/mobile/app/(tabs)/feed.tsx',
+    /const shouldHydratePublicSnapshot = shouldRetainDefaultSchedule;/,
+    'mobile feed hydrates the saved public snapshot for the default schedule even before live access settles'
+  );
+  sourceAssertions.push('mobile feed keeps the saved public schedule available across default-schedule scope transitions');
+
+  assertPattern(
+    'apps/mobile/app/(tabs)/feed.tsx',
+    /const shouldUseCachedLiveFallback =[\s\S]*feedScope === 'live'[\s\S]*cachedLaunches\.length > 0[\s\S]*launches\.length === 0[\s\S]*launchFeedQuery\.isSuccess \|\| launchFeedQuery\.isError/s,
+    'mobile feed can keep showing the saved public schedule when the default live query resolves empty'
+  );
+  sourceAssertions.push('mobile feed can fall back to the saved public schedule on anomalous empty live results');
+
+  assertPattern(
+    'apps/mobile/app/(tabs)/feed.tsx',
+    /if \(!isPublicDefaultSchedule \|\| didAttemptEmptyPublicRecovery\) \{[\s\S]*if \(!launchFeedQuery\.isSuccess \|\| launches\.length > 0\) \{[\s\S]*void refetchLaunchFeed\(\)/s,
+    'mobile feed performs a one-time recovery refetch when the default public schedule resolves empty'
+  );
+  sourceAssertions.push('mobile feed performs a guarded recovery refetch for empty default public results');
+
+  assertPattern(
+    'apps/mobile/app/(tabs)/feed.tsx',
+    /const shouldUseRetainedLiveFallback =[\s\S]*feedScope === 'live'[\s\S]*retainedDefaultLaunches\.length > 0[\s\S]*primaryRenderedLaunches\.length === 0/s,
+    'mobile feed retains the last good default schedule while the live scope catches up'
+  );
+  sourceAssertions.push('mobile feed preserves the last good default schedule during live-scope transitions');
+
+  assertPattern(
+    'apps/mobile/app/(tabs)/feed.tsx',
+    /if \(feedScope !== 'live' \|\| !shouldRetainDefaultSchedule \|\| didAttemptEmptyLiveRecovery\) \{[\s\S]*if \(!launchFeedQuery\.isSuccess \|\| launches\.length > 0\) \{[\s\S]*void refetchLaunchFeed\(\)/s,
+    'mobile feed performs a one-time recovery refetch when the default live schedule resolves empty'
+  );
+  sourceAssertions.push('mobile feed performs a guarded recovery refetch for empty default live results');
 
   assertPattern(
     'apps/mobile/app/(tabs)/feed.tsx',
@@ -137,7 +179,7 @@ async function main() {
 
   assertPattern(
     'apps/mobile/app/launches/[id].tsx',
-    /if \(detailVersionScope !== 'live'\) \{[\s\S]*kind:\s*'anon_refresh'[\s\S]*Go Premium for near-live data[\s\S]*return;\s*\}/s,
+    /if \(detailVersionScope !== 'live'\) \{[\s\S]*Public launch data refreshes next around[\s\S]*actionLabel:\s*'Go Premium for near-live data'[\s\S]*return;/s,
     'mobile detail anon pull-to-refresh stays local and surfaces the scheduled refresh/upgrade notice'
   );
   sourceAssertions.push('mobile detail anon pull-to-refresh avoids network fetches');
@@ -148,6 +190,13 @@ async function main() {
     'mobile detail auto-applies scheduled public updates when the public version changes'
   );
   sourceAssertions.push('mobile detail public cadence auto-applies fresh public detail');
+
+  assertPattern(
+    'apps/mobile/src/feed/feedSnapshotStorage.ts',
+    /const MAX_PUBLIC_FEED_SNAPSHOT_AGE_MS = 2 \* 60 \* 60 \* 1000;/,
+    'mobile public feed snapshot retention matches the 2-hour public product window'
+  );
+  sourceAssertions.push('mobile public feed snapshot retention matches the public refresh window');
 
   assertPattern(
     'apps/mobile/app/launches/[id].tsx',
@@ -192,6 +241,20 @@ async function main() {
   sourceAssertions.push('mobile detail maps live rows with the live transformer');
 
   assertPattern(
+    'apps/web/lib/server/v1/mobileApi.ts',
+    /function getAdminSelfServiceClient\(session: ResolvedViewerSession\): AdminSelfServiceClient \| null \{[\s\S]*session\.authMode === 'bearer' && session\.accessToken[\s\S]*createSupabaseAccessTokenClient\(session\.accessToken\)[\s\S]*session\.authMode === 'cookie'[\s\S]*createSupabaseServerClient\(\)[\s\S]*isSupabaseAdminConfigured\(\)[\s\S]*createSupabaseAdminClient\(\)/s,
+    'admin access override helpers can fall back to session-scoped Supabase clients when service-role env is unavailable'
+  );
+  sourceAssertions.push('admin access override helpers no longer depend solely on service-role env');
+
+  assertPattern(
+    'supabase/migrations/20260403193000_admin_access_override_self_service_policies.sql',
+    /for insert[\s\S]*auth\.uid\(\) = user_id and public\.is_admin\(\)[\s\S]*for update[\s\S]*auth\.uid\(\) = user_id and public\.is_admin\(\)[\s\S]*for delete[\s\S]*auth\.uid\(\) = user_id and public\.is_admin\(\)[\s\S]*public\.admin_access_override_events[\s\S]*for insert[\s\S]*auth\.uid\(\) = user_id[\s\S]*auth\.uid\(\) = updated_by[\s\S]*public\.is_admin\(\)/s,
+    'admin access override tables allow admin self-service writes with RLS'
+  );
+  sourceAssertions.push('admin access override self-service write policies are defined in SQL');
+
+  assertPattern(
     'apps/web/app/api/v1/launches/[id]/version/route.ts',
     /session\.authMode === 'bearer' && session\.accessToken[\s\S]*createSupabaseAccessTokenClient\(session\.accessToken\)/s,
     'detail version route supports bearer-auth live checks'
@@ -211,6 +274,13 @@ async function main() {
     'feed version route applies durable rate limiting before returning versions'
   );
   sourceAssertions.push('feed version route is rate limited');
+
+  assertPattern(
+    'apps/web/lib/server/v1/launchFeedApi.ts',
+    /session\.authMode === 'bearer' && session\.accessToken[\s\S]*createSupabaseAccessTokenClient\(session\.accessToken\)/s,
+    'launch feed live/watchlist loaders support bearer-auth mobile requests'
+  );
+  sourceAssertions.push('launch feed live/watchlist loaders support bearer-auth mobile requests');
 
   assertPattern(
     'apps/web/app/api/v1/launches/[id]/route.ts',

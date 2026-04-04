@@ -2,7 +2,6 @@
 
 import { ApiClientError } from '@tminuszero/api-client';
 import {
-  buildPendingFeedRefreshMessage,
   getNextAdaptiveLaunchRefreshMs,
   getRecommendedLaunchRefreshIntervalSeconds,
   getTierRefreshSeconds,
@@ -69,6 +68,7 @@ const FILTER_SELECT_CLASS = 'w-full rounded-lg border border-stroke bg-surface-0
 const HOME_UPSELL_KEYS = {
   onboardingDismissedAt: 'tminus.upsell.home_onboarding.dismissed_at'
 } as const;
+const OPEN_LAUNCH_SEARCH_EVENT = 'tmz:open-launch-search';
 
 type LaunchFeedProps = {
   initialLaunches?: Launch[];
@@ -313,6 +313,10 @@ export function LaunchFeed({
   const baseViewerTier = normalizeViewerTier(viewerEntitlementsQuery.data?.tier) ?? initialViewerTier ?? 'anon';
   const viewerTier: ViewerTier =
     modeOverride === 'public' ? 'anon' : baseViewerTier;
+  const openLaunchSearch = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new Event(OPEN_LAUNCH_SEARCH_EVENT));
+  }, []);
   const isPaid =
     modeOverride == null
       ? (typeof viewerEntitlementsQuery.data?.isPaid === 'boolean'
@@ -1368,12 +1372,12 @@ export function LaunchFeed({
     }
   }, [fetchPage, fetchRecentChanges, pendingRefresh, refreshApplying]);
 
-  const pendingRefreshMessage = useMemo(() => {
-    if (!pendingRefresh) {
-      return null;
+  useEffect(() => {
+    if (!pendingRefresh || refreshApplying || loading || loadingMore) {
+      return;
     }
-    return buildPendingFeedRefreshMessage();
-  }, [pendingRefresh]);
+    void applyPendingRefresh();
+  }, [applyPendingRefresh, loading, loadingMore, pendingRefresh, refreshApplying]);
 
   const applyPreset = useCallback(
     (presetId: string) => {
@@ -2132,6 +2136,62 @@ export function LaunchFeed({
   return (
     <section className="space-y-4">
       <h2 className="sr-only">Launches</h2>
+      <div className="sticky top-12 z-30 -mx-1 md:hidden">
+        <div className="px-1">
+          <div className="rounded-2xl border border-stroke bg-[rgba(7,9,19,0.78)] p-2 shadow-glow backdrop-blur-xl">
+            <div className="flex items-center gap-2">
+              {isAuthed ? (
+                <button
+                  type="button"
+                  className="inline-flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-text1 transition hover:border-primary/50 hover:text-primary"
+                  onClick={openLaunchSearch}
+                >
+                  <SearchIcon className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{query ? `Search: ${query}` : 'Search'}</span>
+                </button>
+              ) : (
+                <Link
+                  href={homeSignInHref}
+                  className="inline-flex min-w-0 flex-1 items-center justify-center rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-text1 transition hover:border-primary/50 hover:text-primary"
+                >
+                  <span className="truncate">Sign in</span>
+                </Link>
+              )}
+              {isAuthed ? (
+                <button
+                  type="button"
+                  className={clsx(
+                    'inline-flex shrink-0 items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] transition',
+                    filtersOpen
+                      ? 'border-primary/60 bg-primary/12 text-primary'
+                      : 'border-white/10 bg-white/5 text-text1 hover:border-primary/50 hover:text-primary'
+                  )}
+                  onClick={() => setFiltersOpen((open) => !open)}
+                  aria-expanded={filtersOpen}
+                  aria-controls={filtersPanelId}
+                >
+                  <FilterIcon className="h-4 w-4" />
+                  <span>Filters</span>
+                  {hasActiveFilters ? (
+                    <span className="rounded-full border border-current/30 px-1.5 py-0.5 text-[10px] leading-none">
+                      {activeFilterCount}
+                    </span>
+                  ) : null}
+                </button>
+              ) : null}
+              {query ? (
+                <button
+                  type="button"
+                  className="shrink-0 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-text2 transition hover:border-primary/50 hover:text-text1"
+                  onClick={() => router.push('/#schedule')}
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </div>
       {combinedProgramTicker && (
         <Link
           href={combinedProgramTicker.href}
@@ -2172,30 +2232,6 @@ export function LaunchFeed({
           <span className={notice.tone === 'warning' ? 'text-warning' : 'text-text2'}>{notice.message}</span>
           <button className="text-xs text-text3 hover:text-text1" onClick={() => setNotice(null)}>
             Dismiss
-          </button>
-        </div>
-      )}
-
-      {pendingRefresh && pendingRefreshMessage && (
-        <div className="flex items-start justify-between gap-4 rounded-2xl border border-[rgba(120,196,255,0.35)] bg-[linear-gradient(135deg,rgba(7,9,19,0.94),rgba(18,38,66,0.92))] p-4 text-sm shadow-[0_18px_40px_rgba(0,0,0,0.22)]">
-          <div className="min-w-0">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[rgba(162,209,255,0.88)]">
-              {viewerTier === 'premium' ? 'Live update ready' : 'Refresh ready'}
-            </div>
-            <div className="mt-1 text-base font-semibold text-white">{pendingRefreshMessage}</div>
-            <div className="mt-1 text-xs text-[rgba(214,228,255,0.8)]">
-              {pendingRefresh.summaries.length > 0
-                ? pendingRefresh.summaries.slice(0, 2).join(' • ')
-                : 'New feed data is available without interrupting your current view.'}
-            </div>
-          </div>
-          <button
-            type="button"
-            className="btn shrink-0 rounded-lg px-3 py-2 text-xs"
-            onClick={() => void applyPendingRefresh()}
-            disabled={refreshApplying}
-          >
-            {refreshApplying ? 'Refreshing…' : 'Refresh'}
           </button>
         </div>
       )}
@@ -2272,7 +2308,7 @@ export function LaunchFeed({
               </div>
               <button
                 type="button"
-                className="rounded-lg border border-stroke bg-surface-0 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-text2 transition hover:border-primary hover:text-text1"
+                className="hidden rounded-lg border border-stroke bg-surface-0 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-text2 transition hover:border-primary hover:text-text1 md:inline-flex"
                 onClick={() => setFiltersOpen((open) => !open)}
                 aria-expanded={filtersOpen}
                 aria-controls={filtersPanelId}
@@ -2699,6 +2735,25 @@ export function LaunchFeed({
       <PremiumUpsellModal open={upsellOpen} onClose={closeUpsell} isAuthed={isAuthed} featureLabel={upsellFeatureLabel} />
 
     </section>
+  );
+}
+
+function SearchIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <circle cx="11" cy="11" r="6.5" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M16 16 20 20" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function FilterIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <path d="M4 7h16" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M7 12h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M10 17h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
   );
 }
 

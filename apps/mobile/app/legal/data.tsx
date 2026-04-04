@@ -7,10 +7,11 @@ export default function DataAttributionRoute() {
       eyebrow="Legal"
       title="Data & Attribution"
       description="Data sources, attribution, and usage notes for T-Minus Zero."
-      lastUpdated="Jan 20, 2026"
+      lastUpdated="Apr 3, 2026"
       actions={[
         { label: 'Privacy notice', href: '/legal/privacy' },
-        { label: 'Privacy choices', href: '/legal/privacy-choices', variant: 'secondary' }
+        { label: 'Privacy choices', href: '/legal/privacy-choices', variant: 'secondary' },
+        { label: 'Support', href: '/support', variant: 'secondary' }
       ]}
       sections={[
         {

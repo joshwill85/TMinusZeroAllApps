@@ -25,7 +25,7 @@ import {
 import { LaunchDetailHero } from '@/components/launch/LaunchDetailHero';
 import { LaunchDetailTabs, LaunchDetailTabPanel } from '@/components/launch/LaunchDetailTabs';
 import { OverviewTab } from '@/components/launch/tabs';
-import { buildCountdownSnapshot } from '@tminuszero/domain';
+import { buildCountdownSnapshot, formatLaunchCountdownClock } from '@tminuszero/domain';
 import type { LaunchDetailV1 } from '@tminuszero/contracts';
 
 type LaunchDetailTabsPageProps = {
@@ -179,23 +179,7 @@ function getStatusTone(status: string | null): 'default' | 'success' | 'warning'
 }
 
 function formatCountdown(totalMs: number): string {
-  const totalSec = Math.abs(Math.floor(totalMs / 1000));
-  const days = Math.floor(totalSec / 86400);
-  const hours = Math.floor((totalSec % 86400) / 3600);
-  const minutes = Math.floor((totalSec % 3600) / 60);
-  const seconds = totalSec % 60;
-
-  const prefix = totalMs < 0 ? 'T+' : 'T-';
-
-  if (days > 0) {
-    return `${prefix} ${days}d ${hours}h ${minutes}m`;
-  } else if (hours > 0) {
-    return `${prefix} ${hours}h ${minutes}m ${seconds}s`;
-  } else if (minutes > 0) {
-    return `${prefix} ${minutes}m ${seconds}s`;
-  } else {
-    return `${prefix} ${seconds}s`;
-  }
+  return formatLaunchCountdownClock(totalMs);
 }
 
 // Placeholder Tab Components (simplified versions)

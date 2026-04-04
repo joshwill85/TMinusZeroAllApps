@@ -23,6 +23,7 @@ import { NwsForecastPanel, type NwsLaunchWeather } from '@/components/NwsForecas
 import { PadSatellitePreviewImage } from '@/components/PadSatellitePreviewImage';
 import { JepScoreClient } from '@/components/JepScoreClient';
 import { LaunchFaaMapClient } from '@/components/LaunchFaaMapClient';
+import { ThirdPartyVideoEmbed } from '@/components/ThirdPartyVideoEmbed';
 import type { TimelineNode } from '@/components/ChronoHelixTimeline';
 import { RocketPhotoGallery } from '@/components/RocketPhotoGallery';
 import { XTimelineEmbed } from '@/components/XTimelineEmbed';
@@ -2756,19 +2757,15 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
           {primaryWatchUrl && (
             <div className="mt-4">
               {showWatchEmbed && watchEmbed ? (
-                <div
-                  className="overflow-hidden rounded-xl border border-stroke bg-black/50"
-                  style={{ aspectRatio: '16 / 9' }}
-                >
-                  <iframe
-                    src={watchEmbed.src}
-                    title={watchEmbed.title}
-                    className="h-full w-full"
-                    allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
-                    allowFullScreen
-                    loading="lazy"
-                  />
-                </div>
+                <ThirdPartyVideoEmbed
+                  src={watchEmbed.src}
+                  title={watchEmbed.title}
+                  externalUrl={primaryWatchUrl}
+                  previewImageUrl={primaryWatchLink?.imageUrl || schemaImage}
+                  previewAlt={primaryWatchLink?.label || 'Stream preview'}
+                  hostLabel={primaryWatchLink?.host || 'stream'}
+                  blocked={blockThirdPartyEmbeds}
+                />
               ) : (
                 <div className="space-y-3">
                   <a

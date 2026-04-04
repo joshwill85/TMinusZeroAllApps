@@ -12,6 +12,7 @@ import {
   useBlueOriginVehiclesQuery
 } from '@/src/api/queries';
 import { AppScreen } from '@/src/components/AppScreen';
+import { LaunchShareIconButton } from '@/src/components/LaunchShareIconButton';
 import {
   CustomerShellHero,
   CustomerShellBadge,
@@ -21,6 +22,7 @@ import {
 import { useCanonicalContractDetailQuery, useCanonicalContractsQuery } from '@/src/features/customerRoutes/queries';
 import { openExternalCustomerUrl, RouteKeyValueRow, RouteListRow } from '@/src/features/customerRoutes/shared';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
+import { shareLaunch } from '@/src/utils/launchShare';
 
 const BLUE_ORIGIN_VEHICLE_ENGINES: Record<string, string[]> = {
   'new-shepard': ['be-3pm'],
@@ -177,6 +179,25 @@ export function BlueOriginTravelerDetailScreen({ slug }: { slug: string }) {
                       title={traveler.latestLaunchName || 'Latest linked launch'}
                       body={traveler.latestLaunchDate ? formatDate(traveler.latestLaunchDate) : 'Open the linked native launch detail screen.'}
                       meta="Open launch detail"
+                      trailing={
+                        traveler.latestLaunchName && extractLaunchIdFromHref(traveler.latestLaunchHref) ? (
+                          <LaunchShareIconButton
+                            onPress={() => {
+                              const launchId = extractLaunchIdFromHref(traveler.latestLaunchHref);
+                              if (!launchId) {
+                                return;
+                              }
+                              void shareLaunch({
+                                id: launchId,
+                                name: traveler.latestLaunchName || 'Latest linked launch',
+                                net: traveler.latestLaunchDate,
+                                padLabel: traveler.latestFlightCode?.toUpperCase() || undefined
+                              });
+                            }}
+                            size={38}
+                          />
+                        ) : undefined
+                      }
                       onPress={() => router.push(traveler.latestLaunchHref as Href)}
                     />
                   ) : null}
@@ -647,12 +668,14 @@ function DetailRow({
   title,
   body,
   meta,
-  onPress
+  onPress,
+  trailing
 }: {
   title: string;
   body: string;
   meta?: string | null;
   onPress?: (() => void) | undefined;
+  trailing?: ReactNode;
 }) {
   const { theme } = useMobileBootstrap();
 
@@ -671,11 +694,21 @@ function DetailRow({
         opacity: onPress ? 1 : 0.96
       })}
     >
-      <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{title}</Text>
-      {body ? <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>{body}</Text> : null}
-      {meta ? <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>{meta}</Text> : null}
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+        <View style={{ flex: 1, gap: 6 }}>
+          <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{title}</Text>
+          {body ? <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>{body}</Text> : null}
+          {meta ? <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>{meta}</Text> : null}
+        </View>
+        {trailing}
+      </View>
     </Pressable>
   );
+}
+
+function extractLaunchIdFromHref(href: string | null | undefined) {
+  const match = String(href || '').match(/\/launches\/([^/?#]+)/i);
+  return match ? decodeURIComponent(match[1]) : null;
 }
 
 function TextBlock({ value }: { value: string }) {

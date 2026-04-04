@@ -1,5 +1,6 @@
 import { format, formatInTimeZone } from 'date-fns-tz';
 import differenceInSeconds from 'date-fns/differenceInSeconds';
+import { formatLaunchCountdownClock } from '@tminuszero/domain';
 import { Launch } from './types/launch';
 
 export function isDateOnlyNet(netIso: string, netPrecision?: Launch['netPrecision'], timeZone?: string) {
@@ -34,16 +35,7 @@ export function computeCountdown(netIso: string, nowInput?: number | Date) {
   const net = new Date(netIso);
   const diffSeconds = Math.max(0, differenceInSeconds(net, now));
 
-  const days = Math.floor(diffSeconds / 86400);
-  const hours = Math.floor((diffSeconds % 86400) / 3600);
-  const minutes = Math.floor((diffSeconds % 3600) / 60);
-  const seconds = diffSeconds % 60;
-
-  const label = days > 0
-    ? `T-${days}d ${hours.toString().padStart(2, '0')}h`
-    : `T-${hours.toString().padStart(2, '0')}h:${minutes.toString().padStart(2, '0')}m:${seconds
-        .toString()
-        .padStart(2, '0')}s`;
+  const label = formatLaunchCountdownClock(diffSeconds * 1000);
 
   return { label, diffSeconds };
 }

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Text, View } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
-import type { BillingCatalogOfferV1 } from '@tminuszero/api-client';
-import { getMobileViewerTier } from '@tminuszero/domain';
+import { ApiClientError, type BillingCatalogOfferV1 } from '@tminuszero/api-client';
+import { getMobileViewerTier, resolveAdminAccessOverrideErrorMessage } from '@tminuszero/domain';
 import {
   useAdminAccessOverrideQuery,
   useMarketingEmailQuery,
@@ -43,7 +43,9 @@ export default function ProfileScreen() {
   const updateMarketingEmailMutation = useUpdateMarketingEmailMutation();
   const billing = useNativeBilling(sessionQuery.data?.viewerId ?? null);
   const billingSummary = billing.billingSummaryQuery.data ?? null;
-  const catalogOffers = billing.catalogProduct?.offers ?? [];
+  const catalogProduct = billing.catalogProduct ?? null;
+  const catalogOffers = catalogProduct?.offers ?? [];
+  const purchaseProvider = catalogProduct?.provider ?? (billing.platform === 'ios' ? 'apple_app_store' : 'google_play');
   const tier = getMobileViewerTier(entitlementsQuery.data?.tier ?? 'anon');
   const isAuthed = entitlementsQuery.data?.isAuthed ?? Boolean(accessToken);
   const profile = profileQuery.data ?? null;
@@ -178,7 +180,9 @@ export default function ProfileScreen() {
         next === null ? 'Default admin access restored.' : next === 'premium' ? 'Admin premium test mode is active.' : 'Admin free test mode is active.'
       );
     } catch (error) {
-      setAdminAccessError(error instanceof Error ? error.message : 'Unable to update admin access.');
+      const fallback = error instanceof Error ? error.message : 'Unable to update admin access.';
+      const code = error instanceof ApiClientError ? error.code : null;
+      setAdminAccessError(resolveAdminAccessOverrideErrorMessage(code, fallback));
     }
   }
 
@@ -296,6 +300,15 @@ export default function ProfileScreen() {
               <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
                 {billing.claim ? 'Claiming Premium links the verified purchase to a T-Minus Zero account for ownership, recovery, and restore.' : buildBillingMessage('none', false, billing.isStoreReady)}
               </Text>
+              {!billing.claim ? (
+                <BillingPurchaseNotice
+                  displayName={catalogProduct?.displayName}
+                  priceLabel={catalogProduct?.priceLabel}
+                  provider={purchaseProvider}
+                  onOpenPrivacy={() => router.push('/legal/privacy' as Href)}
+                  onOpenTerms={() => router.push('/legal/terms' as Href)}
+                />
+              ) : null}
               {catalogOffers.length > 0 ? (
                 <View style={{ gap: 8 }}>
                   <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>Active offers on this device</Text>
@@ -511,6 +524,15 @@ export default function ProfileScreen() {
               <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
                 {buildBillingMessage(billingSummary.provider, billingSummary.isPaid, billing.isStoreReady)}
               </Text>
+              {showPurchaseAction ? (
+                <BillingPurchaseNotice
+                  displayName={catalogProduct?.displayName}
+                  priceLabel={catalogProduct?.priceLabel}
+                  provider={purchaseProvider}
+                  onOpenPrivacy={() => router.push('/legal/privacy' as Href)}
+                  onOpenTerms={() => router.push('/legal/terms' as Href)}
+                />
+              ) : null}
               {catalogOffers.length > 0 ? (
                 <View style={{ gap: 8 }}>
                   <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>Active offers on this device</Text>
@@ -594,7 +616,9 @@ export default function ProfileScreen() {
           <CustomerShellPanel title="Account tools" description="Open the remaining customer account surfaces that now stay native on mobile.">
             <View style={{ gap: 10 }}>
               <CustomerShellActionButton label="Saved items" onPress={() => router.push('/saved')} />
+              <CustomerShellActionButton label="Login methods" variant="secondary" onPress={() => router.push('/account/login-methods' as Href)} />
               <CustomerShellActionButton label="Integrations" variant="secondary" onPress={() => router.push('/account/integrations' as Href)} />
+              <CustomerShellActionButton label="Support" variant="secondary" onPress={() => router.push('/support' as Href)} />
               <CustomerShellActionButton label="Privacy choices" variant="secondary" onPress={() => router.push('/legal/privacy-choices' as Href)} />
               <CustomerShellActionButton label="Privacy notice" variant="secondary" onPress={() => router.push('/legal/privacy' as Href)} />
               <CustomerShellActionButton label="Terms of service" variant="secondary" onPress={() => router.push('/legal/terms' as Href)} />
@@ -696,9 +720,52 @@ function buildBillingMessage(provider: string, isPaid: boolean, isStoreReady: bo
     return 'Manage or cancel this subscription in Google Play.';
   }
   if (isStoreReady) {
-    return 'Native billing is available on this device.';
+    return 'Native billing is available on this device. Pricing, renewal terms, and legal links appear below before purchase.';
   }
   return 'Store billing is not available for this platform or current build configuration yet.';
+}
+
+function BillingPurchaseNotice({
+  displayName,
+  priceLabel,
+  provider,
+  onOpenPrivacy,
+  onOpenTerms
+}: {
+  displayName: string | null | undefined;
+  priceLabel: string | null | undefined;
+  provider: string;
+  onOpenPrivacy: () => void;
+  onOpenTerms: () => void;
+}) {
+  const storeLabel = formatManagementProviderLabel(provider);
+
+  return (
+    <View
+      style={{
+        gap: 10,
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: 'rgba(111, 232, 255, 0.18)',
+        backgroundColor: 'rgba(111, 232, 255, 0.06)',
+        paddingHorizontal: 14,
+        paddingVertical: 14
+      }}
+    >
+      <Text style={{ color: '#eaf0ff', fontSize: 15, fontWeight: '700' }}>{displayName || 'Premium'}</Text>
+      <Text style={{ color: '#d4e0eb', fontSize: 14, lineHeight: 21 }}>
+        {priceLabel ? `${priceLabel} billed through ${storeLabel}.` : `Price is shown by ${storeLabel} before you confirm purchase.`}
+      </Text>
+      <Text style={{ color: '#d4e0eb', fontSize: 14, lineHeight: 21 }}>
+        Auto-renewing subscription. Renews until canceled. Manage or cancel from {storeLabel} settings after purchase.
+      </Text>
+      <Text style={{ color: '#d4e0eb', fontSize: 14, lineHeight: 21 }}>
+        By continuing, you agree to the Terms of Service and acknowledge the Privacy Notice.
+      </Text>
+      <CustomerShellActionButton label="Terms of service" variant="secondary" onPress={onOpenTerms} />
+      <CustomerShellActionButton label="Privacy notice" variant="secondary" onPress={onOpenPrivacy} />
+    </View>
+  );
 }
 
 function buildClaimAuthHref(pathname: '/sign-in' | '/sign-up', claimToken: string | null | undefined, returnTo: string | null | undefined) {

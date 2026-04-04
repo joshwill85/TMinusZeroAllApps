@@ -4,7 +4,7 @@ import Constants from 'expo-constants';
 import * as ExpoLinking from 'expo-linking';
 import * as SecureStore from 'expo-secure-store';
 import * as WebBrowser from 'expo-web-browser';
-import { createClient, type Session } from '@supabase/supabase-js';
+import { createClient, type Session, type UserIdentity } from '@supabase/supabase-js';
 import type { AuthProviderV1 } from '@tminuszero/contracts';
 import {
   createApiClient,
@@ -12,8 +12,11 @@ import {
   type MobileAuthRiskDecisionV1
 } from '@tminuszero/api-client';
 import {
-  captureAppleAuthRevocationPlaceholder,
+  clearStoredAppleAuthIdentity,
   isMobileAppleAuthEnabled,
+  persistStoredAppleAuthUserId,
+  readStoredAppleAuthUserId,
+  refreshStoredNativeAppleCredential,
   requestNativeAppleSignIn
 } from '@/src/auth/appleAuth';
 import { getApiBaseUrl, getSupabaseAnonKey, getSupabaseUrl } from '@/src/config/api';
@@ -44,6 +47,8 @@ type MobileOAuthProvider = Extract<AuthProviderV1, 'apple' | 'google'>;
 type CompleteMobileAuthResult = {
   provider: AuthProviderV1;
   session: MobileAuthSession;
+  displayName?: string | null;
+  emailIsPrivateRelay?: boolean;
 };
 
 type MobilePasswordAuthResult = {
@@ -126,6 +131,84 @@ function createBearerMobileAuthClient(accessToken: string) {
     baseUrl: getApiBaseUrl(),
     auth: { mode: 'bearer', accessToken }
   });
+}
+
+function isApplePrivateRelayEmail(email: string | null | undefined) {
+  return String(email || '')
+    .trim()
+    .toLowerCase()
+    .endsWith('privaterelay.appleid.com');
+}
+
+async function maybeHydrateAppleProfile(accessToken: string, firstName: string | null, lastName: string | null) {
+  if (!firstName && !lastName) {
+    return;
+  }
+
+  const client = createBearerMobileAuthClient(accessToken);
+  const currentProfile = await client.getProfile().catch(() => null);
+  const updates: { firstName?: string; lastName?: string } = {};
+
+  if (firstName && !currentProfile?.firstName?.trim()) {
+    updates.firstName = firstName;
+  }
+  if (lastName && !currentProfile?.lastName?.trim()) {
+    updates.lastName = lastName;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return;
+  }
+
+  await client.updateProfile(updates).catch(() => undefined);
+}
+
+async function captureNativeAppleCredential(
+  accessToken: string,
+  {
+    authorizationCode,
+    appleUserId,
+    email,
+    fallbackEmail,
+    firstName,
+    lastName
+  }: {
+    authorizationCode: string | null;
+    appleUserId: string;
+    email: string | null;
+    fallbackEmail?: string | null;
+    firstName: string | null;
+    lastName: string | null;
+  }
+) {
+  const normalizedCode = String(authorizationCode || '').trim();
+  if (!normalizedCode) {
+    throw new Error('Apple sign-in did not return a revocable authorization code. Please try again.');
+  }
+
+  const normalizedEmail = String(email || fallbackEmail || '').trim() || null;
+  const client = createBearerMobileAuthClient(accessToken);
+  return client.captureAppleAuth({
+    source: 'ios_native_code',
+    authorizationCode: normalizedCode,
+    appleUserId,
+    email: normalizedEmail,
+    emailIsPrivateRelay: isApplePrivateRelayEmail(normalizedEmail),
+    firstName,
+    lastName
+  });
+}
+
+export async function refreshAndCaptureStoredAppleCredential(accessToken: string) {
+  const appleUserId = await readStoredAppleAuthUserId();
+  if (!appleUserId) {
+    return null;
+  }
+
+  const credential = await refreshStoredNativeAppleCredential(appleUserId);
+  await captureNativeAppleCredential(accessToken, credential);
+  await persistStoredAppleAuthUserId(credential.appleUserId).catch(() => undefined);
+  return credential;
 }
 
 function readBuildProfile() {
@@ -379,6 +462,60 @@ async function setAuthSession(accessToken: string, refreshToken: string) {
   return parseSupabaseSession(data.session);
 }
 
+function findIdentityByProvider(identities: UserIdentity[] | null | undefined, provider: 'apple' | 'email') {
+  return (identities ?? []).find((identity) => String(identity?.provider || '').trim().toLowerCase() === provider) ?? null;
+}
+
+async function primeIdentityMutationSession(accessToken: string, refreshToken: string | null | undefined) {
+  const normalizedAccessToken = String(accessToken || '').trim();
+  const normalizedRefreshToken = String(refreshToken || '').trim();
+  if (!normalizedAccessToken || !normalizedRefreshToken) {
+    throw new Error('Please sign in again before changing login methods.');
+  }
+
+  return setAuthSession(normalizedAccessToken, normalizedRefreshToken);
+}
+
+async function getCurrentUserIdentities() {
+  const supabase = getMobileSupabaseClient();
+  const { data, error } = await supabase.auth.getUserIdentities();
+  if (error) {
+    throw error;
+  }
+
+  return data.identities ?? [];
+}
+
+async function clearLinkedAppleArtifacts(accessToken: string) {
+  await createBearerMobileAuthClient(accessToken).clearAppleAuthArtifacts().catch(() => undefined);
+  await clearStoredAppleAuthIdentity().catch(() => undefined);
+}
+
+async function unlinkCurrentAppleIdentity(options: { cleanupAccessToken: string; requireBackupMethod: boolean }) {
+  const identities = await getCurrentUserIdentities();
+  const appleIdentity = findIdentityByProvider(identities, 'apple');
+  if (!appleIdentity) {
+    await clearLinkedAppleArtifacts(options.cleanupAccessToken);
+    return false;
+  }
+
+  if (options.requireBackupMethod) {
+    const hasBackupMethod = identities.some((identity) => String(identity?.provider || '').trim().toLowerCase() !== 'apple');
+    if (!hasBackupMethod) {
+      throw new Error('Add another sign-in method before removing Sign in with Apple.');
+    }
+  }
+
+  const supabase = getMobileSupabaseClient();
+  const { error } = await supabase.auth.unlinkIdentity(appleIdentity);
+  if (error) {
+    throw error;
+  }
+
+  await clearLinkedAppleArtifacts(options.cleanupAccessToken);
+  return true;
+}
+
 export async function continueWithAppleSignIn(): Promise<CompleteMobileAuthResult> {
   if (!isMobileAppleAuthEnabled()) {
     throw new Error('Sign in with Apple is not enabled for this build.');
@@ -401,15 +538,97 @@ export async function continueWithAppleSignIn(): Promise<CompleteMobileAuthResul
 
   const completed: CompleteMobileAuthResult = {
     provider: 'apple',
-    session: parseSupabaseSession(data.session)
+    session: parseSupabaseSession(data.session),
+    displayName: nativeCredential.displayName,
+    emailIsPrivateRelay: isApplePrivateRelayEmail(nativeCredential.email)
   };
 
-  await captureAppleAuthRevocationPlaceholder({
-    userId: completed.session.userId,
-    email: completed.session.email
-  }).catch(() => undefined);
+  await maybeHydrateAppleProfile(
+    completed.session.accessToken,
+    nativeCredential.firstName,
+    nativeCredential.lastName
+  ).catch(() => undefined);
+  try {
+    await captureNativeAppleCredential(completed.session.accessToken, {
+      ...nativeCredential,
+      fallbackEmail: completed.session.email
+    });
+    await persistStoredAppleAuthUserId(nativeCredential.appleUserId).catch(() => undefined);
+  } catch (error) {
+    await supabase.auth.signOut().catch(() => undefined);
+    throw error;
+  }
 
   return completed;
+}
+
+export async function linkAppleIdentityToCurrentSession({
+  accessToken,
+  refreshToken
+}: {
+  accessToken: string;
+  refreshToken: string | null;
+}): Promise<CompleteMobileAuthResult> {
+  if (!isMobileAppleAuthEnabled()) {
+    throw new Error('Sign in with Apple is not enabled for this build.');
+  }
+
+  const baseSession = await primeIdentityMutationSession(accessToken, refreshToken);
+  const currentIdentities = await getCurrentUserIdentities();
+  if (findIdentityByProvider(currentIdentities, 'apple')) {
+    throw new Error('Sign in with Apple is already linked to this account.');
+  }
+
+  const nativeCredential = await requestNativeAppleSignIn();
+  const supabase = getMobileSupabaseClient();
+  const { data, error } = await supabase.auth.linkIdentity({
+    provider: 'apple',
+    token: nativeCredential.identityToken,
+    nonce: nativeCredential.nonce
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  const linkedSession = data.session ? parseSupabaseSession(data.session) : baseSession;
+
+  await maybeHydrateAppleProfile(linkedSession.accessToken, nativeCredential.firstName, nativeCredential.lastName).catch(() => undefined);
+  try {
+    await captureNativeAppleCredential(linkedSession.accessToken, {
+      ...nativeCredential,
+      fallbackEmail: linkedSession.email
+    });
+    await persistStoredAppleAuthUserId(nativeCredential.appleUserId).catch(() => undefined);
+  } catch (error) {
+    await unlinkCurrentAppleIdentity({
+      cleanupAccessToken: linkedSession.accessToken,
+      requireBackupMethod: false
+    }).catch(() => undefined);
+    throw error;
+  }
+
+  return {
+    provider: 'apple',
+    session: linkedSession,
+    displayName: nativeCredential.displayName,
+    emailIsPrivateRelay: isApplePrivateRelayEmail(nativeCredential.email ?? linkedSession.email)
+  };
+}
+
+export async function unlinkAppleIdentityFromCurrentSession({
+  accessToken,
+  refreshToken
+}: {
+  accessToken: string;
+  refreshToken: string | null;
+}) {
+  const activeSession = await primeIdentityMutationSession(accessToken, refreshToken);
+  await unlinkCurrentAppleIdentity({
+    cleanupAccessToken: activeSession.accessToken,
+    requireBackupMethod: true
+  });
+  return activeSession;
 }
 
 function parseAccessTokenExpiry(accessToken: string, expiresIn: number | null) {
@@ -562,6 +781,8 @@ export async function signInWithPassword(email: string, password: string): Promi
     challengeCode: challenge.challengeCode
   });
 
+  await clearStoredAppleAuthIdentity().catch(() => undefined);
+
   return {
     session: toMobileAuthSession(payload.session),
     riskSessionId: challenge.riskSessionId
@@ -589,11 +810,14 @@ export async function createPremiumAccountFromClaim(claimToken: string, email: s
   }
 
   const client = createGuestMobileAuthClient();
-  return client.createPremiumAccountFromClaim({
+  const payload = await client.createPremiumAccountFromClaim({
     claimToken: normalizedClaimToken,
     email,
     password
   });
+
+  await clearStoredAppleAuthIdentity().catch(() => undefined);
+  return payload;
 }
 
 export async function signUpWithPassword(email: string, password: string, emailRedirectTo: string): Promise<MobilePasswordSignUpResult> {
@@ -606,6 +830,11 @@ export async function signUpWithPassword(email: string, password: string, emailR
     riskSessionId: challenge.riskSessionId,
     challengeCode: challenge.challengeCode
   });
+
+  if (payload.session) {
+    await clearStoredAppleAuthIdentity().catch(() => undefined);
+  }
+
   return {
     session: payload.session ? toMobileAuthSession(payload.session) : null,
     user: toMobileAuthUser(payload.user),
@@ -677,16 +906,18 @@ export async function updatePassword(accessToken: string, password: string) {
 }
 
 export async function signOut(accessToken: string | null) {
-  if (!accessToken) return;
-
   try {
-    await authRequest('/auth/v1/logout', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`
-      }
-    });
+    if (accessToken) {
+      await authRequest('/auth/v1/logout', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
+      });
+    }
   } catch {
     // Best effort. Local token removal is the source of truth for the mobile shell.
+  } finally {
+    await clearStoredAppleAuthIdentity().catch(() => undefined);
   }
 }
