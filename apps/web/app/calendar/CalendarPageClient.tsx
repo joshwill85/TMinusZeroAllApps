@@ -222,53 +222,96 @@ export function CalendarPageClient() {
       </div>
 
       <div className="mt-6 rounded-3xl border border-stroke bg-surface-1 p-4 md:p-5">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <CalendarMonthYearPicker
-            value={month}
-            onChange={(nextMonth) => updateCalendarQuery(router, pathname, searchParams, { month: formatMonthKey(nextMonth) })}
-          />
-          <div className="grid gap-2 sm:grid-cols-3">
-            <select
-              aria-label="Filter launch region"
-              className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
-              value={regionFilter}
-              onChange={(event) => updateCalendarQuery(router, pathname, searchParams, { region: event.target.value })}
-            >
-              {REGION_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="Filter launch status"
-              className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
-              value={statusFilter}
-              onChange={(event) => updateCalendarQuery(router, pathname, searchParams, { status: event.target.value })}
-            >
-              {STATUS_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="Filter launch provider"
-              className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
-              value={providerFilter}
-              onChange={(event) => updateCalendarQuery(router, pathname, searchParams, { provider: event.target.value })}
-            >
-              <option value="">All providers</option>
-              {providerOptions.map((provider) => (
-                <option key={provider} value={provider}>
-                  {provider}
-                </option>
-              ))}
-            </select>
+        <div className="rounded-2xl border border-stroke bg-surface-0/70 p-4">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <CalendarMonthYearPicker
+                value={month}
+                embedded
+                onChange={(nextMonth) => updateCalendarQuery(router, pathname, searchParams, { month: formatMonthKey(nextMonth) })}
+              />
+              <div className="grid gap-2 sm:grid-cols-3">
+                <select
+                  aria-label="Filter launch region"
+                  className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
+                  value={regionFilter}
+                  onChange={(event) => updateCalendarQuery(router, pathname, searchParams, { region: event.target.value })}
+                >
+                  {REGION_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  aria-label="Filter launch status"
+                  className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
+                  value={statusFilter}
+                  onChange={(event) => updateCalendarQuery(router, pathname, searchParams, { status: event.target.value })}
+                >
+                  {STATUS_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  aria-label="Filter launch provider"
+                  className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
+                  value={providerFilter}
+                  onChange={(event) => updateCalendarQuery(router, pathname, searchParams, { provider: event.target.value })}
+                >
+                  <option value="">All providers</option>
+                  {providerOptions.map((provider) => (
+                    <option key={provider} value={provider}>
+                      {provider}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            {monthQuery.isPending ? <div className="text-sm text-text3">Loading launches…</div> : null}
+            {monthQuery.isError ? (
+              <div className="rounded-2xl border border-danger/30 bg-danger/10 p-4 text-sm text-danger">
+                Unable to load the launch calendar.
+              </div>
+            ) : null}
+
+            <div className="border-t border-stroke/70 pt-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="text-xs uppercase tracking-[0.08em] text-text3">Days with launches</div>
+                <CalendarStateLegend />
+              </div>
+
+              <div className="mt-4 overflow-x-auto pb-2">
+                <div className="grid min-w-[680px] grid-cols-7 gap-3">
+                  {WEEKDAY_LABELS.map((label) => (
+                    <div key={label} className="text-center text-xs uppercase tracking-[0.08em] text-text3">
+                      {label}
+                    </div>
+                  ))}
+                  {calendarDays.map((day) => {
+                    const items = launchesByDay.get(day.key) ?? [];
+                    return (
+                      <CalendarDayTile
+                        key={day.key}
+                        dayKey={day.key}
+                        dayNumber={day.date.getDate()}
+                        launchCount={items.length}
+                        isCurrentMonth={day.isCurrentMonth}
+                        isSelected={selectedDay === day.key}
+                        ariaLabel={buildCalendarDayLabel(day.key, items.length, localTimeZone)}
+                        onClick={() => openSelectedDay(day.key)}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="mt-4 rounded-2xl border border-stroke bg-surface-0/70 p-4">
+        <div className="mt-4 rounded-2xl border border-stroke bg-surface-0/45 p-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <div className="text-xs uppercase tracking-[0.1em] text-text3">Month summary</div>
@@ -308,45 +351,6 @@ export function CalendarPageClient() {
             </div>
           </div>
         ) : null}
-
-        {monthQuery.isPending ? <div className="mt-4 text-sm text-text3">Loading launches…</div> : null}
-        {monthQuery.isError ? (
-          <div className="mt-4 rounded-2xl border border-danger/30 bg-danger/10 p-4 text-sm text-danger">
-            Unable to load the launch calendar.
-          </div>
-        ) : null}
-
-        <div className="mt-4 rounded-2xl border border-stroke bg-surface-0/45 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="text-xs uppercase tracking-[0.08em] text-text3">Past, today, upcoming</div>
-            <CalendarStateLegend />
-          </div>
-
-          <div className="mt-4 overflow-x-auto pb-2">
-            <div className="grid min-w-[680px] grid-cols-7 gap-3">
-              {WEEKDAY_LABELS.map((label) => (
-                <div key={label} className="text-center text-xs uppercase tracking-[0.08em] text-text3">
-                  {label}
-                </div>
-              ))}
-              {calendarDays.map((day) => {
-                const items = launchesByDay.get(day.key) ?? [];
-                return (
-                  <CalendarDayTile
-                    key={day.key}
-                    dayKey={day.key}
-                    dayNumber={day.date.getDate()}
-                    launchCount={items.length}
-                    isCurrentMonth={day.isCurrentMonth}
-                    isSelected={selectedDay === day.key}
-                    ariaLabel={buildCalendarDayLabel(day.key, items.length, localTimeZone)}
-                    onClick={() => openSelectedDay(day.key)}
-                  />
-                );
-              })}
-            </div>
-          </div>
-        </div>
       </div>
 
       <div className="mt-4 rounded-3xl border border-stroke bg-surface-1 p-4 md:p-5">

@@ -43,17 +43,22 @@ export function DashboardTopBar({
   return (
     <header className="rounded-3xl border border-stroke bg-[rgba(7,10,22,0.86)] px-5 py-5 shadow-surface backdrop-blur-xl">
       <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.2em] text-text4">
-        <span>Artemis Program</span>
+        <span>Artemis Mission Control</span>
         <span className="hidden sm:inline">/</span>
         <span className="text-text3">{copy.label}</span>
       </div>
       <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
         <div className="max-w-3xl">
-          <h1 className="text-3xl font-semibold text-text1 md:text-4xl">Artemis Program</h1>
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="text-2xl font-semibold tracking-[-0.03em] text-text1 md:text-3xl">{copy.label}</h2>
+            <span className="rounded-full border border-[#f0c97c]/20 bg-[#f0c97c]/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#f5d998]">
+              Live view
+            </span>
+          </div>
           <p className="mt-2 text-sm text-text2">{copy.detail}</p>
         </div>
         <div className="rounded-2xl border border-stroke bg-surface-0/80 px-3 py-2 text-right">
-          <p className="text-[10px] uppercase tracking-[0.14em] text-text4">Current View</p>
+          <p className="text-[10px] uppercase tracking-[0.14em] text-text4">Mission Control</p>
           <p className="text-sm font-semibold text-text1">{copy.label}</p>
         </div>
       </div>

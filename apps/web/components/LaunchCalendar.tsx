@@ -126,7 +126,7 @@ export function LaunchCalendar({ open, onClose }: { open: boolean; onClose: () =
         {loading && <div className="mt-3 text-sm text-text3">Loading launches...</div>}
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="text-xs uppercase tracking-[0.08em] text-text3">Past, today, upcoming</div>
+          <div className="text-xs uppercase tracking-[0.08em] text-text3">Days with launches</div>
           <CalendarStateLegend />
         </div>
 

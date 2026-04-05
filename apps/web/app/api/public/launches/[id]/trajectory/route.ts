@@ -1,15 +1,10 @@
 import { NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/server/supabaseServer';
-import { parseLaunchParam } from '@/lib/utils/launchParams';
-import { fetchArEligibleLaunches } from '@/lib/server/arEligibility';
+import { loadLaunchTrajectoryPayload } from '@/lib/server/arTrajectory';
 import { getViewerTier } from '@/lib/server/viewerTier';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(_: Request, { params }: { params: { id: string } }) {
-  const parsed = parseLaunchParam(params.id);
-  if (!parsed) return NextResponse.json({ error: 'invalid_launch_id' }, { status: 400 });
-
   const viewer = await getViewerTier();
   if (!viewer.isAuthed) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
@@ -18,41 +13,33 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
     return NextResponse.json({ error: 'payment_required' }, { status: 402 });
   }
 
-  const nowMs = Date.now();
-  const eligible = await fetchArEligibleLaunches({ nowMs });
-  if (!eligible.some((entry) => entry.launchId === parsed.launchId)) {
-    return NextResponse.json({ error: 'not_eligible' }, { status: 404 });
-  }
+  try {
+    const result = await loadLaunchTrajectoryPayload(params.id);
+    if (!result.ok) {
+      const status = result.error === 'invalid_launch_id' ? 400 : 404;
+      return NextResponse.json({ error: result.error }, { status });
+    }
+    if (!result.payload) {
+      return NextResponse.json({ error: 'trajectory_not_found' }, { status: 404 });
+    }
 
-  const supabase = createSupabaseServerClient();
-  const { data, error } = await supabase
-    .from('launch_trajectory_products')
-    .select('launch_id, version, quality, generated_at, product')
-    .eq('launch_id', parsed.launchId)
-    .maybeSingle();
-
-  if (error) {
+    return NextResponse.json(
+      {
+        launchId: result.payload.launchId,
+        version: result.payload.version,
+        quality: result.payload.quality,
+        generatedAt: result.payload.generatedAt,
+        product: result.payload.product
+      },
+      {
+        headers: {
+          // Premium-gated data; do not allow shared caching.
+          'Cache-Control': 'no-store'
+        }
+      }
+    );
+  } catch (error) {
     console.error('trajectory product fetch error', error);
     return NextResponse.json({ error: 'trajectory_fetch_failed' }, { status: 500 });
   }
-
-  if (!data) {
-    return NextResponse.json({ error: 'trajectory_not_found' }, { status: 404 });
-  }
-
-  return NextResponse.json(
-    {
-      launchId: data.launch_id,
-      version: data.version,
-      quality: data.quality,
-      generatedAt: data.generated_at,
-      product: data.product
-    },
-    {
-      headers: {
-        // Premium-gated data; do not allow shared caching.
-        'Cache-Control': 'no-store'
-      }
-    }
-  );
 }

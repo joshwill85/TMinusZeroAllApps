@@ -1,6 +1,5 @@
 import { notFound, redirect } from 'next/navigation';
 import { buildAuthHref } from '@tminuszero/navigation';
-import { TRAJECTORY_CONTRACT_COLUMNS, buildTrajectoryContract } from '@tminuszero/domain';
 import { mapPublicCacheRow } from '@/lib/server/transformers';
 import { isSupabaseConfigured } from '@/lib/server/env';
 import { createSupabaseServerClient } from '@/lib/server/supabaseServer';
@@ -9,6 +8,7 @@ import { parseLaunchParam } from '@/lib/utils/launchParams';
 import { buildLaunchHref } from '@/lib/utils/launchLinks';
 import { fetchArEligibleLaunches } from '@/lib/server/arEligibility';
 import { ArSession } from '@/components/ar/ArSession';
+import { loadLaunchTrajectoryContractByLaunchId } from '@/lib/server/arTrajectory';
 
 export const dynamic = 'force-dynamic';
 
@@ -121,12 +121,7 @@ export default async function LaunchArPage({ params }: { params: { id: string } 
   const isEligible = eligible.some((entry) => entry.launchId === launch.id);
   if (!isEligible) return notFound();
 
-  const { data: trajectory } = await supabase
-    .from('launch_trajectory_products')
-    .select(TRAJECTORY_CONTRACT_COLUMNS)
-    .eq('launch_id', launch.id)
-    .maybeSingle();
-  const trajectoryContract = buildTrajectoryContract(trajectory);
+  const trajectoryContract = await loadLaunchTrajectoryContractByLaunchId(launch.id);
 
   const backHref = buildLaunchHref(launch);
 

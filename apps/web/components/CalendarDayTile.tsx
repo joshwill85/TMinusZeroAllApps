@@ -2,12 +2,7 @@
 
 import type { ReactNode } from 'react';
 import clsx from 'clsx';
-import {
-  getCalendarDayTemporalState,
-  getCalendarLaunchMarkerState,
-  type CalendarDayTemporalState,
-  type CalendarLaunchMarkerState
-} from '@tminuszero/domain';
+import { getCalendarDayTemporalState, type CalendarDayTemporalState } from '@tminuszero/domain';
 
 type CalendarDayTileProps = {
   dayKey: string;
@@ -31,7 +26,6 @@ export function CalendarDayTile({
   compact = false
 }: CalendarDayTileProps) {
   const dayState = getCalendarDayTemporalState(dayKey) ?? 'future';
-  const markerState = getCalendarLaunchMarkerState(dayKey, launchCount);
 
   return (
     <button
@@ -56,13 +50,9 @@ export function CalendarDayTile({
         <span className={clsx(resolveNumberSize(dayNumber, compact), resolveNumberTone(dayState, isCurrentMonth))}>{dayNumber}</span>
       </span>
 
-      <span className={clsx('relative flex h-full flex-col justify-between', compact ? 'p-2.5 sm:p-3' : 'p-3')}>
-        <span className="flex justify-end">
-          {launchCount > 0 ? <CalendarLaunchCountBadge count={launchCount} markerState={markerState} /> : null}
-        </span>
-
-        <span className="flex min-h-[20px] items-end justify-center">
-          {markerState !== 'none' ? <CalendarDayMarker state={markerState} count={launchCount} compact={compact} /> : null}
+      <span className={clsx('relative flex h-full flex-col', compact ? 'p-2.5 sm:p-3' : 'p-3')}>
+        <span className="mt-auto flex min-h-[20px] items-end justify-center">
+          {launchCount > 0 ? <CalendarDayMarker count={launchCount} compact={compact} /> : null}
         </span>
       </span>
     </button>
@@ -72,9 +62,7 @@ export function CalendarDayTile({
 export function CalendarStateLegend({ className }: { className?: string }) {
   return (
     <div className={clsx('flex flex-wrap items-center gap-3 text-[11px] font-medium text-text3', className)}>
-      <CalendarLegendItem label="Past launches" marker={<CalendarDayMarker state="past" count={1} compact />} />
-      <CalendarLegendItem label="Today" marker={<CalendarDayMarker state="today" count={1} compact />} />
-      <CalendarLegendItem label="Upcoming launches" marker={<CalendarDayMarker state="future" count={3} compact />} />
+      <CalendarLegendItem label="Launch days" marker={<CalendarDayMarker count={3} compact />} />
     </div>
   );
 }
@@ -88,81 +76,22 @@ function CalendarLegendItem({ marker, label }: { marker: ReactNode; label: strin
   );
 }
 
-function CalendarLaunchCountBadge({
-  count,
-  markerState
-}: {
-  count: number;
-  markerState: CalendarLaunchMarkerState;
-}) {
-  return (
-    <span
-      aria-hidden="true"
-      className={clsx(
-        'inline-flex min-w-[1.7rem] items-center justify-center rounded-full border px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
-        resolveCountTone(markerState)
-      )}
-    >
-      {count}
-    </span>
-  );
-}
-
 function CalendarDayMarker({
-  state,
   count,
   compact = false
 }: {
-  state: Exclude<CalendarLaunchMarkerState, 'none'>;
   count: number;
   compact?: boolean;
 }) {
-  if (state === 'future') {
-    const dots = Math.min(Math.max(count, 1), 3);
-    return (
-      <span aria-hidden="true" className={clsx('inline-flex items-center justify-center gap-1', compact ? 'min-h-[12px]' : 'min-h-[14px]')}>
-        {Array.from({ length: dots }).map((_, index) => (
-          <span
-            key={`${state}-${index}`}
-            className={clsx('rounded-full bg-[rgba(34,211,238,0.92)] shadow-[0_0_10px_rgba(34,211,238,0.35)]', compact ? 'h-1.5 w-1.5' : 'h-2 w-2')}
-          />
-        ))}
-      </span>
-    );
-  }
-
-  if (state === 'past') {
-    return (
-      <span
-        aria-hidden="true"
-        className={clsx(
-          'inline-flex items-center justify-center rounded-full border border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.08)] text-[rgba(255,255,255,0.8)]',
-          compact ? 'h-4 w-4' : 'h-5 w-5'
-        )}
-      >
-        <svg
-          viewBox="0 0 16 16"
-          className={clsx(compact ? 'h-2.5 w-2.5' : 'h-3 w-3')}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M3.5 8.5 6.5 11.5 12.5 5.5" />
-        </svg>
-      </span>
-    );
-  }
-
+  const dots = Math.min(Math.max(count, 1), 3);
   return (
-    <span
-      aria-hidden="true"
-      className={clsx('relative inline-flex items-center justify-center', compact ? 'h-4 w-4' : 'h-5 w-5')}
-    >
-      <span className="absolute inset-0 rounded-full border border-[rgba(34,211,238,0.7)]" />
-      <span className="absolute inset-[3px] rounded-full border border-[rgba(34,211,238,0.4)]" />
-      <span className={clsx('rounded-full bg-primary shadow-[0_0_14px_rgba(34,211,238,0.55)]', compact ? 'h-1 w-1' : 'h-1.5 w-1.5')} />
+    <span aria-hidden="true" className={clsx('inline-flex items-center justify-center gap-1', compact ? 'min-h-[12px]' : 'min-h-[14px]')}>
+      {Array.from({ length: dots }).map((_, index) => (
+        <span
+          key={`launch-dot-${index}`}
+          className={clsx('rounded-full bg-[rgba(34,211,238,0.92)] shadow-[0_0_10px_rgba(34,211,238,0.35)]', compact ? 'h-1.5 w-1.5' : 'h-2 w-2')}
+        />
+      ))}
     </span>
   );
 }
@@ -201,10 +130,4 @@ function resolveNumberTone(dayState: CalendarDayTemporalState, isCurrentMonth: b
   if (dayState === 'today') return 'text-[rgba(34,211,238,0.3)]';
   if (dayState === 'past') return 'text-[rgba(233,240,255,0.14)]';
   return 'text-[rgba(233,240,255,0.18)]';
-}
-
-function resolveCountTone(markerState: CalendarLaunchMarkerState) {
-  if (markerState === 'past') return 'border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.07)] text-text2';
-  if (markerState === 'today') return 'border-[rgba(34,211,238,0.3)] bg-[rgba(34,211,238,0.14)] text-primary';
-  return 'border-[rgba(34,211,238,0.2)] bg-[rgba(34,211,238,0.1)] text-primary';
 }

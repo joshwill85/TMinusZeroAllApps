@@ -3,6 +3,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { JsonLd } from '@/components/JsonLd';
 import { XTweetEmbed } from '@/components/XTweetEmbed';
+import { ProgramHubHero } from '@/components/program-hubs/ProgramHubHero';
 import { ArtemisMissionControl } from '@/components/artemis/dashboard';
 import type { ArtemisMissionWorkbenchCard } from '@/components/artemis/dashboard';
 import type { ArtemisWorkbenchMission } from '@/components/artemis/ArtemisProgramWorkbenchDesktop';
@@ -235,6 +236,7 @@ export default async function ArtemisWorkbenchPage({
   const photoItems = photoContent.items.slice(0, CONTENT_PANEL_LIMIT);
   const socialItems = socialContent.items.slice(0, CONTENT_PANEL_LIMIT);
   const dataItems = dataContent.items.slice(0, CONTENT_PANEL_LIMIT);
+  const contentPreviewCount = articleItems.length + photoItems.length + socialItems.length + dataItems.length;
   const embeddedSocialPosts = socialItems
     .flatMap((item) => {
       const platform = (item.platform || '').trim().toLowerCase();
@@ -328,59 +330,157 @@ export default async function ArtemisWorkbenchPage({
       : null;
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-10 md:px-8">
+    <div className="mx-auto flex w-full max-w-[96rem] flex-col gap-6 px-4 py-10 md:px-8">
       <JsonLd data={[breadcrumbJsonLd, collectionPageJsonLd, missionWorkbenchJsonLd, faqJsonLd, ...(itemListJsonLd ? [itemListJsonLd] : [])]} />
 
-      <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
-        <h2 className="text-lg font-semibold text-text1">Artemis Pages</h2>
-        <p className="mt-1 text-sm text-text2">
-          Use mission pages for timeline coverage, awardee pages for recipients, and contract pages for in-house procurement detail.
-        </p>
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-text3">
-          <Link
-            href="/artemis/awardees"
-            className="rounded-full border border-stroke px-3 py-1 uppercase tracking-[0.1em] hover:border-primary/60 hover:text-text1"
-          >
-            Awardee Index
-          </Link>
-          <Link
-            href="/artemis/contracts"
-            className="rounded-full border border-stroke px-3 py-1 uppercase tracking-[0.1em] hover:border-primary/60 hover:text-text1"
-          >
-            Contracts
-          </Link>
-          <Link
-            href="/artemis/content"
-            className="rounded-full border border-stroke px-3 py-1 uppercase tracking-[0.1em] hover:border-primary/60 hover:text-text1"
-          >
-            Content Feed
-          </Link>
-          <Link
-            href="/spacex"
-            className="rounded-full border border-stroke px-3 py-1 uppercase tracking-[0.1em] hover:border-primary/60 hover:text-text1"
-          >
-            SpaceX Program
-          </Link>
-          <Link
-            href="/blue-origin"
-            className="rounded-full border border-stroke px-3 py-1 uppercase tracking-[0.1em] hover:border-primary/60 hover:text-text1"
-          >
-            Blue Origin Program
-          </Link>
+      <ProgramHubHero
+        theme="artemis"
+        eyebrow="Program Hub"
+        title="Artemis"
+        description="Mission Control for Artemis I through Artemis VII with mission routing, timeline coverage, source-linked updates, budget context, and in-house contract pages that now read cleanly on web."
+        logo={
+          <Image
+            src="/assets/program-logos/artemis-nasa-official.png"
+            alt="NASA Artemis official logo"
+            width={68}
+            height={68}
+            className="h-auto w-auto max-h-12 max-w-12 object-contain sm:max-h-14 sm:max-w-14"
+          />
+        }
+        badges={[
+          { label: 'Web mission control', tone: 'accent' },
+          { label: `Updated ${lastUpdatedLabel}` }
+        ]}
+        metrics={[
+          {
+            label: 'Mission hubs',
+            value: MISSION_WORKBENCH.length.toLocaleString(),
+            detail: 'Artemis I through Artemis VII route family coverage.'
+          },
+          {
+            label: 'Timeline events',
+            value: timelineEvents.length.toLocaleString(),
+            detail: 'Mission-linked milestones and source-backed updates.'
+          },
+          {
+            label: 'Content feeds',
+            value: contentPreviewCount.toLocaleString(),
+            detail: 'Article, photo, social, and data previews in rotation.'
+          },
+          {
+            label: 'Upcoming launches',
+            value: snapshot.upcoming.length.toLocaleString(),
+            detail: snapshot.nextLaunch ? `Next launch: ${snapshot.nextLaunch.name}` : 'Awaiting the next scheduled Artemis-linked launch.'
+          }
+        ]}
+        routes={[
+          {
+            href: '/artemis/contracts',
+            label: 'Contracts',
+            description: 'In-house Artemis contract stories, award totals, and procurement detail.',
+            eyebrow: 'Records'
+          },
+          {
+            href: '/artemis/awardees',
+            label: 'Awardees',
+            description: 'Recipient profiles for Artemis contractors, partners, and funding lines.',
+            eyebrow: 'Partners'
+          },
+          {
+            href: '/artemis/content',
+            label: 'Content feed',
+            description: 'Articles, imagery, social posts, and data references tied to the program.',
+            eyebrow: 'Updates'
+          },
+          {
+            href: '/artemis-ii',
+            label: 'Artemis II',
+            description: 'Crew spotlight, mission pieces, watch links, and evidence for the next crewed flight.',
+            eyebrow: 'Mission spotlight'
+          }
+        ]}
+        secondaryLinks={[
+          { href: '/artemis?view=overview', label: 'Overview' },
+          { href: '/artemis?view=timeline', label: 'Timeline' },
+          { href: '/artemis?view=budget', label: 'Budget' }
+        ]}
+        footnote={
+          <span>
+            Mission Control below stays interactive, but the page now opens with the same route-first briefing structure that already works better in the native hub family.
+          </span>
+        }
+      />
+
+      <section className="rounded-[1.8rem] border border-white/10 bg-[rgba(9,11,18,0.78)] p-5 shadow-surface backdrop-blur-xl">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-[#f5d998]">Mission Lineup</p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-text1">Direct mission routing</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-text2">
+              Each mission card links into the route family that already powers the richer Artemis workbench. The goal on web is the same as mobile: make the path into each mission obvious on the first screen.
+            </p>
+          </div>
+          <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-text3">
+            {MISSION_WORKBENCH.length} missions
+          </span>
         </div>
+
+        <ul className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {MISSION_WORKBENCH.map((entry) => {
+            const launch = missionLaunches[entry.key];
+            return (
+              <li
+                key={entry.key}
+                className="rounded-[1.45rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-4 transition hover:border-[#f0c97c]/[0.35] hover:bg-[linear-gradient(180deg,rgba(240,201,124,0.12),rgba(255,255,255,0.03))]"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#f5d998]">{entry.status}</p>
+                    <Link href={entry.href} className="mt-2 block text-lg font-semibold tracking-[-0.02em] text-text1 hover:text-[#f5d998]">
+                      {entry.mission}
+                    </Link>
+                  </div>
+                  <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-text3">
+                    Hub
+                  </span>
+                </div>
+                <p className="mt-3 text-sm leading-6 text-text2">{entry.summary}</p>
+                <p className="mt-2 text-sm leading-6 text-text3">{entry.detail}</p>
+                <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-text3">
+                  {launch ? (
+                    <Link
+                      href={buildLaunchHref(launch)}
+                      className="rounded-full border border-[#f0c97c]/20 bg-[#f0c97c]/10 px-3 py-1 font-semibold uppercase tracking-[0.12em] text-[#f5d998] transition hover:border-[#f0c97c]/40"
+                    >
+                      Next launch
+                    </Link>
+                  ) : (
+                    <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 uppercase tracking-[0.12em]">
+                      Schedule pending
+                    </span>
+                  )}
+                  {launch ? <span>{launch.name}</span> : null}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-2xl border border-stroke bg-surface-1 p-4">
+        <div className="rounded-[1.8rem] border border-white/10 bg-[rgba(10,12,20,0.8)] p-5 shadow-surface backdrop-blur-xl">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-lg font-semibold text-text1">Artemis II astronauts</h2>
-            <Link href="/artemis-ii#astronauts" className="text-xs text-primary hover:text-primary/80">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#f5d998]">Crew Spotlight</p>
+              <h2 className="mt-2 text-xl font-semibold tracking-[-0.02em] text-text1">Artemis II astronauts</h2>
+            </div>
+            <Link href="/artemis-ii#astronauts" className="text-xs font-semibold uppercase tracking-[0.14em] text-[#f5d998] hover:text-[#ffe5ad]">
               View bios
             </Link>
           </div>
           {featuredAstronaut ? (
             <div className="mt-3 space-y-3">
-              <article className="rounded-xl border border-stroke bg-surface-0 p-3">
+              <article className="rounded-[1.4rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-4">
                 <div className="flex items-start gap-3">
                   {featuredAstronaut.portraitUrl ? (
                     <Image
@@ -388,15 +488,15 @@ export default async function ArtemisWorkbenchPage({
                       alt={featuredAstronaut.name}
                       width={84}
                       height={84}
-                      className="h-[84px] w-[84px] rounded-lg object-cover"
+                      className="h-[84px] w-[84px] rounded-[1.1rem] object-cover"
                     />
                   ) : (
-                    <div className="flex h-[84px] w-[84px] items-center justify-center rounded-lg border border-stroke text-[10px] uppercase tracking-[0.08em] text-text3">
+                    <div className="flex h-[84px] w-[84px] items-center justify-center rounded-[1.1rem] border border-white/10 text-[10px] uppercase tracking-[0.08em] text-text3">
                       Crew
                     </div>
                   )}
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-text1">{featuredAstronaut.name}</p>
+                    <p className="text-base font-semibold text-text1">{featuredAstronaut.name}</p>
                     <p className="text-xs text-text3">
                       {featuredAstronaut.role || 'Crew'} • {featuredAstronaut.agency}
                     </p>
@@ -410,7 +510,7 @@ export default async function ArtemisWorkbenchPage({
               {supportingCrew.length ? (
                 <ul className="space-y-2 text-sm text-text2">
                   {supportingCrew.map((person) => (
-                    <li key={person.id} className="rounded-lg border border-stroke bg-surface-0 px-3 py-2">
+                    <li key={person.id} className="rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2.5">
                       <span className="font-semibold text-text1">{person.name}</span>
                       <span className="text-text3"> • {person.role || 'Crew'}</span>
                     </li>
@@ -423,21 +523,24 @@ export default async function ArtemisWorkbenchPage({
           )}
         </div>
 
-        <div className="rounded-2xl border border-stroke bg-surface-1 p-4">
+        <div className="rounded-[1.8rem] border border-white/10 bg-[rgba(10,12,20,0.8)] p-5 shadow-surface backdrop-blur-xl">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-lg font-semibold text-text1">Artemis II mission pieces</h2>
-            <Link href="/artemis-ii#mission-pieces" className="text-xs text-primary hover:text-primary/80">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#f5d998]">Mission Hardware</p>
+              <h2 className="mt-2 text-xl font-semibold tracking-[-0.02em] text-text1">Artemis II mission pieces</h2>
+            </div>
+            <Link href="/artemis-ii#mission-pieces" className="text-xs font-semibold uppercase tracking-[0.14em] text-[#f5d998] hover:text-[#ffe5ad]">
               View details
             </Link>
           </div>
           {featuredMissionPieces.length ? (
             <ul className="mt-3 space-y-2 text-sm text-text2">
               {featuredMissionPieces.map((component) => (
-                <li key={component.id} className="rounded-lg border border-stroke bg-surface-0 p-3">
+                <li key={component.id} className="rounded-[1.35rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-4">
                   <p className="font-semibold text-text1">{component.component}</p>
                   {component.description ? <p className="mt-1 text-xs text-text2">{truncateText(component.description, 170)}</p> : null}
                   {component.officialUrls[0] ? (
-                    <a href={component.officialUrls[0]} target="_blank" rel="noreferrer" className="mt-1 inline-block text-xs text-primary hover:text-primary/80">
+                    <a href={component.officialUrls[0]} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-semibold uppercase tracking-[0.14em] text-[#f5d998] hover:text-[#ffe5ad]">
                       Official source
                     </a>
                   ) : null}
@@ -450,17 +553,20 @@ export default async function ArtemisWorkbenchPage({
         </div>
       </section>
 
-      <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
+      <section className="rounded-[1.8rem] border border-white/10 bg-[rgba(10,12,20,0.8)] p-5 shadow-surface backdrop-blur-xl">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-xl font-semibold text-text1">Latest Artemis posts (X)</h2>
-          <a href="https://x.com/NASAArtemis" target="_blank" rel="noreferrer" className="text-xs uppercase tracking-[0.1em] text-primary hover:text-primary/80">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#f5d998]">Official Feed</p>
+            <h2 className="mt-2 text-xl font-semibold tracking-[-0.02em] text-text1">Latest Artemis posts (X)</h2>
+          </div>
+          <a href="https://x.com/NASAArtemis" target="_blank" rel="noreferrer" className="text-xs font-semibold uppercase tracking-[0.14em] text-[#f5d998] hover:text-[#ffe5ad]">
             Official feed
           </a>
         </div>
         {embeddedSocialPostsWithFallback.length ? (
-          <ul className="mt-3 space-y-3">
+          <ul className="mt-4 grid gap-3 xl:grid-cols-2">
             {embeddedSocialPostsWithFallback.map((post) => (
-              <li key={post.id} className="overflow-hidden rounded-xl border border-stroke bg-surface-0 p-2">
+              <li key={post.id} className="overflow-hidden rounded-[1.35rem] border border-white/10 bg-[rgba(255,255,255,0.03)] p-2">
                 <XTweetEmbed tweetId={post.tweetId} tweetUrl={post.tweetUrl} theme="dark" conversation="none" />
               </li>
             ))}

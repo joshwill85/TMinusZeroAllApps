@@ -8,17 +8,19 @@ export function CalendarMonthYearPicker({
   value,
   onChange,
   today = new Date(),
-  compact = false
+  compact = false,
+  embedded = false
 }: {
   value: Date;
   onChange: (next: Date) => void;
   today?: Date;
   compact?: boolean;
+  embedded?: boolean;
 }) {
   const years = buildYearOptions(value.getFullYear(), today.getFullYear());
 
   return (
-    <div className={clsx('rounded-2xl border border-stroke bg-surface-0/70', compact ? 'p-3' : 'p-4')}>
+    <div className={clsx(!embedded && 'rounded-2xl border border-stroke bg-surface-0/70', !embedded && (compact ? 'p-3' : 'p-4'))}>
       <div className={clsx('flex flex-col gap-3', compact ? 'sm:flex-row sm:items-end sm:justify-between' : 'lg:flex-row lg:items-end lg:justify-between')}>
         <div>
           <div className="text-xs uppercase tracking-[0.1em] text-text3">Current view</div>

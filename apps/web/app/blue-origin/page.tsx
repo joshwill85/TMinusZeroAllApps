@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import Image from 'next/image';
 import { JsonLd } from '@/components/JsonLd';
 import { BlueOriginJumpRail } from '@/app/blue-origin/_components/BlueOriginJumpRail';
 import { BlueOriginLocalTime } from '@/app/blue-origin/_components/BlueOriginLocalTime';
@@ -67,6 +68,7 @@ import { createSupabaseAdminClient, createSupabasePublicClient } from '@/lib/ser
 import { resolveXPostId } from '@/lib/utils/xSocial';
 import { formatPercent } from '@/lib/utils/formatters';
 import { ProgramContractDiscoveryList } from '@/components/contracts/ProgramContractDiscoveryList';
+import { ProgramHubHero } from '@/components/program-hubs/ProgramHubHero';
 
 export const revalidate = 60 * 10; // 10 minutes
 
@@ -633,6 +635,7 @@ export default async function BlueOriginProgramPage() {
     timeline: timeline.kpis.totalEvents + socialSignalEntries.length,
     media: mediaItems.length
   };
+  const lastUpdatedLabel = formatDateTimeLabel(lastUpdated);
 
   pushTiming('server-total', 'blueOriginProgramPage', serverStartMs, 'ok');
   if (debugMode) {
@@ -659,7 +662,7 @@ export default async function BlueOriginProgramPage() {
     : null;
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl gap-8 px-4 py-10 md:px-8">
+    <div className="mx-auto flex w-full max-w-[96rem] gap-10 px-4 py-10 md:px-8">
       <JsonLd
         data={[
           {
@@ -674,66 +677,90 @@ export default async function BlueOriginProgramPage() {
       />
 
       {/* Sidebar Navigation */}
-      <div className="hidden w-48 flex-shrink-0 md:block">
+      <div className="hidden w-56 flex-shrink-0 md:block">
         <BlueOriginJumpRail counts={navCounts} variant="desktop" />
       </div>
 
-      <div className="flex flex-grow flex-col gap-16">
+      <div className="flex flex-grow flex-col gap-12">
         <BlueOriginJumpRail counts={navCounts} variant="mobile" />
 
-        <header className="space-y-4">
-          <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-text3">Program Hub</p>
-          <h1 className="text-4xl font-bold tracking-tight text-text1">
-            Blue Origin Program
-          </h1>
-          <p className="max-w-3xl text-[15px] leading-relaxed text-text2">
-            Blue Origin flight, mission, and contract coverage with tracked
-            manifests, hardware pages, source-backed timeline updates, and
-            internal contract pages.
-          </p>
-          <div className="flex flex-wrap gap-4 pt-2">
-            <div className="flex flex-col border-l border-stroke pl-4">
-              <span className="text-[9px] font-bold uppercase tracking-widest text-text3">
-                Last Updated
-              </span>
-              <BlueOriginLocalTime
-                value={lastUpdated}
-                variant="dateTime"
-                className="text-xs font-semibold text-text1"
-              />
-            </div>
-            <div className="flex flex-col border-l border-stroke pl-4">
-              <span className="text-[9px] font-bold uppercase tracking-widest text-text3">
-                Verified Events
-              </span>
-              <span className="text-xs font-semibold text-text1">
-                {formatPercent(highConfidenceTimelineRate)}
-              </span>
-              <span className="text-[10px] text-text3">
-                {timeline.kpis.highConfidenceEvents}/{timeline.kpis.totalEvents}
-              </span>
-            </div>
-            <div className="flex flex-col border-l border-stroke pl-4">
-              <span className="text-[9px] font-bold uppercase tracking-widest text-text3">
-                Active Manifests
-              </span>
-              <span className="text-xs font-semibold text-text1">
-                {manifestLaunches.length} Missions
-              </span>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 pt-2 text-[10px] font-bold uppercase tracking-[0.16em] text-text3">
-            <Link href="/blue-origin/travelers" className="rounded-full border border-stroke px-2 py-1 transition hover:text-text1">
-              Crew Directory
-            </Link>
-            <Link href="/blue-origin/flights" className="rounded-full border border-stroke px-2 py-1 transition hover:text-text1">
-              Flights
-            </Link>
-            <Link href="/blue-origin/missions/new-shepard" className="rounded-full border border-stroke px-2 py-1 transition hover:text-text1">
-              New Shepard
-            </Link>
-          </div>
-        </header>
+        <ProgramHubHero
+          theme="blue-origin"
+          eyebrow="Program Hub"
+          title="Blue Origin"
+          description="Flight manifests, traveler records, hardware, contracts, and source-backed updates for New Shepard, New Glenn, Blue Moon, Blue Ring, and BE-4 with a cleaner web mission-control shell."
+          logo={
+            <Image
+              src="/assets/program-logos/blueorigin-official.png"
+              alt="Blue Origin official logo"
+              width={72}
+              height={72}
+              className="h-auto w-auto max-h-12 max-w-12 object-contain sm:max-h-14 sm:max-w-14"
+            />
+          }
+          badges={[
+            { label: 'Web mission control', tone: 'accent' },
+            { label: `Updated ${lastUpdatedLabel}` }
+          ]}
+          metrics={[
+            {
+              label: 'Tracked manifests',
+              value: manifestLaunches.length.toLocaleString(),
+              detail: 'Flights rendered with traveler or payload context.'
+            },
+            {
+              label: 'Traveler records',
+              value: passengers.items.length.toLocaleString(),
+              detail: 'Crew and passenger directory coverage from shared loaders.'
+            },
+            {
+              label: 'Verified events',
+              value: timeline.kpis.highConfidenceEvents.toLocaleString(),
+              detail: `${formatPercent(highConfidenceTimelineRate)} of timeline events are high confidence.`
+            },
+            {
+              label: 'Contracts + records',
+              value: auditTrailPage.total.toLocaleString(),
+              detail: `${contracts.items.length.toLocaleString()} contract pages plus procurement and award rows.`
+            }
+          ]}
+          routes={[
+            {
+              href: '/blue-origin/missions',
+              label: 'Mission hubs',
+              description: 'New Shepard, New Glenn, Blue Moon, Blue Ring, and BE-4 route families.',
+              eyebrow: 'Primary routes'
+            },
+            {
+              href: '/blue-origin/flights',
+              label: 'Flight records',
+              description: 'Mission flight history with launch routing and manifest handoff.',
+              eyebrow: 'Operations'
+            },
+            {
+              href: '/blue-origin/travelers',
+              label: 'Traveler directory',
+              description: 'Crew and passenger profiles with mission-linked browsing.',
+              eyebrow: 'People'
+            },
+            {
+              href: '/blue-origin/contracts',
+              label: 'Contracts',
+              description: 'Internal story pages backed by SAM.gov and USAspending records.',
+              eyebrow: 'Records'
+            }
+          ]}
+          secondaryLinks={[
+            { href: '/blue-origin/vehicles', label: 'Vehicles' },
+            { href: '/blue-origin/engines', label: 'Engines' },
+            { href: '/blue-origin/missions/new-shepard', label: 'New Shepard' }
+          ]}
+          footnote={
+            <span>
+              Last hub snapshot rendered <span className="font-semibold text-text1">{lastUpdatedLabel}</span>. New Shepard pause context stays visible below so the page still opens with the clearest current program signal.
+            </span>
+          }
+        />
 
         <section className="rounded-2xl border border-stroke bg-surface-1 p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -939,6 +966,20 @@ function nowMilliseconds() {
     return performance.now();
   }
   return Date.now();
+}
+
+function formatDateTimeLabel(value: string | null | undefined) {
+  const parsed = Date.parse(value || '');
+  if (!Number.isFinite(parsed)) return 'N/A';
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: '2-digit',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'UTC',
+    timeZoneName: 'short'
+  }).format(new Date(parsed));
 }
 
 function isFutureLaunch(net: string | null | undefined, nowMs: number) {

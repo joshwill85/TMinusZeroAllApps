@@ -8,13 +8,11 @@ import {
   buildCountdownSnapshot,
   formatLaunchCountdownClock,
   getCalendarDayTemporalState,
-  getCalendarLaunchMarkerState,
   getCalendarMonthBounds,
   getMobileViewerTier,
   groupItemsByLocalDate,
   toLocalDateKey,
-  type CalendarDayTemporalState,
-  type CalendarLaunchMarkerState
+  type CalendarDayTemporalState
 } from '@tminuszero/domain';
 import { buildLaunchHref } from '@tminuszero/navigation';
 import {
@@ -324,7 +322,48 @@ export default function CalendarScreen() {
           <ErrorStateCard title="Calendar unavailable" body={calendarQuery.error.message} />
         ) : (
           <>
-            <CalendarViewPickerCard month={month} today={new Date()} onPress={() => setViewPickerOpen(true)} />
+            <SectionCard title="Month view" description="Tap a day to reveal launch cards below.">
+              <View style={{ gap: 12 }}>
+                <CalendarViewPickerCard month={month} today={new Date()} onPress={() => setViewPickerOpen(true)} embedded />
+
+                <View style={{ gap: 8 }}>
+                  <CalendarGridLegend />
+
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                    {WEEKDAY_LABELS.map((label) => (
+                      <Text
+                        key={label}
+                        style={{
+                          width: '13%',
+                          color: theme.muted,
+                          fontSize: 11,
+                          fontWeight: '700',
+                          textAlign: 'center',
+                          textTransform: 'uppercase'
+                        }}
+                      >
+                        {label}
+                      </Text>
+                    ))}
+                  </View>
+
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -2 }}>
+                    {calendarDays.map((day) => {
+                      const dayLaunches = groupedLaunches.get(day.key) ?? [];
+                      return (
+                        <CalendarDayCell
+                          key={day.key}
+                          day={day}
+                          count={dayLaunches.length}
+                          selected={selectedDay === day.key}
+                          onPress={() => openSelectedDay(day.key)}
+                        />
+                      );
+                    })}
+                  </View>
+                </View>
+              </View>
+            </SectionCard>
 
             <SectionCard
               testID="calendar-month-summary"
@@ -364,45 +403,6 @@ export default function CalendarScreen() {
                 </ScrollView>
               </SectionCard>
             ) : null}
-
-            <SectionCard title="Month view" description="Tap a day to reveal launch cards below.">
-              <View style={{ gap: 8 }}>
-                <CalendarGridLegend />
-
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                  {WEEKDAY_LABELS.map((label) => (
-                    <Text
-                      key={label}
-                      style={{
-                        width: '13%',
-                        color: theme.muted,
-                        fontSize: 11,
-                        fontWeight: '700',
-                        textAlign: 'center',
-                        textTransform: 'uppercase'
-                      }}
-                    >
-                      {label}
-                    </Text>
-                  ))}
-                </View>
-
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -2 }}>
-                  {calendarDays.map((day) => {
-                    const dayLaunches = groupedLaunches.get(day.key) ?? [];
-                    return (
-                      <CalendarDayCell
-                        key={day.key}
-                        day={day}
-                        count={dayLaunches.length}
-                        selected={selectedDay === day.key}
-                        onPress={() => openSelectedDay(day.key)}
-                      />
-                    );
-                  })}
-                </View>
-              </View>
-            </SectionCard>
 
             <SectionCard
               testID="calendar-selected-day"
@@ -621,11 +621,13 @@ export default function CalendarScreen() {
 function CalendarViewPickerCard({
   month,
   today,
-  onPress
+  onPress,
+  embedded = false
 }: {
   month: Date;
   today: Date;
   onPress: () => void;
+  embedded?: boolean;
 }) {
   const { theme } = useMobileBootstrap();
 
@@ -633,12 +635,12 @@ function CalendarViewPickerCard({
     <Pressable
       onPress={onPress}
       style={({ pressed }) => ({
-        borderRadius: 18,
-        borderWidth: 1,
-        borderColor: 'rgba(34, 211, 238, 0.2)',
-        backgroundColor: pressed ? 'rgba(34, 211, 238, 0.12)' : 'rgba(34, 211, 238, 0.08)',
-        paddingHorizontal: 16,
-        paddingVertical: 15,
+        borderRadius: embedded ? 14 : 18,
+        borderWidth: embedded ? 0 : 1,
+        borderColor: embedded ? 'transparent' : 'rgba(34, 211, 238, 0.2)',
+        backgroundColor: embedded ? (pressed ? 'rgba(34, 211, 238, 0.06)' : 'transparent') : pressed ? 'rgba(34, 211, 238, 0.12)' : 'rgba(34, 211, 238, 0.08)',
+        paddingHorizontal: embedded ? 0 : 16,
+        paddingVertical: embedded ? 0 : 15,
         gap: 10,
         opacity: pressed ? 0.9 : 1
       })}
@@ -823,9 +825,7 @@ function LaunchDateChip({
 function CalendarGridLegend() {
   return (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-      <CalendarLegendPill label="Past launches" marker={<CalendarDayMarker state="past" count={1} />} />
-      <CalendarLegendPill label="Today" marker={<CalendarDayMarker state="today" count={1} />} />
-      <CalendarLegendPill label="Upcoming launches" marker={<CalendarDayMarker state="future" count={3} />} />
+      <CalendarLegendPill label="Launch days" marker={<CalendarDayMarker count={3} />} />
     </View>
   );
 }
@@ -866,7 +866,6 @@ function CalendarDayCell({
 }) {
   const { theme } = useMobileBootstrap();
   const dayState = getCalendarDayTemporalState(day.key) ?? 'future';
-  const markerState = getCalendarLaunchMarkerState(day.key, count);
 
   return (
     <View style={{ width: CALENDAR_GRID_COLUMN_WIDTH, paddingHorizontal: 2, paddingBottom: 4 }}>
@@ -901,13 +900,9 @@ function CalendarDayCell({
           </Text>
         </View>
 
-        <View style={{ flex: 1, justifyContent: 'space-between', padding: 6 }}>
-          <View style={{ alignItems: 'flex-end' }}>
-            {count > 0 ? <CalendarDayCountBadge count={count} state={markerState} /> : null}
-          </View>
-
+        <View style={{ flex: 1, justifyContent: 'flex-end', padding: 6 }}>
           <View style={{ minHeight: 18, alignItems: 'center', justifyContent: 'flex-end' }}>
-            {markerState !== 'none' ? <CalendarDayMarker state={markerState} count={count} /> : null}
+            {count > 0 ? <CalendarDayMarker count={count} /> : null}
           </View>
         </View>
       </Pressable>
@@ -915,101 +910,17 @@ function CalendarDayCell({
   );
 }
 
-function CalendarDayCountBadge({
-  count,
-  state
-}: {
-  count: number;
-  state: CalendarLaunchMarkerState;
-}) {
-  const { theme } = useMobileBootstrap();
-
-  return (
-    <View
-      style={{
-        minWidth: 20,
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderRadius: 999,
-        borderWidth: 1,
-        borderColor:
-          state === 'past' ? 'rgba(255, 255, 255, 0.14)' : state === 'today' ? 'rgba(34, 211, 238, 0.28)' : 'rgba(34, 211, 238, 0.2)',
-        backgroundColor:
-          state === 'past' ? 'rgba(255, 255, 255, 0.08)' : state === 'today' ? 'rgba(34, 211, 238, 0.14)' : 'rgba(34, 211, 238, 0.1)',
-        paddingHorizontal: 6,
-        paddingVertical: 2
-      }}
-    >
-      <Text style={{ color: state === 'past' ? theme.foreground : theme.accent, fontSize: 10, fontWeight: '800' }}>{count}</Text>
-    </View>
-  );
-}
-
 function CalendarDayMarker({
-  state,
   count
 }: {
-  state: Exclude<CalendarLaunchMarkerState, 'none'>;
   count: number;
 }) {
   const { theme } = useMobileBootstrap();
-
-  if (state === 'future') {
-    return (
-      <View style={{ minHeight: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-        {Array.from({ length: Math.min(Math.max(count, 1), 3) }).map((_, index) => (
-          <View key={`${state}-${index}`} style={{ width: 6, height: 6, borderRadius: 999, backgroundColor: theme.accent }} />
-        ))}
-      </View>
-    );
-  }
-
-  if (state === 'past') {
-    return (
-      <View
-        style={{
-          width: 16,
-          height: 16,
-          borderRadius: 999,
-          borderWidth: 1,
-          borderColor: 'rgba(255, 255, 255, 0.14)',
-          backgroundColor: 'rgba(255, 255, 255, 0.08)',
-          alignItems: 'center',
-          justifyContent: 'center'
-        }}
-      >
-        <Text style={{ color: theme.foreground, fontSize: 10, fontWeight: '800', lineHeight: 10 }}>✓</Text>
-      </View>
-    );
-  }
-
   return (
-    <View style={{ width: 16, height: 16, alignItems: 'center', justifyContent: 'center' }}>
-      <View
-        style={{
-          position: 'absolute',
-          top: 0,
-          right: 0,
-          bottom: 0,
-          left: 0,
-          borderRadius: 999,
-          borderWidth: 1,
-          borderColor: 'rgba(34, 211, 238, 0.72)'
-        }}
-      />
-      <View
-        style={{
-          position: 'absolute',
-          top: 3,
-          right: 3,
-          bottom: 3,
-          left: 3,
-          borderRadius: 999,
-          borderWidth: 1,
-          borderColor: 'rgba(34, 211, 238, 0.38)'
-        }}
-      />
-      <View style={{ width: 4, height: 4, borderRadius: 999, backgroundColor: theme.accent }} />
+    <View style={{ minHeight: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+      {Array.from({ length: Math.min(Math.max(count, 1), 3) }).map((_, index) => (
+        <View key={`launch-dot-${index}`} style={{ width: 6, height: 6, borderRadius: 999, backgroundColor: theme.accent }} />
+      ))}
     </View>
   );
 }

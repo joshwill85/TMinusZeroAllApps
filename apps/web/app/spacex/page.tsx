@@ -156,14 +156,14 @@ export default async function SpaceXProgramPage() {
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl gap-8 px-4 py-10 md:px-8">
+    <div className="mx-auto flex w-full max-w-[96rem] gap-10 px-4 py-10 md:px-8">
       <JsonLd data={[breadcrumbJsonLd, collectionPageJsonLd]} />
 
-      <div className="hidden w-52 flex-shrink-0 md:block">
+      <div className="hidden w-56 flex-shrink-0 md:block">
         <SpaceXJumpRail counts={navCounts} variant="desktop" />
       </div>
 
-      <div className="flex flex-grow flex-col gap-6">
+      <div className="flex flex-grow flex-col gap-8">
         <SpaceXJumpRail counts={navCounts} variant="mobile" />
 
         <SpaceXHubHeader
