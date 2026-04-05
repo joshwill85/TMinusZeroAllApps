@@ -3,7 +3,8 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import type { Href } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import * as Device from 'expo-device';
-import { AppState, Linking, PermissionsAndroid, Platform, Pressable, Text, View } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+import { AppState, Linking, PermissionsAndroid, Platform, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { ArTelemetrySessionEventV1, TrajectoryPublicV2ResponseV1 } from '@tminuszero/contracts';
 import {
@@ -209,6 +210,113 @@ function buildIosSetupState(nativeUpdate: TmzArTrajectorySessionUpdate | null) {
   return null;
 }
 
+type HudNoticeAction = 'open_settings' | 'restart_alignment' | 'enable_location' | null;
+type HudNoticeTone = 'neutral' | 'warning' | 'danger';
+
+type HudNoticeView = {
+  title: string;
+  body: string;
+  tone: HudNoticeTone;
+  actionLabel: string | null;
+  action: HudNoticeAction;
+};
+
+function buildHudNotice({
+  nativeError,
+  iosSetupState,
+  isAndroid,
+  androidLocationStatus
+}: {
+  nativeError: string | null;
+  iosSetupState: ReturnType<typeof buildIosSetupState> | null;
+  isAndroid: boolean;
+  androidLocationStatus: TmzArTrajectorySessionUpdate['locationPermission'];
+}): HudNoticeView | null {
+  if (nativeError) {
+    return {
+      title: 'Session issue',
+      body: nativeError,
+      tone: 'danger',
+      actionLabel: 'Retry',
+      action: 'restart_alignment'
+    };
+  }
+
+  if (!isAndroid && iosSetupState) {
+    if (iosSetupState.showSettings) {
+      return {
+        title: iosSetupState.title,
+        body: iosSetupState.body,
+        tone: iosSetupState.retryLabel ? 'warning' : 'danger',
+        actionLabel: 'Settings',
+        action: 'open_settings'
+      };
+    }
+
+    if (iosSetupState.retryLabel) {
+      return {
+        title: iosSetupState.title,
+        body: iosSetupState.body,
+        tone: 'warning',
+        actionLabel: iosSetupState.retryLabel,
+        action: 'restart_alignment'
+      };
+    }
+
+    return {
+      title: iosSetupState.title,
+      body: iosSetupState.body,
+      tone: 'neutral',
+      actionLabel: null,
+      action: null
+    };
+  }
+
+  if (isAndroid && androidLocationStatus !== 'granted') {
+    return {
+      title: 'Location recommended',
+      body: 'Enable location for cleaner launch-site alignment.',
+      tone: 'warning',
+      actionLabel: 'Enable',
+      action: 'enable_location'
+    };
+  }
+
+  return null;
+}
+
+function buildZoomUnavailableReason({
+  platform,
+  capabilities,
+  lastNativeUpdate
+}: {
+  platform: 'ios' | 'android';
+  capabilities: TmzArTrajectoryCapabilities | null;
+  lastNativeUpdate: TmzArTrajectorySessionUpdate | null;
+}) {
+  if (lastNativeUpdate?.zoomSupported === true || capabilities?.supportsZoom === true) {
+    return null;
+  }
+
+  if (platform === 'ios') {
+    if (capabilities?.isSupported === false) {
+      return 'Native AR is unsupported on this iPhone, so camera zoom controls are unavailable.';
+    }
+
+    if (capabilities) {
+      return 'This iPhone AR session does not expose camera zoom controls on the current device/runtime.';
+    }
+
+    return 'Checking whether this iPhone AR session exposes camera zoom controls.';
+  }
+
+  if (capabilities?.isSupported === false) {
+    return 'Native AR is unsupported on this Android device, so camera zoom controls are unavailable.';
+  }
+
+  return 'This Android native AR session does not expose camera zoom controls on the current device/runtime.';
+}
+
 function bucketZoomRatio(value: number, supported: boolean) {
   if (!supported || !Number.isFinite(value) || value <= 0) {
     return 'unsupported';
@@ -339,6 +447,7 @@ export default function LaunchArTrajectoryScreen() {
   const router = useRouter();
   const isFocused = useIsFocused();
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const { theme } = useMobileBootstrap();
   const runtimeFamily: 'ios_native' | 'android_native' = Platform.OS === 'android' ? 'android_native' : 'ios_native';
   const params = useLocalSearchParams<{ id?: string | string[]; arReleaseProfile?: string | string[] }>();
@@ -366,7 +475,7 @@ export default function LaunchArTrajectoryScreen() {
   const [lastNativeUpdate, setLastNativeUpdate] = useState<TmzArTrajectorySessionUpdate | null>(null);
   const [zoomTrayOpen, setZoomTrayOpen] = useState(false);
   const [targetZoomRatio, setTargetZoomRatio] = useState<number | null>(null);
-  const [prefersWidescreen, setPrefersWidescreen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [nativeViewKey, setNativeViewKey] = useState(0);
   const [appStateStatus, setAppStateStatus] = useState(AppState.currentState);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -381,6 +490,7 @@ export default function LaunchArTrajectoryScreen() {
   const detail = detailQuery.data ?? null;
   const launch = detail?.launchData ?? detail?.launch ?? null;
   const arTrajectory = detail?.arTrajectory ?? null;
+  const isAdminViewer = entitlementsQuery.data?.isAdmin === true;
   const handleShareLaunch = () => {
     if (!launch) {
       return;
@@ -415,7 +525,6 @@ export default function LaunchArTrajectoryScreen() {
   };
   const canUseArTrajectory = entitlementsQuery.data?.capabilities.canUseArTrajectory ?? false;
   const isIpad = Platform.OS === 'ios' && Platform.isPad === true;
-  const isIphone = Platform.OS === 'ios' && Platform.isPad !== true;
 
   const isNativePlatform = Platform.OS === 'ios' || Platform.OS === 'android';
   const canOpenNativeAr =
@@ -433,6 +542,24 @@ export default function LaunchArTrajectoryScreen() {
   });
 
   const trajectory = trajectoryQuery.data ?? null;
+  const trajectoryJson = useMemo(() => (trajectory ? JSON.stringify(trajectory) : null), [trajectory]);
+  const liveArSurfaceReady =
+    Boolean(launchId) &&
+    detailQuery.isPending !== true &&
+    entitlementsQuery.isPending !== true &&
+    trajectoryQuery.isPending !== true &&
+    detailQuery.isError !== true &&
+    entitlementsQuery.isError !== true &&
+    trajectoryQuery.isError !== true &&
+    detail != null &&
+    arTrajectory != null &&
+    canUseArTrajectory &&
+    arTrajectory.eligible === true &&
+    arTrajectory.hasTrajectory === true &&
+    capabilities?.isSupported === true &&
+    trajectory != null &&
+    trajectoryJson != null &&
+    (Platform.OS !== 'android' || androidCameraPermission === 'granted');
   const activeTPlusSec = useMemo(() => deriveActiveTPlusSec(launch?.net ?? null, nowMs), [launch?.net, nowMs]);
   const prelaunchMilestones = useMemo(() => {
     if (!trajectory || (activeTPlusSec != null && activeTPlusSec >= 0)) {
@@ -448,7 +575,6 @@ export default function LaunchArTrajectoryScreen() {
   }, [trajectory]);
   const iosSetupState = Platform.OS === 'ios' ? buildIosSetupState(lastNativeUpdate) : null;
   const nativeSessionActive = canOpenNativeAr && isScreenActive;
-  const trajectoryJson = useMemo(() => (trajectory ? JSON.stringify(trajectory) : null), [trajectory]);
   const zoomMin = useMemo(() => {
     const value = lastNativeUpdate?.zoomRangeMin ?? capabilities?.minZoomRatio ?? 1;
     return Number.isFinite(value) ? value : 1;
@@ -467,6 +593,37 @@ export default function LaunchArTrajectoryScreen() {
     if (!Number.isFinite(value)) return 1;
     return Math.min(Math.max(value, zoomMin), zoomMax);
   }, [capabilities?.defaultZoomRatio, lastNativeUpdate?.zoomRatio, targetZoomRatio, zoomMax, zoomMin]);
+  const zoomUnavailableReason = useMemo(
+    () =>
+      buildZoomUnavailableReason({
+        platform: Platform.OS === 'android' ? 'android' : 'ios',
+        capabilities,
+        lastNativeUpdate
+      }),
+    [capabilities, lastNativeUpdate]
+  );
+  const zoomControlLabel = useMemo(() => {
+    if (zoomEnabled) {
+      return `${zoomRatio.toFixed(2)}x`;
+    }
+    return zoomUnavailableReason ? 'Zoom unsupported' : 'Zoom unavailable';
+  }, [zoomEnabled, zoomRatio, zoomUnavailableReason]);
+  const hudNotice = useMemo(
+    () =>
+      buildHudNotice({
+        nativeError,
+        iosSetupState,
+        isAndroid: Platform.OS === 'android',
+        androidLocationStatus
+      }),
+    [androidLocationStatus, iosSetupState, nativeError]
+  );
+  const cameraSurfaceHeight = useMemo(() => {
+    if (isFullscreen) {
+      return Math.max(windowHeight, 420);
+    }
+    return Math.max(420, Math.min(windowHeight * 0.62, 620));
+  }, [isFullscreen, windowHeight]);
 
   const sessionIdRef = useRef<string | null>(null);
   const sessionStartedAtRef = useRef<string | null>(null);
@@ -481,7 +638,7 @@ export default function LaunchArTrajectoryScreen() {
     setNativeError(null);
     setZoomTrayOpen(false);
     setTargetZoomRatio(null);
-    setPrefersWidescreen(false);
+    setIsFullscreen(false);
     setNativeViewKey(0);
     sessionIdRef.current = null;
     sessionStartedAtRef.current = null;
@@ -664,16 +821,18 @@ export default function LaunchArTrajectoryScreen() {
       };
     }
 
-    if (isIphone && prefersWidescreen) {
-      void lockOrientationAsync('landscape');
-    } else {
-      void unlockOrientationAsync();
-    }
+    void unlockOrientationAsync();
 
     return () => {
       void unlockOrientationAsync();
     };
-  }, [isIpad, isIphone, isScreenActive, prefersWidescreen]);
+  }, [isIpad, isScreenActive]);
+
+  useEffect(() => {
+    if (!liveArSurfaceReady && isFullscreen) {
+      setIsFullscreen(false);
+    }
+  }, [isFullscreen, liveArSurfaceReady]);
 
   const getOrCreateSession = useEffectEvent(() => {
     if (!sessionIdRef.current) {
@@ -823,6 +982,30 @@ export default function LaunchArTrajectoryScreen() {
     setNativeError(event.nativeEvent.message);
   });
 
+  const restartNativeSession = useEffectEvent(() => {
+    setNativeError(null);
+    setLastNativeUpdate(null);
+    setNativeViewKey((current) => current + 1);
+  });
+
+  const handleHudNoticeAction = useEffectEvent(() => {
+    if (!hudNotice?.action) {
+      return;
+    }
+
+    if (hudNotice.action === 'open_settings') {
+      void Linking.openSettings();
+      return;
+    }
+
+    if (hudNotice.action === 'enable_location') {
+      void requestAndroidLocationPermission();
+      return;
+    }
+
+    restartNativeSession();
+  });
+
   const handleZoomTo = useEffectEvent((value: number) => {
     if (!zoomEnabled) {
       return;
@@ -935,16 +1118,15 @@ export default function LaunchArTrajectoryScreen() {
     content = <EmptyStateCard title="Trajectory unavailable" body="The premium trajectory package was not returned for this launch." />;
   } else {
     content = (
-      <View style={{ flex: 1, gap: 12 }}>
+      <View style={{ flex: isFullscreen ? 1 : undefined, gap: 12 }}>
         <View
           style={{
-            borderRadius: 22,
-            borderWidth: 1,
+            borderRadius: isFullscreen ? 0 : 22,
+            borderWidth: isFullscreen ? 0 : 1,
             borderColor: theme.stroke,
-            backgroundColor: 'rgba(7, 9, 19, 0.84)',
+            backgroundColor: 'rgba(7, 9, 19, 0.92)',
             overflow: 'hidden',
-            minHeight: 420,
-            flex: 1
+            height: cameraSurfaceHeight
           }}
         >
           <TmzArTrajectoryView
@@ -964,147 +1146,104 @@ export default function LaunchArTrajectoryScreen() {
             onSessionUpdate={handleNativeSessionUpdate}
             onSessionError={handleNativeSessionError}
           />
-          {Platform.OS === 'ios' && iosSetupState ? (
-            <View
-              pointerEvents="box-none"
-              style={{
-                position: 'absolute',
-                left: 0,
-                right: 0,
-                top: 0,
-                bottom: 0,
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: 20
-              }}
-            >
-              <View
-                style={{
-                  width: '100%',
-                  maxWidth: 360,
-                  borderRadius: 22,
-                  borderWidth: 1,
-                  borderColor: 'rgba(255, 255, 255, 0.12)',
-                  backgroundColor: 'rgba(7, 9, 19, 0.92)',
-                  padding: 18,
-                  gap: 12
-                }}
-              >
-                <Text style={{ color: theme.foreground, fontSize: 16, fontWeight: '700' }}>{iosSetupState.title}</Text>
-                <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>{iosSetupState.body}</Text>
-                <View style={{ gap: 10 }}>
-                  {iosSetupState.retryLabel ? (
-                    <ArButton
-                      label={iosSetupState.retryLabel}
-                      onPress={() => {
-                        setNativeError(null);
-                        setLastNativeUpdate(null);
-                        setNativeViewKey((current) => current + 1);
-                      }}
-                    />
-                  ) : null}
-                  {iosSetupState.showSettings ? (
-                    <ArButton
-                      label="Open settings"
-                      onPress={() => {
-                        void Linking.openSettings();
-                      }}
-                    />
-                  ) : null}
-                </View>
-              </View>
-            </View>
-          ) : null}
           <View
             pointerEvents="box-none"
             style={{
               position: 'absolute',
-              left: 12,
-              right: 12,
-              top: 12,
+              left: (isFullscreen ? insets.left : 0) + 12,
+              right: (isFullscreen ? insets.right : 0) + 12,
+              top: Math.max(isFullscreen ? insets.top : 12, 12),
               flexDirection: 'row',
               justifyContent: 'space-between',
               alignItems: 'flex-start',
               gap: 12
             }}
           >
-            <View
-              style={{
-                flex: 1,
-                borderRadius: 18,
-                borderWidth: 1,
-                borderColor: 'rgba(255, 255, 255, 0.08)',
-                backgroundColor: 'rgba(7, 9, 19, 0.82)',
-                padding: 12,
-                gap: 6
-              }}
-            >
-              <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{launch?.name ?? 'Launch trajectory'}</Text>
-                <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
-                  {Platform.OS === 'android'
-                    ? androidLocationStatus === 'granted'
-                      ? capabilities.supportsWorldTracking
-                        ? 'Android ARCore world tracking with live zoom-aware premium trajectory overlays.'
-                        : 'Android native camera guidance with live zoom-aware premium trajectory overlays.'
-                    : capabilities.supportsWorldTracking
-                      ? 'Android ARCore tracking is active. Enable location for cleaner launch-site alignment.'
-                      : 'Android native camera guidance is active. Enable location for cleaner launch-site alignment.'
-                  : `${formatGuidanceSemanticsLabel(trajectory)} guidance with ${lastNativeUpdate?.geoTrackingState === 'localized' ? 'Apple geo-localized alignment' : lastNativeUpdate?.geoTrackingState === 'localizing' || lastNativeUpdate?.geoTrackingState === 'initializing' ? 'Apple geo-localizing alignment' : trajectory.trackTopology.hasStageSplit ? 'stage-aware split tracks' : 'single-track ascent guidance'} and ${capabilities.lidarAvailable ? 'scene-depth-aware hardware support' : 'camera-only sky alignment'}.`}
-                </Text>
-              </View>
-            <View style={{ alignItems: 'flex-end', gap: 8 }}>
-              <StatusChip label={formatFlightClock(activeTPlusSec)} accent={activeTPlusSec != null && activeTPlusSec >= 0} />
-              <Pressable
-                onPress={() => router.back()}
-                style={({ pressed }) => ({
-                  borderRadius: 999,
+            {hudNotice ? (
+              <View
+                style={{
+                  flex: 1,
+                  maxWidth: '72%',
+                  borderRadius: 16,
                   borderWidth: 1,
-                  borderColor: 'rgba(255, 255, 255, 0.08)',
-                  backgroundColor: 'rgba(7, 9, 19, 0.82)',
-                  paddingHorizontal: 14,
+                  borderColor:
+                    hudNotice.tone === 'danger'
+                      ? 'rgba(251, 113, 133, 0.28)'
+                      : hudNotice.tone === 'warning'
+                        ? 'rgba(251, 191, 36, 0.28)'
+                        : 'rgba(255, 255, 255, 0.1)',
+                  backgroundColor:
+                    hudNotice.tone === 'danger'
+                      ? 'rgba(64, 17, 28, 0.9)'
+                      : hudNotice.tone === 'warning'
+                        ? 'rgba(61, 42, 12, 0.9)'
+                        : 'rgba(7, 9, 19, 0.82)',
+                  paddingHorizontal: 12,
                   paddingVertical: 10,
-                  opacity: pressed ? 0.86 : 1
-                })}
+                  gap: 6
+                }}
               >
-                <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Close</Text>
-              </Pressable>
+                <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>{hudNotice.title}</Text>
+                <Text numberOfLines={2} style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
+                  {hudNotice.body}
+                </Text>
+                {hudNotice.actionLabel ? (
+                  <Pressable
+                    onPress={() => {
+                      void handleHudNoticeAction();
+                    }}
+                    style={({ pressed }) => ({
+                      alignSelf: 'flex-start',
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: 'rgba(255, 255, 255, 0.16)',
+                      backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      opacity: pressed ? 0.86 : 1
+                    })}
+                  >
+                    <Text style={{ color: theme.foreground, fontSize: 11, fontWeight: '700' }}>{hudNotice.actionLabel}</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : (
+              <View style={{ flex: 1 }} />
+            )}
+            <View style={{ alignItems: 'flex-end', gap: 8 }}>
+              {isFullscreen ? (
+                <Pressable
+                  onPress={() => {
+                    setIsFullscreen(false);
+                  }}
+                  style={({ pressed }) => ({
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: 'rgba(255, 255, 255, 0.14)',
+                    backgroundColor: 'rgba(7, 9, 19, 0.82)',
+                    paddingHorizontal: 14,
+                    paddingVertical: 8,
+                    opacity: pressed ? 0.86 : 1
+                  })}
+                >
+                  <Text style={{ color: theme.foreground, fontSize: 12, fontWeight: '700' }}>Exit full</Text>
+                </Pressable>
+              ) : null}
+              <StatusChip label={formatFlightClock(activeTPlusSec)} accent={activeTPlusSec != null && activeTPlusSec >= 0} />
             </View>
           </View>
           <View
             pointerEvents="box-none"
             style={{
               position: 'absolute',
-              right: 12,
-              bottom: 12,
+              right: (isFullscreen ? insets.right : 0) + 12,
+              bottom: Math.max(isFullscreen ? insets.bottom : 12, 12),
               alignItems: 'flex-end',
               gap: 8
             }}
           >
-            {isIphone ? (
-              <Pressable
-                onPress={() => {
-                  setPrefersWidescreen((current) => !current);
-                }}
-                style={({ pressed }) => ({
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: prefersWidescreen ? 'rgba(34, 211, 238, 0.28)' : 'rgba(255, 255, 255, 0.14)',
-                  backgroundColor: prefersWidescreen ? 'rgba(34, 211, 238, 0.12)' : 'rgba(7, 9, 19, 0.86)',
-                  paddingHorizontal: 12,
-                  paddingVertical: 8,
-                  opacity: pressed ? 0.86 : 1
-                })}
-              >
-                <Text style={{ color: prefersWidescreen ? theme.accent : theme.foreground, fontSize: 12, fontWeight: '700' }}>
-                  {prefersWidescreen ? 'Portrait' : 'Widescreen'}
-                </Text>
-              </Pressable>
-            ) : null}
             <Pressable
               onPress={() => {
-                if (!zoomEnabled) {
-                  return;
-                }
                 setZoomTrayOpen((prev) => !prev);
               }}
               style={({ pressed }) => ({
@@ -1118,10 +1257,28 @@ export default function LaunchArTrajectoryScreen() {
               })}
             >
               <Text style={{ color: zoomEnabled ? theme.foreground : theme.muted, fontSize: 12, fontWeight: '700' }}>
-                {zoomEnabled ? `${zoomRatio.toFixed(2)}x` : 'Zoom unavailable'}
+                {zoomControlLabel}
               </Text>
             </Pressable>
-            {zoomEnabled && zoomTrayOpen && (
+            {!isFullscreen ? (
+              <Pressable
+                onPress={() => {
+                  setIsFullscreen(true);
+                }}
+                style={({ pressed }) => ({
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: 'rgba(255, 255, 255, 0.14)',
+                  backgroundColor: 'rgba(7, 9, 19, 0.86)',
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  opacity: pressed ? 0.86 : 1
+                })}
+              >
+                <Text style={{ color: theme.foreground, fontSize: 12, fontWeight: '700' }}>Full screen</Text>
+              </Pressable>
+            ) : null}
+            {zoomTrayOpen && (
               <View
                 style={{
                   borderRadius: 16,
@@ -1134,199 +1291,230 @@ export default function LaunchArTrajectoryScreen() {
                   minWidth: 220
                 }}
               >
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Text style={{ color: theme.muted, fontSize: 10, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>
-                    Zoom
-                  </Text>
-                  <Text style={{ color: theme.foreground, fontSize: 11, fontWeight: '700' }}>{zoomRatio.toFixed(2)}x</Text>
-                </View>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Pressable
-                    onPress={() => handleZoomTo(zoomRatio - 0.1)}
-                    style={({ pressed }) => ({
-                      borderRadius: 999,
-                      borderWidth: 1,
-                      borderColor: 'rgba(255, 255, 255, 0.16)',
-                      backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                      width: 32,
-                      height: 32,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      opacity: pressed ? 0.86 : 1
-                    })}
-                  >
-                    <Text style={{ color: theme.foreground, fontSize: 18, fontWeight: '700' }}>−</Text>
-                  </Pressable>
-                  <View style={{ flex: 1 }}>
-                    <View
-                      style={{
-                        height: 5,
-                        borderRadius: 999,
-                        backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                        overflow: 'hidden'
-                      }}
-                    >
-                      <View
-                        style={{
-                          width: `${Math.max(0, Math.min(100, ((zoomRatio - zoomMin) / Math.max(zoomMax - zoomMin, 0.0001)) * 100))}%`,
-                          height: '100%',
-                          backgroundColor: theme.accent
-                        }}
-                      />
+                {zoomEnabled ? (
+                  <>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Text style={{ color: theme.muted, fontSize: 10, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>
+                        Zoom
+                      </Text>
+                      <Text style={{ color: theme.foreground, fontSize: 11, fontWeight: '700' }}>{zoomRatio.toFixed(2)}x</Text>
                     </View>
-                  </View>
-                  <Pressable
-                    onPress={() => handleZoomTo(zoomRatio + 0.1)}
-                    style={({ pressed }) => ({
-                      borderRadius: 999,
-                      borderWidth: 1,
-                      borderColor: 'rgba(255, 255, 255, 0.16)',
-                      backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                      width: 32,
-                      height: 32,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      opacity: pressed ? 0.86 : 1
-                    })}
-                  >
-                    <Text style={{ color: theme.foreground, fontSize: 18, fontWeight: '700' }}>+</Text>
-                  </Pressable>
-                </View>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                  {[0.5, 1, 2, 3]
-                    .filter((candidate) => candidate >= zoomMin - 0.01 && candidate <= zoomMax + 0.01)
-                    .map((candidate) => (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                       <Pressable
-                        key={candidate}
-                        onPress={() => handleZoomTo(candidate)}
+                        onPress={() => handleZoomTo(zoomRatio - 0.1)}
                         style={({ pressed }) => ({
                           borderRadius: 999,
                           borderWidth: 1,
-                          borderColor: Math.abs(zoomRatio - candidate) < 0.06 ? 'rgba(34, 211, 238, 0.4)' : 'rgba(255, 255, 255, 0.16)',
-                          backgroundColor:
-                            Math.abs(zoomRatio - candidate) < 0.06 ? 'rgba(34, 211, 238, 0.16)' : 'rgba(255, 255, 255, 0.06)',
-                          paddingHorizontal: 10,
-                          paddingVertical: 6,
+                          borderColor: 'rgba(255, 255, 255, 0.16)',
+                          backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                          width: 32,
+                          height: 32,
+                          alignItems: 'center',
+                          justifyContent: 'center',
                           opacity: pressed ? 0.86 : 1
                         })}
                       >
-                        <Text style={{ color: theme.foreground, fontSize: 11, fontWeight: '700' }}>{candidate.toFixed(candidate < 1 ? 1 : 0)}x</Text>
+                        <Text style={{ color: theme.foreground, fontSize: 18, fontWeight: '700' }}>−</Text>
                       </Pressable>
-                    ))}
-                </View>
-                <Text style={{ color: theme.muted, fontSize: 10 }}>
-                  Pinch to zoom. Safe range {zoomMin.toFixed(2)}x to {zoomMax.toFixed(2)}x.
-                </Text>
+                      <View style={{ flex: 1 }}>
+                        <View
+                          style={{
+                            height: 5,
+                            borderRadius: 999,
+                            backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                            overflow: 'hidden'
+                          }}
+                        >
+                          <View
+                            style={{
+                              width: `${Math.max(0, Math.min(100, ((zoomRatio - zoomMin) / Math.max(zoomMax - zoomMin, 0.0001)) * 100))}%`,
+                              height: '100%',
+                              backgroundColor: theme.accent
+                            }}
+                          />
+                        </View>
+                      </View>
+                      <Pressable
+                        onPress={() => handleZoomTo(zoomRatio + 0.1)}
+                        style={({ pressed }) => ({
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          borderColor: 'rgba(255, 255, 255, 0.16)',
+                          backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                          width: 32,
+                          height: 32,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          opacity: pressed ? 0.86 : 1
+                        })}
+                      >
+                        <Text style={{ color: theme.foreground, fontSize: 18, fontWeight: '700' }}>+</Text>
+                      </Pressable>
+                    </View>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                      {[0.5, 1, 2, 3]
+                        .filter((candidate) => candidate >= zoomMin - 0.01 && candidate <= zoomMax + 0.01)
+                        .map((candidate) => (
+                          <Pressable
+                            key={candidate}
+                            onPress={() => handleZoomTo(candidate)}
+                            style={({ pressed }) => ({
+                              borderRadius: 999,
+                              borderWidth: 1,
+                              borderColor: Math.abs(zoomRatio - candidate) < 0.06 ? 'rgba(34, 211, 238, 0.4)' : 'rgba(255, 255, 255, 0.16)',
+                              backgroundColor:
+                                Math.abs(zoomRatio - candidate) < 0.06 ? 'rgba(34, 211, 238, 0.16)' : 'rgba(255, 255, 255, 0.06)',
+                              paddingHorizontal: 10,
+                              paddingVertical: 6,
+                              opacity: pressed ? 0.86 : 1
+                            })}
+                          >
+                            <Text style={{ color: theme.foreground, fontSize: 11, fontWeight: '700' }}>{candidate.toFixed(candidate < 1 ? 1 : 0)}x</Text>
+                          </Pressable>
+                        ))}
+                    </View>
+                    <Text style={{ color: theme.muted, fontSize: 10 }}>
+                      Pinch to zoom. Safe range {zoomMin.toFixed(2)}x to {zoomMax.toFixed(2)}x.
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={{ color: theme.muted, fontSize: 10, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>
+                      Zoom
+                    </Text>
+                    <Text style={{ color: theme.foreground, fontSize: 12, fontWeight: '700' }}>{zoomControlLabel}</Text>
+                    <Text style={{ color: theme.muted, fontSize: 11, lineHeight: 17 }}>
+                      {zoomUnavailableReason ?? 'Zoom controls are not available in this native AR session.'}
+                    </Text>
+                  </>
+                )}
               </View>
             )}
           </View>
         </View>
-
-        <SectionCard
-          title="Session status"
-          description={nativeError ?? buildSessionDescription(lastNativeUpdate, trajectory, Platform.OS === 'android')}
-          body={trajectory.generatedAt ? `Trajectory package generated ${formatTimestamp(trajectory.generatedAt)}.` : undefined}
-          compact
-        >
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: Platform.OS === 'android' && androidLocationStatus !== 'granted' ? 10 : 0 }}>
-            <StatusChip label={formatGuidanceSemanticsLabel(trajectory)} accent={trajectory.guidanceSemantics === 'constraint_backed'} />
-            <StatusChip label={buildTopologyLabel(trajectory)} accent={trajectory.trackTopology.hasStageSplit} />
-            <StatusChip label={`Confidence ${trajectory.confidenceBadge}`} />
-            <StatusChip label={lastNativeUpdate?.trackingState ?? 'starting'} />
-            <StatusChip label={lastNativeUpdate?.occlusionMode ?? 'none'} />
-            <StatusChip label={zoomEnabled ? `${zoomRatio.toFixed(2)}x` : 'zoom off'} />
-            {Platform.OS === 'ios' ? (
-              <StatusChip
-                label={
-                  lastNativeUpdate?.locationFixState === 'coarse'
-                    ? 'full accuracy needed'
-                    : lastNativeUpdate?.alignmentReady === true
-                      ? 'alignment ready'
-                      : 'aligning'
-                }
-                accent={lastNativeUpdate?.alignmentReady !== true}
-              />
-            ) : null}
-            {Platform.OS === 'ios' ? (
-              <StatusChip
-                label={
-                  lastNativeUpdate?.geoTrackingState === 'localized'
-                    ? 'geo localized'
-                    : lastNativeUpdate?.geoTrackingState === 'localizing' || lastNativeUpdate?.geoTrackingState === 'initializing'
-                      ? 'geo localizing'
-                      : 'world tracking'
-                }
-                accent={lastNativeUpdate?.geoTrackingState === 'localized'}
-              />
-            ) : null}
-            {Platform.OS === 'android' ? (
-              <StatusChip label={androidLocationStatus === 'granted' ? 'location on' : 'location off'} accent={androidLocationStatus !== 'granted'} />
-            ) : null}
-          </View>
-          {Platform.OS === 'android' && androidLocationStatus !== 'granted' ? (
-            <ArButton
-              label="Enable location"
-              onPress={() => {
-                void requestAndroidLocationPermission();
-              }}
-            />
-          ) : null}
-        </SectionCard>
-
-        <SectionCard title="Launch cues" description="Live milestone cues from the premium trajectory package." compact>
-          <View style={{ gap: 10 }}>
-            {prelaunchMilestones.length > 0 ? (
-              <CollapsibleCard title={`Prelaunch (${prelaunchMilestones.length})`} defaultExpanded={false}>
+        {!isFullscreen ? (
+          <View style={{ gap: 12 }}>
+            {isAdminViewer ? (
+              <CollapsibleCard title="Session status" defaultExpanded={false}>
                 <View style={{ gap: 10 }}>
-                  {prelaunchMilestones.map((milestone) => (
-                    <View
-                      key={milestone.key}
-                      style={{
-                        borderRadius: 14,
-                        borderWidth: 1,
-                        borderColor: theme.stroke,
-                        backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                        padding: 12,
-                        gap: 4
+                  <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
+                    {nativeError ?? buildSessionDescription(lastNativeUpdate, trajectory, Platform.OS === 'android')}
+                  </Text>
+                  {trajectory.generatedAt ? (
+                    <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
+                      Trajectory package generated {formatTimestamp(trajectory.generatedAt)}.
+                    </Text>
+                  ) : null}
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      flexWrap: 'wrap',
+                      gap: 8,
+                      marginBottom: Platform.OS === 'android' && androidLocationStatus !== 'granted' ? 10 : 0
+                    }}
+                  >
+                    <StatusChip label={formatGuidanceSemanticsLabel(trajectory)} accent={trajectory.guidanceSemantics === 'constraint_backed'} />
+                    <StatusChip label={buildTopologyLabel(trajectory)} accent={trajectory.trackTopology.hasStageSplit} />
+                    <StatusChip label={`Confidence ${trajectory.confidenceBadge}`} />
+                    <StatusChip label={lastNativeUpdate?.trackingState ?? 'starting'} />
+                    <StatusChip label={lastNativeUpdate?.occlusionMode ?? 'none'} />
+                    <StatusChip label={zoomEnabled ? `${zoomRatio.toFixed(2)}x` : 'zoom off'} />
+                    {Platform.OS === 'ios' ? (
+                      <StatusChip
+                        label={
+                          lastNativeUpdate?.locationFixState === 'coarse'
+                            ? 'full accuracy needed'
+                            : lastNativeUpdate?.alignmentReady === true
+                              ? 'alignment ready'
+                              : 'aligning'
+                        }
+                        accent={lastNativeUpdate?.alignmentReady !== true}
+                      />
+                    ) : null}
+                    {Platform.OS === 'ios' ? (
+                      <StatusChip
+                        label={
+                          lastNativeUpdate?.geoTrackingState === 'localized'
+                            ? 'geo localized'
+                            : lastNativeUpdate?.geoTrackingState === 'localizing' || lastNativeUpdate?.geoTrackingState === 'initializing'
+                              ? 'geo localizing'
+                              : 'world tracking'
+                        }
+                        accent={lastNativeUpdate?.geoTrackingState === 'localized'}
+                      />
+                    ) : null}
+                    {Platform.OS === 'android' ? (
+                      <StatusChip label={androidLocationStatus === 'granted' ? 'location on' : 'location off'} accent={androidLocationStatus !== 'granted'} />
+                    ) : null}
+                  </View>
+                  {Platform.OS === 'android' && androidLocationStatus !== 'granted' ? (
+                    <ArButton
+                      label="Enable location"
+                      onPress={() => {
+                        void requestAndroidLocationPermission();
                       }}
-                    >
-                      <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>{milestone.label}</Text>
-                      <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
-                        {milestone.timeText ?? (milestone.tPlusSec == null ? 'Projected timing pending' : formatFlightClock(milestone.tPlusSec))}
-                      </Text>
-                    </View>
-                  ))}
+                    />
+                  ) : null}
                 </View>
               </CollapsibleCard>
             ) : null}
-            {visibleFlightMilestones.map((milestone) => (
-              <View
-                key={milestone.key}
-                style={{
-                  borderRadius: 14,
-                  borderWidth: 1,
-                  borderColor: theme.stroke,
-                  backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                  padding: 12,
-                  gap: 4
-                }}
-              >
-                <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>{milestone.label}</Text>
-                <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
-                  {milestone.timeText ?? (milestone.tPlusSec == null ? 'Projected timing pending' : `T+${milestone.tPlusSec.toFixed(0)}s`)}
-                </Text>
-                {milestone.estimated ? <Text style={{ color: theme.muted, fontSize: 11 }}>Estimated from modeled track.</Text> : null}
+
+            <SectionCard title="Launch cues" description="Live milestone cues from the premium trajectory package." compact>
+              <View style={{ gap: 10 }}>
+                {prelaunchMilestones.length > 0 ? (
+                  <CollapsibleCard title={`Prelaunch (${prelaunchMilestones.length})`} defaultExpanded={false}>
+                    <View style={{ gap: 10 }}>
+                      {prelaunchMilestones.map((milestone) => (
+                        <View
+                          key={milestone.key}
+                          style={{
+                            borderRadius: 14,
+                            borderWidth: 1,
+                            borderColor: theme.stroke,
+                            backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                            padding: 12,
+                            gap: 4
+                          }}
+                        >
+                          <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>{milestone.label}</Text>
+                          <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
+                            {milestone.timeText ?? (milestone.tPlusSec == null ? 'Projected timing pending' : formatFlightClock(milestone.tPlusSec))}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  </CollapsibleCard>
+                ) : null}
+                {visibleFlightMilestones.map((milestone) => (
+                  <View
+                    key={milestone.key}
+                    style={{
+                      borderRadius: 14,
+                      borderWidth: 1,
+                      borderColor: theme.stroke,
+                      backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                      padding: 12,
+                      gap: 4
+                    }}
+                  >
+                    <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>{milestone.label}</Text>
+                    <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
+                      {milestone.timeText ?? (milestone.tPlusSec == null ? 'Projected timing pending' : `T+${milestone.tPlusSec.toFixed(0)}s`)}
+                    </Text>
+                    {milestone.estimated ? <Text style={{ color: theme.muted, fontSize: 11 }}>Estimated from modeled track.</Text> : null}
+                  </View>
+                ))}
+                {visibleFlightMilestones.length === 0 ? (
+                  <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
+                    {activeTPlusSec != null && activeTPlusSec >= 0
+                      ? 'Prelaunch cues have been removed at T0. Flight milestones appear only when projectable track cues are available.'
+                      : 'Flight milestones will appear here once projectable launch cues are available.'}
+                  </Text>
+                ) : null}
               </View>
-            ))}
-            {visibleFlightMilestones.length === 0 ? (
-              <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
-                {activeTPlusSec != null && activeTPlusSec >= 0
-                  ? 'Prelaunch cues have been removed at T0. Flight milestones appear only when projectable track cues are available.'
-                  : 'Flight milestones will appear here once projectable launch cues are available.'}
-              </Text>
-            ) : null}
+            </SectionCard>
           </View>
-        </SectionCard>
+        ) : null}
       </View>
     );
   }
@@ -1338,63 +1526,72 @@ export default function LaunchArTrajectoryScreen() {
           headerShown: false
         }}
       />
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: theme.background,
-          paddingTop: Math.max(insets.top, 16),
-          paddingBottom: Math.max(insets.bottom, 16),
-          paddingLeft: insets.left + 16,
-          paddingRight: insets.right + 16,
-          gap: 12
-        }}
-      >
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            borderRadius: 999,
-            borderWidth: 1,
-            borderColor: theme.stroke,
-            backgroundColor: 'rgba(7, 9, 19, 0.72)',
-            paddingHorizontal: 16,
-            paddingVertical: 11
-          }}
-        >
-          <Pressable onPress={() => router.back()} hitSlop={8}>
-            <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Back</Text>
-          </Pressable>
-          <Text
-            numberOfLines={1}
-            style={{ color: theme.muted, fontSize: 10, fontWeight: '700', letterSpacing: 1.8, textTransform: 'uppercase' }}
+      <StatusBar hidden={isFullscreen && liveArSurfaceReady} style="light" />
+      {isFullscreen && liveArSurfaceReady ? (
+        <View style={{ flex: 1, backgroundColor: '#000' }}>{content}</View>
+      ) : (
+        <View style={{ flex: 1, backgroundColor: theme.background }}>
+          <ScrollView
+            style={{ flex: 1 }}
+            contentInsetAdjustmentBehavior="never"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{
+              paddingTop: Math.max(insets.top, 16),
+              paddingBottom: Math.max(insets.bottom, 16),
+              paddingLeft: insets.left + 16,
+              paddingRight: insets.right + 16
+            }}
           >
-            Native AR trajectory
-          </Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            {launch ? (
-              <LaunchShareIconButton
-                onPress={handleShareLaunch}
-                size={38}
-                iconColor={theme.accent}
-                borderColor={theme.stroke}
-                backgroundColor="rgba(255, 255, 255, 0.03)"
-                pressedBackgroundColor="rgba(255, 255, 255, 0.08)"
-              />
-            ) : null}
-            <Pressable
-              onPress={() => {
-                router.push((`/launches/${launchId}`) as Href);
-              }}
-              hitSlop={8}
-            >
-              <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Launch</Text>
-            </Pressable>
-          </View>
-        </View>
+            <View style={{ gap: 12 }}>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: theme.stroke,
+                  backgroundColor: 'rgba(7, 9, 19, 0.72)',
+                  paddingHorizontal: 16,
+                  paddingVertical: 11
+                }}
+              >
+                <Pressable onPress={() => router.back()} hitSlop={8}>
+                  <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Back</Text>
+                </Pressable>
+                <Text
+                  numberOfLines={1}
+                  style={{ color: theme.muted, fontSize: 10, fontWeight: '700', letterSpacing: 1.8, textTransform: 'uppercase' }}
+                >
+                  Native AR trajectory
+                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  {launch ? (
+                    <LaunchShareIconButton
+                      onPress={handleShareLaunch}
+                      size={38}
+                      iconColor={theme.accent}
+                      borderColor={theme.stroke}
+                      backgroundColor="rgba(255, 255, 255, 0.03)"
+                      pressedBackgroundColor="rgba(255, 255, 255, 0.08)"
+                    />
+                  ) : null}
+                  <Pressable
+                    onPress={() => {
+                      router.push((`/launches/${launchId}`) as Href);
+                    }}
+                    hitSlop={8}
+                  >
+                    <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Launch</Text>
+                  </Pressable>
+                </View>
+              </View>
 
-        {content}
-      </View>
+              {content}
+            </View>
+          </ScrollView>
+        </View>
+      )}
     </>
   );
 }

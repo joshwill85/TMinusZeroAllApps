@@ -10,6 +10,7 @@ import { FALLBACK_ADMIN_SUMMARY, parseAdminSummary } from '../../_lib/summary';
 type TrajectoryInspectorEligibleLaunch = {
   launchId: string;
   net: string | null;
+  expiresAt: string;
   name: string;
   provider: string | null;
   vehicle: string | null;
@@ -529,7 +530,7 @@ export default function AdminTrajectoryPage() {
       {summaryStatus === 'ready' && (
         <SectionCard
           title="Trajectory inspector"
-          description="Inputs + product details for the next 3 future eligible launches."
+          description="Inputs + product details for the current production AR-eligible window."
           actions={
             <button
               type="button"
@@ -546,7 +547,7 @@ export default function AdminTrajectoryPage() {
           )}
 
           {trajectoryEligibleStatus === 'ready' && trajectoryEligible.length === 0 && (
-            <div className="text-sm text-text3">No eligible future launches found.</div>
+            <div className="text-sm text-text3">No launches are currently inside the production AR-eligible window.</div>
           )}
 
           {trajectoryEligibleStatus === 'ready' && trajectoryEligible.length > 0 && (
@@ -576,6 +577,7 @@ export default function AdminTrajectoryPage() {
                             {launch.vehicle ? ` • ${launch.vehicle}` : ''}
                             {launch.net ? ` • NET ${new Date(launch.net).toLocaleString()}` : ''}
                           </div>
+                          <div className="text-xs text-text3">AR expires {new Date(launch.expiresAt).toLocaleString()}</div>
                           <div className="text-xs text-text3">
                             {launch.padName ? launch.padName : '—'}
                             {launch.locationName ? ` • ${launch.locationName}` : ''}
