@@ -131,7 +131,7 @@ describe('mobile core shell', () => {
 
   authenticatedIt('shows live search results without requiring submit', async () => {
     await signInWithFixture();
-    await element(by.text('Back to feed')).tap();
+    await element(by.id('launch-detail-back-button')).tap();
     await expect(element(by.id('feed-screen'))).toBeVisible();
 
     await element(by.id('tab-search')).tap();
@@ -142,7 +142,7 @@ describe('mobile core shell', () => {
 
   authenticatedIt('signs in with configured E2E credentials and restores the session on relaunch', async () => {
     await signInWithFixture();
-    await element(by.text('Back to feed')).tap();
+    await element(by.id('launch-detail-back-button')).tap();
     await expect(element(by.id('feed-screen'))).toBeVisible();
 
     await waitFor(element(by.id('feed-launch-first'))).toBeVisible().withTimeout(30000);

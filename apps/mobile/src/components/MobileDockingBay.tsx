@@ -497,31 +497,17 @@ export function MobileDockingBay() {
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <DockButton
-                testID="tab-profile"
-                label="Account"
-                active={profileActive}
+                testID="tab-feed"
+                label="Feed"
+                active={feedActive}
                 onPress={() => {
-                  toggleDockRoute(profileRootActive, profileHref);
+                  replaceDockRoute(feedHref);
                 }}
               >
-                {profileInitials ? (
-                  <ProfileBadge initials={profileInitials} color={profileActive ? theme.accent : theme.foreground} />
-                ) : (
-                  <UserGlyph color={profileActive ? theme.accent : theme.foreground} />
-                )}
+                <HomeGlyph color={feedActive ? theme.accent : theme.foreground} />
               </DockButton>
 
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <DockButton
-                  testID="tab-feed"
-                  label="Feed"
-                  active={feedActive}
-                  onPress={() => {
-                    replaceDockRoute(feedHref);
-                  }}
-                >
-                  <HomeGlyph color={feedActive ? theme.accent : theme.foreground} />
-                </DockButton>
                 <DockButton
                   testID="tab-calendar"
                   label="Calendar"
@@ -541,6 +527,20 @@ export function MobileDockingBay() {
                   }}
                 >
                   <SearchGlyph color={searchActive ? theme.accent : theme.foreground} />
+                </DockButton>
+                <DockButton
+                  testID="tab-profile"
+                  label="Account"
+                  active={profileActive}
+                  onPress={() => {
+                    toggleDockRoute(profileRootActive, profileHref);
+                  }}
+                >
+                  {profileInitials ? (
+                    <ProfileBadge initials={profileInitials} color={profileActive ? theme.accent : theme.foreground} />
+                  ) : (
+                    <UserGlyph color={profileActive ? theme.accent : theme.foreground} />
+                  )}
                 </DockButton>
               </View>
 

@@ -4,9 +4,7 @@
  */
 
 export { OverviewTab } from './OverviewTab';
-
-// Placeholder exports for other tabs (to be fully implemented)
-export { OverviewTab as LiveTab } from './OverviewTab';
-export { OverviewTab as MissionTab } from './OverviewTab';
-export { OverviewTab as VehicleTab } from './OverviewTab';
-export { OverviewTab as RelatedTab } from './OverviewTab';
+export { LiveTab } from './LiveTab';
+export { MissionTab } from './MissionTab';
+export { VehicleTab } from './VehicleTab';
+export { RelatedTab } from './RelatedTab';

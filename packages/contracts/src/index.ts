@@ -1463,6 +1463,7 @@ const launchSocialPostSchemaV1 = z.object({
   subtitle: z.string().nullable().optional(),
   description: z.string().nullable().optional(),
   url: z.string(),
+  postId: z.string().nullable().optional(),
   handle: z.string().nullable().optional(),
   matchedAt: z.string().nullable().optional()
 });
@@ -1579,6 +1580,17 @@ const launchMissionStatsSchemaV1 = z.object({
   cards: z.array(launchStatCardSchemaV1).default([]),
   boosterCards: z.array(launchBoosterCardSchemaV1).default([]),
   bonusInsights: z.array(launchBonusInsightSchemaV1).default([])
+});
+
+const launchVehicleTimelineItemSchemaV1 = z.object({
+  id: z.string(),
+  launchId: z.string(),
+  missionName: z.string(),
+  date: z.string().nullable().optional(),
+  status: z.enum(['success', 'failure', 'upcoming']),
+  statusLabel: z.string().nullable().optional(),
+  vehicleName: z.string().nullable().optional(),
+  isCurrent: z.boolean().optional()
 });
 
 const blueOriginTravelerProfileSchemaV1 = z.object({
@@ -3569,6 +3581,7 @@ export const launchDetailSchemaV1 = z.object({
   objectInventory: launchObjectInventorySchemaV1.nullable().optional(),
   launchUpdates: z.array(launchUpdateEntrySchemaV1).default([]),
   missionStats: launchMissionStatsSchemaV1.nullable().optional(),
+  vehicleTimeline: z.array(launchVehicleTimelineItemSchemaV1).default([]),
   blueOrigin: blueOriginModuleSchemaV1.nullable().optional()
 });
 

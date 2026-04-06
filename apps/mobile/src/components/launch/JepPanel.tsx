@@ -32,7 +32,7 @@ export function JepPanel({ launchId, hasJepScore, theme }: JepPanelProps) {
         <Text style={eyebrowStyle(theme)}>Jellyfish Exposure Potential</Text>
         <Text style={titleStyle(theme)}>Calculating your viewing setup</Text>
         <Text style={bodyStyle(theme)}>
-          Loading the current JEP score, factor readout, and ranked change guidance.
+          Loading the current JEP score, factor readout, and visibility guidance.
         </Text>
       </Card>
     );
@@ -160,19 +160,6 @@ export function JepPanel({ launchId, hasJepScore, theme }: JepPanelProps) {
           ))}
         </View>
       </Card>
-
-      <Card theme={theme}>
-        <View style={{ gap: 6 }}>
-          <Text style={titleStyle(theme)}>What would need to change</Text>
-          <Text style={bodyStyle(theme)}>Ranked by which lever would improve the current setup the most.</Text>
-        </View>
-        <View style={{ gap: 12 }}>
-          {presentation.changeOpportunities.map((item, index) => (
-            <ChangeRow key={item.key} index={index} item={item} theme={theme} />
-          ))}
-        </View>
-      </Card>
-
       <CollapsibleCard title="Technical breakdown" defaultExpanded={false}>
         <View style={{ gap: 12 }}>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
@@ -243,51 +230,6 @@ function FactorCard({
       </View>
       <Text style={bodyStyle(theme)}>{item.detail}</Text>
       {item.rangeNote ? <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>{item.rangeNote}</Text> : null}
-    </View>
-  );
-}
-
-function ChangeRow({
-  index,
-  item,
-  theme
-}: {
-  index: number;
-  item: ReturnType<typeof buildJepPresentation>['changeOpportunities'][number];
-  theme: MobileTheme;
-}) {
-  return (
-    <View
-      style={{
-        gap: 8,
-        borderRadius: 18,
-        borderWidth: 1,
-        borderColor: 'rgba(234, 240, 255, 0.1)',
-        backgroundColor: 'rgba(255, 255, 255, 0.025)',
-        paddingHorizontal: 14,
-        paddingVertical: 14
-      }}
-    >
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
-          <View
-            style={{
-              width: 26,
-              height: 26,
-              borderRadius: 13,
-              borderWidth: 1,
-              borderColor: theme.stroke,
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}
-          >
-            <Text style={{ color: theme.foreground, fontSize: 12, fontWeight: '700' }}>{index + 1}</Text>
-          </View>
-          <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700', flex: 1 }}>{item.title}</Text>
-        </View>
-        <TonePill label={item.rankLabel} tone={item.tone} theme={theme} />
-      </View>
-      <Text style={bodyStyle(theme)}>{item.detail}</Text>
     </View>
   );
 }

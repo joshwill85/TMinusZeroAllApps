@@ -518,52 +518,256 @@ async function checkCronEnablementConsistency(
 
 async function checkWs45ForecastJoins(supabase: ReturnType<typeof createSupabaseAdminClient>) {
   const nowMs = Date.now();
-  const { data, error } = await supabase
-    .from('ws45_launch_forecasts')
-    .select('id, pdf_url, source_label, mission_name, forecast_kind, issued_at, fetched_at, valid_start, valid_end, match_status, match_confidence')
-    .in('match_status', ['unmatched', 'ambiguous'])
-    .order('issued_at', { ascending: false })
-    .order('fetched_at', { ascending: false })
-    .limit(20);
+  const nowIso = new Date(nowMs).toISOString();
+  const recentStartIso = new Date(nowMs - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const horizonEndIso = new Date(nowMs + 14 * 24 * 60 * 60 * 1000).toISOString();
 
-  if (error) throw error;
+  const [recentRes, launchesRes, coverageRes, latestRunRes] = await Promise.all([
+    supabase
+      .from('ws45_launch_forecasts')
+      .select(
+        'id,pdf_url,source_label,mission_name,forecast_kind,issued_at,fetched_at,valid_start,valid_end,match_status,match_confidence,document_family,parse_status,publish_eligible,required_fields_missing,quarantine_reasons,matched_launch_id,parse_version'
+      )
+      .gte('fetched_at', recentStartIso)
+      .order('fetched_at', { ascending: false })
+      .limit(100),
+    supabase
+      .from('launches')
+      .select('id,name,net,window_start,window_end,pad_name,pad_short_code,pad_state')
+      .eq('hidden', false)
+      .eq('pad_state', 'FL')
+      .gte('net', nowIso)
+      .lte('net', horizonEndIso)
+      .order('net', { ascending: true })
+      .limit(25),
+    supabase
+      .from('ws45_launch_forecasts')
+      .select('id,matched_launch_id,source_label,issued_at,valid_start,valid_end,match_status,match_confidence,publish_eligible,fetched_at,parse_version')
+      .eq('publish_eligible', true)
+      .eq('match_status', 'matched')
+      .order('issued_at', { ascending: false })
+      .order('fetched_at', { ascending: false })
+      .limit(100),
+    supabase
+      .from('ingestion_runs')
+      .select('started_at, ended_at, success, error, stats')
+      .eq('job_name', 'ws45_forecasts_ingest')
+      .order('started_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+  ]);
 
-  const forecasts = (data as any[] | null) ?? [];
-  const relevant = forecasts.filter((row) => {
-    if (String(row?.forecast_kind || '') === 'faq') return false;
-    const validEnd = row?.valid_end ? Date.parse(String(row.valid_end)) : NaN;
-    if (Number.isFinite(validEnd)) return validEnd > nowMs;
-    return true;
+  if (recentRes.error) throw recentRes.error;
+  if (launchesRes.error) throw launchesRes.error;
+  if (coverageRes.error) throw coverageRes.error;
+  if (latestRunRes.error) throw latestRunRes.error;
+
+  const recent = ((recentRes.data as any[] | null) ?? []).filter((row) => String(row?.forecast_kind || '') !== 'faq');
+  const upcomingLaunches = (launchesRes.data as any[] | null) ?? [];
+  const coverageRows = (coverageRes.data as any[] | null) ?? [];
+  const coverageByLaunch = new Map<string, any>();
+  for (const row of coverageRows) {
+    const launchId = typeof row?.matched_launch_id === 'string' ? row.matched_launch_id : '';
+    if (!launchId || coverageByLaunch.has(launchId)) continue;
+    coverageByLaunch.set(launchId, row);
+  }
+
+  const missingIssued = recent.filter((row) => !row?.issued_at);
+  const missingValidWindow = recent.filter((row) => !row?.valid_start || !row?.valid_end);
+  const parseRequiredFieldsMissing = recent.filter((row) => {
+    const fields = Array.isArray(row?.required_fields_missing) ? row.required_fields_missing : [];
+    return fields.length > 0 || String(row?.parse_status || '') !== 'parsed';
   });
-  const count = relevant.length;
-  const key = 'ws45_forecasts_unmatched_upcoming';
+  const unknownShape = recent.filter((row) => String(row?.document_family || '') === 'unknown_family');
+  const unmatchedUpcoming = recent.filter((row) => {
+    const validEnd = row?.valid_end ? Date.parse(String(row.valid_end)) : NaN;
+    return String(row?.match_status || '') === 'unmatched' && (!Number.isFinite(validEnd) || validEnd > nowMs);
+  });
+  const ambiguousUpcoming = recent.filter((row) => {
+    const validEnd = row?.valid_end ? Date.parse(String(row.valid_end)) : NaN;
+    return String(row?.match_status || '') === 'ambiguous' && (!Number.isFinite(validEnd) || validEnd > nowMs);
+  });
+  const publishEligibleCount = recent.filter((row) => Boolean(row?.publish_eligible)).length;
+  const parseCompleteCount = recent.filter((row) => String(row?.parse_status || '') === 'parsed').length;
+  const parseCompleteRate = recent.length ? parseCompleteCount / recent.length : 1;
+  const publishEligibleRate = recent.length ? publishEligibleCount / recent.length : 1;
 
+  const coverageGaps = upcomingLaunches.filter((launch) => !coverageByLaunch.has(String((launch as any).id || '')));
+
+  const latestRun = latestRunRes.data as Record<string, any> | null;
+  const latestRunErrors = Array.isArray(latestRun?.stats?.errors) ? (latestRun?.stats?.errors as Array<Record<string, any>>) : [];
+  const hasWs45FetchError =
+    latestRun?.success === false ||
+    latestRunErrors.some((entry) => /ws45_(?:waf|html|pdf)/i.test(String(entry?.error || ''))) ||
+    /ws45_(?:waf|html|pdf)/i.test(String(latestRun?.error || ''));
+  const pdfsFound = Number(latestRun?.stats?.pdfsFound || 0);
+
+  if (hasWs45FetchError) {
+    await upsertAlert(supabase, {
+      key: 'ws45_source_fetch_failed',
+      severity: 'critical',
+      message: '45 WS source fetch or PDF retrieval failed during the latest ingest.',
+      details: {
+        started_at: latestRun?.started_at ?? null,
+        ended_at: latestRun?.ended_at ?? null,
+        error: latestRun?.error ?? null,
+        errors: latestRunErrors.slice(0, 10)
+      }
+    });
+  } else {
+    await resolveAlert(supabase, 'ws45_source_fetch_failed');
+  }
+
+  if (!hasWs45FetchError && pdfsFound === 0) {
+    await upsertAlert(supabase, {
+      key: 'ws45_source_empty',
+      severity: 'warning',
+      message: '45 WS source page returned no forecast PDFs.',
+      details: {
+        started_at: latestRun?.started_at ?? null,
+        ended_at: latestRun?.ended_at ?? null,
+        pdfsFound
+      }
+    });
+  } else {
+    await resolveAlert(supabase, 'ws45_source_empty');
+  }
+
+  await upsertOrResolveCountAlert(supabase, {
+    key: 'ws45_parse_missing_issued',
+    severity: 'warning',
+    message: 'Recent 45 WS forecasts are missing issued times.',
+    count: missingIssued.length,
+    rows: missingIssued
+  });
+
+  await upsertOrResolveCountAlert(supabase, {
+    key: 'ws45_parse_missing_valid_window',
+    severity: 'critical',
+    message: 'Recent 45 WS forecasts are missing valid windows.',
+    count: missingValidWindow.length,
+    rows: missingValidWindow
+  });
+
+  await upsertOrResolveCountAlert(supabase, {
+    key: 'ws45_parse_required_fields_missing',
+    severity: 'warning',
+    message: 'Recent 45 WS forecasts failed required-field parsing or validation.',
+    count: parseRequiredFieldsMissing.length,
+    rows: parseRequiredFieldsMissing
+  });
+
+  await upsertOrResolveCountAlert(supabase, {
+    key: 'ws45_shape_unknown_detected',
+    severity: 'warning',
+    message: 'Recent 45 WS forecasts used an unknown document family.',
+    count: unknownShape.length,
+    rows: unknownShape
+  });
+
+  await upsertOrResolveCountAlert(supabase, {
+    key: 'ws45_match_unmatched_upcoming',
+    severity: 'warning',
+    message: '45 WS forecast PDF not matched to any upcoming launch.',
+    count: unmatchedUpcoming.length,
+    rows: unmatchedUpcoming
+  });
+
+  await upsertOrResolveCountAlert(supabase, {
+    key: 'ws45_match_ambiguous_upcoming',
+    severity: 'warning',
+    message: '45 WS forecast PDF matched ambiguously to an upcoming launch.',
+    count: ambiguousUpcoming.length,
+    rows: ambiguousUpcoming
+  });
+
+  await upsertOrResolveCountAlert(supabase, {
+    key: 'ws45_florida_launch_coverage_gap',
+    severity: 'critical',
+    message: 'Upcoming Florida launch lacks a publish-eligible 45 WS forecast.',
+    count: coverageGaps.length,
+    rows: coverageGaps
+  });
+
+  if (parseCompleteRate < 0.99 || publishEligibleRate < 0.98) {
+    await upsertAlert(supabase, {
+      key: 'ws45_success_rate_degraded',
+      severity: 'warning',
+      message: '45 WS parse completeness or publish eligibility has degraded.',
+      details: {
+        recentCount: recent.length,
+        parseCompleteRate,
+        publishEligibleRate,
+        parseCompleteCount,
+        publishEligibleCount
+      }
+    });
+  } else {
+    await resolveAlert(supabase, 'ws45_success_rate_degraded');
+  }
+
+  await resolveAlert(supabase, 'ws45_forecasts_unmatched_upcoming');
+
+  return {
+    recentCount: recent.length,
+    parseCompleteCount,
+    publishEligibleCount,
+    parseCompleteRate,
+    publishEligibleRate,
+    missingIssuedCount: missingIssued.length,
+    missingValidWindowCount: missingValidWindow.length,
+    unknownShapeCount: unknownShape.length,
+    unmatchedUpcomingCount: unmatchedUpcoming.length,
+    ambiguousUpcomingCount: ambiguousUpcoming.length,
+    upcomingFloridaLaunches: upcomingLaunches.length,
+    coverageGapCount: coverageGaps.length
+  };
+}
+
+async function upsertOrResolveCountAlert(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  {
+    key,
+    severity,
+    message,
+    count,
+    rows
+  }: {
+    key: string;
+    severity: 'info' | 'warning' | 'critical';
+    message: string;
+    count: number;
+    rows: any[];
+  }
+) {
   if (count > 0) {
     await upsertAlert(supabase, {
       key,
-      severity: 'warning',
-      message: '45 WS forecast PDF not matched to any upcoming launch.',
+      severity,
+      message,
       details: {
         count,
-        forecasts: relevant.map((row) => ({
-          id: row.id,
-          match_status: row.match_status,
-          match_confidence: row.match_confidence,
-          source_label: row.source_label,
-          mission_name: row.mission_name,
-          issued_at: row.issued_at,
-          fetched_at: row.fetched_at,
-          valid_start: row.valid_start,
-          valid_end: row.valid_end,
-          pdf_url: row.pdf_url
+        rows: rows.map((row) => ({
+          id: row?.id ?? null,
+          source_label: row?.source_label ?? null,
+          mission_name: row?.mission_name ?? row?.name ?? null,
+          fetched_at: row?.fetched_at ?? null,
+          issued_at: row?.issued_at ?? null,
+          valid_start: row?.valid_start ?? row?.window_start ?? null,
+          valid_end: row?.valid_end ?? row?.window_end ?? null,
+          match_status: row?.match_status ?? null,
+          match_confidence: row?.match_confidence ?? null,
+          parse_status: row?.parse_status ?? null,
+          publish_eligible: row?.publish_eligible ?? null,
+          document_family: row?.document_family ?? null,
+          parse_version: row?.parse_version ?? null,
+          pdf_url: row?.pdf_url ?? null
         }))
       }
     });
   } else {
     await resolveAlert(supabase, key);
   }
-
-  return { unmatchedUpcomingCount: count };
 }
 
 async function checkCelestrakDatasets(supabase: ReturnType<typeof createSupabaseAdminClient>) {

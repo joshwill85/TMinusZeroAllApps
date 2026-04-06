@@ -1,14 +1,4 @@
 import { Badge, type BadgeTone } from './Badge';
-import {
-  buildJepPresentation,
-  type JepChangeOpportunity as SharedJepChangeOpportunity,
-  type JepFactorAssessment as SharedJepFactorAssessment
-} from '@tminuszero/domain';
-import {
-  JEP_LOS_ELEVATION_THRESHOLD_DEG,
-  JEP_TWILIGHT_SWEET_SPOT_MAX_DEG,
-  JEP_TWILIGHT_SWEET_SPOT_MIN_DEG
-} from '@/lib/jep/guidance';
 import { deriveJepWeatherImpact } from '@/lib/jep/weather';
 import type { LaunchJepScore } from '@/lib/types/jep';
 
@@ -40,16 +30,6 @@ type ScoreNarrative = {
   guidance: GuidancePresentation;
 };
 
-type WeatherMainBlocker = NonNullable<LaunchJepScore['weatherDetails']>['mainBlocker'];
-type FactorAssessment = SharedJepFactorAssessment & {
-  priority?: number;
-  changeTitle?: string;
-  changeDetail?: string;
-};
-type ChangeOpportunity = Omit<SharedJepChangeOpportunity, 'rankLabel'> & {
-  rankLabel?: string;
-};
-
 export function JepScorePanel({
   score,
   padTimezone,
@@ -79,16 +59,12 @@ export function JepScorePanel({
   const scaleSummary = isProbabilityMode
     ? '0% = almost no chance. 100% = very likely.'
     : '0 = very unlikely to see it. 100 = best setup.';
-  const hasGuidanceSummary =
-    score.bestWindow != null || score.directionBand != null || score.elevationBand != null || score.solarWindowRange != null;
+  const hasGuidanceSummary = score.bestWindow != null || score.directionBand != null || score.elevationBand != null;
   const readinessSummary = formatReadinessSummary(score);
   const modelSummary = isProbabilityMode
     ? 'Estimated chance of seeing the jellyfish effect from your location.'
     : '0-100 score for how likely the jellyfish effect is to be visible from your location.';
   const narrative = deriveScoreNarrative(score);
-  const jepPresentation = buildJepPresentation(score);
-  const factorAssessments = jepPresentation.factorAssessments;
-  const rankedChangeOpportunities = jepPresentation.changeOpportunities;
   const guidancePresentation = narrative.guidance;
   const hasNarrative = narrative.whyNow.length > 0;
   const shouldShowGuidanceSummary =
@@ -144,14 +120,6 @@ export function JepScorePanel({
           </div>
         )}
 
-        <div className="mt-4">
-          <FactorAssessmentPanel items={factorAssessments} />
-        </div>
-
-        <div className="mt-4">
-          <ChangeOpportunitiesPanel items={rankedChangeOpportunities} />
-        </div>
-
         {shouldShowGuidanceSummary && (
           <div className="mt-4 rounded-xl border border-stroke bg-surface-0 p-3">
             {guidancePresentation.badgeLabel && (
@@ -161,7 +129,7 @@ export function JepScorePanel({
                 </Badge>
               </div>
             )}
-            <div className="grid gap-3 md:grid-cols-4">
+            <div className="grid gap-3 md:grid-cols-3">
               {score.bestWindow && (
                 <Metric
                   label={guidancePresentation.windowLabel}
@@ -184,13 +152,6 @@ export function JepScorePanel({
                   label={guidancePresentation.elevationLabel}
                   value={score.elevationBand.label}
                   note={guidancePresentation.elevationNote}
-                />
-              )}
-              {score.solarWindowRange && (
-                <Metric
-                  label="NET window sun angle"
-                  value={formatSolarWindowRange(score.solarWindowRange)}
-                  note={formatSolarWindowRangeNote(score.solarWindowRange)}
                 />
               )}
             </div>
@@ -224,11 +185,7 @@ export function JepScorePanel({
           <Metric label="Low clouds" value={formatPct(score.factors.cloudCoverLowPct)} />
           <Metric label="Mid clouds" value={formatPct(score.factors.cloudCoverMidPct)} />
           <Metric label="High clouds" value={formatPct(score.factors.cloudCoverHighPct)} />
-          <Metric
-            label="Sun vs. horizon at NET"
-            value={formatSolarAngle(score.factors.solarDepressionDeg)}
-            note={formatSolarAngleNote(score)}
-          />
+          <Metric label="Sun below horizon" value={formatDegrees(score.factors.solarDepressionDeg)} />
           <Metric label="Sunlight margin" value={formatKm(score.sunlitMarginKm)} />
           <Metric label="Visible flight path" value={formatProbability(score.losVisibleFraction)} />
         </div>
@@ -317,59 +274,6 @@ function Metric({
   );
 }
 
-function FactorAssessmentPanel({ items }: { items: FactorAssessment[] }) {
-  return (
-    <div className="rounded-xl border border-stroke bg-surface-0 p-3">
-      <div className="text-[11px] uppercase tracking-[0.08em] text-text3">Factor Readout</div>
-      <p className="mt-2 text-sm text-text2">Each element below shows its current factor, why it landed there, and the range or condition it wants.</p>
-      <div className="mt-3 grid gap-3 md:grid-cols-2">
-        {items.map((item) => (
-          <div key={item.key} className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <div className="text-[11px] uppercase tracking-[0.08em] text-text3">{item.label}</div>
-                <div className="mt-1 text-lg font-semibold text-text1">{item.value}</div>
-              </div>
-              <Badge tone={item.tone} subtle>
-                {item.status}
-              </Badge>
-            </div>
-            <div className="mt-2 text-sm text-text3">{item.detail}</div>
-            {item.rangeNote ? <div className="mt-2 text-[11px] text-text3">{item.rangeNote}</div> : null}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ChangeOpportunitiesPanel({ items }: { items: ChangeOpportunity[] }) {
-  return (
-    <div className="rounded-xl border border-stroke bg-surface-0 p-3">
-      <div className="text-[11px] uppercase tracking-[0.08em] text-text3">What Would Need To Change</div>
-      <p className="mt-2 text-sm text-text2">Ranked by which human lever would improve the current setup the most.</p>
-      <div className="mt-3 space-y-3">
-        {items.map((item, index) => (
-          <div key={`change-${item.key}`} className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-stroke text-[11px] font-semibold text-text2">
-                  {index + 1}
-                </span>
-                <div className="text-sm font-semibold text-text1">{item.title}</div>
-              </div>
-              <Badge tone={item.tone} subtle>
-                {formatChangeRankLabel(index, item.priority)}
-              </Badge>
-            </div>
-            <div className="mt-2 text-sm text-text3">{item.detail}</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function deriveScoreNarrative(score: LaunchJepScore): ScoreNarrative {
   const guidance = deriveGuidancePresentation(score);
   const whyNow = sortNarrativeItems(buildWhyNowItems(score));
@@ -386,372 +290,6 @@ function deriveScoreNarrative(score: LaunchJepScore): ScoreNarrative {
     summary,
     whyNow,
     guidance
-  };
-}
-
-function deriveFactorAssessments(score: LaunchJepScore): FactorAssessment[] {
-  return [
-    buildTimingAssessment(score),
-    buildWeatherAssessment(score),
-    buildLineOfSightAssessment(score),
-    buildIlluminationAssessment(score)
-  ];
-}
-
-function deriveRankedChangeOpportunities(score: LaunchJepScore): ChangeOpportunity[] {
-  return [buildTimingChangeOpportunity(score), buildWeatherChangeOpportunity(score), buildLocationChangeOpportunity(score)].sort(
-    (a, b) => b.priority - a.priority
-  );
-}
-
-function buildTimingAssessment(score: LaunchJepScore): FactorAssessment {
-  const factor = clampProbability(score.factors.darkness) ?? 0;
-  const solarAngle = score.factors.solarDepressionDeg;
-  const windowRange = score.solarWindowRange;
-  const maxScenarioDelta = score.scenarioWindows.reduce((best, scenario) => Math.max(best, scenario.delta), 0);
-  const positiveScenarioBoost = Math.max(0, maxScenarioDelta) / 100 * 0.12;
-  const sweetSpot = formatTwilightSweetSpot();
-  const windowSummary = windowRange ? formatSolarWindowRange(windowRange) : null;
-
-  if (factor >= 0.95) {
-    return {
-      key: 'darkness',
-      label: 'Twilight timing',
-      value: formatFactor(factor),
-      tone: 'success',
-      status: 'Prime band',
-      detail: `The Sun is ${formatSolarAngle(solarAngle)}, which sits in the strongest twilight band for jellyfish visibility.`,
-      rangeNote: `Needed range: Sun about ${sweetSpot}.`,
-      priority: 0.01,
-      changeTitle: 'Timing is already in the strongest twilight band',
-      changeDetail: 'Launch timing is not the first thing that needs to change right now.'
-    };
-  }
-
-  if (solarAngle != null && solarAngle < 0) {
-    const withinWindowDetail =
-      windowRange?.crossesTwilightSweetSpot && windowSummary
-        ? `The current NET window runs ${windowSummary}, so a later launch inside this window would help most.`
-        : `The current timing does not yet reach the strongest twilight band of ${sweetSpot}.`;
-    return {
-      key: 'darkness',
-      label: 'Twilight timing',
-      value: formatFactor(factor),
-      tone: 'danger',
-      status: 'Daylight',
-      detail: `At NET the Sun is ${formatSolarAngle(solarAngle)}, so this setup is still in daylight rather than twilight.`,
-      rangeNote: `Needed range: Sun about ${sweetSpot}.`,
-      priority: 0.25 * (1 - factor) + (windowRange?.crossesTwilightSweetSpot ? 0.14 : 0.02) + positiveScenarioBoost,
-      changeTitle: windowRange?.crossesTwilightSweetSpot
-        ? 'A later NET inside the current window would help most'
-        : 'The launch needs a later NET to have a chance',
-      changeDetail: withinWindowDetail
-    };
-  }
-
-  if (solarAngle != null && solarAngle > JEP_TWILIGHT_SWEET_SPOT_MAX_DEG) {
-    return {
-      key: 'darkness',
-      label: 'Twilight timing',
-      value: formatFactor(factor),
-      tone: 'warning',
-      status: 'Too dark',
-      detail: `At NET the Sun is ${formatSolarAngle(solarAngle)}, which is darker than the usual jellyfish sweet spot.`,
-      rangeNote: `Needed range: Sun about ${sweetSpot}.`,
-      priority: 0.25 * (1 - factor) + positiveScenarioBoost,
-      changeTitle: 'An earlier NET would improve twilight timing',
-      changeDetail: windowSummary ? `The current NET window spans ${windowSummary}. An earlier edge would be closer to the prime twilight band.` : `The launch would need to move earlier toward ${sweetSpot}.`
-    };
-  }
-
-  return {
-    key: 'darkness',
-    label: 'Twilight timing',
-    value: formatFactor(factor),
-    tone: factor >= 0.8 ? 'info' : 'warning',
-    status: factor >= 0.8 ? 'Close' : 'Off band',
-    detail:
-      factor >= 0.8
-        ? `The Sun is ${formatSolarAngle(solarAngle)}, which is close to the best twilight band but not centered in it.`
-        : `The Sun is ${formatSolarAngle(solarAngle)}, so the launch is outside the strongest twilight band right now.`,
-    rangeNote: `Needed range: Sun about ${sweetSpot}.`,
-    priority: 0.25 * (1 - factor) + positiveScenarioBoost,
-    changeTitle: solarAngle != null && solarAngle < JEP_TWILIGHT_SWEET_SPOT_MIN_DEG
-      ? 'A slightly later NET would help twilight timing'
-      : 'A slightly earlier NET would help twilight timing',
-    changeDetail: windowSummary ? `Current window: ${windowSummary}. Moving closer to ${sweetSpot} would improve this factor first.` : `Moving closer to ${sweetSpot} would improve this factor.`
-  };
-}
-
-function buildWeatherAssessment(score: LaunchJepScore): FactorAssessment {
-  const factor = clampProbability(score.factors.weather) ?? 0;
-  const cloudCover = toPctNumber(score.factors.cloudCoverPct);
-  const lowClouds = toPctNumber(score.factors.cloudCoverLowPct);
-  const midClouds = toPctNumber(score.factors.cloudCoverMidPct);
-  const highClouds = toPctNumber(score.factors.cloudCoverHighPct);
-  const weatherImpact = deriveJepWeatherImpact({
-    cloudCoverTotal: score.factors.cloudCoverPct,
-    cloudCoverLow: score.factors.cloudCoverLowPct,
-    cloudCoverMid: score.factors.cloudCoverMidPct,
-    cloudCoverHigh: score.factors.cloudCoverHighPct
-  });
-  const narrative =
-    buildDetailedWeatherWhyItem(score.weatherDetails) ??
-    (factor <= 0.15 || weatherImpact.blockerStrength === 'severe'
-      ? primaryWeatherNarrative({
-          cloudCover,
-          lowClouds,
-          midClouds,
-          highClouds,
-          weatherFactor: factor,
-          dominantBlocker: weatherImpact.dominantBlocker,
-          blockerStrength: weatherImpact.blockerStrength
-        })
-      : secondaryWeatherNarrative({
-          cloudCover,
-          lowClouds,
-          midClouds,
-          highClouds,
-          weatherFactor: factor,
-          dominantBlocker: weatherImpact.dominantBlocker
-        }));
-
-  return {
-    key: 'weather',
-    label: 'Sky clarity',
-    value: formatFactor(factor),
-    tone: factor >= 0.8 ? 'success' : factor >= 0.45 ? 'warning' : 'danger',
-    status: factor >= 0.8 ? 'Mostly clear' : factor >= 0.45 ? 'Mixed' : 'Main drag',
-    detail: narrative.detail,
-    rangeNote: 'Needed condition: clearer sky, with low clouds and ceilings improving first, then mid clouds, then high clouds.',
-    priority: 0.15 * (1 - factor) + (factor <= 0.25 ? 0.05 : 0),
-    changeTitle: summarizeWeatherChangeTitle(score.weatherDetails?.mainBlocker, weatherImpact.dominantBlocker, factor),
-    changeDetail: summarizeWeatherChangeDetail(score.weatherDetails?.mainBlocker, weatherImpact.dominantBlocker)
-  };
-}
-
-function buildLineOfSightAssessment(score: LaunchJepScore): FactorAssessment {
-  const factor = clampProbability(score.factors.lineOfSight) ?? 0;
-  const visibleFraction = clampProbability(score.losVisibleFraction) ?? factor;
-
-  if (factor >= 0.85) {
-    return {
-      key: 'lineOfSight',
-      label: 'Visible path',
-      value: formatFactor(factor),
-      tone: 'success',
-      status: 'Working',
-      detail: `About ${formatProbability(visibleFraction)} of the useful sunlit path clears the viewing threshold from this location.`,
-      rangeNote: `Needed range: about ${JEP_LOS_ELEVATION_THRESHOLD_DEG}°+ above your local horizon.`,
-      priority: 0.01,
-      changeTitle: 'Viewing geometry is already mostly working',
-      changeDetail: 'A different spot or horizon is not the first thing that needs to change right now.'
-    };
-  }
-
-  if (factor === 0) {
-    return {
-      key: 'lineOfSight',
-      label: 'Visible path',
-      value: formatFactor(factor),
-      tone: 'danger',
-      status: 'Blocked',
-      detail: 'The modeled sunlit path does not clear your local horizon enough to count as visible from this spot.',
-      rangeNote: `Needed range: about ${JEP_LOS_ELEVATION_THRESHOLD_DEG}°+ above your local horizon.`,
-      priority: 0.25 * (1 - factor) + (score.factors.illumination > 0 ? 0.05 : 0),
-      changeTitle: 'You would need a clearer horizon or different viewing spot',
-      changeDetail: `From this location the path never clears the usual ${JEP_LOS_ELEVATION_THRESHOLD_DEG}° visibility threshold.`
-    };
-  }
-
-  return {
-    key: 'lineOfSight',
-    label: 'Visible path',
-    value: formatFactor(factor),
-    tone: factor >= 0.45 ? 'warning' : 'danger',
-    status: factor >= 0.45 ? 'Limited' : 'Low',
-    detail: `Only ${formatProbability(visibleFraction)} of the useful sunlit path clears the viewing threshold from this location.`,
-    rangeNote: `Needed range: about ${JEP_LOS_ELEVATION_THRESHOLD_DEG}°+ above your local horizon.`,
-    priority: 0.25 * (1 - factor),
-    changeTitle: 'A lower, clearer horizon would improve the view',
-    changeDetail: `This location only clears part of the sunlit path above the usual ${JEP_LOS_ELEVATION_THRESHOLD_DEG}° threshold.`
-  };
-}
-
-function buildIlluminationAssessment(score: LaunchJepScore): FactorAssessment {
-  const factor = clampProbability(score.factors.illumination) ?? 0;
-  const margin = score.sunlitMarginKm != null && Number.isFinite(score.sunlitMarginKm) ? ` Sunlight margin: ${formatKm(score.sunlitMarginKm)}.` : '';
-
-  if (factor >= 0.85) {
-    return {
-      key: 'illumination',
-      label: 'Sunlit plume overlap',
-      value: formatFactor(factor),
-      tone: 'success',
-      status: 'Working',
-      detail: `Most of the scored ascent window is modeled in sunlight.${margin}`,
-      rangeNote: 'Needed condition: enough of the scored ascent stays in sunlight. This usually changes with launch timing.',
-      priority: 0.01,
-      changeTitle: 'Sunlight on the plume is already working',
-      changeDetail: 'This is not the first thing that needs to change right now.'
-    };
-  }
-
-  if (factor === 0) {
-    return {
-      key: 'illumination',
-      label: 'Sunlit plume overlap',
-      value: formatFactor(factor),
-      tone: 'danger',
-      status: 'Blocked',
-      detail: `The useful part of ascent is not modeled in sunlight at this launch time.${margin}`,
-      rangeNote: 'Needed condition: enough of the useful ascent stays sunlit. This usually improves with a different launch time.',
-      priority: 0.35 * (1 - factor) + 0.04,
-      changeTitle: 'More of the ascent needs to stay sunlit',
-      changeDetail: 'This is usually a timing problem. The launch would need a different Sun/rocket geometry to light the plume.'
-    };
-  }
-
-  return {
-    key: 'illumination',
-    label: 'Sunlit plume overlap',
-    value: formatFactor(factor),
-    tone: factor >= 0.45 ? 'warning' : 'danger',
-    status: factor >= 0.45 ? 'Partial' : 'Low',
-    detail: `Only ${formatFactor(factor)} of the scored ascent window is modeled in sunlight.${margin}`,
-    rangeNote: 'Needed condition: enough of the useful ascent stays sunlit. This usually improves with a different launch time.',
-    priority: 0.35 * (1 - factor),
-    changeTitle: 'More of the ascent needs to stay sunlit',
-    changeDetail: 'A different launch time would need to put more of the useful ascent window above Earth’s shadow.'
-  };
-}
-
-function buildTimingChangeOpportunity(score: LaunchJepScore): ChangeOpportunity {
-  const darknessFactor = clampProbability(score.factors.darkness) ?? 0;
-  const illuminationFactor = clampProbability(score.factors.illumination) ?? 0;
-  const solarAngle = score.factors.solarDepressionDeg;
-  const windowRange = score.solarWindowRange;
-  const sweetSpot = formatTwilightSweetSpot();
-  const windowSummary = windowRange ? formatSolarWindowRange(windowRange) : null;
-  const maxScenarioDelta = score.scenarioWindows.reduce((best, scenario) => Math.max(best, scenario.delta), 0);
-  const scenarioBoost = Math.max(0, maxScenarioDelta) / 100 * 0.12;
-  const timingPriority =
-    0.25 * (1 - darknessFactor) +
-    0.35 * (1 - illuminationFactor) +
-    (windowRange?.crossesTwilightSweetSpot ? 0.08 : 0);
-
-  if (darknessFactor >= 0.95 && illuminationFactor >= 0.85) {
-    return {
-      key: 'timing',
-      title: 'Launch timing is already mostly working',
-      detail: 'The current NET already lands in the strongest twilight band and keeps most of the useful ascent sunlit.',
-      tone: 'success',
-      priority: 0.01
-    };
-  }
-
-  if (solarAngle != null && solarAngle < 0) {
-    const illuminationNote =
-      illuminationFactor < 0.5
-        ? ' It would also put more of the useful ascent into better Sun/rocket lighting.'
-        : '';
-    return {
-      key: 'timing',
-      title: windowRange?.crossesTwilightSweetSpot
-        ? 'A later NET inside this window would help most'
-        : 'The launch needs a later NET window first',
-      detail: windowRange?.crossesTwilightSweetSpot && windowSummary
-        ? `At NET the Sun is ${formatSolarAngle(solarAngle)}, so this starts in daylight. The current window spans ${windowSummary} and reaches the target band of ${sweetSpot} later in the window.${illuminationNote}`
-        : `At NET the Sun is ${formatSolarAngle(solarAngle)}, so this is still daylight instead of twilight. JEP usually wants the Sun about ${sweetSpot}.${illuminationNote}`,
-      tone: 'danger',
-      priority: timingPriority + scenarioBoost + (windowRange?.crossesTwilightSweetSpot ? 0.1 : 0.03)
-    };
-  }
-
-  if (solarAngle != null && solarAngle > JEP_TWILIGHT_SWEET_SPOT_MAX_DEG) {
-    return {
-      key: 'timing',
-      title: 'An earlier NET would improve the view',
-      detail: windowSummary
-        ? `At NET the Sun is ${formatSolarAngle(solarAngle)}, which is darker than the strongest twilight band. The current window spans ${windowSummary}, so an earlier edge would move closer to the target band of ${sweetSpot}.`
-        : `At NET the Sun is ${formatSolarAngle(solarAngle)}, which is darker than the strongest twilight band. Moving earlier toward ${sweetSpot} would improve the setup.`,
-      tone: 'warning',
-      priority: timingPriority + scenarioBoost
-    };
-  }
-
-  if (illuminationFactor < 0.5) {
-    return {
-      key: 'timing',
-      title: 'Launch timing needs more sunlit plume overlap',
-      detail: `Twilight is not the main issue here. The useful part of ascent is only sunlit for ${formatFactor(illuminationFactor)} of the scoring window, so the launch would need a timing shift that keeps more of the plume above Earth’s shadow.`,
-      tone: illuminationFactor === 0 ? 'danger' : 'warning',
-      priority: timingPriority + scenarioBoost
-    };
-  }
-
-  const laterWindow = solarAngle != null && solarAngle < JEP_TWILIGHT_SWEET_SPOT_MIN_DEG;
-  return {
-    key: 'timing',
-    title: laterWindow ? 'A slightly later NET would help timing' : 'A slightly earlier NET would help timing',
-    detail: windowSummary
-      ? `At NET the Sun is ${formatSolarAngle(solarAngle)}, which is near but not centered in the target band of ${sweetSpot}. The current window spans ${windowSummary}.`
-      : `At NET the Sun is ${formatSolarAngle(solarAngle)}, which is near but not centered in the target band of ${sweetSpot}.`,
-    tone: darknessFactor >= 0.8 ? 'info' : 'warning',
-    priority: timingPriority + scenarioBoost
-  };
-}
-
-function buildWeatherChangeOpportunity(score: LaunchJepScore): ChangeOpportunity {
-  const factor = clampProbability(score.factors.weather) ?? 0;
-  const weatherImpact = deriveJepWeatherImpact({
-    cloudCoverTotal: score.factors.cloudCoverPct,
-    cloudCoverLow: score.factors.cloudCoverLowPct,
-    cloudCoverMid: score.factors.cloudCoverMidPct,
-    cloudCoverHigh: score.factors.cloudCoverHighPct
-  });
-
-  return {
-    key: 'weather',
-    title: summarizeWeatherChangeTitle(score.weatherDetails?.mainBlocker, weatherImpact.dominantBlocker, factor),
-    detail:
-      factor >= 0.8
-        ? 'Weather is not the first thing that needs to change right now.'
-        : summarizeWeatherChangeDetail(score.weatherDetails?.mainBlocker, weatherImpact.dominantBlocker),
-    tone: factor >= 0.8 ? 'success' : factor >= 0.45 ? 'warning' : 'danger',
-    priority: 0.15 * (1 - factor) + (factor <= 0.25 ? 0.05 : 0)
-  };
-}
-
-function buildLocationChangeOpportunity(score: LaunchJepScore): ChangeOpportunity {
-  const factor = clampProbability(score.factors.lineOfSight) ?? 0;
-
-  if (factor >= 0.85) {
-    return {
-      key: 'lineOfSight',
-      title: 'Viewing geometry is already mostly working',
-      detail: 'From this location, enough of the useful path already clears the local horizon.',
-      tone: 'success',
-      priority: 0.01
-    };
-  }
-
-  if (factor === 0) {
-    return {
-      key: 'lineOfSight',
-      title: 'You would need a clearer horizon or different viewing spot',
-      detail: `From this location the path never clears the usual ${JEP_LOS_ELEVATION_THRESHOLD_DEG}° visibility threshold high enough to count as visible.`,
-      tone: 'danger',
-      priority: 0.25 * (1 - factor) + (score.factors.illumination > 0 ? 0.05 : 0)
-    };
-  }
-
-  return {
-    key: 'lineOfSight',
-    title: 'A lower, clearer horizon would improve the view',
-    detail: `This location only clears part of the useful path above the usual ${JEP_LOS_ELEVATION_THRESHOLD_DEG}° visibility threshold, so a cleaner horizon would help.`,
-    tone: factor >= 0.45 ? 'warning' : 'danger',
-    priority: 0.25 * (1 - factor)
   };
 }
 
@@ -828,14 +366,14 @@ function buildWhyNowItems(score: LaunchJepScore): NarrativeItem[] {
   if (score.factors.darkness <= 0.15 && sunBelow != null) {
     items.push({
       title: 'Twilight timing is poor',
-      detail: buildTwilightNarrativeDetail(sunBelow, 'poor'),
+      detail: `The Sun is ${formatDegrees(sunBelow)} below the horizon, which is well past the twilight sweet spot that usually produces the best jellyfish contrast.`,
       tone: 'warning',
       rank: 66
     });
   } else if (score.factors.darkness < 0.4 && sunBelow != null) {
     items.push({
       title: 'Twilight timing is only partly favorable',
-      detail: buildTwilightNarrativeDetail(sunBelow, 'partial'),
+      detail: `The Sun is ${formatDegrees(sunBelow)} below the horizon, so the plume timing is not in the strongest twilight band.`,
       tone: 'info',
       rank: 48
     });
@@ -856,7 +394,7 @@ function deriveGuidancePresentation(score: LaunchJepScore): GuidancePresentation
         directionLabel: 'Look toward',
         directionNote: null,
         elevationLabel: 'Height above horizon',
-        elevationNote: `Modeled visibility usually needs about ${JEP_LOS_ELEVATION_THRESHOLD_DEG}°+ above your local horizon.`
+        elevationNote: 'Above your local horizon'
       };
     }
     return {
@@ -868,7 +406,7 @@ function deriveGuidancePresentation(score: LaunchJepScore): GuidancePresentation
       directionLabel: 'Look toward',
       directionNote: 'Direction if current blockers improve.',
       elevationLabel: 'Height above horizon',
-      elevationNote: `Modeled visibility usually needs about ${JEP_LOS_ELEVATION_THRESHOLD_DEG}°+ above your local horizon if current blockers improve.`
+      elevationNote: 'Above your local horizon if current blockers improve.'
     };
   }
 
@@ -882,7 +420,7 @@ function deriveGuidancePresentation(score: LaunchJepScore): GuidancePresentation
       directionLabel: 'Path direction',
       directionNote: 'Geometry only. This is not a predicted visible plume window.',
       elevationLabel: 'Path height',
-      elevationNote: `Geometry only. Visible plume windows usually need about ${JEP_LOS_ELEVATION_THRESHOLD_DEG}°+ above your local horizon.`
+      elevationNote: 'Geometry only, not a predicted visible plume window.'
     };
   }
 
@@ -895,7 +433,7 @@ function deriveGuidancePresentation(score: LaunchJepScore): GuidancePresentation
     directionLabel: 'Path direction',
     directionNote: 'Geometry only. This is not a predicted visible plume window.',
     elevationLabel: 'Path height',
-    elevationNote: `Geometry only. Visible plume windows usually need about ${JEP_LOS_ELEVATION_THRESHOLD_DEG}°+ above your local horizon.`
+    elevationNote: 'Geometry only, not a predicted visible plume window.'
   };
 }
 
@@ -998,14 +536,6 @@ function joinNotes(primary: string | null, secondary: string | null) {
   return primary || secondary || null;
 }
 
-function formatChangeRankLabel(index: number, priority: number) {
-  if (priority <= 0.03) return 'Already helping';
-  if (index === 0) return 'First change';
-  if (index === 1) return 'Next lever';
-  if (index === 2) return 'Then';
-  return 'Also matters';
-}
-
 function scoreBand(score: number): { label: string; tone: BadgeTone } {
   if (score >= 70) return { label: 'High', tone: 'success' };
   if (score >= 30) return { label: 'Moderate', tone: 'warning' };
@@ -1022,54 +552,6 @@ function calibrationBandTone(band: string): BadgeTone {
 
 function formatFactor(value: number) {
   return `${Math.round(value * 100)}%`;
-}
-
-function summarizeWeatherChangeTitle(mainBlocker: WeatherMainBlocker | undefined, dominantBlocker: ReturnType<typeof deriveJepWeatherImpact>['dominantBlocker'], factor: number) {
-  if (factor >= 0.8) return 'Weather is already mostly working';
-  if (mainBlocker === 'observer_low_ceiling' || mainBlocker === 'observer_low_clouds' || dominantBlocker === 'low') {
-    return 'Low clouds need to thin first';
-  }
-  if (mainBlocker === 'path_low_ceiling') return 'Clouds along the plume path need to lift first';
-  if (mainBlocker === 'path_sky_cover') return 'The plume path needs clearer sky first';
-  if (mainBlocker === 'observer_mid_clouds' || dominantBlocker === 'mid') return 'Mid-level clouds need to thin';
-  if (mainBlocker === 'observer_high_clouds' || dominantBlocker === 'high') return 'High cloud needs to thin to improve contrast';
-  return 'The sky needs to clear';
-}
-
-function summarizeWeatherChangeDetail(mainBlocker: WeatherMainBlocker | undefined, dominantBlocker: ReturnType<typeof deriveJepWeatherImpact>['dominantBlocker']) {
-  if (mainBlocker === 'observer_low_ceiling' || mainBlocker === 'observer_low_clouds' || dominantBlocker === 'low') {
-    return 'Low cloud and low ceilings are the first weather levers to improve because they block the plume most directly.';
-  }
-  if (mainBlocker === 'path_low_ceiling') {
-    return 'Even if your local sky improves, the plume path itself still needs to get out from under a low deck.';
-  }
-  if (mainBlocker === 'path_sky_cover') {
-    return 'The modeled plume path needs cleaner sky, not just your exact observing point.';
-  }
-  if (mainBlocker === 'observer_mid_clouds' || dominantBlocker === 'mid') {
-    return 'Mid-level cloud is the main weather drag right now. Less mid cloud would improve contrast and visibility.';
-  }
-  if (mainBlocker === 'observer_high_clouds' || dominantBlocker === 'high') {
-    return 'High cloud is softening contrast rather than acting like a full low overcast block. Cleaner upper sky would help.';
-  }
-  return 'There is no single magic cutoff here, but cleaner sky would improve the setup, with low clouds helping most, then mid, then high.';
-}
-
-function buildTwilightNarrativeDetail(solarDepressionDeg: number, mode: 'poor' | 'partial') {
-  const sweetSpot = formatTwilightSweetSpot();
-  const current = formatSolarAngle(solarDepressionDeg);
-
-  if (solarDepressionDeg < 0) {
-    return `The Sun is ${current}, so this part of the window is still in daylight. The strongest jellyfish contrast usually needs the Sun about ${sweetSpot}.`;
-  }
-
-  if (solarDepressionDeg > JEP_TWILIGHT_SWEET_SPOT_MAX_DEG) {
-    return `The Sun is ${current}, which is deeper into darkness than the strongest jellyfish band. The strongest contrast usually lands around ${sweetSpot}.`;
-  }
-
-  return mode === 'poor'
-    ? `The Sun is ${current}, which is outside the strongest twilight band. The best contrast usually lands around ${sweetSpot}.`
-    : `The Sun is ${current}, so the plume timing is near but not centered in the strongest twilight band of ${sweetSpot}.`;
 }
 
 function primaryWeatherNarrative({
@@ -1250,47 +732,7 @@ function formatKm(value: number | null) {
 function formatDegrees(value: number | null) {
   if (value == null || !Number.isFinite(value)) return '—';
   const rounded = Math.round(value * 10) / 10;
-  return `${rounded.toFixed(1)}°`;
-}
-
-function formatSolarAngle(value: number | null) {
-  if (value == null || !Number.isFinite(value)) return '—';
-  const rounded = Math.round(Math.abs(value) * 10) / 10;
-  if (rounded < 0.05) return '0.0° on the horizon';
-  return value >= 0 ? `${rounded.toFixed(1)}° below the horizon` : `${rounded.toFixed(1)}° above the horizon`;
-}
-
-function formatSolarWindowRange(range: LaunchJepScore['solarWindowRange']) {
-  if (!range) return '—';
-  if (range.windowStartDeg != null && range.windowEndDeg != null) {
-    return `${formatSolarAngle(range.windowStartDeg)} to ${formatSolarAngle(range.windowEndDeg)}`;
-  }
-  if (range.netDeg != null) return formatSolarAngle(range.netDeg);
-  if (range.minDeg != null && range.maxDeg != null) {
-    return `${formatSolarAngle(range.minDeg)} to ${formatSolarAngle(range.maxDeg)}`;
-  }
-  return '—';
-}
-
-function formatSolarWindowRangeNote(range: LaunchJepScore['solarWindowRange']) {
-  if (!range) return null;
-  if (range.crossesTwilightSweetSpot) {
-    return `This NET window reaches the strongest twilight band at roughly ${formatTwilightSweetSpot()}.`;
-  }
-  return `The strongest jellyfish contrast usually needs the Sun about ${formatTwilightSweetSpot()}.`;
-}
-
-function formatSolarAngleNote(score: LaunchJepScore) {
-  const parts: string[] = [];
-  if (score.solarWindowRange) {
-    parts.push(`NET window: ${formatSolarWindowRange(score.solarWindowRange)}.`);
-  }
-  parts.push(`Best contrast usually needs the Sun about ${formatTwilightSweetSpot()}.`);
-  return parts.join(' ');
-}
-
-function formatTwilightSweetSpot() {
-  return `${JEP_TWILIGHT_SWEET_SPOT_MIN_DEG}° to ${JEP_TWILIGHT_SWEET_SPOT_MAX_DEG}° below the horizon`;
+  return `${rounded.toFixed(1)} deg`;
 }
 
 function formatWeatherSource(source: string | null) {

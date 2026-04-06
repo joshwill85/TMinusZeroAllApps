@@ -131,7 +131,7 @@ export function ParallaxHero({
         <HeroContentSurface>
           {/* Status Badge */}
           {status && (
-            <View style={{ marginBottom: 12 }}>
+            <View style={{ marginTop: 4, marginBottom: 12 }}>
               <View
                 style={{
                   alignSelf: 'flex-start',
@@ -262,7 +262,7 @@ export function StaticHero({
       >
         <HeroContentSurface>
           {status && (
-            <View style={{ marginBottom: 12 }}>
+            <View style={{ marginTop: 4, marginBottom: 12 }}>
               <View
                 style={{
                   alignSelf: 'flex-start',

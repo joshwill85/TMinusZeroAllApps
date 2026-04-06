@@ -176,8 +176,8 @@ export class MobilePushRouteError extends Error {
   }
 }
 
-const BASIC_PRELAUNCH_OPTIONS = new Set([10, 60]);
-const PREMIUM_PRELAUNCH_OPTIONS = new Set([10, 30, 60, 120, 360, 720, 1440]);
+const BASIC_PRELAUNCH_OPTIONS = new Set([1, 5, 10, 60]);
+const PREMIUM_PRELAUNCH_OPTIONS = new Set([1, 5, 10, 30, 60, 120, 360, 720, 1440]);
 const STATUS_CHANGE_OPTIONS = new Set(['any', 'go', 'hold', 'scrubbed', 'tbd']);
 const BASIC_MAX_PRELAUNCH_OFFSETS = 2;
 const PREMIUM_MAX_PRELAUNCH_OFFSETS = 3;

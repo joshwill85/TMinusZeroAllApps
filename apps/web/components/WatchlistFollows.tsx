@@ -1,8 +1,10 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { WatchlistRuleV1 } from '@tminuszero/api-client';
+import { buildPreferencesHref } from '@tminuszero/navigation';
 import {
   useBasicFollowsQuery,
   useCreateWatchlistMutation,
@@ -324,6 +326,20 @@ export function WatchlistFollows({
 
   const availableOptionCount = followOptions.filter((option) => !option.disabled || option.locked || option.active).length;
   const activeFollowCount = followOptions.filter((option) => option.active).length;
+  const notificationsContent = (
+    <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.03)] p-3 text-sm text-text2">
+      <div className="text-xs uppercase tracking-[0.12em] text-text3">Launch notifications</div>
+      <div className="mt-1 text-sm text-text2">Launch alerts are managed in the native mobile app with push only.</div>
+      <div className="mt-3 rounded-lg border border-stroke bg-surface-1 p-2 text-xs text-text2">
+        Open the native app to manage push delivery, per-launch reminder windows, and device registration.
+      </div>
+      <div className="mt-3 flex items-center justify-end">
+        <Link className="btn rounded-lg px-3 py-2 text-xs" href={buildPreferencesHref()}>
+          Open notification settings
+        </Link>
+      </div>
+    </div>
+  );
 
   if (!availableOptionCount) return null;
 
@@ -338,6 +354,7 @@ export function WatchlistFollows({
           active={activeFollowCount > 0}
           activeCount={canUseSavedItems ? activeFollowCount : 0}
           capacityLabel={basicFollowCapacityLabel}
+          notificationsContent={notificationsContent}
           options={followOptions}
         />
       </div>

@@ -2,10 +2,13 @@ import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { parseWs45ForecastText, tokenizeMissionName, type ParsedForecast } from '../../../../shared/ws45Parser.ts';
+
+export { parseWs45ForecastText };
 
 const WS45_PAGE_URL = 'https://45thweathersquadron.nebula.spaceforce.mil/pages/launchForecastSupport.html';
 const WS45_BASE_URL = 'https://45thweathersquadron.nebula.spaceforce.mil';
-const WS45_PARSE_VERSION = 'v12';
+const WS45_PARSE_VERSION = 'v13';
 
 const DEFAULT_USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
@@ -14,40 +17,6 @@ type ForecastPageItem = {
   label: string;
   src: string;
   pdfUrl: string;
-};
-
-type ParsedScenario = {
-  label?: string;
-  povPercent?: number;
-  primaryConcerns?: string[];
-  weatherVisibility?: string;
-  tempF?: number;
-  humidityPercent?: number;
-  liftoffWinds?: { directionDeg?: number; speedMphMin?: number; speedMphMax?: number; raw?: string };
-  additionalRiskCriteria?: {
-    upperLevelWindShear?: string;
-    boosterRecoveryWeather?: string;
-    solarActivity?: string;
-  };
-  clouds?: Array<{ type: string; coverage?: string; baseFt?: number; topsFt?: number; raw?: string }>;
-  rawSection?: string;
-};
-
-type ParsedForecast = {
-  productName?: string;
-  missionName?: string;
-  missionNameNormalized?: string;
-  missionTokens?: string[];
-  issuedAtUtc?: string;
-  validStartUtc?: string;
-  validEndUtc?: string;
-  forecastDiscussion?: string;
-  launchDay?: ParsedScenario;
-  delay24h?: ParsedScenario;
-  launchDayPovPercent?: number;
-  launchDayPrimaryConcerns?: string[];
-  delay24hPovPercent?: number;
-  delay24hPrimaryConcerns?: string[];
 };
 
 type LaunchCandidate = {
@@ -81,6 +50,28 @@ type Ws45IngestStats = {
   rowsAmbiguous: number;
   rowsUnmatched: number;
   errors: Array<{ step: string; error: string; context?: Record<string, unknown> }>;
+};
+
+type Ws45MatchResult = {
+  status: 'matched' | 'ambiguous' | 'unmatched';
+  launchId?: string;
+  confidence?: number;
+  strategy?: string;
+  meta?: Record<string, unknown>;
+};
+
+type Ws45QualitySummary = {
+  documentMode: 'digital' | 'scanned' | 'unknown';
+  documentFamily: string | null;
+  classificationConfidence: number | null;
+  parseStatus: 'parsed' | 'partial' | 'failed';
+  parseConfidence: number | null;
+  publishEligible: boolean;
+  quarantineReasons: string[];
+  requiredFieldsMissing: string[];
+  normalizationFlags: string[];
+  validationFailures: string[];
+  fieldConfidence: Record<string, number>;
 };
 
 const isTsNodeRuntime = typeof __filename === 'string' && __filename.endsWith('.ts');
@@ -239,12 +230,15 @@ export async function ingestWs45LaunchForecasts({
         const existing = await loadByUrlAndHash(supabaseAdmin, pdfUrl, pdfSha256);
 
         const { text, metadata } = await extractPdfText(pdfRes.bytes);
+        const forecastKind = deriveForecastKind(item.label, pdfUrl);
+        if (forecastKind === 'faq') continue;
+
         const parsed = parseWs45ForecastText(text);
-        if (deriveForecastKind(item.label, pdfUrl) === 'faq') continue;
 
         stats.forecastsParsed += 1;
 
         const match = await matchForecastToLaunch(supabaseAdmin, parsed);
+        const quality = summarizeWs45Quality({ text, parsed, forecastKind, match });
 
         if (!existing) {
           const insertPayload = buildInsertPayload({
@@ -255,10 +249,28 @@ export async function ingestWs45LaunchForecasts({
             metadata,
             text,
             parsed,
+            forecastKind,
+            quality,
             match
           });
-          const { error: insertError } = await supabaseAdmin.from('ws45_launch_forecasts').insert(insertPayload);
+          const { data: inserted, error: insertError } = await supabaseAdmin
+            .from('ws45_launch_forecasts')
+            .insert(insertPayload)
+            .select('id')
+            .single();
           if (insertError) throw insertError;
+          await safeRecordWs45ParseRun({
+            supabase: supabaseAdmin,
+            forecastId: String((inserted as any)?.id || ''),
+            runtime: 'node',
+            attemptReason: 'ingest',
+            item,
+            pdfUrl,
+            forecastKind,
+            parsed,
+            quality,
+            match
+          });
           stats.rowsInserted += 1;
         } else {
           const updatePayload = buildUpdatePayload({
@@ -267,12 +279,26 @@ export async function ingestWs45LaunchForecasts({
             metadata,
             text,
             parsed,
+            forecastKind,
+            quality,
             match,
             existing
           });
           if (Object.keys(updatePayload).length) {
             const { error: updateError } = await supabaseAdmin.from('ws45_launch_forecasts').update(updatePayload).eq('id', existing.id);
             if (updateError) throw updateError;
+            await safeRecordWs45ParseRun({
+              supabase: supabaseAdmin,
+              forecastId: existing.id,
+              runtime: 'node',
+              attemptReason: 'ingest',
+              item,
+              pdfUrl,
+              forecastKind,
+              parsed,
+              quality,
+              match
+            });
             stats.rowsUpdated += 1;
           }
         }
@@ -408,518 +434,6 @@ function sha256Hex(bytes: Uint8Array) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-export function parseWs45ForecastText(text: string): ParsedForecast {
-  const compact = normalizeText(text);
-
-  const productName = compact.includes('Launch Mission Execution Forecast') ? 'Launch Mission Execution Forecast' : undefined;
-
-  const missionName =
-    matchGroup(compact, /Mission\s*:\s*(.+?)\s+Issued\s*:/i) ?? matchGroup(compact, /Mission\s*:\s*(.+?)\s+Valid\s*:/i);
-  const missionNameNormalized = missionName ? normalizeMissionName(missionName) : undefined;
-  const missionTokens = missionName ? tokenizeMissionName(missionName) : undefined;
-
-  const issued = parseIssuedUtc(compact);
-  const valid = parseValidUtc(compact);
-
-  const forecastDiscussion = matchGroup(compact, /Forecast Discussion\s*:\s*(.+?)\s+Launch\s+Day\b/i);
-
-  const delay24Header = /\b24\s*(?:-\s*)?Hour\s+Delay\b/i;
-  const delay48Header = /\b48\s*(?:-\s*)?Hour\s+Delay\b/i;
-  const delay72Header = /\b72\s*(?:-\s*)?Hour\s+Delay\b/i;
-  const sectionTailHeaders = [/\bNotes\b/i, /\bNext Forecast\b/i];
-
-  const launchDaySection = sliceBetweenAny(compact, /\bLaunch Day\b/i, [
-    delay24Header,
-    delay48Header,
-    delay72Header,
-    ...sectionTailHeaders
-  ]);
-  const delay24Section = sliceBetweenAny(compact, delay24Header, [delay48Header, delay72Header, ...sectionTailHeaders]);
-  const delay48Section = sliceBetweenAny(compact, delay48Header, [delay72Header, ...sectionTailHeaders]);
-  const delay72Section = sliceBetweenAny(compact, delay72Header, sectionTailHeaders);
-  const delaySelection = delay24Section
-    ? { section: delay24Section, label: '24-Hour Delay' }
-    : delay48Section
-      ? { section: delay48Section, label: '48-Hour Delay' }
-      : delay72Section
-        ? { section: delay72Section, label: '72-Hour Delay' }
-        : null;
-
-  const launchDay = launchDaySection ? parseScenario(launchDaySection) : undefined;
-  const delay24h = delaySelection ? parseScenario(delaySelection.section) : undefined;
-  if (delay24h && delaySelection) delay24h.label = delaySelection.label;
-
-  return {
-    productName,
-    missionName: missionName || undefined,
-    missionNameNormalized,
-    missionTokens,
-    issuedAtUtc: issued ?? undefined,
-    validStartUtc: valid?.start ?? undefined,
-    validEndUtc: valid?.end ?? undefined,
-    forecastDiscussion: forecastDiscussion || undefined,
-    launchDay,
-    delay24h,
-    launchDayPovPercent: launchDay?.povPercent,
-    launchDayPrimaryConcerns: launchDay?.primaryConcerns,
-    delay24hPovPercent: delay24h?.povPercent,
-    delay24hPrimaryConcerns: delay24h?.primaryConcerns
-  };
-}
-
-function normalizeText(text: string) {
-  return text
-    .replace(/\u00a0/g, ' ')
-    .replace(/\u2013|\u2014/g, '-')
-    .replace(/\u2019/g, "'")
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function matchGroup(text: string, re: RegExp) {
-  const match = text.match(re);
-  const value = match?.[1]?.trim();
-  return value ? value : null;
-}
-
-function sliceBetween(text: string, start: RegExp, end: RegExp) {
-  const startMatch = text.match(start);
-  if (startMatch?.index == null) return null;
-  const startIndex = startMatch.index + startMatch[0].length;
-  const rest = text.slice(startIndex);
-  const endMatch = rest.match(end);
-  const endIndex = endMatch?.index ?? rest.length;
-  const sliced = rest.slice(0, endIndex).trim();
-  return sliced || null;
-}
-
-function sliceBetweenAny(text: string, start: RegExp, endPatterns: RegExp[]) {
-  const startMatch = text.match(start);
-  if (startMatch?.index == null) return null;
-  const startIndex = startMatch.index + startMatch[0].length;
-  const rest = text.slice(startIndex);
-  let endIndex = rest.length;
-
-  for (const pattern of endPatterns) {
-    const match = rest.match(pattern);
-    if (match?.index == null) continue;
-    if (match.index < endIndex) endIndex = match.index;
-  }
-
-  const sliced = rest.slice(0, endIndex).trim();
-  return sliced || null;
-}
-
-function parseIssuedUtc(compact: string) {
-  const match = compact.match(
-    /Issued\s*:\s*([0-9](?:\s*[0-9])?\s+[A-Za-z]+\.?\s+[0-9](?:\s*[0-9]){3})\s*\/\s*([0-9](?:\s*[0-9]){2,3})\s*L\s*\(\s*([0-9](?:\s*[0-9]){2,3})\s*Z\s*\)/i
-  );
-  if (!match) return null;
-  const date = parseDayMonthYear(match[1]);
-  if (!date) return null;
-  const localMinutes = parseTimeMinutes(match[2]);
-  const utcMinutes = parseTimeMinutes(match[3]);
-  if (localMinutes == null || utcMinutes == null) return null;
-  const offsetMinutes = inferOffsetMinutes(localMinutes, utcMinutes);
-  const utc = buildUtcTimestamp(date, localMinutes, offsetMinutes);
-  return utc.toISOString();
-}
-
-function parseValidUtc(compact: string) {
-  const match = compact.match(
-    /Valid\s*:\s*([0-9](?:\s*[0-9])?\s+[A-Za-z]+\.?\s+[0-9](?:\s*[0-9]){3})\s*\/\s*([^()]+?)\s*\(\s*([^)]+?)\s*\)/i
-  );
-  if (!match) return null;
-
-  const date = parseDayMonthYear(match[1]);
-  if (!date) return null;
-
-  const localRange = parseWs45TimeRange(match[2], 'L');
-  const utcRange = parseWs45TimeRange(match[3], 'Z');
-  if (!localRange || !utcRange) return null;
-
-  const localStartMinutes = localRange.start.minutes;
-  const localEndMinutes = localRange.end.minutes;
-  const utcStartMinutes = utcRange.start.minutes;
-  if (localStartMinutes == null || localEndMinutes == null || utcStartMinutes == null) return null;
-
-  const offsetMinutes = inferOffsetMinutes(localStartMinutes, utcStartMinutes);
-
-  const startBase = localRange.start.day != null ? resolveWs45Day(date, localRange.start.day) : date;
-  const start = buildUtcTimestamp(startBase, localStartMinutes, offsetMinutes);
-
-  let endBase: { y: number; m: number; d: number };
-  if (localRange.end.day != null) {
-    endBase = resolveWs45Day(startBase, localRange.end.day);
-  } else {
-    endBase = localEndMinutes < localStartMinutes ? addDaysUtc(startBase, 1) : startBase;
-  }
-  const end = buildUtcTimestamp(endBase, localEndMinutes, offsetMinutes);
-
-  if (end.getTime() <= start.getTime()) {
-    return { start: start.toISOString(), end: new Date(start.getTime() + 60 * 60 * 1000).toISOString() };
-  }
-
-  return { start: start.toISOString(), end: end.toISOString() };
-}
-
-function parseWs45TimeRange(raw: string, zone: 'L' | 'Z') {
-  let cleaned = raw.trim().replace(/\s+/g, ' ');
-  cleaned = cleaned.replace(new RegExp(`\\s*${zone}\\s*$`, 'i'), '').trim();
-  cleaned = cleaned.replace(/\bUTC\b\s*$/i, '').trim();
-
-  const parts = cleaned.split(/\s*-\s*/);
-  if (parts.length < 2) return null;
-  const startRaw = parts[0]?.trim() ?? '';
-  const endRaw = parts.slice(1).join('-').trim();
-
-  const start = parseWs45DayTimeToken(startRaw);
-  const end = parseWs45DayTimeToken(endRaw);
-  return { start, end };
-}
-
-function parseWs45DayTimeToken(raw: string): { raw: string; day: number | null; minutes: number | null } {
-  const cleaned = raw.trim().replace(/\s+/g, ' ');
-  if (!cleaned) return { raw: raw, day: null, minutes: null };
-
-  const slashIndex = cleaned.indexOf('/');
-  if (slashIndex >= 0) {
-    const left = cleaned.slice(0, slashIndex);
-    const right = cleaned.slice(slashIndex + 1);
-    const parsedDay = parseSpacedInt(left);
-    const day = parsedDay != null && parsedDay >= 1 && parsedDay <= 31 ? parsedDay : null;
-    return { raw: cleaned, day, minutes: parseTimeMinutes(right) };
-  }
-
-  const digits = cleaned.replace(/[^0-9]/g, '');
-  if (digits.length > 4 && digits.length <= 6) {
-    const dayDigits = digits.slice(0, digits.length - 4);
-    const timeDigits = digits.slice(-4);
-    const dayCandidate = Number(dayDigits);
-    const day = Number.isFinite(dayCandidate) && dayCandidate >= 1 && dayCandidate <= 31 ? dayCandidate : null;
-    const minutes = parseTimeMinutes(timeDigits);
-    if (day != null && minutes != null) return { raw: cleaned, day, minutes };
-  }
-
-  return { raw: cleaned, day: null, minutes: parseTimeMinutes(cleaned) };
-}
-
-function resolveWs45Day(base: { y: number; m: number; d: number }, targetDay: number, maxLookaheadDays = 2) {
-  if (!Number.isFinite(targetDay) || targetDay < 1 || targetDay > 31) return base;
-  const day = Math.trunc(targetDay);
-  for (let offset = 0; offset <= maxLookaheadDays; offset += 1) {
-    const candidate = addDaysUtc(base, offset);
-    if (candidate.d === day) return candidate;
-  }
-  return base;
-}
-
-function parseScenario(section: string): ParsedScenario {
-  const scenario: ParsedScenario = { rawSection: section };
-
-  const pov = parsePovPercent(section);
-  if (pov != null) scenario.povPercent = pov;
-
-  const concerns = matchGroup(
-    section,
-    /Primary Concerns\s*:\s*(.+?)(?:Weather Conditions|Weather\/Visibility\s*:|Weather\s*:|Temp\/Humidity\s*:)/i
-  );
-  if (concerns) {
-    const parts = concerns
-      .split(/[;,]/g)
-      .map((p) => p.trim())
-      .filter(Boolean);
-    scenario.primaryConcerns = parts.length ? parts : [concerns.trim()];
-  }
-
-  const wxVisLegacy = matchGroup(
-    section,
-    /Weather\/Visibility\s*:\s*(.+?)(?:Clouds|Temp\/Humidity\s*:|Liftoff Winds|Pad Escape Winds|Ascent Corridor Weather)/i
-  );
-  const weather = matchGroup(
-    section,
-    /Weather\s*:\s*(.+?)(?:Visibility\s*:|Clouds(?:\s+Type)?|Temp\/Humidity\s*:|Liftoff Winds|Pad Escape Winds|Ascent Corridor Weather)/i
-  );
-  const visibility = matchGroup(
-    section,
-    /Visibility\s*:\s*(.+?)(?:Clouds(?:\s+Type)?|(?:Towering\s+)?Cumulus|Cirrus|Cirrostratus|Cirrocumulus|Stratus|Altocumulus|Altostratus|Cumulonimbus|Anvil|Temp\/Humidity\s*:|Liftoff Winds|Pad Escape Winds|Ascent Corridor Weather)/i
-  );
-  if (wxVisLegacy) {
-    scenario.weatherVisibility = wxVisLegacy.trim();
-  } else {
-    const wxParts = [weather?.trim(), visibility?.trim()].filter(Boolean) as string[];
-    if (wxParts.length) scenario.weatherVisibility = wxParts.join(' • ');
-  }
-
-  const tempHumidity = section.match(/Temp\/Humidity\s*:\s*([0-9]{1,3})\s*°?\s*F\s*\/\s*([0-9]{1,3})\s*%/i);
-  if (tempHumidity) {
-    scenario.tempF = clampInt(Number(tempHumidity[1]), -80, 160);
-    scenario.humidityPercent = clampInt(Number(tempHumidity[2]), 0, 100);
-  }
-
-  const winds = parseLiftoffWinds(section);
-  if (winds) scenario.liftoffWinds = winds;
-
-  const upperShear = matchGroup(section, /Upper-Level Wind Shear\s*:\s*([A-Za-z]+)/i);
-  const booster = matchGroup(section, /Booster Recovery Weather\s*:\s*([A-Za-z]+)/i);
-  const solar = matchGroup(section, /Solar Activity\s*:\s*([A-Za-z]+)/i);
-  if (upperShear || booster || solar) {
-    scenario.additionalRiskCriteria = {
-      upperLevelWindShear: upperShear || undefined,
-      boosterRecoveryWeather: booster || undefined,
-      solarActivity: solar || undefined
-    };
-  }
-
-  const clouds = parseCloudLayers(section);
-  if (clouds.length) scenario.clouds = clouds;
-
-  return scenario;
-}
-
-function parseLiftoffWinds(section: string): ParsedScenario['liftoffWinds'] | null {
-  const cleaned = section.replace(/[’′]/g, "'");
-  const match = cleaned.match(
-    /Liftoff Winds\s*\(200'\)\s*:\s*([0-9](?:\s*[0-9]){0,2})\s*°?\s*([0-9](?:\s*[0-9])?)\s*-\s*([0-9](?:\s*[0-9])?)\s*mph/i
-  );
-  if (match?.[1] && match?.[2] && match?.[3]) {
-    const direction = Number(match[1].replace(/[^0-9]/g, ''));
-    const min = Number(match[2].replace(/[^0-9]/g, ''));
-    const max = Number(match[3].replace(/[^0-9]/g, ''));
-    return {
-      directionDeg: Number.isFinite(direction) ? clampInt(direction, 0, 360) : undefined,
-      speedMphMin: Number.isFinite(min) ? clampInt(min, 0, 200) : undefined,
-      speedMphMax: Number.isFinite(max) ? clampInt(max, 0, 200) : undefined,
-      raw: match[0]
-    };
-  }
-
-  const singleMatch = cleaned.match(
-    /Liftoff Winds\s*\(200'\)\s*:\s*([0-9](?:\s*[0-9]){0,2})\s*°?\s*([0-9](?:\s*[0-9])?)\s*mph/i
-  );
-  if (!singleMatch?.[1] || !singleMatch?.[2]) return null;
-  const direction = Number(singleMatch[1].replace(/[^0-9]/g, ''));
-  const speed = Number(singleMatch[2].replace(/[^0-9]/g, ''));
-  return {
-    directionDeg: Number.isFinite(direction) ? clampInt(direction, 0, 360) : undefined,
-    speedMphMin: Number.isFinite(speed) ? clampInt(speed, 0, 200) : undefined,
-    speedMphMax: Number.isFinite(speed) ? clampInt(speed, 0, 200) : undefined,
-    raw: singleMatch[0]
-  };
-}
-
-function parseCloudLayers(section: string) {
-  const layers: Array<{ type: string; coverage?: string; baseFt?: number; topsFt?: number; raw?: string }> = [];
-  const re =
-    /((?:Towering\s+)?Cumulus|Cirrus|Cirrostratus|Cirrocumulus|Stratus|Altocumulus|Altostratus|Cumulonimbus|Anvil)\s+(Few|Scattered|Broken|Overcast|FEW|SCT|BKN|OVC|Br|BR)\s*([0-9]{1,3}(?:\s*,\s*[0-9]{3})?)\s+([0-9]{1,3}(?:\s*,\s*[0-9]{3})?)/gi;
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(section))) {
-    layers.push({
-      type: match[1],
-      coverage: normalizeCloudCoverage(match[2]),
-      baseFt: parseCommaNumber(match[3]),
-      topsFt: parseCommaNumber(match[4]),
-      raw: match[0]
-    });
-  }
-  return layers;
-}
-
-function normalizeCloudCoverage(value: string) {
-  const raw = value.trim().toUpperCase();
-  if (raw === 'FEW') return 'Few';
-  if (raw === 'SCATTERED' || raw === 'SCT') return 'Scattered';
-  if (raw === 'BROKEN' || raw === 'BKN' || raw === 'BR') return 'Broken';
-  if (raw === 'OVERCAST' || raw === 'OVC') return 'Overcast';
-  return value.trim();
-}
-
-function parseCommaNumber(value: string) {
-  const digits = value.replace(/[^0-9]/g, '');
-  if (!digits) return undefined;
-  const n = Number(digits);
-  return Number.isFinite(n) ? n : undefined;
-}
-
-function normalizeMissionName(name: string) {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function tokenizeMissionName(name: string) {
-  const base = normalizeMissionName(name);
-  const tokens = base.split(' ').filter(Boolean);
-  const expanded = new Set<string>();
-  for (const token of tokens) {
-    expanded.add(token);
-    if (token.includes('-')) token.split('-').filter(Boolean).forEach((t) => expanded.add(t));
-  }
-  return Array.from(expanded);
-}
-
-function inferOffsetMinutes(localMinutes: number, utcMinutes: number) {
-  const delta = utcMinutes - localMinutes;
-  return ((delta % 1440) + 1440) % 1440;
-}
-
-function parseTimeMinutes(raw: string) {
-  const digits = raw.replace(/[^0-9]/g, '');
-  if (!digits) return null;
-  const normalized = digits.length > 4 ? digits.slice(-4) : digits;
-  const padded = normalized.padStart(4, '0');
-  const hours = Number(padded.slice(0, 2));
-  const minutes = Number(padded.slice(2, 4));
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
-  if (hours > 23 || minutes > 59) return null;
-  return hours * 60 + minutes;
-}
-
-function parsePovPercent(section: string): number | null {
-  const leadingPercent = section.match(/^\s*([0-9](?:\s*[0-9]){0,2})\s*%\s*Primary Concerns/i);
-  if (leadingPercent?.[1]) {
-    const value = parseSpacedInt(leadingPercent[1]);
-    if (value != null) return clampInt(value, 0, 100);
-  }
-
-  const snippet =
-    sliceBetweenAny(section, /Probability of Violating Weather Constraints/i, [
-      /Primary Concerns/i,
-      /Weather Conditions/i,
-      /Weather\/Visibility/i,
-      /Weather\s*:/i,
-      /Temp\/Humidity/i,
-      /Liftoff Winds/i,
-      /Pad Escape Winds/i,
-      /Ascent Corridor Weather/i
-    ]) ?? null;
-  if (!snippet) return null;
-
-  const arrow = snippet.match(/→|->/);
-  if (!arrow) {
-    const value = parsePercentValueFromSnippet(snippet);
-    if (value == null) return null;
-    return clampInt(value, 0, 100);
-  }
-
-  const [before, after = ''] = snippet.split(/→|->/);
-  const candidates: number[] = [];
-
-  // Contiguous numbers (e.g. "40")
-  for (const m of before.matchAll(/[0-9]{1,3}/g)) {
-    const n = Number(m[0]);
-    if (Number.isFinite(n)) candidates.push(n);
-  }
-
-  // Spaced two-digit numbers (e.g. "4 0")
-  for (const m of before.matchAll(/([0-9])\s+([0-9])/g)) {
-    const n = Number(`${m[1]}${m[2]}`);
-    if (Number.isFinite(n)) candidates.push(n);
-  }
-
-  const startVal = candidates.length ? Math.max(...candidates) : null;
-  const endVal = parsePercentValueFromSnippet(after);
-  const values = [startVal, endVal].filter((v): v is number => v != null && v >= 0 && v <= 100);
-  if (!values.length) return null;
-  return clampInt(Math.max(...values), 0, 100);
-}
-
-function parsePercentValueFromSnippet(snippet: string): number | null {
-  const percentIndex = snippet.indexOf('%');
-  if (percentIndex < 0) return null;
-  const prefix = snippet.slice(0, percentIndex).trim();
-  if (!prefix) return null;
-
-  const spacedThree = prefix.match(/([0-9])\s+([0-9])\s+([0-9])\s*$/);
-  if (spacedThree) {
-    const value = parseSpacedInt(`${spacedThree[1]}${spacedThree[2]}${spacedThree[3]}`);
-    if (value != null) return value;
-  }
-
-  const spacedTwo = prefix.match(/([0-9])\s+([0-9])\s*$/);
-  if (spacedTwo) {
-    const value = parseSpacedInt(`${spacedTwo[1]}${spacedTwo[2]}`);
-    if (value != null) return value;
-  }
-
-  const contiguous = prefix.match(/([0-9]{1,3})\s*$/);
-  if (contiguous?.[1]) {
-    const value = parseSpacedInt(contiguous[1]);
-    if (value != null) return value;
-  }
-
-  return null;
-}
-
-function buildUtcTimestamp(date: { y: number; m: number; d: number }, localMinutes: number, offsetMinutes: number) {
-  const total = localMinutes + offsetMinutes;
-  const dayShift = Math.floor(total / 1440);
-  const mins = ((total % 1440) + 1440) % 1440;
-  const shifted = addDaysUtc(date, dayShift);
-  const hours = Math.floor(mins / 60);
-  const minutes = mins % 60;
-  return new Date(Date.UTC(shifted.y, shifted.m, shifted.d, hours, minutes));
-}
-
-function addDaysUtc(date: { y: number; m: number; d: number }, days: number) {
-  const base = Date.UTC(date.y, date.m, date.d);
-  const shifted = new Date(base + days * 24 * 60 * 60 * 1000);
-  return { y: shifted.getUTCFullYear(), m: shifted.getUTCMonth(), d: shifted.getUTCDate() };
-}
-
-function parseDayMonthYear(value: string): { y: number; m: number; d: number } | null {
-  const cleaned = value.trim().replace(/\s+/g, ' ');
-  const match = cleaned.match(/^([0-9](?:\s*[0-9])?)\s+([A-Za-z]+)\.?\s+([0-9](?:\s*[0-9]){3})$/);
-  if (!match) return null;
-  const d = parseSpacedInt(match[1]);
-  const y = parseSpacedInt(match[3]);
-  const monthName = match[2].toLowerCase();
-  const m = monthIndex(monthName);
-  if (m == null) return null;
-  if (d == null || y == null) return null;
-  return { y, m, d };
-}
-
-function parseSpacedInt(value: string) {
-  const digits = value.replace(/[^0-9]/g, '');
-  if (!digits) return null;
-  const n = Number(digits);
-  return Number.isFinite(n) ? n : null;
-}
-
-function monthIndex(month: string) {
-  const m = month.toLowerCase();
-  const map: Record<string, number> = {
-    jan: 0,
-    january: 0,
-    feb: 1,
-    february: 1,
-    mar: 2,
-    march: 2,
-    apr: 3,
-    april: 3,
-    may: 4,
-    jun: 5,
-    june: 5,
-    jul: 6,
-    july: 6,
-    aug: 7,
-    august: 7,
-    sep: 8,
-    sept: 8,
-    september: 8,
-    oct: 9,
-    october: 9,
-    nov: 10,
-    november: 10,
-    dec: 11,
-    december: 11
-  };
-  return map[m] ?? null;
-}
-
 function clampInt(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) return min;
   return Math.max(min, Math.min(max, Math.trunc(value)));
@@ -1026,7 +540,9 @@ function buildInsertPayload(args: {
   metadata: unknown;
   text: string;
   parsed: ParsedForecast;
-  match: { status: 'matched' | 'ambiguous' | 'unmatched'; launchId?: string; confidence?: number; strategy?: string; meta?: Record<string, unknown> };
+  forecastKind: string | null;
+  quality: Ws45QualitySummary;
+  match: Ws45MatchResult;
 }) {
   const now = new Date().toISOString();
   return {
@@ -1034,7 +550,7 @@ function buildInsertPayload(args: {
     source_range: 'eastern_range',
     source_page_url: WS45_PAGE_URL,
     source_label: args.item.label || null,
-    forecast_kind: deriveForecastKind(args.item.label, args.pdfUrl),
+    forecast_kind: args.forecastKind,
     pdf_url: args.pdfUrl,
     pdf_etag: args.pdfRes.etag,
     pdf_last_modified: args.pdfRes.lastModified,
@@ -1058,8 +574,17 @@ function buildInsertPayload(args: {
     delay_24h_primary_concerns: args.parsed.delay24hPrimaryConcerns ?? null,
     delay_24h: args.parsed.delay24h ?? null,
     raw_text: args.text,
-    raw: { item: args.item, parsed: args.parsed },
+    raw: { item: args.item, parsed: args.parsed, quality: serializeQuality(args.quality) },
     parse_version: WS45_PARSE_VERSION,
+    document_mode: args.quality.documentMode,
+    document_family: args.quality.documentFamily,
+    classification_confidence: args.quality.classificationConfidence,
+    parse_status: args.quality.parseStatus,
+    parse_confidence: args.quality.parseConfidence,
+    publish_eligible: args.quality.publishEligible,
+    quarantine_reasons: args.quality.quarantineReasons,
+    required_fields_missing: args.quality.requiredFieldsMissing,
+    normalization_flags: args.quality.normalizationFlags,
     match_status: args.match.status,
     matched_launch_id: args.match.status === 'matched' ? args.match.launchId ?? null : null,
     match_confidence: args.match.confidence ?? null,
@@ -1077,7 +602,9 @@ function buildUpdatePayload(args: {
   metadata: unknown;
   text: string;
   parsed: ParsedForecast;
-  match: { status: 'matched' | 'ambiguous' | 'unmatched'; launchId?: string; confidence?: number; strategy?: string; meta?: Record<string, unknown> };
+  forecastKind: string | null;
+  quality: Ws45QualitySummary;
+  match: Ws45MatchResult;
   existing: { id: string; matchStatus: string | null };
 }) {
   const now = new Date().toISOString();
@@ -1089,7 +616,7 @@ function buildUpdatePayload(args: {
     pdf_metadata: args.metadata ?? null,
     fetched_at: now,
     source_label: args.item.label || null,
-    forecast_kind: deriveForecastKind(args.item.label, args.item.pdfUrl),
+    forecast_kind: args.forecastKind,
     product_name: args.parsed.productName ?? null,
     mission_name: args.parsed.missionName ?? null,
     mission_name_normalized: args.parsed.missionNameNormalized ?? null,
@@ -1105,8 +632,17 @@ function buildUpdatePayload(args: {
     delay_24h_primary_concerns: args.parsed.delay24hPrimaryConcerns ?? null,
     delay_24h: args.parsed.delay24h ?? null,
     raw_text: args.text,
-    raw: { item: args.item, parsed: args.parsed },
+    raw: { item: args.item, parsed: args.parsed, quality: serializeQuality(args.quality) },
     parse_version: WS45_PARSE_VERSION,
+    document_mode: args.quality.documentMode,
+    document_family: args.quality.documentFamily,
+    classification_confidence: args.quality.classificationConfidence,
+    parse_status: args.quality.parseStatus,
+    parse_confidence: args.quality.parseConfidence,
+    publish_eligible: args.quality.publishEligible,
+    quarantine_reasons: args.quality.quarantineReasons,
+    required_fields_missing: args.quality.requiredFieldsMissing,
+    normalization_flags: args.quality.normalizationFlags,
     match_status: canUpdateMatch ? args.match.status : undefined,
     matched_launch_id: canUpdateMatch ? (args.match.status === 'matched' ? args.match.launchId ?? null : null) : undefined,
     match_confidence: canUpdateMatch ? args.match.confidence ?? null : undefined,
@@ -1132,8 +668,11 @@ async function maybeReparseLatest({
   if (!parsed.productName && !parsed.missionName && !parsed.validStartUtc) return null;
 
   const match = await matchForecastToLaunch(supabaseAdmin, parsed);
+  const forecastKind = deriveForecastKind(latest.sourceLabel || '', pdfUrl);
+  const quality = summarizeWs45Quality({ text: latest.rawText, parsed, forecastKind, match });
   const payload = buildReparsePayload({
     parsed,
+    quality,
     match,
     existing: { matchStatus: latest.matchStatus }
   });
@@ -1141,6 +680,18 @@ async function maybeReparseLatest({
   if (!Object.keys(payload).length) return { didUpdate: false, matchStatus: match.status };
   const { error } = await supabaseAdmin.from('ws45_launch_forecasts').update(payload).eq('id', latest.id);
   if (error) throw error;
+  await safeRecordWs45ParseRun({
+    supabase: supabaseAdmin,
+    forecastId: latest.id,
+    runtime: 'node',
+    attemptReason: 'reparse',
+    item: { label: latest.sourceLabel || '', src: '', pdfUrl },
+    pdfUrl,
+    forecastKind,
+    parsed,
+    quality,
+    match
+  });
   return { didUpdate: true, matchStatus: match.status };
 }
 
@@ -1181,7 +732,7 @@ async function maybeRematchLatest({
 async function loadLatestForReparse(supabase: SupabaseClient, pdfUrl: string) {
   const { data, error } = await supabase
     .from('ws45_launch_forecasts')
-    .select('id,parse_version,raw_text,match_status,matched_launch_id,valid_start,valid_end,mission_name,mission_tokens')
+    .select('id,parse_version,raw_text,source_label,match_status,matched_launch_id,valid_start,valid_end,mission_name,mission_tokens')
     .eq('pdf_url', pdfUrl)
     .order('fetched_at', { ascending: false })
     .limit(1)
@@ -1191,6 +742,7 @@ async function loadLatestForReparse(supabase: SupabaseClient, pdfUrl: string) {
     id: (data as any).id as string,
     parseVersion: ((data as any).parse_version as string | null) ?? null,
     rawText: ((data as any).raw_text as string | null) ?? null,
+    sourceLabel: ((data as any).source_label as string | null) ?? null,
     matchStatus: ((data as any).match_status as string | null) ?? null,
     matchedLaunchId: ((data as any).matched_launch_id as string | null) ?? null,
     validStart: ((data as any).valid_start as string | null) ?? null,
@@ -1202,7 +754,8 @@ async function loadLatestForReparse(supabase: SupabaseClient, pdfUrl: string) {
 
 function buildReparsePayload(args: {
   parsed: ParsedForecast;
-  match: { status: 'matched' | 'ambiguous' | 'unmatched'; launchId?: string; confidence?: number; strategy?: string; meta?: Record<string, unknown> };
+  quality: Ws45QualitySummary;
+  match: Ws45MatchResult;
   existing: { matchStatus: string | null };
 }) {
   const now = new Date().toISOString();
@@ -1224,6 +777,15 @@ function buildReparsePayload(args: {
     delay_24h_primary_concerns: args.parsed.delay24hPrimaryConcerns ?? null,
     delay_24h: args.parsed.delay24h ?? null,
     parse_version: WS45_PARSE_VERSION,
+    document_mode: args.quality.documentMode,
+    document_family: args.quality.documentFamily,
+    classification_confidence: args.quality.classificationConfidence,
+    parse_status: args.quality.parseStatus,
+    parse_confidence: args.quality.parseConfidence,
+    publish_eligible: args.quality.publishEligible,
+    quarantine_reasons: args.quality.quarantineReasons,
+    required_fields_missing: args.quality.requiredFieldsMissing,
+    normalization_flags: args.quality.normalizationFlags,
     match_status: canUpdateMatch ? args.match.status : undefined,
     matched_launch_id: canUpdateMatch ? (args.match.status === 'matched' ? args.match.launchId ?? null : null) : undefined,
     match_confidence: canUpdateMatch ? args.match.confidence ?? null : undefined,
@@ -1235,7 +797,7 @@ function buildReparsePayload(args: {
 }
 
 function buildRematchPayload(args: {
-  match: { status: 'matched' | 'ambiguous' | 'unmatched'; launchId?: string; confidence?: number; strategy?: string; meta?: Record<string, unknown> };
+  match: Ws45MatchResult;
   existing: { matchStatus: string | null };
 }) {
   const now = new Date().toISOString();
@@ -1251,6 +813,326 @@ function buildRematchPayload(args: {
     matched_at: args.match.status === 'matched' ? now : null,
     updated_at: now
   };
+}
+
+export async function reparseWs45Forecasts({
+  supabaseAdmin,
+  scope = 'quarantined_recent',
+  limit = 20,
+  forecastId,
+  forecastIds
+}: {
+  supabaseAdmin: SupabaseClient;
+  scope?: 'quarantined_recent' | 'version_stale' | 'forecast_id' | 'forecast_ids';
+  limit?: number;
+  forecastId?: string;
+  forecastIds?: string[];
+}) {
+  const maxRows = clampInt(limit, 1, 100);
+  let query = supabaseAdmin
+    .from('ws45_launch_forecasts')
+    .select('id,pdf_url,source_label,forecast_kind,raw_text,match_status,parse_version')
+    .not('raw_text', 'is', null)
+    .order('fetched_at', { ascending: false })
+    .limit(maxRows);
+
+  if (scope === 'forecast_id') {
+    if (!forecastId) {
+      return {
+        ok: false,
+        reparsed: 0,
+        updated: 0,
+        errors: [{ forecastId: null, error: 'forecast_id_required' }],
+        rows: [] as Array<Record<string, unknown>>
+      };
+    }
+    query = query.eq('id', forecastId);
+  } else if (scope === 'forecast_ids') {
+    const ids = Array.from(new Set((forecastIds ?? []).filter(Boolean))).slice(0, maxRows);
+    if (!ids.length) {
+      return {
+        ok: false,
+        reparsed: 0,
+        updated: 0,
+        errors: [{ forecastId: null, error: 'forecast_ids_required' }],
+        rows: [] as Array<Record<string, unknown>>
+      };
+    }
+    query = query.in('id', ids);
+  } else if (scope === 'version_stale') {
+    query = query.neq('parse_version', WS45_PARSE_VERSION);
+  } else {
+    query = query.eq('publish_eligible', false);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    return {
+      ok: false,
+      reparsed: 0,
+      updated: 0,
+      errors: [{ forecastId: null, error: error.message }],
+      rows: [] as Array<Record<string, unknown>>
+    };
+  }
+
+  const rows = (data as Array<Record<string, any>> | null) ?? [];
+  const results: Array<Record<string, unknown>> = [];
+  const errors: Array<{ forecastId: string | null; error: string }> = [];
+  let updated = 0;
+
+  for (const row of rows) {
+    const id = typeof row.id === 'string' ? row.id : null;
+    const pdfUrl = typeof row.pdf_url === 'string' ? row.pdf_url : '';
+    const rawText = typeof row.raw_text === 'string' ? row.raw_text : '';
+    const forecastKind = typeof row.forecast_kind === 'string' ? row.forecast_kind : deriveForecastKind(String(row.source_label || ''), pdfUrl);
+    if (!id || !rawText || forecastKind === 'faq') continue;
+
+    try {
+      const parsed = parseWs45ForecastText(rawText);
+      const match = await matchForecastToLaunch(supabaseAdmin, parsed);
+      const quality = summarizeWs45Quality({ text: rawText, parsed, forecastKind, match });
+      const payload = buildReparsePayload({
+        parsed,
+        quality,
+        match,
+        existing: { matchStatus: typeof row.match_status === 'string' ? row.match_status : null }
+      });
+      const shouldUpdate = Object.keys(payload).length > 0;
+      if (shouldUpdate) {
+        const { error: updateError } = await supabaseAdmin.from('ws45_launch_forecasts').update(payload).eq('id', id);
+        if (updateError) throw updateError;
+        updated += 1;
+      }
+      await safeRecordWs45ParseRun({
+        supabase: supabaseAdmin,
+        forecastId: id,
+        runtime: 'node',
+        attemptReason: 'admin_replay',
+        item: { label: String(row.source_label || ''), src: '', pdfUrl },
+        pdfUrl,
+        forecastKind,
+        parsed,
+        quality,
+        match
+      });
+      results.push({
+        forecastId: id,
+        sourceLabel: row.source_label ?? null,
+        matchStatus: match.status,
+        publishEligible: quality.publishEligible,
+        parseStatus: quality.parseStatus,
+        updated: shouldUpdate
+      });
+    } catch (err) {
+      errors.push({ forecastId: id, error: stringifyError(err) });
+    }
+  }
+
+  return {
+    ok: errors.length === 0,
+    reparsed: results.length,
+    updated,
+    errors,
+    rows: results
+  };
+}
+
+function summarizeWs45Quality({
+  text,
+  parsed,
+  forecastKind,
+  match
+}: {
+  text: string;
+  parsed: ParsedForecast;
+  forecastKind: string | null;
+  match: Ws45MatchResult;
+}): Ws45QualitySummary {
+  const normalizationFlags: string[] = [];
+  if (/Forecast\s+Discussio\s+n/i.test(text)) normalizationFlags.push('split_forecast_discussion_heading');
+  if (/\b\d{1,2}\s*-\s*[A-Za-z]{3}\s*-\s*\d{2}\b/i.test(text)) normalizationFlags.push('hyphenated_date_tokens');
+
+  const documentMode = inferWs45DocumentMode(text);
+  const documentFamily = inferWs45DocumentFamily(text);
+  const classificationConfidence = documentFamily === 'unknown_family' ? 40 : 90;
+
+  const requiredFieldsMissing =
+    forecastKind === 'faq'
+      ? []
+      : [
+          parsed.productName ? null : 'product_name',
+          parsed.missionName ? null : 'mission_name',
+          parsed.issuedAtUtc ? null : 'issued_at',
+          parsed.validStartUtc ? null : 'valid_start',
+          parsed.validEndUtc ? null : 'valid_end'
+        ].filter((value): value is string => Boolean(value));
+
+  const validationFailures: string[] = [];
+  const validStartMs = parsed.validStartUtc ? Date.parse(parsed.validStartUtc) : NaN;
+  const validEndMs = parsed.validEndUtc ? Date.parse(parsed.validEndUtc) : NaN;
+  if (Number.isFinite(validStartMs) && Number.isFinite(validEndMs) && validEndMs <= validStartMs) {
+    validationFailures.push('invalid_valid_window_order');
+  }
+
+  const hasMeaningfulContent = Boolean(
+    parsed.productName ||
+      parsed.missionName ||
+      parsed.issuedAtUtc ||
+      parsed.validStartUtc ||
+      parsed.validEndUtc ||
+      parsed.forecastDiscussion ||
+      parsed.launchDay ||
+      parsed.delay24h
+  );
+
+  let parseStatus: Ws45QualitySummary['parseStatus'] = 'parsed';
+  if (!hasMeaningfulContent) parseStatus = 'failed';
+  else if (requiredFieldsMissing.length || validationFailures.length) parseStatus = 'partial';
+
+  const quarantineReasons = [
+    ...requiredFieldsMissing.map((field) => `missing_${field}`),
+    ...validationFailures,
+    ...(match.status === 'matched' ? [] : [match.status === 'ambiguous' ? 'ambiguous_launch' : 'unmatched_launch'])
+  ];
+
+  const fieldConfidence = {
+    product_name: parsed.productName ? 100 : 0,
+    mission_name: parsed.missionName ? 100 : 0,
+    issued_at: parsed.issuedAtUtc ? 100 : 0,
+    valid_start: parsed.validStartUtc ? 100 : 0,
+    valid_end: parsed.validEndUtc ? 100 : 0,
+    forecast_discussion: parsed.forecastDiscussion ? 85 : 0,
+    launch_day: parsed.launchDay ? 90 : 0,
+    delay_24h: parsed.delay24h ? 90 : 0
+  };
+  const fieldScores = Object.values(fieldConfidence);
+  const parseConfidence = fieldScores.length ? clampInt(Math.round(fieldScores.reduce((sum, value) => sum + value, 0) / fieldScores.length), 0, 100) : null;
+  const publishEligible = forecastKind !== 'faq' && parseStatus === 'parsed' && match.status === 'matched';
+
+  return {
+    documentMode,
+    documentFamily,
+    classificationConfidence,
+    parseStatus,
+    parseConfidence,
+    publishEligible,
+    quarantineReasons,
+    requiredFieldsMissing,
+    normalizationFlags,
+    validationFailures,
+    fieldConfidence
+  };
+}
+
+function inferWs45DocumentMode(text: string): Ws45QualitySummary['documentMode'] {
+  const trimmed = text.trim();
+  if (!trimmed) return 'scanned';
+  return trimmed.length >= 80 ? 'digital' : 'unknown';
+}
+
+function inferWs45DocumentFamily(text: string) {
+  if (/Forecast\s+Discussio\s+n/i.test(text)) return 'split_heading_variant';
+  if (/\b\d{1,2}\s*-\s*[A-Za-z]{3}\s*-\s*\d{2}\b/i.test(text)) return 'hyphenated_abbrev_month_2digit_year';
+  if (/\b\d{1,2}\s+[A-Za-z]+\.?\s+\d{4}\b/i.test(text)) return 'legacy_spaced_full_month_year';
+  return 'unknown_family';
+}
+
+function serializeQuality(quality: Ws45QualitySummary) {
+  return {
+    documentMode: quality.documentMode,
+    documentFamily: quality.documentFamily,
+    classificationConfidence: quality.classificationConfidence,
+    parseStatus: quality.parseStatus,
+    parseConfidence: quality.parseConfidence,
+    publishEligible: quality.publishEligible,
+    quarantineReasons: quality.quarantineReasons,
+    requiredFieldsMissing: quality.requiredFieldsMissing,
+    normalizationFlags: quality.normalizationFlags,
+    validationFailures: quality.validationFailures,
+    fieldConfidence: quality.fieldConfidence
+  };
+}
+
+async function safeRecordWs45ParseRun({
+  supabase,
+  forecastId,
+  runtime,
+  attemptReason,
+  item,
+  pdfUrl,
+  forecastKind,
+  parsed,
+  quality,
+  match
+}: {
+  supabase: SupabaseClient;
+  forecastId: string;
+  runtime: 'edge' | 'node' | 'script';
+  attemptReason: 'ingest' | 'reparse' | 'admin_replay' | 'backfill';
+  item: ForecastPageItem;
+  pdfUrl: string;
+  forecastKind: string | null;
+  parsed: ParsedForecast;
+  quality: Ws45QualitySummary;
+  match: Ws45MatchResult;
+}) {
+  if (!forecastId) return;
+  try {
+    const { data, error } = await supabase
+      .from('ws45_forecast_parse_runs')
+      .insert({
+        forecast_id: forecastId,
+        parser_version: WS45_PARSE_VERSION,
+        runtime,
+        attempt_reason: attemptReason,
+        document_mode: quality.documentMode,
+        document_family: quality.documentFamily,
+        parse_status: quality.parseStatus,
+        parse_confidence: quality.parseConfidence,
+        publish_eligible: quality.publishEligible,
+        missing_required_fields: quality.requiredFieldsMissing,
+        validation_failures: quality.validationFailures,
+        normalization_flags: quality.normalizationFlags,
+        field_confidence: quality.fieldConfidence,
+        field_evidence: {
+          source_label: item.label || null,
+          pdf_url: pdfUrl,
+          forecast_kind: forecastKind,
+          product_name: parsed.productName ?? null,
+          mission_name: parsed.missionName ?? null,
+          issued_at: parsed.issuedAtUtc ?? null,
+          valid_start: parsed.validStartUtc ?? null,
+          valid_end: parsed.validEndUtc ?? null
+        },
+        strategy_trace: {
+          document_family: quality.documentFamily,
+          normalization_flags: quality.normalizationFlags,
+          match_strategy: match.strategy ?? null
+        },
+        stats: {
+          match_status: match.status,
+          match_confidence: match.confidence ?? null,
+          match_strategy: match.strategy ?? null,
+          match_meta: match.meta ?? null
+        }
+      })
+      .select('id')
+      .single();
+    if (error) {
+      console.warn('ws45 parse run insert error', error.message);
+      return;
+    }
+    const parseRunId = typeof (data as any)?.id === 'string' ? ((data as any).id as string) : null;
+    if (!parseRunId) return;
+    const { error: updateError } = await supabase
+      .from('ws45_launch_forecasts')
+      .update({ latest_parse_run_id: parseRunId, updated_at: new Date().toISOString() })
+      .eq('id', forecastId);
+    if (updateError) console.warn('ws45 latest_parse_run_id update error', updateError.message);
+  } catch (err) {
+    console.warn('ws45 parse run logging failed', stringifyError(err));
+  }
 }
 
 function deriveForecastKind(label: string, pdfUrl: string) {

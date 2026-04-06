@@ -346,19 +346,21 @@ function extractAssetResources(
 ): LaunchExternalResource[] {
   if (!Object.keys(value).length) return [];
 
-  const candidates: Array<{ key: string; label: string; kind: LaunchExternalResourceKind }> = [
-    { key: 'infographicDesktop', label: 'Mission profile', kind: 'infographic' },
-    { key: 'infographicMobile', label: 'Mission profile (mobile)', kind: 'infographic' },
-    { key: 'imageDesktop', label: 'Mission image', kind: 'image' },
-    { key: 'imageMobile', label: 'Mission image (mobile)', kind: 'image' },
-    { key: 'videoDesktop', label: 'Mission video', kind: 'video' },
-    { key: 'videoMobile', label: 'Mission video (mobile)', kind: 'video' }
+  const candidates: Array<{
+    primaryKey: string;
+    fallbackKey: string;
+    label: string;
+    kind: LaunchExternalResourceKind;
+  }> = [
+    { primaryKey: 'infographicDesktop', fallbackKey: 'infographicMobile', label: 'Mission profile', kind: 'infographic' },
+    { primaryKey: 'imageDesktop', fallbackKey: 'imageMobile', label: 'Mission image', kind: 'image' },
+    { primaryKey: 'videoDesktop', fallbackKey: 'videoMobile', label: 'Mission video', kind: 'video' }
   ];
 
   return candidates
-    .map(({ key, label, kind }) =>
-      normalizeAssetResource(value[key], {
-        id: `${prefix || 'bundle'}:${key}:${sourceId}`,
+    .map(({ primaryKey, fallbackKey, label, kind }) =>
+      normalizeAssetResource(value[primaryKey] ?? value[fallbackKey], {
+        id: `${prefix || 'bundle'}:${primaryKey}:${sourceId}`,
         label,
         kind,
         sourceId

@@ -45,7 +45,12 @@ import { createSupabaseAdminClient, createSupabaseServerClient } from '@/lib/ser
 import { getViewerTier } from '@/lib/server/viewerTier';
 import { fetchLaunchJepScore } from '@/lib/server/jep';
 import { resolveJepObserverFromHeaders } from '@/lib/server/jepObserver';
-import { formatTrajectoryMilestoneOffsetLabel, resolveTrajectoryMilestones, type ViewerTier } from '@tminuszero/domain';
+import {
+  formatMissionTimelineTimeLabel,
+  formatTrajectoryMilestoneOffsetLabel,
+  resolveTrajectoryMilestones,
+  type ViewerTier
+} from '@tminuszero/domain';
 import type { LaunchJepScore } from '@/lib/types/jep';
 import type {
   LaunchDetailEnrichment,
@@ -658,6 +663,7 @@ const fetchWs45Forecast = cache(async (launchId: string, isEasternRange: boolean
       'id, source_label, forecast_kind, pdf_url, issued_at, valid_start, valid_end, mission_name, match_status, match_confidence, forecast_discussion, launch_day_pov_percent, delay_24h_pov_percent, launch_day_primary_concerns, delay_24h_primary_concerns, launch_day, delay_24h'
     )
     .eq('matched_launch_id', launchId)
+    .eq('publish_eligible', true)
     .or('forecast_kind.is.null,forecast_kind.neq.faq')
     .order('issued_at', { ascending: false })
     .order('fetched_at', { ascending: false })
@@ -2243,10 +2249,6 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
   const watchUrl = launch.videoUrl;
   const providerLogoUrl = resolveProviderLogoUrl(launch);
   const providerHref = buildProviderHref(launch.provider);
-  const providerCatalogHref =
-    launch.provider && launch.provider.trim() && launch.provider.trim().toLowerCase() !== 'unknown'
-      ? buildCatalogHref({ entity: 'agencies', q: launch.provider.trim() })
-      : null;
   const rocketHref = buildRocketHref(launch, rocket.fullName || launch.vehicle);
   const locationHref = buildLocationHref(launch);
   const padCatalogHref =
@@ -2320,7 +2322,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
   const ws45ForecastPromise = viewer.tier === 'premium' ? fetchWs45Forecast(launch.id, isEasternRange) : Promise.resolve(null);
   const nwsForecastPromise = fetchNwsForecast(launch.id, isUsPad, within14Days);
   const jepScorePromise = fetchLaunchJepScore(launch.id, { observer: jepObserver, viewerIsAdmin: viewer.isAdmin });
-  const faaAirspacePromise = fetchLaunchFaaAirspace({ launchId: launch.id, limit: 4 });
+  const faaAirspacePromise = fetchLaunchFaaAirspace({ launchId: launch.id, limit: 6 });
   const faaAirspaceMapPromise = fetchLaunchFaaAirspaceMap({ launchId: launch.id, limit: 8 });
   const refreshVersion = viewer.tier === 'premium' ? launch.lastUpdated : launch.cacheGeneratedAt;
 
@@ -2456,9 +2458,64 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 overflow-x-hidden px-4 py-10 md:overflow-x-visible md:px-8">
       <JsonLd data={[breadcrumbJsonLd, webPageJsonLd, eventJsonLd, ...(videoJsonLd ? [videoJsonLd] : [])]} />
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="sticky top-4 z-30">
+        <div className="rounded-full border border-stroke bg-[rgba(7,9,19,0.82)] px-3 py-2 shadow-[0_18px_60px_rgba(0,0,0,0.28)] backdrop-blur-xl">
+          <div className="flex items-center gap-3">
+            <Link
+              href="/#schedule"
+              className="btn-secondary flex h-10 w-10 items-center justify-center rounded-full border border-stroke text-text2 hover:border-primary hover:text-primary"
+              aria-label="Back to feed"
+            >
+              <BackArrowIcon className="h-4 w-4" />
+            </Link>
+            <div className="min-w-0 flex-1 text-center">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-text3">
+                {dateOnly ? 'Launch window' : 'T- countdown'}
+              </div>
+              <div className="mt-1 whitespace-nowrap">
+                {dateOnly ? (
+                  <span className="rounded-full bg-[rgba(234,240,255,0.05)] px-3 py-1 text-xs font-semibold text-text2">Time TBD</span>
+                ) : (
+                  <Countdown net={launch.net} initialNowMs={nowMs} />
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {isArEligible &&
+                (viewer.tier === 'premium' ? (
+                  <CameraGuideButton
+                    href={arHref}
+                    launchId={launch.id}
+                    className="btn-secondary flex h-10 w-10 items-center justify-center rounded-full border border-primary/40 bg-primary/10 text-primary transition hover:border-primary"
+                  >
+                    <TrajectoryBadgeIcon className="h-4 w-4" />
+                    <span className="sr-only">Open AR trajectory</span>
+                  </CameraGuideButton>
+                ) : (
+                  <PremiumGateButton
+                    isAuthed={isAuthed}
+                    featureLabel="AR trajectory"
+                    ariaLabel="AR trajectory (Premium)"
+                    className="btn-secondary flex h-10 w-10 items-center justify-center rounded-full border border-primary/40 bg-primary/10 text-primary transition hover:border-primary"
+                  >
+                    <TrajectoryBadgeIcon className="h-4 w-4" />
+                  </PremiumGateButton>
+                ))}
+              <AddToCalendarButton
+                launch={launch}
+                variant="icon"
+                showAddBadge
+                requiresAuth={!viewer.capabilities.canUseOneOffCalendar}
+                isAuthed={isAuthed}
+                className="h-10 w-10 rounded-full"
+              />
+              <ShareButton url={share.path} title={share.title} text={share.text} variant="icon" className="h-10 w-10 rounded-full" />
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="flex flex-col gap-2">
         <div>
-          <p className="text-xs uppercase tracking-[0.1em] text-text3">Launch detail</p>
           <h1 className="text-3xl font-semibold text-text1">{launch.name}</h1>
           <p className="text-sm text-text2">
             {providerHref ? (
@@ -2476,9 +2533,6 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
           </p>
           <LaunchDetailAutoRefresh tier={viewer.tier} launchId={launch.id} lastUpdated={refreshVersion} />
         </div>
-        <Link href="/#schedule" className="btn-secondary w-fit rounded-lg px-3 py-2 text-sm">
-          Back to feed
-        </Link>
       </div>
 
       <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(380px,1fr)]">
@@ -2549,15 +2603,8 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex flex-col items-start gap-2">
                     <span className="rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-text3">
-                      {dateOnly ? 'Launch window' : 'Countdown'}
+                      Launch window
                     </span>
-                    <div className="whitespace-nowrap">
-                      {dateOnly ? (
-                        <span className="rounded-full bg-[rgba(234,240,255,0.05)] px-3 py-1 text-xs font-semibold text-text2">Time TBD</span>
-                      ) : (
-                        <Countdown net={launch.net} initialNowMs={nowMs} />
-                      )}
-                    </div>
                     <div className="whitespace-nowrap">
                       <TimeDisplay net={launch.net} netPrecision={launch.netPrecision} />
                     </div>
@@ -2577,61 +2624,17 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
                       launchSiteLabel={launch.pad.locationName || launch.pad.name}
                       state={launch.pad.state}
                     />
-                    {isArEligible && (
-                      viewer.tier === 'premium' ? (
-                        <CameraGuideButton
-                          href={arHref}
-                          launchId={launch.id}
-                          className="inline-flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-4 py-2 text-sm text-primary transition hover:border-primary"
-                        >
-                          <TrajectoryBadgeIcon className="h-4 w-4" />
-                          AR trajectory
-                        </CameraGuideButton>
-                      ) : (
-                        <PremiumGateButton
-                          isAuthed={isAuthed}
-                          featureLabel="AR trajectory"
-                          className="inline-flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-4 py-2 text-sm text-primary transition hover:border-primary"
-                        >
-                          <TrajectoryBadgeIcon className="h-4 w-4" />
-                          AR trajectory
-                        </PremiumGateButton>
-                      )
-                    )}
-                    <AddToCalendarButton
-                      launch={launch}
-                      variant="icon"
-                      showAddBadge
-                      requiresAuth={!viewer.capabilities.canUseOneOffCalendar}
-                      isAuthed={isAuthed}
-                    />
-                    <ShareButton url={share.path} title={share.title} text={share.text} variant="icon" />
                   </div>
                 </div>
               </div>
               {blueOriginMissionSummary && <p className="mt-4 max-w-2xl text-sm text-text2">{blueOriginMissionSummary}</p>}
             </div>
-            {(launch.holdReason || blueOriginFailureReason || isEasternRange || (isUsPad && within14Days)) && (
+            {(launch.holdReason || blueOriginFailureReason || launch.failReason) && (
               <div className="grid gap-2 md:grid-cols-2">
                 {launch.holdReason && <Info label="Hold reason" value={launch.holdReason} />}
                 {blueOriginFailureReason && <Info label="Failure reason" value={blueOriginFailureReason} />}
                 {launch.failReason && !blueOriginFailureReason && (
                   <Info label="Failure reason" value={launch.failReason} />
-                )}
-                {(isEasternRange || (isUsPad && within14Days)) && (
-                  <div className="md:col-span-2">
-                    <Suspense fallback={<LoadingPanel label="Loading weather..." />}>
-                      <ConsolidatedWeatherSection
-                        ws45ForecastPromise={ws45ForecastPromise}
-                        nwsForecastPromise={nwsForecastPromise}
-                        isEasternRange={isEasternRange}
-                        isUsPad={isUsPad}
-                        within14Days={within14Days}
-                        padTimezone={padTimezone}
-                        tier={viewer.tier}
-                      />
-                    </Suspense>
-                  </div>
                 )}
               </div>
             )}
@@ -2706,6 +2709,18 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
       {timelineEvents.length > 0 && (
         <LaunchMilestoneMapLive events={timelineEvents} launchNetMs={Number.isFinite(netMs) ? netMs : null} />
       )}
+
+      <Suspense fallback={<LoadingPanel label="Loading weather..." />}>
+        <ConsolidatedWeatherSection
+          ws45ForecastPromise={ws45ForecastPromise}
+          nwsForecastPromise={nwsForecastPromise}
+          isEasternRange={isEasternRange}
+          isUsPad={isUsPad}
+          within14Days={within14Days}
+          padTimezone={padTimezone}
+          tier={viewer.tier}
+        />
+      </Suspense>
 
       <Suspense fallback={<LoadingPanel label="Loading visibility score..." />}>
         <LaunchJepScoreSection jepScorePromise={jepScorePromise} padTimezone={padTimezone} />
@@ -3005,11 +3020,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
             <Info
               label="Provider"
               value={
-                providerCatalogHref ? (
-                  <Link href={providerCatalogHref} className="transition hover:text-primary">
-                    {launch.provider}
-                  </Link>
-                ) : providerHref ? (
+                providerHref ? (
                   <Link href={providerHref} className="transition hover:text-primary">
                     {launch.provider}
                   </Link>
@@ -3141,11 +3152,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
             <div className="mt-3 rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3 text-sm text-text2">
               <div className="text-xs uppercase tracking-[0.08em] text-text3">Service provider</div>
               <div className="text-text1">
-                {providerCatalogHref ? (
-                  <Link href={providerCatalogHref} className="transition hover:text-primary">
-                    {launch.provider}
-                  </Link>
-                ) : providerHref ? (
+                {providerHref ? (
                   <Link href={providerHref} className="transition hover:text-primary">
                     {launch.provider}
                   </Link>
@@ -3153,10 +3160,10 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
                   launch.provider
                 )}
               </div>
-              {providerCatalogHref && providerHref && (
+              {providerHref && (
                 <div className="mt-1 text-xs text-text3">
                   <Link href={providerHref} className="transition hover:text-primary">
-                    Provider news
+                    Open provider page
                   </Link>
                 </div>
               )}
@@ -3990,11 +3997,11 @@ async function ConsolidatedWeatherSection({
   if (!hasForecasts) return null;
 
   return (
-    <section className="rounded-lg border border-stroke bg-[rgba(255,255,255,0.02)] p-3 md:p-4">
+    <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <div className="text-[11px] uppercase tracking-[0.08em] text-text3">Weather</div>
-          <h3 className="mt-1 text-base font-semibold text-text1">Forecasts</h3>
+          <h2 className="mt-1 text-xl font-semibold text-text1">Forecast outlook</h2>
           <p className="mt-1 max-w-2xl text-xs text-text3">
             {showWs45 && showNws
               ? 'Enhanced forecast insights (select launches) plus an NWS forecast for the pad location at T-0 (api.weather.gov).'
@@ -4099,6 +4106,9 @@ async function LaunchFaaAirspaceSection({
               ? 'Expired'
               : 'Scheduled';
           const primarySourceUrl = advisory.sourceGraphicUrl || advisory.sourceUrl;
+          const rawSourceUrl = advisory.sourceRawUrl;
+          const showRawSecondary = Boolean(rawSourceUrl && rawSourceUrl !== primarySourceUrl);
+          const rawTextPreview = buildFaaNoticePreview(advisory.rawText);
 
           return (
             <article
@@ -4145,6 +4155,25 @@ async function LaunchFaaAirspaceSection({
                 )}
               </div>
 
+              {rawTextPreview && (
+                <div className="mt-3 rounded-xl border border-stroke bg-surface-0 p-3">
+                  <div className="text-[11px] uppercase tracking-[0.08em] text-text3">Restriction summary</div>
+                  <p className="mt-2 text-sm text-text2">{rawTextPreview}</p>
+                </div>
+              )}
+
+              {advisory.rawText && (
+                <details className="mt-3 rounded-xl border border-stroke bg-surface-0 p-3">
+                  <summary className="cursor-pointer text-sm font-semibold text-text1">Official notice text</summary>
+                  <div className="mt-2 text-xs text-text3">
+                    {advisory.rawTextFetchedAt ? `Saved ${formatDate(advisory.rawTextFetchedAt, padTimezone || 'UTC')}` : 'Saved FAA detail cache'}
+                  </div>
+                  <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3 text-xs leading-6 text-text2">
+                    {advisory.rawText}
+                  </pre>
+                </details>
+              )}
+
               {primarySourceUrl && (
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
                   <a
@@ -4155,6 +4184,16 @@ async function LaunchFaaAirspaceSection({
                   >
                     {advisory.sourceGraphicUrl ? 'Open FAA graphic page' : 'View FAA source'}
                   </a>
+                  {showRawSecondary && rawSourceUrl && (
+                    <a
+                      href={rawSourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex text-text3 hover:text-text2"
+                    >
+                      View raw NOTAM text
+                    </a>
+                  )}
                 </div>
               )}
             </article>
@@ -4200,6 +4239,23 @@ function formatUtcDateOnly(value: string) {
     day: '2-digit',
     year: 'numeric'
   }).format(new Date(value));
+}
+
+function buildFaaNoticePreview(rawText: string | null | undefined) {
+  const normalized = String(rawText || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/\u00a0/g, ' ')
+    .trim();
+  if (!normalized) return null;
+
+  const withoutHeader = normalized
+    .replace(/^!FDC\s+\S+\s+[A-Z]{2,4}\s+[A-Z]{2}\.\.?/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!withoutHeader) return null;
+
+  return withoutHeader.length > 240 ? `${withoutHeader.slice(0, 237).trimEnd()}...` : withoutHeader;
 }
 
 function isDateOnlyUtcWindow(validStart: string | null, validEnd: string | null) {
@@ -4475,7 +4531,9 @@ async function LaunchMissionResourcesSection({
                   {formatTimelinePhaseLabel(event.phase)}
                 </div>
                 <div className="mt-1 text-sm font-semibold text-text1">{event.label}</div>
-                {event.time ? <div className="mt-1 text-xs text-text3">{event.time}</div> : null}
+                {formatMissionTimelineTimeLabel(event.time, event.phase) ? (
+                  <div className="mt-1 text-xs text-text3">{formatMissionTimelineTimeLabel(event.time, event.phase)}</div>
+                ) : null}
                 {event.description ? <p className="mt-2 text-xs text-text2">{event.description}</p> : null}
               </div>
             ))}
@@ -6890,6 +6948,14 @@ function buildExternalLinks({
   infoLinks.forEach(add);
   vidLinks.forEach(add);
   return [...links.values()];
+}
+
+function BackArrowIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" className={className} aria-hidden="true" fill="none">
+      <path d="M13.5 4.5 8 10l5.5 5.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
 }
 
 function ArrowUpRightIcon({ className }: { className?: string }) {

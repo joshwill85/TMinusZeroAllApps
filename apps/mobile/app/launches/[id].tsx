@@ -21,13 +21,17 @@ import { runOnJS, useAnimatedScrollHandler, useSharedValue } from 'react-native-
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { ArTrajectorySummaryV1, LaunchDetailV1, LaunchFaaAirspaceMapV1 } from '@tminuszero/contracts';
 import {
+  buildCountdownSnapshot,
   buildDetailVersionToken,
   canAutoRefreshActiveSurface,
+  formatMissionTimelineTimeLabel,
+  formatTrajectoryMilestoneOffsetLabel,
   getNextAdaptiveLaunchRefreshMs,
   getRecommendedLaunchRefreshIntervalSeconds,
   getVisibleDetailUpdatedAt,
   hasVersionChanged,
   PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS,
+  resolveTrajectoryMilestones,
   shouldPrimeVersionRefresh
 } from '@tminuszero/domain';
 import { normalizeNativeMobileCustomerHref, toProviderSlug } from '@tminuszero/navigation';
@@ -49,6 +53,7 @@ import { LaunchFollowSheet } from '@/src/components/LaunchFollowSheet';
 import { LaunchShareIconButton } from '@/src/components/LaunchShareIconButton';
 import { EmptyStateCard, ErrorStateCard, LoadingStateCard, SectionCard } from '@/src/components/SectionCard';
 import { JepPanel } from '@/src/components/launch/JepPanel';
+import { XPostPreviewModal } from '@/src/components/launch/XPostPreviewModal';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import { useMobilePush } from '@/src/providers/MobilePushProvider';
 import { useMobileToast } from '@/src/providers/MobileToastProvider';
@@ -71,18 +76,15 @@ import {
 import { ParallaxHero, StaticHero } from '@/src/components/launch/ParallaxHero';
 import { InteractiveStatTiles, type StatTile } from '@/src/components/launch/InteractiveStatTiles';
 import { LiveBadge } from '@/src/components/launch/LiveDataPulse';
-import {
-  LiveLaunchCountdownClock,
-  LiveLaunchCountdownLabel,
-  buildLaunchCountdownDisplay,
-  buildLaunchCountdownLabel
-} from '@/src/components/launch/LiveLaunchCountdown';
+import { LiveLaunchCountdownClock, LiveLaunchCountdownLabel } from '@/src/components/launch/LiveLaunchCountdown';
 import { AnimationErrorBoundary } from '@/src/components/launch/AnimationErrorBoundary';
 import { CollapsibleSection } from '@/src/components/launch/CollapsibleSection';
 import { SectionNav, StickyNavPills, type NavSection } from '@/src/components/launch/StickyNavPills';
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
+import { useSharedNow } from '@/src/hooks/useSharedNow';
 import { TmzLaunchMapView, getTmzLaunchMapCapabilitiesAsync, type TmzLaunchMapCapabilities } from '@/modules/tmz-launch-map';
 import { resolveNativeProgramHubOrCoreHref } from '@/src/features/programHubs/rollout';
+import { openExternalCustomerUrl } from '@/src/features/customerRoutes/shared';
 
 type LegacyLaunchSummary = LaunchDetailV1['launch'];
 type RichLaunchSummary = NonNullable<LaunchDetailV1['launchData']>;
@@ -98,6 +100,13 @@ type RefreshNotice = {
   kind?: 'anon_refresh';
   actionLabel?: string;
   onAction?: () => void;
+};
+
+type XPreviewPost = {
+  postId: string;
+  postUrl: string;
+  title: string;
+  subtitle?: string | null;
 };
 
 function getLaunchId(value: string | string[] | undefined) {
@@ -165,6 +174,7 @@ export default function LaunchDetailScreen() {
   const [faaMapModalOpen, setFaaMapModalOpen] = useState(false);
   const [expandedFaaRawTextIds, setExpandedFaaRawTextIds] = useState<Record<string, boolean>>({});
   const [refreshNotice, setRefreshNotice] = useState<RefreshNotice | null>(null);
+  const [xPreviewPost, setXPreviewPost] = useState<XPreviewPost | null>(null);
   const watchlistState = usePrimaryWatchlist({
     enabled: isAuthed && canUseSavedItems,
     ruleLimit: entitlementsQuery.data?.limits.watchlistRuleLimit ?? null
@@ -281,6 +291,7 @@ export default function LaunchDetailScreen() {
   let content: JSX.Element;
   let followSheetNode: ReactNode = null;
   let overlayNavigation: JSX.Element | null = null;
+  let floatingTopBarNode: JSX.Element | null = null;
 
   useEffect(() => {
     setSavedStatus(null);
@@ -291,6 +302,7 @@ export default function LaunchDetailScreen() {
     lastSeenVersionRef.current = null;
     setPendingDetailRefresh(null);
     setRefreshNotice(null);
+    setXPreviewPost(null);
   }, [launchId]);
 
   useEffect(() => {
@@ -627,6 +639,62 @@ export default function LaunchDetailScreen() {
     const handleShareLaunch = () => {
       void shareLaunch(buildLaunchShareInput(launch));
     };
+    const handleOpenCalendar = () => {
+      setCalendarLaunch({
+        id: launch.id,
+        name: launch.name,
+        provider: launch.provider,
+        vehicle: launch.vehicle,
+        net: launch.net,
+        netPrecision: launch.netPrecision,
+        windowEnd: launch.windowEnd ?? null,
+        pad: {
+          name: launch.pad.name,
+          state: launch.pad.state
+        }
+      });
+    };
+    const handleOpenArTrajectory = () => {
+      if (!arTrajectory) {
+        return;
+      }
+      if (!canUseArTrajectory) {
+        router.push('/profile');
+        return;
+      }
+      if (arTrajectory.availabilityReason === 'not_eligible') {
+        setSavedStatus({
+          tone: 'error',
+          text: 'AR trajectory is unavailable for this launch.'
+        });
+        return;
+      }
+      if (arTrajectory.availabilityReason === 'trajectory_missing' || !arTrajectory.hasTrajectory) {
+        setSavedStatus({
+          tone: 'error',
+          text: 'AR trajectory is not ready for this launch yet.'
+        });
+        return;
+      }
+      router.push((`/launches/ar/${launch.id}`) as Href);
+    };
+    const canShowTopBarArButton = Boolean(arTrajectory);
+    const topBarArActive = Boolean(
+      arTrajectory &&
+        canUseArTrajectory &&
+        arTrajectory.hasTrajectory &&
+        arTrajectory.availabilityReason !== 'not_eligible' &&
+        arTrajectory.availabilityReason !== 'trajectory_missing'
+    );
+    const topBarArDisabled = Boolean(
+      arTrajectory &&
+        canUseArTrajectory &&
+        (arTrajectory.availabilityReason === 'not_eligible' || arTrajectory.availabilityReason === 'trajectory_missing' || !arTrajectory.hasTrajectory)
+    );
+    const floatingTopBarHeight = 58;
+    const floatingTopBarTop = Math.max(insets.top + 8, 14);
+    const floatingTopBarOffsetTop = floatingTopBarTop + floatingTopBarHeight + 14;
+    const floatingTopBarSpacerHeight = 52;
     const launchFaaAirspaceMap = launchFaaAirspaceMapQuery.data ?? null;
     const nativeLaunchMapsSupported = launchMapCapabilities?.isAvailable === true;
     const faaMapPayload = launchFaaAirspaceMap;
@@ -636,7 +704,7 @@ export default function LaunchDetailScreen() {
     const openTarget = (target: string) => {
       if (!target) return;
       if (/^https?:\/\//i.test(target)) {
-        void Linking.openURL(target);
+        void openExternalCustomerUrl(target);
         return;
       }
       if (target.startsWith('/launches/')) {
@@ -664,7 +732,7 @@ export default function LaunchDetailScreen() {
     const currentBasicLaunchActive = basicActiveLaunchRule?.launchId === launchRecord.id;
     const basicLaunchSlotOccupiedElsewhere = Boolean(basicActiveLaunchRule && !currentBasicLaunchActive);
     const basicFollowCapacityLabel = canUseSavedItems ? undefined : `${basicActiveLaunchRule ? 1 : 0}/${singleLaunchFollowLimit}`;
-    const launchNotificationRule = currentBasicLaunchActive ? basicActiveLaunchRule : null;
+    const launchNotificationRule = mobilePushRules.find((rule) => rule.scopeKind === 'launch' && rule.launchId === launchRecord.id) ?? null;
 
     const showFollowToast = ({
       message,
@@ -1062,27 +1130,35 @@ export default function LaunchDetailScreen() {
         activeCount={activeFollowCount}
         capacityLabel={basicFollowCapacityLabel}
         notificationsActive={Boolean(launchNotificationRule)}
+        notificationsContent={
+          <LaunchAlertsPanel
+            launchId={launch.id}
+            installationId={installationId}
+            deviceSecret={deviceSecret}
+            isPremium={isPremium}
+            isPushRegistered={isRegistered}
+            onOpenUpgrade={() => {
+              closeFollowSheet();
+              router.push('/profile');
+            }}
+            onOpenPreferences={() => {
+              closeFollowSheet();
+              router.push('/preferences');
+            }}
+          />
+        }
         message={
           canUseSavedItems
-            ? 'Following keeps matching launches in your saved list and related notifications can be tuned from Preferences.'
+            ? 'Following keeps matching launches in your saved list, and launch alerts live in the Notifications tab for this launch.'
             : canUseAllUsLaunchAlerts
-              ? 'Public access keeps one launch reminder slot on this device. Manage All U.S. launches from Preferences. Premium adds synced follows across broader scopes.'
-              : 'Public access keeps one launch reminder slot on this device. Premium adds synced follows across broader scopes.'
+              ? 'Public access keeps one launch reminder slot on this device. Manage this launch in the Notifications tab and All U.S. launches from Preferences. Premium adds synced follows across broader scopes.'
+              : 'Public access keeps one launch reminder slot on this device. Manage launch alerts from the Notifications tab here. Premium adds synced follows across broader scopes.'
         }
         onClose={() => setFollowSheetOpen(false)}
       />
     );
 
-    const countdownTileFallbackLabel = buildLaunchCountdownLabel(launch.net);
-    const countdownTileFallbackValue = buildLaunchCountdownDisplay(launch.net);
     const statTiles: StatTile[] = [
-      {
-        id: 'countdown',
-        label: <LiveLaunchCountdownLabel net={launch.net} />,
-        value: <LiveLaunchCountdownClock net={launch.net} />,
-        description: `NET: ${formatTimestamp(launch.net)}`,
-        tone: 'primary'
-      },
       ...(weatherModule?.summary
         ? [
             {
@@ -1099,18 +1175,27 @@ export default function LaunchDetailScreen() {
         label: 'Launch provider',
         value: launch.provider,
         description: launch.providerCountryCode ? `Based in ${launch.providerCountryCode}` : 'Space launch provider',
-        tone: 'default'
+        tone: 'default',
+        onPress: launchInfoProviderHref
+          ? () => {
+              openTarget(launchInfoProviderHref);
+            }
+          : undefined
       },
       {
         id: 'vehicle',
         label: 'Launch vehicle',
         value: launch.vehicle || launch.rocket?.fullName || 'TBD',
         description: launch.pad?.name ? `From ${launch.pad.name}` : 'Launch vehicle',
-        tone: 'default'
+        tone: 'default',
+        onPress: launchInfoRocketHref
+          ? () => {
+              openTarget(launchInfoRocketHref);
+            }
+          : undefined
       }
     ];
     const statTileFallbackItems: FactGridItem[] = [
-      [countdownTileFallbackLabel, countdownTileFallbackValue],
       ...(weatherModule?.summary
         ? [['Weather conditions', weatherModule.summary.split('.')[0] || 'Favorable'] satisfies FactGridItem]
         : []),
@@ -1130,6 +1215,12 @@ export default function LaunchDetailScreen() {
       launch.launchInfoUrls?.length ||
       detail.enrichment.externalContent.length
     );
+    const resolvedLaunchTimeline = Array.isArray(launch.timeline)
+      ? resolveTrajectoryMilestones({
+          ll2Timeline: launch.timeline.map((event) => normalizeLegacyTimelineEvent(event)).filter((event) => event != null),
+          includeFamilyTemplate: false
+        })
+      : [];
     const hasPayloadMissionContext = Boolean(launch.payloads?.length || launch.mission?.agencies?.length || launchUpdates.length);
     const hasPayloadManifestInventory = Boolean(
       payloadManifest.length > 0 ||
@@ -1148,6 +1239,8 @@ export default function LaunchDetailScreen() {
         )
     );
     const hasMissionStats = Boolean(missionStats?.cards?.length || missionStats?.boosterCards?.length || missionStats?.bonusInsights?.length);
+    const vehicleTimeline = detail.vehicleTimeline ?? [];
+    const hasVehicleTimeline = vehicleTimeline.length > 0;
     const hasRelatedCoverage = relatedEvents.length === 0 && relatedNews.length === 0 && detail.related.length > 0;
     const getSectionOffset = (sectionId: string, fallback = -1) => sectionOffsets[sectionId] ?? fallback;
     const navSections: NavSection[] = [
@@ -1166,10 +1259,25 @@ export default function LaunchDetailScreen() {
       ...(relatedNews.length > 0 ? [{ id: 'launch-news', label: 'News', offsetY: getSectionOffset('launch-news') }] : []),
       ...(hasBlueOriginMissionDetails ? [{ id: 'blue-origin', label: 'Blue Origin', offsetY: getSectionOffset('blue-origin') }] : []),
       ...(hasMissionStats ? [{ id: 'mission-stats', label: 'Stats', offsetY: getSectionOffset('mission-stats') }] : []),
+      ...(hasVehicleTimeline ? [{ id: 'vehicle-timeline', label: 'Timeline', offsetY: getSectionOffset('vehicle-timeline') }] : []),
       ...(hasRelatedCoverage ? [{ id: 'related-coverage', label: 'Related', offsetY: getSectionOffset('related-coverage') }] : [])
     ];
 
     sectionNavItemsRef.current = navSections;
+
+    floatingTopBarNode = (
+      <LaunchDetailFloatingBar
+        top={floatingTopBarTop}
+        net={launch.net}
+        onBack={handleBackToFeed}
+        onShare={handleShareLaunch}
+        onOpenCalendar={handleOpenCalendar}
+        onOpenArTrajectory={canShowTopBarArButton ? handleOpenArTrajectory : undefined}
+        showArButton={canShowTopBarArButton}
+        arButtonActive={topBarArActive}
+        arButtonDisabled={topBarArDisabled}
+      />
+    );
 
     overlayNavigation =
       !shouldReduceMotion && navSections.length > 1 ? (
@@ -1179,51 +1287,14 @@ export default function LaunchDetailScreen() {
             scrollY={scrollY}
             activeSection={activeSection}
             onSectionPress={handleSectionPress}
-            offsetTop={Math.max(insets.top + 52, 88)}
+            offsetTop={floatingTopBarOffsetTop}
           />
         </AnimationErrorBoundary>
       ) : null;
 
     content = (
       <>
-        <View
-          style={{
-            marginTop: 8,
-            overflow: 'hidden',
-            borderRadius: 999,
-            borderWidth: 1,
-            borderColor: theme.stroke,
-            backgroundColor: 'rgba(7, 9, 19, 0.72)',
-            paddingHorizontal: 16,
-            paddingVertical: 11
-          }}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              <View style={{ flex: 1, alignItems: 'flex-start' }}>
-                <Pressable onPress={handleBackToFeed} hitSlop={8}>
-                  <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Back to feed</Text>
-                </Pressable>
-              </View>
-            <View style={{ flex: 1, alignItems: 'center' }}>
-              <Text
-                numberOfLines={1}
-                style={{ color: theme.muted, fontSize: 10, fontWeight: '700', letterSpacing: 1.8, textTransform: 'uppercase' }}
-              >
-                Launch detail
-              </Text>
-            </View>
-            <View style={{ flex: 1, alignItems: 'flex-end' }}>
-              <LaunchShareIconButton
-                onPress={handleShareLaunch}
-                size={38}
-                iconColor={theme.accent}
-                borderColor={theme.stroke}
-                backgroundColor="rgba(255, 255, 255, 0.03)"
-                pressedBackgroundColor="rgba(255, 255, 255, 0.08)"
-              />
-            </View>
-          </View>
-        </View>
+        <View style={{ height: floatingTopBarSpacerHeight }} />
 
         <AnimationErrorBoundary
           fallback={
@@ -1372,69 +1443,6 @@ export default function LaunchDetailScreen() {
           onLayout={registerSectionOffset}
         >
           <View style={{ gap: 16 }}>
-            <View style={{ gap: 12 }}>
-              <View style={{ gap: 4 }}>
-                <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase' }}>
-                  Liftoff
-                </Text>
-                <Text style={{ color: theme.foreground, fontSize: 18, fontWeight: '700', lineHeight: 22 }}>{formatTimestamp(launch.net)}</Text>
-                <Text style={{ color: theme.muted, fontSize: 13 }}>
-                  {buildMissionControlWindowLine(launch.netPrecision, launch.windowStart, launch.net, launch.windowEnd)}
-                </Text>
-              </View>
-              <View
-                style={{
-                  borderRadius: 18,
-                  borderWidth: 1,
-                  borderColor: 'rgba(255, 255, 255, 0.06)',
-                  backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                  paddingHorizontal: 12,
-                  paddingVertical: 10
-                }}
-              >
-                <Text
-                  style={{
-                    color: theme.accent,
-                    fontSize: 11,
-                    fontWeight: '700',
-                    letterSpacing: 1.1,
-                    textTransform: 'uppercase'
-                  }}
-                >
-                  T- countdown
-                </Text>
-                <Text
-                  adjustsFontSizeToFit
-                  ellipsizeMode="clip"
-                  minimumFontScale={0.72}
-                  numberOfLines={1}
-                  style={{
-                    color: theme.foreground,
-                    fontSize: 31,
-                    fontWeight: '300',
-                    lineHeight: 34,
-                    marginTop: 6,
-                    letterSpacing: 0.4,
-                    fontVariant: ['tabular-nums']
-                  }}
-                >
-                  <LiveLaunchCountdownClock net={launch.net} />
-                </Text>
-                <Text
-                  style={{
-                    marginTop: 4,
-                    color: theme.accent,
-                    fontSize: 11,
-                    fontWeight: '700',
-                    letterSpacing: 1.1,
-                    textTransform: 'uppercase'
-                  }}
-                >
-                  <LiveLaunchCountdownLabel net={launch.net} />
-                </Text>
-              </View>
-            </View>
-
             {weatherModule?.summary || weatherConcerns.length ? (
               <View
                 style={{
@@ -1463,29 +1471,10 @@ export default function LaunchDetailScreen() {
                 <ActionButton
                   label="Watch live"
                   onPress={() => {
-                    void Linking.openURL(watchUrl);
+                    void openExternalCustomerUrl(watchUrl);
                   }}
                 />
               ) : null}
-              <ActionButton
-                label="Add to calendar"
-                onPress={() => {
-                  setCalendarLaunch({
-                    id: launch.id,
-                    name: launch.name,
-                    provider: launch.provider,
-                    vehicle: launch.vehicle,
-                    net: launch.net,
-                    netPrecision: launch.netPrecision,
-                    windowEnd: launch.windowEnd ?? null,
-                    pad: {
-                      name: launch.pad.name,
-                      state: launch.pad.state
-                    }
-                  });
-                }}
-                variant="secondary"
-              />
             </View>
 
             <View style={{ gap: 10 }}>
@@ -1503,8 +1492,8 @@ export default function LaunchDetailScreen() {
               {!canUseSavedItems ? (
                 <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>
                   {canUseAllUsLaunchAlerts
-                    ? 'Without Premium, you can use one launch reminder slot on this device and manage All U.S. launches from Preferences. Premium adds saved follows and broader follow scopes.'
-                    : 'Without Premium, you can use one launch reminder slot on this device. Premium adds saved follows and broader follow scopes.'}
+                    ? 'Without Premium, you can use one launch reminder slot on this device, manage this launch from the Notifications tab, and manage All U.S. launches from Preferences. Premium adds saved follows and broader follow scopes.'
+                    : 'Without Premium, you can use one launch reminder slot on this device and manage launch alerts from the Notifications tab here. Premium adds saved follows and broader follow scopes.'}
                 </Text>
               ) : savedStatus ? (
                 <Text style={{ color: savedStatus.tone === 'error' ? '#ff9087' : theme.accent, fontSize: 13, lineHeight: 19 }}>
@@ -1514,20 +1503,6 @@ export default function LaunchDetailScreen() {
                 <Text style={{ color: '#ff9087', fontSize: 13, lineHeight: 19 }}>{watchlistState.errorMessage}</Text>
               ) : null}
             </View>
-
-            <LaunchAlertsPanel
-              launchId={launch.id}
-              installationId={installationId}
-              deviceSecret={deviceSecret}
-              isPremium={isPremium}
-              isPushRegistered={isRegistered}
-              onOpenUpgrade={() => {
-                router.push('/profile');
-              }}
-              onOpenPreferences={() => {
-                router.push('/preferences');
-              }}
-            />
 
             <AnimationErrorBoundary fallback={<FactGrid items={statTileFallbackItems} />}>
               <InteractiveStatTiles tiles={statTiles} />
@@ -1549,7 +1524,7 @@ export default function LaunchDetailScreen() {
             <View style={{ gap: 12 }}>
               <Pressable
                 onPress={() => {
-                  void Linking.openURL(primaryWatchLink.url);
+                  void openExternalCustomerUrl(primaryWatchLink.url);
                 }}
                 style={({ pressed }) => ({
                   overflow: 'hidden',
@@ -1608,7 +1583,7 @@ export default function LaunchDetailScreen() {
                       title={item.label}
                       subtitle={item.meta}
                       onPress={() => {
-                        void Linking.openURL(item.url);
+                        void openExternalCustomerUrl(item.url);
                       }}
                     />
                   ))}
@@ -1627,13 +1602,78 @@ export default function LaunchDetailScreen() {
           >
             <View style={{ gap: 10 }}>
               {socialModule.matchedPost ? (
-                <LinkRow
-                  title={socialModule.matchedPost.title}
-                  subtitle={[socialModule.matchedPost.subtitle, socialModule.matchedPost.description].filter(Boolean).join(' • ')}
-                  onPress={() => {
-                    openTarget(socialModule.matchedPost?.url || '');
+                <View
+                  style={{
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: 'rgba(34, 211, 238, 0.28)',
+                    backgroundColor: 'rgba(34, 211, 238, 0.08)',
+                    padding: 14,
+                    gap: 8
                   }}
-                />
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                    <View style={{ flex: 1, gap: 4 }}>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                        <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{socialModule.matchedPost.title}</Text>
+                        <DetailChip label="Matched on X" tone="accent" />
+                      </View>
+                      {socialModule.matchedPost.subtitle ? (
+                        <Text style={{ color: theme.muted, fontSize: 13 }}>{socialModule.matchedPost.subtitle}</Text>
+                      ) : null}
+                    </View>
+                    <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Matched</Text>
+                  </View>
+                  {socialModule.matchedPost.description ? (
+                    <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>{socialModule.matchedPost.description}</Text>
+                  ) : null}
+                  {socialModule.matchedPost.matchedAt ? (
+                    <Text style={{ color: theme.muted, fontSize: 12 }}>
+                      Matched {formatTimestamp(socialModule.matchedPost.matchedAt)}
+                    </Text>
+                  ) : null}
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 }}>
+                    {socialModule.matchedPost.postId ? (
+                      <Pressable
+                        onPress={() => {
+                          setXPreviewPost({
+                            postId: socialModule.matchedPost?.postId || '',
+                            postUrl: socialModule.matchedPost?.url || '',
+                            title: socialModule.matchedPost?.title || 'Matched post on X',
+                            subtitle: socialModule.matchedPost?.subtitle || socialModule.matchedPost?.handle || null
+                          });
+                        }}
+                        style={({ pressed }) => ({
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          borderColor: theme.accent,
+                          backgroundColor: 'rgba(34, 211, 238, 0.12)',
+                          paddingHorizontal: 14,
+                          paddingVertical: 8,
+                          opacity: pressed ? 0.88 : 1
+                        })}
+                      >
+                        <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Preview post</Text>
+                      </Pressable>
+                    ) : null}
+                    <Pressable
+                      onPress={() => {
+                        openTarget(socialModule.matchedPost?.url || '');
+                      }}
+                      style={({ pressed }) => ({
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: theme.stroke,
+                        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                        paddingHorizontal: 14,
+                        paddingVertical: 8,
+                        opacity: pressed ? 0.88 : 1
+                      })}
+                    >
+                      <Text style={{ color: theme.foreground, fontSize: 12, fontWeight: '700' }}>Open on X</Text>
+                    </Pressable>
+                  </View>
+                </View>
               ) : null}
               {socialModule.providerFeeds.map((feed) => (
                 <LinkRow
@@ -2072,10 +2112,10 @@ export default function LaunchDetailScreen() {
                 />
               ))}
               {launch.launchVidUrls?.map((item) => (
-                <LinkRow key={`video:${item.url}`} title={item.title || item.url} subtitle={item.publisher || 'Watch link'} onPress={() => void Linking.openURL(item.url)} />
+                <LinkRow key={`video:${item.url}`} title={item.title || item.url} subtitle={item.publisher || 'Watch link'} onPress={() => void openExternalCustomerUrl(item.url)} />
               ))}
               {launch.launchInfoUrls?.filter((item) => !isSpaceXWebsiteUrl(item.url))?.map((item) => (
-                <LinkRow key={`info:${item.url}`} title={item.title || item.url} subtitle={item.source || 'Launch resource'} onPress={() => void Linking.openURL(item.url)} />
+                <LinkRow key={`info:${item.url}`} title={item.title || item.url} subtitle={item.source || 'Launch resource'} onPress={() => void openExternalCustomerUrl(item.url)} />
               ))}
               {detail.enrichment.externalContent.map((item) => (
                 <View key={item.id} style={{ gap: 8 }}>
@@ -2089,15 +2129,18 @@ export default function LaunchDetailScreen() {
                 <SectionCard title="Mission timeline" compact>
                   {resourcesModule.missionTimeline.map((event) => (
                     <Text key={event.id} style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
-                      {[event.time, event.label, event.description].filter(Boolean).join(' • ')}
+                      {[formatMissionTimelineTimeLabel(event.time, event.phase), event.label, event.description].filter(Boolean).join(' • ')}
                     </Text>
                   ))}
                 </SectionCard>
-              ) : launch.timeline?.length ? (
+              ) : resolvedLaunchTimeline.length ? (
                 <SectionCard title="Mission timeline" compact>
-                  {launch.timeline.map((event, index) => (
-                    <Text key={`${event.relative_time || 'timeline'}:${index}`} style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
-                      {[event.relative_time, typeof event.type === 'object' ? String((event.type as { name?: string }).name || '') : String(event.type || '')]
+                  {resolvedLaunchTimeline.map((milestone, index) => (
+                    <Text
+                      key={`${milestone.key}:${milestone.tPlusSec ?? milestone.timeText ?? index}`}
+                      style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}
+                    >
+                      {[formatTrajectoryMilestoneOffsetLabel(milestone.tPlusSec, milestone.timeText), milestone.label, milestone.description]
                         .filter(Boolean)
                         .join(' • ')}
                     </Text>
@@ -2499,25 +2542,8 @@ export default function LaunchDetailScreen() {
           >
             {missionStats?.cards?.length ? (
               <View style={{ gap: 10 }}>
-                {missionStats.cards.map((card) => (
-                  <View
-                    key={card.id}
-                    style={{
-                      borderRadius: 16,
-                      borderWidth: 1,
-                      borderColor: theme.stroke,
-                      backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                      padding: 14,
-                      gap: 6
-                    }}
-                  >
-                    <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>{card.eyebrow}</Text>
-                    <Text style={{ color: theme.foreground, fontSize: 16, fontWeight: '700' }}>{card.title}</Text>
-                    <Text style={{ color: theme.muted, fontSize: 13 }}>
-                      {`${card.allTimeLabel}: ${card.allTime == null ? 'TBD' : String(card.allTime)} • ${card.yearLabel}: ${card.year == null ? 'TBD' : String(card.year)}`}
-                    </Text>
-                    <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>{card.story}</Text>
-                  </View>
+                {missionStats.cards.map((card, index) => (
+                  <MissionStoryCard key={card.id} card={card} accentIndex={index} />
                 ))}
               </View>
             ) : null}
@@ -2525,21 +2551,7 @@ export default function LaunchDetailScreen() {
               <SectionCard title="Bonus insights" compact>
                 <View style={{ gap: 8 }}>
                   {missionStats.bonusInsights.map((insight) => (
-                    <View
-                      key={insight.label}
-                      style={{
-                        borderRadius: 14,
-                        borderWidth: 1,
-                        borderColor: theme.stroke,
-                        backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                        padding: 12,
-                        gap: 4
-                      }}
-                    >
-                      <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>{insight.label}</Text>
-                      <Text style={{ color: theme.foreground, fontSize: 18, fontWeight: '700' }}>{insight.value}</Text>
-                      {insight.detail ? <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>{insight.detail}</Text> : null}
-                    </View>
+                    <MissionInsightCard key={insight.label} insight={insight} />
                   ))}
                 </View>
               </SectionCard>
@@ -2561,9 +2573,10 @@ export default function LaunchDetailScreen() {
                     >
                       <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{card.title}</Text>
                       {card.subtitle ? <Text style={{ color: theme.muted, fontSize: 13 }}>{card.subtitle}</Text> : null}
-                      <Text style={{ color: theme.muted, fontSize: 13 }}>
-                        {`${card.allTimeLabel}: ${card.allTime == null ? 'TBD' : String(card.allTime)} • ${card.yearLabel}: ${card.year == null ? 'TBD' : String(card.year)}`}
-                      </Text>
+                      <View style={{ flexDirection: 'row', gap: 10 }}>
+                        <MissionStatPill label={card.allTimeLabel} value={card.allTime == null ? 'TBD' : String(card.allTime)} />
+                        <MissionStatPill label={card.yearLabel} value={card.year == null ? 'TBD' : String(card.year)} />
+                      </View>
                       {card.detailLines.map((line) => (
                         <Text key={`${card.id}:${line}`} style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
                           {line}
@@ -2574,6 +2587,74 @@ export default function LaunchDetailScreen() {
                 </View>
               </SectionCard>
             ) : null}
+          </DetailModuleSection>
+        ) : null}
+
+        {vehicleTimeline.length > 0 ? (
+          <DetailModuleSection
+            id="vehicle-timeline"
+            title="Chrono-Helix vehicle timeline"
+            description="Recent and upcoming flights for the same launch vehicle."
+            onLayout={registerSectionOffset}
+          >
+            <View style={{ gap: 12 }}>
+              {vehicleTimeline.map((item, index) => (
+                <Pressable
+                  key={item.id}
+                  onPress={() => {
+                    if (!item.launchId || item.isCurrent) return;
+                    router.push((`/launches/${item.launchId}`) as Href);
+                  }}
+                  disabled={!item.launchId || item.isCurrent}
+                  style={({ pressed }) => ({
+                    flexDirection: 'row',
+                    gap: 12,
+                    opacity: pressed && !item.isCurrent ? 0.9 : 1
+                  })}
+                >
+                  <View style={{ alignItems: 'center', width: 18 }}>
+                    <View
+                      style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: 5,
+                        marginTop: 5,
+                        backgroundColor: item.status === 'success' ? '#7ff0bc' : item.status === 'upcoming' ? theme.accent : '#ff9aab'
+                      }}
+                    />
+                    {index < vehicleTimeline.length - 1 ? (
+                      <View
+                        style={{
+                          width: 2,
+                          flex: 1,
+                          marginTop: 6,
+                          backgroundColor: 'rgba(255, 255, 255, 0.08)'
+                        }}
+                      />
+                    ) : null}
+                  </View>
+                  <View
+                    style={{
+                      flex: 1,
+                      borderRadius: 16,
+                      borderWidth: 1,
+                      borderColor: item.isCurrent ? 'rgba(34, 211, 238, 0.28)' : theme.stroke,
+                      backgroundColor: item.isCurrent ? 'rgba(34, 211, 238, 0.08)' : 'rgba(255, 255, 255, 0.03)',
+                      padding: 14,
+                      gap: 6
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                      <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700', flex: 1 }}>{item.missionName}</Text>
+                      <DetailChip label={item.isCurrent ? 'Current' : item.statusLabel || item.status} tone={item.isCurrent ? 'accent' : 'default'} />
+                    </View>
+                    <Text style={{ color: theme.muted, fontSize: 13 }}>
+                      {[item.date ? formatTimestamp(item.date) : null, item.vehicleName].filter(Boolean).join(' • ')}
+                    </Text>
+                  </View>
+                </Pressable>
+              ))}
+            </View>
           </DetailModuleSection>
         ) : null}
 
@@ -2649,8 +2730,17 @@ export default function LaunchDetailScreen() {
       >
         {content}
       </AppScreen>
+      {floatingTopBarNode}
       {overlayNavigation}
       {followSheetNode}
+      <XPostPreviewModal
+        open={xPreviewPost != null}
+        postId={xPreviewPost?.postId}
+        postUrl={xPreviewPost?.postUrl || ''}
+        title={xPreviewPost?.title || 'Matched post on X'}
+        subtitle={xPreviewPost?.subtitle || null}
+        onClose={() => setXPreviewPost(null)}
+      />
       <LaunchCalendarSheet launch={calendarLaunch} open={calendarLaunch != null} onClose={() => setCalendarLaunch(null)} />
     </>
   );
@@ -2872,6 +2962,258 @@ function isDateOnlyUtcWindow(validStart: string | null, validEnd: string | null)
     end.getUTCSeconds() === 0 &&
     end.getUTCMilliseconds() === 0 &&
     (endMs - startMs) % dayMs === 0
+  );
+}
+
+function LaunchDetailFloatingBar({
+  top,
+  net,
+  onBack,
+  onShare,
+  onOpenCalendar,
+  onOpenArTrajectory,
+  showArButton,
+  arButtonActive,
+  arButtonDisabled
+}: {
+  top: number;
+  net: string | null;
+  onBack: () => void;
+  onShare: () => void;
+  onOpenCalendar: () => void;
+  onOpenArTrajectory?: () => void;
+  showArButton: boolean;
+  arButtonActive: boolean;
+  arButtonDisabled: boolean;
+}) {
+  const { theme } = useMobileBootstrap();
+
+  return (
+    <View
+      pointerEvents="box-none"
+      style={{
+        position: 'absolute',
+        top,
+        left: 20,
+        right: 20,
+        zIndex: 30
+      }}
+    >
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 12,
+          borderRadius: 999,
+          borderWidth: 1,
+          borderColor: theme.stroke,
+          backgroundColor: 'rgba(7, 9, 19, 0.86)',
+          paddingLeft: 10,
+          paddingRight: 10,
+          paddingVertical: 8
+        }}
+      >
+        <LaunchToolbarIconButton accessibilityLabel="Back" onPress={onBack} testID="launch-detail-back-button">
+          <BackArrowGlyph color={theme.foreground} />
+        </LaunchToolbarIconButton>
+
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+          <Text style={{ color: theme.accent, fontSize: 10, fontWeight: '800', letterSpacing: 1.1, textTransform: 'uppercase' }}>
+            <LiveLaunchCountdownPrefix net={net} /> countdown
+          </Text>
+          <Text
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.82}
+            style={{
+              color: theme.foreground,
+              fontSize: 15,
+              fontWeight: '800',
+              lineHeight: 18,
+              fontVariant: ['tabular-nums']
+            }}
+          >
+            <LiveLaunchCountdownClock net={net} />
+          </Text>
+          <Text numberOfLines={1} style={{ color: theme.muted, fontSize: 10, fontWeight: '700' }}>
+            <LiveLaunchCountdownLabel net={net} />
+          </Text>
+        </View>
+
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          {showArButton ? (
+            <LaunchToolbarIconButton
+              accessibilityLabel={arButtonActive ? 'Open AR trajectory' : 'AR trajectory'}
+              onPress={() => {
+                onOpenArTrajectory?.();
+              }}
+              active={arButtonActive}
+              disabled={arButtonDisabled}
+            >
+              <ArToolbarGlyph color={arButtonActive ? theme.accent : theme.foreground} />
+            </LaunchToolbarIconButton>
+          ) : null}
+          <LaunchToolbarIconButton accessibilityLabel="Add to calendar" onPress={onOpenCalendar}>
+            <CalendarPlusGlyph color={theme.foreground} />
+          </LaunchToolbarIconButton>
+          <LaunchShareIconButton
+            onPress={onShare}
+            size={38}
+            iconColor={theme.foreground}
+            borderColor={theme.stroke}
+            backgroundColor="rgba(255, 255, 255, 0.03)"
+            pressedBackgroundColor="rgba(255, 255, 255, 0.08)"
+          />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function LaunchToolbarIconButton({
+  accessibilityLabel,
+  onPress,
+  children,
+  active = false,
+  disabled = false,
+  testID
+}: {
+  accessibilityLabel: string;
+  onPress: () => void;
+  children: ReactNode;
+  active?: boolean;
+  disabled?: boolean;
+  testID?: string;
+}) {
+  const { theme } = useMobileBootstrap();
+
+  return (
+    <Pressable
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        width: 38,
+        height: 38,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: active ? `${theme.accent}66` : theme.stroke,
+        backgroundColor: active ? 'rgba(34, 211, 238, 0.12)' : 'rgba(255, 255, 255, 0.03)',
+        opacity: disabled ? 0.42 : pressed ? 0.86 : 1
+      })}
+    >
+      {children}
+    </Pressable>
+  );
+}
+
+function LiveLaunchCountdownPrefix({ net }: { net: string | null }) {
+  const nowMs = useSharedNow();
+  const snapshot = buildCountdownSnapshot(net ?? null, nowMs);
+
+  if (!snapshot) {
+    return 'NET';
+  }
+
+  return snapshot.isPast ? 'T+' : 'T-';
+}
+
+function BackArrowGlyph({ color }: { color: string }) {
+  return (
+    <View style={{ width: 16, height: 16, alignItems: 'center', justifyContent: 'center' }}>
+      <View
+        style={{
+          width: 7,
+          height: 7,
+          borderLeftWidth: 1.8,
+          borderBottomWidth: 1.8,
+          borderColor: color,
+          transform: [{ rotate: '45deg' }],
+          marginLeft: 3
+        }}
+      />
+    </View>
+  );
+}
+
+function CalendarPlusGlyph({ color }: { color: string }) {
+  return (
+    <View style={{ width: 18, height: 18 }}>
+      <View
+        style={{
+          position: 'absolute',
+          top: 2,
+          left: 2,
+          right: 2,
+          bottom: 2,
+          borderWidth: 1.6,
+          borderColor: color,
+          borderRadius: 4
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          top: 2,
+          left: 2,
+          right: 2,
+          height: 4,
+          borderTopLeftRadius: 4,
+          borderTopRightRadius: 4,
+          backgroundColor: color
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          top: 0.5,
+          left: 5,
+          width: 1.8,
+          height: 4,
+          borderRadius: 999,
+          backgroundColor: color
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          top: 0.5,
+          right: 5,
+          width: 1.8,
+          height: 4,
+          borderRadius: 999,
+          backgroundColor: color
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          right: -1,
+          top: -1,
+          width: 8,
+          height: 8,
+          borderRadius: 999,
+          backgroundColor: 'rgba(34, 211, 238, 0.18)',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}
+      >
+        <View style={{ position: 'absolute', width: 4.5, height: 1.4, borderRadius: 999, backgroundColor: color }} />
+        <View style={{ position: 'absolute', width: 1.4, height: 4.5, borderRadius: 999, backgroundColor: color }} />
+      </View>
+    </View>
+  );
+}
+
+function ArToolbarGlyph({ color }: { color: string }) {
+  return (
+    <View style={{ minWidth: 18, alignItems: 'center', justifyContent: 'center' }}>
+      <Text style={{ color, fontSize: 15, lineHeight: 16, fontWeight: '900', letterSpacing: 0.7 }}>AR</Text>
+    </View>
   );
 }
 
@@ -3183,7 +3525,7 @@ function FaaNoticeCard({
         {advisory.sourceGraphicUrl || advisory.sourceUrl ? (
           <Pressable
             onPress={() => {
-              void Linking.openURL(advisory.sourceGraphicUrl || advisory.sourceUrl || '');
+              void openExternalCustomerUrl(advisory.sourceGraphicUrl || advisory.sourceUrl || '');
             }}
           >
             <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>
@@ -3194,7 +3536,7 @@ function FaaNoticeCard({
         {!rawTextAvailable && advisory.sourceRawUrl && advisory.sourceRawUrl !== advisory.sourceGraphicUrl && advisory.sourceRawUrl !== advisory.sourceUrl ? (
           <Pressable
             onPress={() => {
-              void Linking.openURL(advisory.sourceRawUrl || '');
+              void openExternalCustomerUrl(advisory.sourceRawUrl || '');
             }}
           >
             <Text style={{ color: theme.muted, fontSize: 12, fontWeight: '700' }}>View official notice text</Text>
@@ -3229,6 +3571,89 @@ function buildFaaNoticePreview(rawText: string | null | undefined) {
   return `${withoutHeader.slice(0, 217).trimEnd()}...`;
 }
 
+function MissionStoryCard({
+  card,
+  accentIndex
+}: {
+  card: NonNullable<LaunchDetailV1['missionStats']>['cards'][number];
+  accentIndex: number;
+}) {
+  const { theme } = useMobileBootstrap();
+  const accentPalette = [
+    { border: 'rgba(34, 211, 238, 0.24)', background: 'rgba(34, 211, 238, 0.08)' },
+    { border: 'rgba(52, 211, 153, 0.24)', background: 'rgba(52, 211, 153, 0.08)' },
+    { border: 'rgba(251, 146, 60, 0.24)', background: 'rgba(251, 146, 60, 0.08)' }
+  ];
+  const accent = accentPalette[accentIndex % accentPalette.length];
+
+  return (
+    <View
+      style={{
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: accent.border,
+        backgroundColor: accent.background,
+        padding: 14,
+        gap: 8
+      }}
+    >
+      <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>{card.eyebrow}</Text>
+      <Text style={{ color: theme.foreground, fontSize: 17, fontWeight: '800' }}>{card.title}</Text>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <MissionStatPill label={card.allTimeLabel} value={card.allTime == null ? 'TBD' : String(card.allTime)} />
+        <MissionStatPill label={card.yearLabel} value={card.year == null ? 'TBD' : String(card.year)} />
+      </View>
+      <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>{card.story}</Text>
+    </View>
+  );
+}
+
+function MissionInsightCard({
+  insight
+}: {
+  insight: NonNullable<LaunchDetailV1['missionStats']>['bonusInsights'][number];
+}) {
+  const { theme } = useMobileBootstrap();
+
+  return (
+    <View
+      style={{
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: theme.stroke,
+        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+        padding: 12,
+        gap: 4
+      }}
+    >
+      <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>{insight.label}</Text>
+      <Text style={{ color: theme.foreground, fontSize: 18, fontWeight: '700' }}>{insight.value}</Text>
+      {insight.detail ? <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>{insight.detail}</Text> : null}
+    </View>
+  );
+}
+
+function MissionStatPill({ label, value }: { label: string; value: string }) {
+  const { theme } = useMobileBootstrap();
+
+  return (
+    <View
+      style={{
+        flex: 1,
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: theme.stroke,
+        backgroundColor: 'rgba(255, 255, 255, 0.04)',
+        padding: 12,
+        gap: 4
+      }}
+    >
+      <Text style={{ color: theme.muted, fontSize: 10, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' }}>{label}</Text>
+      <Text style={{ color: theme.foreground, fontSize: 16, fontWeight: '800' }}>{value}</Text>
+    </View>
+  );
+}
+
 function normalizeFaaNoticeText(value: string | null | undefined) {
   const normalized = String(value || '')
     .replace(/\r\n/g, '\n')
@@ -3238,37 +3663,38 @@ function normalizeFaaNoticeText(value: string | null | undefined) {
   return normalized.length ? normalized : null;
 }
 
+function normalizeLegacyTimelineEvent(event: unknown) {
+  if (!event || typeof event !== 'object') {
+    return null;
+  }
+
+  const entry = event as Record<string, unknown>;
+  const typeValue = entry.type;
+  const typeRecord =
+    typeValue && typeof typeValue === 'object'
+      ? (typeValue as Record<string, unknown>)
+      : typeof typeValue === 'string'
+        ? ({ name: typeValue } as Record<string, unknown>)
+        : null;
+
+  return {
+    relative_time: typeof entry.relative_time === 'string' ? entry.relative_time : undefined,
+    type: typeRecord
+      ? {
+          id: typeof typeRecord.id === 'number' ? typeRecord.id : null,
+          abbrev: typeof typeRecord.abbrev === 'string' ? typeRecord.abbrev : null,
+          description: typeof typeRecord.description === 'string' ? typeRecord.description : null,
+          name: typeof typeRecord.name === 'string' ? typeRecord.name : null
+        }
+      : null
+  };
+}
+
 function formatFaaCoverageLabel(shapeCount: number, hasShape: boolean) {
   if (shapeCount > 0) {
     return `${shapeCount} mapped area${shapeCount === 1 ? '' : 's'}`;
   }
   return hasShape ? 'Restricted area' : 'Notice only';
-}
-
-function buildMissionControlWindowLine(
-  netPrecision: string | null | undefined,
-  windowStart: string | null | undefined,
-  net: string | null | undefined,
-  windowEnd: string | null | undefined
-) {
-  if (netPrecision === 'tbd') {
-    return 'Launch timing pending';
-  }
-
-  if (netPrecision === 'day') {
-    return 'Date-only NET window';
-  }
-
-  const rangeStart = windowStart || net;
-  if (!rangeStart) {
-    return 'Precise launch window';
-  }
-
-  if (windowEnd && windowEnd !== rangeStart) {
-    return `NET window ${formatTimestamp(rangeStart)} to ${formatTimestamp(windowEnd)}`;
-  }
-
-  return `NET ${formatTimestamp(rangeStart)}`;
 }
 
 function formatFaaOverlapLabel(matchStatus: LaunchFaaAirspaceAdvisoryView['matchStatus'], matchConfidence: number | null) {

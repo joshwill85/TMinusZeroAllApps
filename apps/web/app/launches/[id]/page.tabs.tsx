@@ -1,8 +1,9 @@
 /**
- * Tab-based Launch Detail Page (New Architecture - Web)
+ * Tab-based Launch Detail Page (Web)
  *
- * This is the new tab-based implementation of the launch details page.
- * It replaces the 13+ full-width sections with 5 organized tabs.
+ * This route is an alternate tab-organized view over the canonical full-page
+ * launch detail surface in `page.tsx`. Keep feature parity here where practical,
+ * but treat the full page as the source of product truth.
  */
 
 'use client';
@@ -25,7 +26,7 @@ import {
 import { Countdown } from '@/components/Countdown';
 import { LaunchDetailHero } from '@/components/launch/LaunchDetailHero';
 import { LaunchDetailTabs, LaunchDetailTabPanel } from '@/components/launch/LaunchDetailTabs';
-import { OverviewTab } from '@/components/launch/tabs';
+import { LiveTab, MissionTab, OverviewTab, RelatedTab, VehicleTab } from '@/components/launch/tabs';
 import type { LaunchDetailV1 } from '@tminuszero/contracts';
 
 type LaunchDetailTabsPageProps = {
@@ -130,28 +131,28 @@ export default function LaunchDetailTabsPage({ detail }: LaunchDetailTabsPagePro
         {/* Live Tab */}
         <LaunchDetailTabPanel activeTab={activeTab} tabId="live">
           <Suspense fallback={<LoadingSkeleton />}>
-            <LiveTabContent data={liveData} />
+            <LiveTab data={liveData} />
           </Suspense>
         </LaunchDetailTabPanel>
 
         {/* Mission Tab */}
         <LaunchDetailTabPanel activeTab={activeTab} tabId="mission">
           <Suspense fallback={<LoadingSkeleton />}>
-            <MissionTabContent data={missionData} />
+            <MissionTab data={missionData} />
           </Suspense>
         </LaunchDetailTabPanel>
 
         {/* Vehicle Tab */}
         <LaunchDetailTabPanel activeTab={activeTab} tabId="vehicle">
           <Suspense fallback={<LoadingSkeleton />}>
-            <VehicleTabContent data={vehicleData} />
+            <VehicleTab data={vehicleData} />
           </Suspense>
         </LaunchDetailTabPanel>
 
         {/* Related Tab */}
         <LaunchDetailTabPanel activeTab={activeTab} tabId="related">
           <Suspense fallback={<LoadingSkeleton />}>
-            <RelatedTabContent data={relatedData} />
+            <RelatedTab data={relatedData} />
           </Suspense>
         </LaunchDetailTabPanel>
       </div>
@@ -168,109 +169,6 @@ function getStatusTone(status: string | null): 'default' | 'success' | 'warning'
   if (lower.includes('hold') || lower.includes('tbd')) return 'warning';
   if (lower.includes('fail') || lower.includes('scrub')) return 'danger';
   return 'default';
-}
-
-// Placeholder Tab Components (simplified versions)
-
-function LiveTabContent({ data }: { data: any }) {
-  return (
-    <div className="space-y-6">
-      <Section title="Live Coverage">
-        {data.watchLinks.length > 0 ? (
-          <div className="space-y-4">
-            {data.watchLinks.slice(0, 3).map((link: any, idx: number) => (
-              <div
-                key={idx}
-                className="p-4 rounded-xl border border-stroke bg-surface-0"
-              >
-                <p className="text-sm font-semibold text-text1">{link.title || link.label}</p>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <EmptyState message="Live coverage typically begins 24 hours before launch" />
-        )}
-      </Section>
-    </div>
-  );
-}
-
-function MissionTabContent({ data }: { data: any }) {
-  return (
-    <div className="space-y-6">
-      <Section title="Mission Details">
-        {data.payloadManifest.length > 0 ? (
-          <div className="space-y-4">
-            <p className="text-sm text-text2">
-              {data.payloadManifest.length} payload(s)
-            </p>
-          </div>
-        ) : (
-          <EmptyState message="Mission details not yet available" />
-        )}
-      </Section>
-    </div>
-  );
-}
-
-function VehicleTabContent({ data }: { data: any }) {
-  return (
-    <div className="space-y-6">
-      <Section title="Vehicle Details">
-        {data.vehicleConfig.family ? (
-          <div>
-            <p className="text-xl font-bold text-text1">{data.vehicleConfig.family}</p>
-          </div>
-        ) : (
-          <EmptyState message="Vehicle details not yet available" />
-        )}
-      </Section>
-    </div>
-  );
-}
-
-function RelatedTabContent({ data }: { data: any }) {
-  return (
-    <div className="space-y-6">
-      <Section title="Related Content">
-        {data.news.length > 0 ? (
-          <div className="space-y-4">
-            {data.news.slice(0, 5).map((article: any, idx: number) => (
-              <div
-                key={idx}
-                className="p-4 rounded-xl border border-stroke bg-surface-0"
-              >
-                <p className="text-sm font-semibold text-text1">{article.title}</p>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <EmptyState message="No related content available" />
-        )}
-      </Section>
-    </div>
-  );
-}
-
-// UI Components
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="rounded-2xl border border-stroke bg-surface-1 p-6">
-      <h2 className="text-base font-bold uppercase tracking-wider text-text1 mb-6">
-        {title}
-      </h2>
-      {children}
-    </div>
-  );
-}
-
-function EmptyState({ message }: { message: string }) {
-  return (
-    <div className="py-12 text-center">
-      <p className="text-sm text-text2">{message}</p>
-    </div>
-  );
 }
 
 function LoadingSkeleton() {

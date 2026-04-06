@@ -27,8 +27,12 @@ export type LaunchWatchLinkSummary = {
 
 export type LaunchSocialPostSummary = {
   id: string;
+  kind: 'matched' | 'feed';
   platform: string;
   url: string;
+  postId?: string | null;
+  handle?: string | null;
+  matchedAt?: string | null;
   title: string;
   subtitle?: string | null;
   description?: string | null;
@@ -50,18 +54,35 @@ export type LaunchResourceLinks = {
 };
 
 export type LaunchPayloadSummary = {
+  id: string;
+  kind: 'payload' | 'spacecraft';
   name: string;
-  type: string | null;
-  mass: number | null;
-  orbit: string | null;
+  subtitle: string | null;
+  destination: string | null;
+  deploymentStatus: string | null;
   operator: string | null;
+  manufacturer: string | null;
   description: string | null;
+  landingSummary: string | null;
+  dockingSummary: string | null;
+  infoUrl: string | null;
+  wikiUrl: string | null;
+};
+
+export type LaunchInventoryObjectSummary = {
+  id: string;
+  title: string;
+  subtitle: string | null;
+  lines: string[];
 };
 
 export type LaunchObjectInventorySummary = {
-  manifestedCount: number;
-  trackedCount: number;
+  totalObjectCount: number;
+  payloadObjectCount: number;
+  nonPayloadObjectCount: number;
   summaryBadges: string[];
+  payloadObjects: LaunchInventoryObjectSummary[];
+  nonPayloadObjects: LaunchInventoryObjectSummary[];
 };
 
 export type LaunchRecoverySummary = {
@@ -74,11 +95,9 @@ export type LaunchRecoverySummary = {
   } | null;
 };
 
-export type LaunchMissionStatsSummary = {
-  vehicleFlightCount: number | null;
-  providerFlightCount: number | null;
-  successRate: number | null;
-};
+export type LaunchMissionStatsSummary = NonNullable<LaunchDetailV1['missionStats']>;
+
+export type LaunchVehicleTimelineSummary = NonNullable<LaunchDetailV1['vehicleTimeline']>[number];
 
 export type LaunchMediaItem = {
   type?: string | null;
@@ -155,14 +174,6 @@ function normalizeCrewMember(member: unknown): LaunchCrewSummary | null {
     role: readString(member, 'role') ?? readString(member, 'type') ?? 'Crew member',
     nationality: readString(member, 'nationality') ?? 'Unknown'
   };
-}
-
-function parsePercent(value: string | null | undefined): number | null {
-  if (!value) return null;
-  const match = value.match(/(\d+(?:\.\d+)?)%/);
-  if (!match) return null;
-  const parsed = Number(match[1]);
-  return Number.isFinite(parsed) ? parsed / 100 : null;
 }
 
 function findResourceUrl(
@@ -259,8 +270,12 @@ export function getLaunchSocialPosts(detail: LaunchDetailV1): LaunchSocialPostSu
   if (matchedPost) {
     rows.push({
       id: matchedPost.url,
+      kind: 'matched',
       platform: matchedPost.platform,
       url: matchedPost.url,
+      postId: matchedPost.postId ?? null,
+      handle: matchedPost.handle ?? null,
+      matchedAt: matchedPost.matchedAt ?? null,
       title: matchedPost.title,
       subtitle: matchedPost.subtitle ?? null,
       description: matchedPost.description ?? null
@@ -269,8 +284,12 @@ export function getLaunchSocialPosts(detail: LaunchDetailV1): LaunchSocialPostSu
   for (const feed of detail.social?.providerFeeds ?? []) {
     rows.push({
       id: feed.id,
+      kind: 'feed',
       platform: feed.platform,
       url: feed.url,
+      postId: null,
+      handle: feed.handle ?? null,
+      matchedAt: null,
       title: feed.title,
       subtitle: feed.subtitle ?? null,
       description: feed.description ?? null
@@ -293,22 +312,44 @@ export function getLaunchUpdates(detail: LaunchDetailV1): LaunchUpdateSummary[] 
 
 export function getLaunchPayloadManifest(detail: LaunchDetailV1): LaunchPayloadSummary[] {
   return detail.payloadManifest.map((payload) => ({
+    id: payload.id,
+    kind: payload.kind,
     name: payload.title,
-    type: payload.kind ?? null,
-    mass: null,
-    orbit: payload.destination ?? null,
+    subtitle: payload.subtitle ?? null,
+    destination: payload.destination ?? null,
+    deploymentStatus: payload.deploymentStatus ?? null,
     operator: payload.operator ?? null,
-    description: payload.description ?? null
+    manufacturer: payload.manufacturer ?? null,
+    description: payload.description ?? null,
+    landingSummary: payload.landingSummary ?? null,
+    dockingSummary: payload.dockingSummary ?? null,
+    infoUrl: payload.infoUrl ?? null,
+    wikiUrl: payload.wikiUrl ?? null
   }));
 }
 
 export function getLaunchObjectInventory(detail: LaunchDetailV1): LaunchObjectInventorySummary | null {
   if (!detail.objectInventory) return null;
-  const manifestedCount = detail.objectInventory.payloadObjects.length + detail.objectInventory.nonPayloadObjects.length;
+  const payloadObjects = detail.objectInventory.payloadObjects.map((item) => ({
+    id: item.id,
+    title: item.title,
+    subtitle: item.subtitle ?? null,
+    lines: item.lines ?? []
+  }));
+  const nonPayloadObjects = detail.objectInventory.nonPayloadObjects.map((item) => ({
+    id: item.id,
+    title: item.title,
+    subtitle: item.subtitle ?? null,
+    lines: item.lines ?? []
+  }));
+  const totalObjectCount = payloadObjects.length + nonPayloadObjects.length;
   return {
-    manifestedCount,
-    trackedCount: manifestedCount,
-    summaryBadges: detail.objectInventory.summaryBadges
+    totalObjectCount,
+    payloadObjectCount: payloadObjects.length,
+    nonPayloadObjectCount: nonPayloadObjects.length,
+    summaryBadges: detail.objectInventory.summaryBadges,
+    payloadObjects,
+    nonPayloadObjects
   };
 }
 
@@ -333,18 +374,9 @@ export function getLaunchRecovery(detail: LaunchDetailV1): LaunchRecoverySummary
 }
 
 export function getLaunchMissionStats(detail: LaunchDetailV1): LaunchMissionStatsSummary | null {
-  if (!detail.missionStats) return null;
-  const providerCard = detail.missionStats.cards.find((card) => card.id === 'provider');
-  const vehicleCard = detail.missionStats.cards.find((card) => card.id === 'rocket');
-  const reliabilityInsight = detail.missionStats.bonusInsights.find((insight) => /reliability/i.test(insight.label));
-  const summary: LaunchMissionStatsSummary = {
-    vehicleFlightCount: vehicleCard?.allTime ?? null,
-    providerFlightCount: providerCard?.allTime ?? null,
-    successRate: parsePercent(reliabilityInsight?.value)
-  };
-  return summary.vehicleFlightCount !== null || summary.providerFlightCount !== null || summary.successRate !== null
-    ? summary
-    : null;
+  const stats = detail.missionStats;
+  if (!stats) return null;
+  return stats.cards.length > 0 || stats.boosterCards.length > 0 || stats.bonusInsights.length > 0 ? stats : null;
 }
 
 export function getLaunchMedia(detail: LaunchDetailV1): LaunchMediaItem[] {
@@ -405,6 +437,10 @@ export function getLaunchResourceLinks(detail: LaunchDetailV1): LaunchResourceLi
   ]);
   if (!pressKit && !missionPage) return null;
   return { pressKit, missionPage };
+}
+
+export function getLaunchVehicleTimeline(detail: LaunchDetailV1): LaunchVehicleTimelineSummary[] {
+  return detail.vehicleTimeline ?? [];
 }
 
 export function getLaunchHeroModel(detail: LaunchDetailV1): LaunchHeroModel {

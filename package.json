@@ -70,6 +70,8 @@
     "test:mobile-security-guard": "TS_NODE_TRANSPILE_ONLY=1 node --loader ts-node/esm scripts/mobile-security-guard.mts",
     "test:browser-supabase-guard": "node scripts/browser-supabase-guard.cjs",
     "test:shared-domain": "TS_NODE_TRANSPILE_ONLY=1 node --experimental-specifier-resolution=node --loader ts-node/esm scripts/shared-domain-smoke.mts",
+    "test:ws45-corpus": "ts-node --project tsconfig.scripts.json --transpile-only -r tsconfig-paths/register scripts/ws45-corpus-smoke.ts",
+    "test:ws45-monitoring": "ts-node --project tsconfig.scripts.json --transpile-only -r tsconfig-paths/register scripts/ws45-monitoring-guard.ts",
     "test:phase3-web-guard": "TS_NODE_TRANSPILE_ONLY=1 node --loader ts-node/esm scripts/phase3-web-closeout-guard.mts",
     "test:web-regression": "TS_NODE_TRANSPILE_ONLY=1 node --loader ts-node/esm scripts/web-regression-smoke.mts",
     "test:billing-regression": "ts-node --project tsconfig.scripts.json --transpile-only -r tsconfig-paths/register scripts/billing-regression-smoke.ts",

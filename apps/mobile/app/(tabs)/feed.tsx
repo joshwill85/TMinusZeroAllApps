@@ -2025,10 +2025,10 @@ export default function FeedScreen() {
         }
         message={
           canUseSavedItems
-            ? 'Following keeps matching launches in your saved list and related notifications can be tuned from Preferences.'
+            ? 'Following keeps matching launches in your saved list, and launch alerts live in the Notifications tab for this launch.'
             : canUseAllUsLaunchAlerts
-              ? 'Public access keeps one launch reminder slot on this device. Manage All U.S. launches from Preferences. Premium adds synced follows across broader scopes.'
-              : 'Public access keeps one launch reminder slot on this device. Premium adds synced follows across broader scopes.'
+              ? 'Public access keeps one launch reminder slot on this device. Manage this launch in the Notifications tab and All U.S. launches from Preferences. Premium adds synced follows across broader scopes.'
+              : 'Public access keeps one launch reminder slot on this device. Manage launch alerts from the Notifications tab here. Premium adds synced follows across broader scopes.'
         }
         onClose={() => setFollowLaunch(null)}
       />

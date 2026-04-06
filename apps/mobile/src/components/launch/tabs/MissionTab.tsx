@@ -1,7 +1,11 @@
 import React from 'react';
-import { View, Text, ScrollView } from 'react-native';
+import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import type { MobileTheme } from '@tminuszero/design-tokens';
-import type { MissionTabData } from '@tminuszero/launch-detail-ui';
+import type {
+  LaunchInventoryObjectSummary,
+  LaunchPayloadSummary,
+  MissionTabData
+} from '@tminuszero/launch-detail-ui';
 
 type MissionTabProps = {
   data: MissionTabData;
@@ -9,12 +13,19 @@ type MissionTabProps = {
 };
 
 export function MissionTab({ data, theme }: MissionTabProps) {
+  const hasInventory = Boolean(
+    data.objectInventory &&
+      (data.objectInventory.summaryBadges.length > 0 ||
+        data.objectInventory.payloadObjects.length > 0 ||
+        data.objectInventory.nonPayloadObjects.length > 0)
+  );
   const hasContent =
     data.missionOverview.description ||
     data.payloadManifest.length > 0 ||
     data.crew.length > 0 ||
     data.programs.length > 0 ||
-    data.blueOriginDetails;
+    data.blueOriginDetails ||
+    hasInventory;
 
   if (!hasContent) {
     return (
@@ -32,16 +43,13 @@ export function MissionTab({ data, theme }: MissionTabProps) {
 
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 24 }}>
-      {/* Mission Overview */}
       {(data.missionOverview.description || data.missionOverview.customer) && (
         <SectionCard theme={theme}>
           <SectionTitle theme={theme}>Mission Overview</SectionTitle>
 
           {data.missionOverview.customer && (
             <View style={{ marginBottom: 12 }}>
-              <Text style={{ fontSize: 12, color: theme.muted, marginBottom: 4 }}>
-                Customer
-              </Text>
+              <Text style={{ fontSize: 12, color: theme.muted, marginBottom: 4 }}>Customer</Text>
               <Text style={{ fontSize: 16, fontWeight: '700', color: theme.accent }}>
                 {data.missionOverview.customer}
               </Text>
@@ -56,105 +64,78 @@ export function MissionTab({ data, theme }: MissionTabProps) {
         </SectionCard>
       )}
 
-      {/* Payload Manifest */}
       {data.payloadManifest.length > 0 && (
         <SectionCard theme={theme}>
-          <SectionTitle theme={theme}>
-            Payload Manifest ({data.payloadManifest.length})
-          </SectionTitle>
+          <SectionTitle theme={theme}>Payload Manifest ({data.payloadManifest.length})</SectionTitle>
           <View style={{ gap: 12 }}>
-            {data.payloadManifest.map((payload, idx) => (
-              <View
-                key={idx}
-                style={{
-                  padding: 16,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: theme.stroke,
-                  backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                }}
-              >
-                <Text style={{ fontSize: 15, fontWeight: '700', color: theme.foreground, marginBottom: 8 }}>
-                  {payload.name || `Payload ${idx + 1}`}
-                </Text>
-
-                <View style={{ gap: 6 }}>
-                  {payload.type && (
-                    <PayloadDetail label="Type" value={payload.type} theme={theme} />
-                  )}
-                  {payload.mass && (
-                    <PayloadDetail label="Mass" value={`${payload.mass} kg`} theme={theme} />
-                  )}
-                  {payload.orbit && (
-                    <PayloadDetail label="Orbit" value={payload.orbit} theme={theme} />
-                  )}
-                  {payload.operator && (
-                    <PayloadDetail label="Operator" value={payload.operator} theme={theme} />
-                  )}
-                </View>
-
-                {payload.description && (
-                  <Text style={{ fontSize: 13, color: theme.muted, marginTop: 8, lineHeight: 18 }}>
-                    {payload.description}
-                  </Text>
-                )}
-              </View>
+            {data.payloadManifest.map((payload) => (
+              <PayloadCard key={payload.id} payload={payload} theme={theme} />
             ))}
           </View>
         </SectionCard>
       )}
 
-      {/* Object Inventory */}
-      {data.objectInventory && (
-        <SectionCard theme={theme}>
-          <SectionTitle theme={theme}>Satellite Tracking</SectionTitle>
+      {data.objectInventory && hasInventory && (
+        <>
+          <SectionCard theme={theme}>
+            <SectionTitle theme={theme}>Launch Object Inventory</SectionTitle>
+            <View style={{ gap: 12 }}>
+              {data.objectInventory.totalObjectCount > 0 && (
+                <InventoryStatRow
+                  label="Tracked objects"
+                  value={String(data.objectInventory.totalObjectCount)}
+                  theme={theme}
+                  emphasize
+                />
+              )}
+              {data.objectInventory.payloadObjectCount > 0 && (
+                <InventoryStatRow
+                  label="Payload objects"
+                  value={String(data.objectInventory.payloadObjectCount)}
+                  theme={theme}
+                />
+              )}
+              {data.objectInventory.nonPayloadObjectCount > 0 && (
+                <InventoryStatRow
+                  label="Other objects"
+                  value={String(data.objectInventory.nonPayloadObjectCount)}
+                  theme={theme}
+                />
+              )}
+            </View>
 
-          <View style={{ gap: 12 }}>
-            {data.objectInventory.manifestedCount > 0 && (
-              <View
-                style={{
-                  flexDirection: 'row',
-                  justifyContent: 'space-between',
-                  paddingVertical: 12,
-                  borderBottomWidth: 1,
-                  borderBottomColor: 'rgba(255, 255, 255, 0.05)',
-                }}
-              >
-                <Text style={{ fontSize: 14, color: theme.muted }}>
-                  Manifested Objects
-                </Text>
-                <Text style={{ fontSize: 14, fontWeight: '700', color: theme.accent }}>
-                  {data.objectInventory.manifestedCount}
-                </Text>
+            {data.objectInventory.summaryBadges.length > 0 && (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 16 }}>
+                {data.objectInventory.summaryBadges.map((badge) => (
+                  <InventoryBadge key={badge} label={badge} theme={theme} />
+                ))}
               </View>
             )}
+          </SectionCard>
 
-            {data.objectInventory.trackedCount > 0 && (
-              <View
-                style={{
-                  flexDirection: 'row',
-                  justifyContent: 'space-between',
-                  paddingVertical: 12,
-                }}
-              >
-                <Text style={{ fontSize: 14, color: theme.muted }}>
-                  Tracked Objects
-                </Text>
-                <Text style={{ fontSize: 14, fontWeight: '700', color: theme.foreground }}>
-                  {data.objectInventory.trackedCount}
-                </Text>
-              </View>
-            )}
-          </View>
-        </SectionCard>
+          {data.objectInventory.payloadObjects.length > 0 && (
+            <SectionCard theme={theme}>
+              <SectionTitle theme={theme}>
+                Tracked Payload Objects ({data.objectInventory.payloadObjects.length})
+              </SectionTitle>
+              <ObjectInventoryList items={data.objectInventory.payloadObjects} theme={theme} />
+            </SectionCard>
+          )}
+
+          {data.objectInventory.nonPayloadObjects.length > 0 && (
+            <SectionCard theme={theme}>
+              <SectionTitle theme={theme}>
+                Other Tracked Objects ({data.objectInventory.nonPayloadObjects.length})
+              </SectionTitle>
+              <ObjectInventoryList items={data.objectInventory.nonPayloadObjects} theme={theme} />
+            </SectionCard>
+          )}
+        </>
       )}
 
-      {/* Crew Roster */}
       {data.crew.length > 0 && (
         <SectionCard theme={theme}>
-          <SectionTitle theme={theme}>
-            Crew ({data.crew.length})
-          </SectionTitle>
+          <SectionTitle theme={theme}>Crew ({data.crew.length})</SectionTitle>
           <View style={{ gap: 16 }}>
             {data.crew.map((member, idx) => (
               <View
@@ -167,35 +148,27 @@ export function MissionTab({ data, theme }: MissionTabProps) {
                   borderRadius: 12,
                   borderWidth: 1,
                   borderColor: theme.stroke,
-                  backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                  backgroundColor: 'rgba(255, 255, 255, 0.03)'
                 }}
               >
-                {/* Avatar Placeholder */}
                 <View
                   style={{
                     width: 56,
                     height: 56,
                     borderRadius: 28,
-                    backgroundColor: theme.accent + '20',
+                    backgroundColor: `${theme.accent}20`,
                     justifyContent: 'center',
-                    alignItems: 'center',
+                    alignItems: 'center'
                   }}
                 >
                   <Text style={{ fontSize: 24 }}>👨‍🚀</Text>
                 </View>
 
-                {/* Crew Info */}
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 15, fontWeight: '700', color: theme.foreground }}>
-                    {member.name}
-                  </Text>
-                  <Text style={{ fontSize: 13, color: theme.accent, marginTop: 2 }}>
-                    {member.role}
-                  </Text>
+                  <Text style={{ fontSize: 15, fontWeight: '700', color: theme.foreground }}>{member.name}</Text>
+                  <Text style={{ fontSize: 13, color: theme.accent, marginTop: 2 }}>{member.role}</Text>
                   {member.nationality && (
-                    <Text style={{ fontSize: 12, color: theme.muted, marginTop: 4 }}>
-                      {member.nationality}
-                    </Text>
+                    <Text style={{ fontSize: 12, color: theme.muted, marginTop: 4 }}>{member.nationality}</Text>
                   )}
                 </View>
               </View>
@@ -204,7 +177,6 @@ export function MissionTab({ data, theme }: MissionTabProps) {
         </SectionCard>
       )}
 
-      {/* Blue Origin Details */}
       {data.blueOriginDetails && (
         <SectionCard theme={theme}>
           <SectionTitle theme={theme}>Blue Origin Details</SectionTitle>
@@ -221,7 +193,7 @@ export function MissionTab({ data, theme }: MissionTabProps) {
                       padding: 12,
                       borderRadius: 8,
                       backgroundColor: 'rgba(255, 255, 255, 0.02)',
-                      marginBottom: 8,
+                      marginBottom: 8
                     }}
                   >
                     <Text style={{ fontSize: 14, fontWeight: '600', color: theme.foreground }}>
@@ -246,7 +218,6 @@ export function MissionTab({ data, theme }: MissionTabProps) {
         </SectionCard>
       )}
 
-      {/* Programs */}
       {data.programs.length > 0 && (
         <SectionCard theme={theme}>
           <SectionTitle theme={theme}>Programs</SectionTitle>
@@ -259,7 +230,7 @@ export function MissionTab({ data, theme }: MissionTabProps) {
                   borderRadius: 12,
                   borderWidth: 1,
                   borderColor: theme.stroke,
-                  backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                  backgroundColor: 'rgba(255, 255, 255, 0.03)'
                 }}
               >
                 <Text style={{ fontSize: 15, fontWeight: '700', color: theme.foreground, marginBottom: 4 }}>
@@ -279,7 +250,91 @@ export function MissionTab({ data, theme }: MissionTabProps) {
   );
 }
 
-// Helper Components
+function PayloadCard({ payload, theme }: { payload: LaunchPayloadSummary; theme: MobileTheme }) {
+  const secondaryOperator =
+    payload.manufacturer && payload.manufacturer !== payload.operator ? payload.manufacturer : null;
+
+  return (
+    <View
+      style={{
+        padding: 16,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: theme.stroke,
+        backgroundColor: 'rgba(255, 255, 255, 0.03)'
+      }}
+    >
+      <Text style={{ fontSize: 15, fontWeight: '700', color: theme.foreground }}>{payload.name}</Text>
+      {payload.subtitle ? (
+        <Text style={{ fontSize: 13, color: theme.accent, marginTop: 4 }}>{payload.subtitle}</Text>
+      ) : null}
+
+      <View style={{ gap: 6, marginTop: 10 }}>
+        {payload.destination ? <PayloadDetail label="Destination" value={payload.destination} theme={theme} /> : null}
+        {payload.deploymentStatus ? (
+          <PayloadDetail label="Deployment" value={formatDeploymentStatus(payload.deploymentStatus)} theme={theme} />
+        ) : null}
+        {payload.operator ? <PayloadDetail label="Operator" value={payload.operator} theme={theme} /> : null}
+        {secondaryOperator ? <PayloadDetail label="Manufacturer" value={secondaryOperator} theme={theme} /> : null}
+      </View>
+
+      {payload.description ? (
+        <Text style={{ fontSize: 13, color: theme.muted, marginTop: 10, lineHeight: 18 }}>
+          {payload.description}
+        </Text>
+      ) : null}
+
+      {payload.landingSummary ? (
+        <Text style={{ fontSize: 12, color: theme.muted, marginTop: 10 }}>{payload.landingSummary}</Text>
+      ) : null}
+
+      {payload.dockingSummary ? (
+        <Text style={{ fontSize: 12, color: theme.muted, marginTop: 4 }}>{payload.dockingSummary}</Text>
+      ) : null}
+
+      {(payload.infoUrl || payload.wikiUrl) && (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 12 }}>
+          {payload.infoUrl ? <LinkAction label="Mission info" href={payload.infoUrl} theme={theme} /> : null}
+          {payload.wikiUrl ? <LinkAction label="Reference" href={payload.wikiUrl} theme={theme} muted /> : null}
+        </View>
+      )}
+    </View>
+  );
+}
+
+function ObjectInventoryList({
+  items,
+  theme
+}: {
+  items: LaunchInventoryObjectSummary[];
+  theme: MobileTheme;
+}) {
+  return (
+    <View style={{ gap: 8 }}>
+      {items.map((item) => (
+        <View
+          key={item.id}
+          style={{
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: theme.stroke,
+            backgroundColor: 'rgba(255, 255, 255, 0.03)',
+            padding: 12,
+            gap: 4
+          }}
+        >
+          <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>{item.title}</Text>
+          {item.subtitle ? <Text style={{ color: theme.muted, fontSize: 12 }}>{item.subtitle}</Text> : null}
+          {item.lines.map((line) => (
+            <Text key={`${item.id}:${line}`} style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
+              {line}
+            </Text>
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+}
 
 function SectionCard({ children, theme }: { children: React.ReactNode; theme: MobileTheme }) {
   return (
@@ -289,7 +344,7 @@ function SectionCard({ children, theme }: { children: React.ReactNode; theme: Mo
         borderRadius: 16,
         borderWidth: 1,
         borderColor: theme.stroke,
-        backgroundColor: 'rgba(255, 255, 255, 0.02)',
+        backgroundColor: 'rgba(255, 255, 255, 0.02)'
       }}
     >
       {children}
@@ -306,7 +361,7 @@ function SectionTitle({ children, theme }: { children: React.ReactNode; theme: M
         color: theme.foreground,
         marginBottom: 16,
         textTransform: 'uppercase',
-        letterSpacing: 0.5,
+        letterSpacing: 0.5
       }}
     >
       {children}
@@ -317,12 +372,84 @@ function SectionTitle({ children, theme }: { children: React.ReactNode; theme: M
 function PayloadDetail({ label, value, theme }: { label: string; value: string; theme: MobileTheme }) {
   return (
     <View style={{ flexDirection: 'row', gap: 8 }}>
-      <Text style={{ fontSize: 12, color: theme.muted, minWidth: 60 }}>
-        {label}:
-      </Text>
-      <Text style={{ fontSize: 12, color: theme.foreground, fontWeight: '600', flex: 1 }}>
+      <Text style={{ fontSize: 12, color: theme.muted, minWidth: 84 }}>{label}:</Text>
+      <Text style={{ fontSize: 12, color: theme.foreground, fontWeight: '600', flex: 1 }}>{value}</Text>
+    </View>
+  );
+}
+
+function InventoryStatRow({
+  label,
+  value,
+  theme,
+  emphasize = false
+}: {
+  label: string;
+  value: string;
+  theme: MobileTheme;
+  emphasize?: boolean;
+}) {
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: 'rgba(255, 255, 255, 0.05)'
+      }}
+    >
+      <Text style={{ fontSize: 14, color: theme.muted }}>{label}</Text>
+      <Text style={{ fontSize: 14, fontWeight: '700', color: emphasize ? theme.accent : theme.foreground }}>
         {value}
       </Text>
     </View>
   );
+}
+
+function InventoryBadge({ label, theme }: { label: string; theme: MobileTheme }) {
+  return (
+    <View
+      style={{
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: theme.stroke,
+        backgroundColor: 'rgba(255, 255, 255, 0.03)'
+      }}
+    >
+      <Text style={{ fontSize: 11, fontWeight: '600', color: theme.foreground }}>{label}</Text>
+    </View>
+  );
+}
+
+function LinkAction({
+  label,
+  href,
+  theme,
+  muted = false
+}: {
+  label: string;
+  href: string;
+  theme: MobileTheme;
+  muted?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={() => {
+        void Linking.openURL(href);
+      }}
+    >
+      <Text style={{ color: muted ? theme.muted : theme.accent, fontSize: 12, fontWeight: '700' }}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function formatDeploymentStatus(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'confirmed') return 'Confirmed';
+  if (normalized === 'unconfirmed') return 'Unconfirmed';
+  if (normalized === 'unknown') return 'Unknown';
+  return value;
 }

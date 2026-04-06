@@ -787,6 +787,13 @@ function formatUrlHost(value: string | null | undefined) {
   }
 }
 
+function extractXStatusId(value: string | null | undefined) {
+  const raw = normalizeText(value);
+  if (!raw) return null;
+  const match = raw.match(/\/status\/(\d+)/i);
+  return match?.[1] ? match[1] : null;
+}
+
 function buildGoogleMapsUrl(launch: ReturnType<typeof mapPublicCacheRow>) {
   const latitude = launch.pad?.latitude;
   const longitude = launch.pad?.longitude;
@@ -1034,6 +1041,7 @@ async function fetchWs45Forecast(launchId: string, isEasternRange: boolean) {
       'id, source_label, forecast_kind, pdf_url, issued_at, valid_start, valid_end, mission_name, match_status, match_confidence, forecast_discussion, launch_day_pov_percent, delay_24h_pov_percent, launch_day_primary_concerns, delay_24h_primary_concerns, launch_day, delay_24h'
     )
     .eq('matched_launch_id', launchId)
+    .eq('publish_eligible', true)
     .or('forecast_kind.is.null,forecast_kind.neq.faq')
     .order('issued_at', { ascending: false })
     .order('fetched_at', { ascending: false })
@@ -1447,6 +1455,73 @@ async function fetchRocketOutcomeStats(rocketFullName?: string, vehicle?: string
   return { successAllTime, failureAllTime, successYear, failureYear };
 }
 
+async function fetchVehicleTimelineRows(launch: ReturnType<typeof mapPublicCacheRow>) {
+  if (!isSupabaseConfigured()) return [] as Array<Record<string, any>>;
+  const filters = [launch.vehicle, launch.rocket?.fullName]
+    .map((value) => value?.trim())
+    .filter((value) => value && value.toLowerCase() !== 'unknown') as string[];
+  if (filters.length === 0) return [] as Array<Record<string, any>>;
+
+  const supabase = createSupabaseServerClient();
+  const orFilter = buildVehicleOrFilter(filters);
+  if (!orFilter) return [] as Array<Record<string, any>>;
+
+  const select = 'launch_id, name, mission_name, net, status_name, status_abbrev, vehicle, rocket_full_name';
+  const currentNetMs = launch.net ? Date.parse(launch.net) : NaN;
+  const currentNet = Number.isFinite(currentNetMs) ? launch.net : null;
+
+  if (!currentNet) {
+    const { data, error } = await supabase
+      .from('launches_public_cache')
+      .select(select)
+      .in('pad_country_code', US_PAD_COUNTRY_CODES)
+      .or(orFilter)
+      .order('net', { ascending: false })
+      .limit(24);
+    if (error || !data) return [] as Array<Record<string, any>>;
+    return (data as Array<Record<string, any>>).sort((a, b) => {
+      const aTime = a.net ? Date.parse(a.net) : NaN;
+      const bTime = b.net ? Date.parse(b.net) : NaN;
+      return (Number.isNaN(aTime) ? 0 : aTime) - (Number.isNaN(bTime) ? 0 : bTime);
+    });
+  }
+
+  const [pastResponse, futureResponse] = await Promise.all([
+    supabase
+      .from('launches_public_cache')
+      .select(select)
+      .in('pad_country_code', US_PAD_COUNTRY_CODES)
+      .or(orFilter)
+      .lte('net', currentNet)
+      .order('net', { ascending: false })
+      .limit(18),
+    supabase
+      .from('launches_public_cache')
+      .select(select)
+      .in('pad_country_code', US_PAD_COUNTRY_CODES)
+      .or(orFilter)
+      .gt('net', currentNet)
+      .order('net', { ascending: true })
+      .limit(8)
+  ]);
+
+  const pastRows = pastResponse.error || !pastResponse.data ? [] : (pastResponse.data as Array<Record<string, any>>);
+  const futureRows = futureResponse.error || !futureResponse.data ? [] : (futureResponse.data as Array<Record<string, any>>);
+  const merged = new Map<string, Record<string, any>>();
+
+  for (const row of [...pastRows, ...futureRows]) {
+    const launchId = String(row.launch_id || '').trim();
+    if (!launchId) continue;
+    merged.set(launchId, row);
+  }
+
+  return [...merged.values()].sort((a, b) => {
+    const aTime = a.net ? Date.parse(a.net) : NaN;
+    const bTime = b.net ? Date.parse(b.net) : NaN;
+    return (Number.isNaN(aTime) ? 0 : aTime) - (Number.isNaN(bTime) ? 0 : bTime);
+  });
+}
+
 function formatRate(success: number, total: number) {
   if (total <= 0) return '0%';
   return `${Math.round((success / total) * 100)}%`;
@@ -1589,18 +1664,90 @@ function buildMissionStatsModule(
   return { cards, boosterCards, bonusInsights: bonusInsights.slice(0, 3) };
 }
 
+function buildVehicleTimelineModule(
+  rows: Array<Record<string, any>>,
+  currentLaunch: ReturnType<typeof mapPublicCacheRow>
+) {
+  const items = rows.map((row) => mapVehicleTimelineRow(row, currentLaunch.id));
+  if (!items.some((item) => item.launchId === currentLaunch.id)) {
+    items.push(mapVehicleTimelineFromLaunch(currentLaunch));
+  }
+
+  const unique = new Map<string, (typeof items)[number]>();
+  for (const item of items) {
+    unique.set(item.launchId, item);
+  }
+
+  return [...unique.values()].sort((a, b) => {
+    const aTime = a.date ? Date.parse(a.date) : NaN;
+    const bTime = b.date ? Date.parse(b.date) : NaN;
+    return (Number.isNaN(aTime) ? 0 : aTime) - (Number.isNaN(bTime) ? 0 : bTime);
+  });
+}
+
+function mapVehicleTimelineRow(row: Record<string, any>, currentLaunchId: string) {
+  const statusLabel = normalizeText(row.status_abbrev || row.status_name);
+  const launchId = String(row.launch_id || '').trim();
+  return {
+    id: launchId || `${String(row.mission_name || row.name || 'launch').trim()}:${String(row.net || '').trim()}`,
+    launchId: launchId || currentLaunchId,
+    missionName: normalizeText(row.mission_name || row.name) || 'Launch',
+    date: normalizeText(row.net),
+    status: inferVehicleTimelineStatus(statusLabel, normalizeText(row.net)),
+    statusLabel,
+    vehicleName: normalizeText(row.rocket_full_name || row.vehicle),
+    isCurrent: launchId === currentLaunchId
+  };
+}
+
+function mapVehicleTimelineFromLaunch(launch: ReturnType<typeof mapPublicCacheRow>) {
+  return {
+    id: launch.id,
+    launchId: launch.id,
+    missionName: normalizeText(launch.mission?.name || launch.name) || 'Launch',
+    date: normalizeText(launch.net),
+    status: inferVehicleTimelineStatus(normalizeText(launch.statusText), normalizeText(launch.net)),
+    statusLabel: normalizeText(launch.statusText),
+    vehicleName: normalizeText(launch.rocket?.fullName || launch.vehicle),
+    isCurrent: true
+  };
+}
+
+function inferVehicleTimelineStatus(statusLabel?: string | null, netIso?: string | null) {
+  const normalized = String(statusLabel || '').toLowerCase();
+  if (normalized.includes('success')) return 'success' as const;
+  if (normalized.includes('failure') || normalized.includes('fail') || normalized.includes('scrub') || normalized.includes('abort')) {
+    return 'failure' as const;
+  }
+  if (normalized.includes('hold') || normalized.includes('tbd') || normalized.includes('go')) return 'upcoming' as const;
+  if (netIso) {
+    const netMs = Date.parse(netIso);
+    if (Number.isFinite(netMs) && netMs > Date.now()) return 'upcoming' as const;
+  }
+  return 'failure' as const;
+}
+
 function buildSocialModule(launch: ReturnType<typeof mapPublicCacheRow>) {
   const matchedPostUrl = normalizeUrlString(launch.socialPrimaryPostUrl || launch.spacexXPostUrl);
+  const matchedPostId =
+    normalizeText(launch.socialPrimaryPostId || launch.spacexXPostId) || extractXStatusId(matchedPostUrl);
   const matchedPostHandle = normalizeText(launch.socialPrimaryPostHandle) ||
     (matchedPostUrl ? `@${formatUrlHost(matchedPostUrl)?.split('.')[0] || ''}` : null);
   const matchedPost =
-    matchedPostUrl && ((launch.socialPrimaryPostPlatform || '').toLowerCase() === 'x' || launch.spacexXPostUrl)
+    (matchedPostUrl || matchedPostId) && ((launch.socialPrimaryPostPlatform || '').toLowerCase() === 'x' || launch.spacexXPostUrl)
       ? {
           platform: 'x' as const,
           title: 'Matched post on X',
           subtitle: matchedPostHandle,
           description: `Official post matched to this launch.`,
-          url: matchedPostUrl,
+          url:
+            matchedPostUrl ||
+            (matchedPostId && matchedPostHandle
+              ? `https://x.com/${encodeURIComponent(matchedPostHandle.replace(/^@+/, ''))}/status/${encodeURIComponent(matchedPostId)}`
+              : matchedPostId
+                ? `https://x.com/i/web/status/${encodeURIComponent(matchedPostId)}`
+                : ''),
+          postId: matchedPostId,
           handle: matchedPostHandle,
           matchedAt: normalizeText(launch.socialPrimaryPostMatchedAt || launch.spacexXPostCapturedAt)
         }
@@ -3260,6 +3407,7 @@ export async function loadLaunchDetailPayload(id: string, session: ResolvedViewe
     objectInventory,
     rocketStats,
     boosterStats,
+    vehicleTimelineRows,
     ll2SpacecraftFlights,
     blueOriginPassengers,
     blueOriginPayloads,
@@ -3269,7 +3417,7 @@ export async function loadLaunchDetailPayload(id: string, session: ResolvedViewe
     loadRelatedLaunchResults(launch.id),
     fetchLaunchDetailEnrichment(launch.id, launch.ll2Id),
     fetchLaunchJepScore(launch.id, { viewerIsAdmin: session.role === 'admin' }),
-    fetchLaunchFaaAirspace({ launchId: launch.id, limit: 4 }),
+    fetchLaunchFaaAirspace({ launchId: launch.id, limit: 6 }),
     loadArTrajectorySummary(launch.id),
     loadRelatedNewsItems(launch.id),
     loadRelatedEventItems(launch.id),
@@ -3279,6 +3427,7 @@ export async function loadLaunchDetailPayload(id: string, session: ResolvedViewe
     fetchLaunchObjectInventory(launch.ll2Id),
     fetchRocketOutcomeStats(launch.rocket?.fullName, launch.vehicle),
     fetchLaunchBoosterStats(launch.id, launch.ll2Id),
+    fetchVehicleTimelineRows(launch),
     blueOriginMissionKey ? loadLl2SpacecraftFlights(launch.ll2Id) : Promise.resolve([]),
     blueOriginMissionKey ? fetchBlueOriginPassengersDatabaseOnly(blueOriginMissionKey) : Promise.resolve(null),
     blueOriginMissionKey ? fetchBlueOriginPayloads(blueOriginMissionKey) : Promise.resolve(null),
@@ -3299,6 +3448,7 @@ export async function loadLaunchDetailPayload(id: string, session: ResolvedViewe
   };
   const social = buildSocialModule(launch);
   const missionStats = buildMissionStatsModule(launch, rocketStats, boosterStats);
+  const vehicleTimeline = buildVehicleTimelineModule(vehicleTimelineRows, launch);
   const blueOriginDetail = buildBlueOriginModule(
     launch,
     blueOriginPassengers,
@@ -3370,6 +3520,7 @@ export async function loadLaunchDetailPayload(id: string, session: ResolvedViewe
     objectInventory: buildObjectInventoryModule(objectInventory),
     launchUpdates: buildLaunchUpdatesModule(launch),
     missionStats,
+    vehicleTimeline,
     blueOrigin: blueOriginDetail.blueOrigin
   });
 }

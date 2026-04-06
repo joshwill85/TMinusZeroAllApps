@@ -117,6 +117,12 @@ export default function AdminOverviewPage() {
                 Ops
               </Link>
               <Link
+                href="/admin/ws45"
+                className="btn-secondary rounded-lg border border-stroke px-3 py-2 text-sm text-text1 hover:border-primary"
+              >
+                WS45
+              </Link>
+              <Link
                 href="/admin/users"
                 className="btn-secondary rounded-lg border border-stroke px-3 py-2 text-sm text-text1 hover:border-primary"
               >
@@ -197,4 +203,3 @@ export default function AdminOverviewPage() {
     </div>
   );
 }
-

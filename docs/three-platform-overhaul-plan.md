@@ -76,6 +76,10 @@ Related implementation plans:
 
 ## Current Slice Tracker
 
+- 2026-04-05: Launch detail three-surface refinement is in progress for `Web`, `iOS`, and `Android`.
+  - Source-of-truth plan: `docs/2026-04-05-launch-detail-three-surface-implementation-plan.md`
+  - Scope: refactor launch detail chrome, move launch notifications into the follow flow, widen reminder options, gate notification controls on native push enablement, clean up entity linking, de-dup mission profile media, and make mission timelines explicitly `T-` or `T+`.
+  - Guardrails: no breaking `/api/v1` changes, keep platform-native navigation and permission UX, preserve AR premium gating, and keep feed/detail shared notification behavior aligned where they share components.
 - 2026-04-04: Anti-ingestion hardening is in progress for `Web`, `iOS`, and `Android`.
   - Source-of-truth plan: `docs/2026-04-04-anti-ingestion-hardening-plan.md`
   - Scope: keep SEO HTML public, issue first-party browser proof for site-driven JSON, add a mobile guest bootstrap token, move server product-data reads onto server-owned Supabase clients, and revoke the highest-value external Supabase integration surfaces.

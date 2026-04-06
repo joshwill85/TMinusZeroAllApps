@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { href: '/admin/access', label: 'Access' },
   { href: '/admin/usaspending', label: 'USASpending' },
   { href: '/admin/ops', label: 'Ops' },
+  { href: '/admin/ws45', label: 'WS45' },
   { href: '/admin/users', label: 'Users' },
   { href: '/admin/billing', label: 'Billing' },
   { href: '/admin/coupons', label: 'Discounts' },

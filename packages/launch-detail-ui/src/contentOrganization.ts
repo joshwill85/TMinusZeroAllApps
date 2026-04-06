@@ -18,6 +18,7 @@ import {
   getLaunchResourceLinks,
   getLaunchSocialPosts,
   getLaunchUpdates,
+  getLaunchVehicleTimeline,
   getLaunchVehicle,
   getLaunchWatchLinks,
   getLaunchWeatherSummary,
@@ -33,6 +34,7 @@ import {
   type LaunchResourceLinks,
   type LaunchSocialPostSummary,
   type LaunchUpdateSummary,
+  type LaunchVehicleTimelineSummary,
   type LaunchWatchLinkSummary
 } from './detailModel';
 
@@ -77,6 +79,7 @@ export interface OverviewTabData {
 
 export interface LiveTabData {
   launchId: string;
+  padTimezone: string;
   hasJepScore: boolean;
   webcastEmbed: {
     url: string | null;
@@ -127,9 +130,6 @@ export interface VehicleTabData {
     fuel: string | null;
   }>;
   recovery: LaunchRecoverySummary | null;
-  boosterHistory: Array<{
-    date: string | null;
-  }>;
   missionStats: LaunchMissionStatsSummary | null;
 }
 
@@ -138,11 +138,7 @@ export interface RelatedTabData {
   events: LaunchEventSummary[];
   media: LaunchMediaItem[];
   resources: LaunchResourceLinks | null;
-  vehicleTimeline: Array<{
-    mission: string;
-    date: string | null;
-    success?: boolean;
-  }>;
+  vehicleTimeline: LaunchVehicleTimelineSummary[];
 }
 
 export function extractOverviewData(detail: LaunchDetailV1): OverviewTabData {
@@ -186,10 +182,12 @@ export function extractOverviewData(detail: LaunchDetailV1): OverviewTabData {
 }
 
 export function extractLiveData(detail: LaunchDetailV1): LiveTabData {
+  const launch = getLaunchData(detail);
   const watchLinks = getLaunchWatchLinks(detail);
 
   return {
     launchId: detail.launch.id,
+    padTimezone: launch?.pad?.timezone ?? 'UTC',
     hasJepScore: detail.enrichment.hasJepScore,
     webcastEmbed: {
       url: watchLinks[0]?.url ?? null,
@@ -252,7 +250,6 @@ export function extractVehicleData(detail: LaunchDetailV1): VehicleTabData {
       fuel: null
     })),
     recovery: getLaunchRecovery(detail),
-    boosterHistory: [],
     missionStats: getLaunchMissionStats(detail)
   };
 }
@@ -263,7 +260,7 @@ export function extractRelatedData(detail: LaunchDetailV1): RelatedTabData {
     events: getLaunchEvents(detail),
     media: getLaunchMedia(detail),
     resources: getLaunchResourceLinks(detail),
-    vehicleTimeline: []
+    vehicleTimeline: getLaunchVehicleTimeline(detail)
   };
 }
 

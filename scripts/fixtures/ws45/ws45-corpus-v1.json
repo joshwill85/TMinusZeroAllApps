@@ -1,0 +1,149 @@
+{
+  "seed": "ws45-live-corpus-v1-2026-04-05",
+  "notes": "Representative real WS45 raw-text fixtures from stored live forecasts spanning healthy January 2026 output and the March-April 2026 drift families that broke production parsing.",
+  "cases": [
+    {
+      "id": "baseline-spaced-date",
+      "family": "legacy_spaced_full_month_year",
+      "sourceLabel": "Falcon 9 Starlink g6-96 L-1 Forecast - 9 JAN Launch",
+      "rawTextPath": "scripts/fixtures/ws45/baseline-spaced-date.raw.txt",
+      "regression": {
+        "observedParserVersion": "v3",
+        "notes": "Healthy January baseline kept to prevent future regressions while hardening newer document families.",
+        "observedStoredFields": {
+          "issuedAt": "2026-01-08T15:00:00+00:00",
+          "validStart": "2026-01-09T18:03:00+00:00",
+          "validEnd": "2026-01-09T22:03:00+00:00",
+          "matchStatus": "matched"
+        }
+      },
+      "expected": {
+        "missionName": "Falcon 9 Starlink g6 - 96",
+        "issuedAtUtc": "2026-01-08T15:00:00.000Z",
+        "validStartUtc": "2026-01-09T18:03:00.000Z",
+        "validEndUtc": "2026-01-09T22:03:00.000Z",
+        "launchDayPovPercent": 15,
+        "delay24hPovPercent": 10,
+        "launchDayPrimaryConcerns": ["Cumulus Cloud Rule"],
+        "delay24hPrimaryConcerns": ["Cumulus Cloud Rule"],
+        "delayLabel": "24-Hour Delay",
+        "forecastDiscussionIncludes": "The axis of a surface ridge will remain"
+      }
+    },
+    {
+      "id": "hyphenated-date",
+      "family": "hyphenated_abbrev_month_2digit_year",
+      "sourceLabel": "Falcon 9 Starlink 10-41 L-1 Forecast - 1 Mar Launch",
+      "rawTextPath": "scripts/fixtures/ws45/hyphenated-date.raw.txt",
+      "regression": {
+        "observedParserVersion": "v12",
+        "notes": "Production stored null issued and valid fields for this hyphenated date format and left the forecast unmatched.",
+        "observedStoredFields": {
+          "issuedAt": null,
+          "validStart": null,
+          "validEnd": null,
+          "matchStatus": "unmatched"
+        }
+      },
+      "expected": {
+        "missionName": "Falcon 9 Starlink 10 - 41",
+        "issuedAtUtc": "2026-02-28T13:30:00.000Z",
+        "validStartUtc": "2026-03-02T00:07:00.000Z",
+        "validEndUtc": "2026-03-02T04:07:00.000Z",
+        "launchDayPovPercent": 10,
+        "delay24hPovPercent": 15,
+        "launchDayPrimaryConcerns": ["Cumulus Cloud Rule"],
+        "delay24hPrimaryConcerns": ["Cumulus Cloud Rule"],
+        "delayLabel": "24-Hour Delay",
+        "forecastDiscussionIncludes": "A stalled cold front near the Spaceport will slowly move southeast",
+        "missionTokensContain": ["starlink", "10", "41"]
+      }
+    },
+    {
+      "id": "split-heading",
+      "family": "split_heading_variant",
+      "sourceLabel": "Atlas V Leo 5 L-1 Forecast - 29 Mar Launch",
+      "rawTextPath": "scripts/fixtures/ws45/split-heading.raw.txt",
+      "regression": {
+        "observedParserVersion": "v12",
+        "notes": "Split forecast heading plus split month tokens caused issued_at and forecast discussion to go missing in production.",
+        "observedStoredFields": {
+          "issuedAt": null,
+          "validStart": "2026-03-29T07:53:00+00:00",
+          "validEnd": "2026-03-29T08:23:00+00:00",
+          "matchStatus": "unmatched"
+        }
+      },
+      "expected": {
+        "missionName": "Atlas V Leo 5",
+        "issuedAtUtc": "2026-03-28T12:45:00.000Z",
+        "validStartUtc": "2026-03-29T07:53:00.000Z",
+        "validEndUtc": "2026-03-29T08:23:00.000Z",
+        "launchDayPovPercent": 90,
+        "delay24hPovPercent": 30,
+        "launchDayPrimaryConcerns": ["Liftoff Winds", "Cumulus Cloud Rule"],
+        "delay24hPrimaryConcerns": ["Liftoff Winds", "Cumulus Cloud Rule"],
+        "delayLabel": "24-Hour Delay",
+        "forecastDiscussionIncludes": "Conditions will quickly deteriorate this afternoon as a cold front moves across the area."
+      }
+    },
+    {
+      "id": "split-heading-hyphenated-date",
+      "family": "split_heading_variant",
+      "sourceLabel": "SLS Artemis II L-1 Forecast - 1 Apr Launch",
+      "rawTextPath": "scripts/fixtures/ws45/split-heading-hyphenated-date.raw.txt",
+      "regression": {
+        "observedParserVersion": "v12",
+        "notes": "Combined split mission acronym, split heading, and hyphenated date tokens caused mission normalization and timing extraction to fail.",
+        "observedStoredFields": {
+          "issuedAt": null,
+          "validStart": null,
+          "validEnd": null,
+          "matchStatus": "unmatched"
+        }
+      },
+      "expected": {
+        "missionName": "SLS Artemis II",
+        "issuedAtUtc": "2026-03-31T12:00:00.000Z",
+        "validStartUtc": "2026-04-01T22:24:00.000Z",
+        "validEndUtc": "2026-04-02T00:24:00.000Z",
+        "launchDayPovPercent": 20,
+        "delay24hPovPercent": 25,
+        "launchDayPrimaryConcerns": ["Cumulus Cloud Rule", "Ground Winds"],
+        "delay24hPrimaryConcerns": ["Cumulus Cloud Rule", "Ground Winds"],
+        "delayLabel": "48-Hour Delay",
+        "forecastDiscussionIncludes": "Moisture trapped in the low levels of the atmosphere will be continually replenished",
+        "missionTokensContain": ["sls", "artemis", "ii"]
+      }
+    },
+    {
+      "id": "latest-starlink-hyphenated",
+      "family": "hyphenated_abbrev_month_2digit_year",
+      "sourceLabel": "Falcon 9 Starlink 10-58 L-1 Forecast - 2 Apr Launch",
+      "rawTextPath": "scripts/fixtures/ws45/latest-starlink-hyphenated.raw.txt",
+      "regression": {
+        "observedParserVersion": "v12",
+        "notes": "April live format with arrow-range PoV and hyphenated dates was being stored with null timing fields and dropped from Florida launch details.",
+        "observedStoredFields": {
+          "issuedAt": null,
+          "validStart": null,
+          "validEnd": null,
+          "matchStatus": "unmatched"
+        }
+      },
+      "expected": {
+        "missionName": "Falcon 9 Starlink 10 - 58",
+        "issuedAtUtc": "2026-04-01T14:30:00.000Z",
+        "validStartUtc": "2026-04-02T11:52:00.000Z",
+        "validEndUtc": "2026-04-02T15:52:00.000Z",
+        "launchDayPovPercent": 60,
+        "delay24hPovPercent": 30,
+        "launchDayPrimaryConcerns": ["Cumulus Cloud Rule", "Surface Electric Fields Rule"],
+        "delay24hPrimaryConcerns": ["Cumulus Cloud Rule"],
+        "delayLabel": "24-Hour Delay",
+        "forecastDiscussionIncludes": "Surface high pressure and low-level onshore flow will continue today causing partly cloudy skies",
+        "missionTokensContain": ["starlink", "10", "58"]
+      }
+    }
+  ]
+}

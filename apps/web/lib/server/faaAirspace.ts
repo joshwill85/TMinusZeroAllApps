@@ -686,7 +686,9 @@ function stripHtmlToPlainText(value: string) {
 function advisoryAppliesToLaunchWindow(advisory: LaunchFaaAirspaceAdvisory, launchTiming: LaunchTimingContext | null) {
   if (!launchTiming) return true;
   if (!advisory.validStart && !advisory.validEnd) return true;
-  if (!isLaunchSpecificWindow(advisory.validStart, advisory.validEnd)) return false;
+  if (!isLaunchSpecificWindow(advisory.validStart, advisory.validEnd)) {
+    return advisory.matchStatus === 'manual' || advisory.matchStatus === 'matched' || advisory.isActiveNow;
+  }
 
   if (isDateOnlyUtcWindow(advisory.validStart, advisory.validEnd)) {
     const advisoryDateKeys = enumerateDateOnlyWindowKeys(advisory.validStart, advisory.validEnd);

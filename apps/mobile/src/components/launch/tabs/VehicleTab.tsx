@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, ScrollView } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 import type { MobileTheme } from '@tminuszero/design-tokens';
 import type { VehicleTabData } from '@tminuszero/launch-detail-ui';
 
@@ -11,19 +11,19 @@ type VehicleTabProps = {
 export function VehicleTab({ data, theme }: VehicleTabProps) {
   const hasContent =
     data.vehicleConfig.family ||
+    data.vehicleConfig.manufacturer ||
     data.stages.length > 0 ||
     data.recovery ||
-    data.missionStats;
+    Boolean(data.missionStats?.cards.length || data.missionStats?.bonusInsights.length || data.missionStats?.boosterCards.length);
 
   if (!hasContent) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 60 }}>
-        <Text style={{ fontSize: 48, marginBottom: 16 }}>🚀</Text>
         <Text style={{ fontSize: 16, fontWeight: '600', color: theme.foreground, marginBottom: 8 }}>
-          No Vehicle Details
+          No vehicle details
         </Text>
         <Text style={{ fontSize: 14, color: theme.muted, textAlign: 'center', paddingHorizontal: 40 }}>
-          Vehicle information not yet available
+          Vehicle configuration, stage context, and mission stats are not yet available for this launch.
         </Text>
       </View>
     );
@@ -31,267 +31,167 @@ export function VehicleTab({ data, theme }: VehicleTabProps) {
 
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 24 }}>
-      {/* Vehicle Configuration */}
       {(data.vehicleConfig.family || data.vehicleConfig.manufacturer) && (
         <SectionCard theme={theme}>
-          <SectionTitle theme={theme}>Configuration</SectionTitle>
-
-          {data.vehicleConfig.family && (
-            <View style={{ marginBottom: 16 }}>
-              <Text style={{ fontSize: 20, fontWeight: '700', color: theme.foreground }}>
-                {data.vehicleConfig.family}
-              </Text>
-              {data.vehicleConfig.variant && (
-                <Text style={{ fontSize: 16, color: theme.accent, marginTop: 4 }}>
-                  {data.vehicleConfig.variant}
-                </Text>
-              )}
+          <SectionTitle theme={theme}>Vehicle profile</SectionTitle>
+          {data.vehicleConfig.family ? (
+            <View style={{ gap: 4 }}>
+              <Text style={{ color: theme.foreground, fontSize: 22, fontWeight: '800' }}>{data.vehicleConfig.family}</Text>
+              {data.vehicleConfig.variant ? <Text style={{ color: theme.accent, fontSize: 15, fontWeight: '700' }}>{data.vehicleConfig.variant}</Text> : null}
             </View>
-          )}
-
-          {data.vehicleConfig.manufacturer && (
-            <View style={{ paddingVertical: 12, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.05)' }}>
-              <Text style={{ fontSize: 12, color: theme.muted, marginBottom: 4 }}>
-                Manufacturer
-              </Text>
-              <Text style={{ fontSize: 14, fontWeight: '600', color: theme.foreground }}>
-                {data.vehicleConfig.manufacturer}
-              </Text>
-            </View>
-          )}
-
-          {/* Additional Specs */}
-          {Object.keys(data.vehicleConfig.specs).length > 0 && (
-            <View style={{ gap: 8, marginTop: 12 }}>
-              {data.vehicleConfig.specs.length && (
-                <SpecRow label="Length" value={`${data.vehicleConfig.specs.length}m`} theme={theme} />
-              )}
-              {data.vehicleConfig.specs.diameter && (
-                <SpecRow label="Diameter" value={`${data.vehicleConfig.specs.diameter}m`} theme={theme} />
-              )}
-              {data.vehicleConfig.specs.leoCapacity && (
-                <SpecRow label="LEO Capacity" value={`${data.vehicleConfig.specs.leoCapacity} kg`} theme={theme} />
-              )}
-              {data.vehicleConfig.specs.gtoCapacity && (
-                <SpecRow label="GTO Capacity" value={`${data.vehicleConfig.specs.gtoCapacity} kg`} theme={theme} />
-              )}
-            </View>
-          )}
+          ) : null}
+          {data.vehicleConfig.manufacturer ? (
+            <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 20 }}>Built by {data.vehicleConfig.manufacturer}</Text>
+          ) : null}
+          <View style={{ gap: 10 }}>
+            {data.vehicleConfig.specs.length != null ? <MetricRow label="Length" value={`${data.vehicleConfig.specs.length} m`} theme={theme} /> : null}
+            {data.vehicleConfig.specs.diameter != null ? <MetricRow label="Diameter" value={`${data.vehicleConfig.specs.diameter} m`} theme={theme} /> : null}
+            {data.vehicleConfig.specs.leoCapacity != null ? <MetricRow label="LEO capacity" value={`${data.vehicleConfig.specs.leoCapacity} kg`} theme={theme} /> : null}
+            {data.vehicleConfig.specs.gtoCapacity != null ? <MetricRow label="GTO capacity" value={`${data.vehicleConfig.specs.gtoCapacity} kg`} theme={theme} /> : null}
+          </View>
         </SectionCard>
       )}
 
-      {/* Stages */}
-      {data.stages.length > 0 && (
+      {(data.stages.length > 0 || data.recovery) ? (
         <SectionCard theme={theme}>
-          <SectionTitle theme={theme}>
-            Stages ({data.stages.length})
-          </SectionTitle>
-          <View style={{ gap: 16 }}>
-            {data.stages.map((stage, idx) => (
-              <View
-                key={idx}
-                style={{
-                  padding: 16,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: theme.stroke,
-                  backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                }}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-                  <View
-                    style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: 20,
-                      backgroundColor: theme.accent + '20',
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <Text style={{ fontSize: 16, fontWeight: '800', color: theme.accent }}>
-                      {idx + 1}
-                    </Text>
+          <SectionTitle theme={theme}>Stages & recovery</SectionTitle>
+          {data.stages.length > 0 ? (
+            <View style={{ gap: 12 }}>
+              {data.stages.map((stage, index) => (
+                <View
+                  key={`${stage.name}:${stage.serialNumber ?? index}`}
+                  style={{
+                    gap: 10,
+                    borderRadius: 18,
+                    borderWidth: 1,
+                    borderColor: theme.stroke,
+                    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                    padding: 16
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                    <View style={{ flex: 1, gap: 4 }}>
+                      <Text style={{ color: theme.foreground, fontSize: 16, fontWeight: '700' }}>{stage.name || `Stage ${index + 1}`}</Text>
+                      {stage.serialNumber ? <Text style={{ color: theme.muted, fontSize: 13 }}>{stage.serialNumber}</Text> : null}
+                    </View>
+                    {stage.reused ? <Badge label="Reused" theme={theme} accent /> : <Badge label="New core" theme={theme} />}
                   </View>
-                  <Text style={{ fontSize: 15, fontWeight: '700', color: theme.foreground }}>
-                    {stage.name || `Stage ${idx + 1}`}
-                  </Text>
+                  <View style={{ gap: 8 }}>
+                    <MetricRow label="Previous flights" value={String(stage.previousFlights)} theme={theme} />
+                    {stage.engine ? <MetricRow label="Engine" value={stage.engine} theme={theme} /> : null}
+                    {stage.fuel ? <MetricRow label="Fuel" value={stage.fuel} theme={theme} /> : null}
+                  </View>
                 </View>
+              ))}
+            </View>
+          ) : null}
 
-                {stage.serialNumber && (
-                  <View style={{ marginBottom: 8 }}>
-                    <Text style={{ fontSize: 12, color: theme.muted }}>
-                      Serial: <Text style={{ fontWeight: '600', color: theme.foreground }}>{stage.serialNumber}</Text>
-                    </Text>
-                  </View>
-                )}
-
-                {stage.reused && (
-                  <View
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 6,
-                      paddingVertical: 6,
-                      paddingHorizontal: 10,
-                      borderRadius: 999,
-                      backgroundColor: 'rgba(52, 211, 153, 0.1)',
-                      alignSelf: 'flex-start',
-                      marginBottom: 8,
-                    }}
-                  >
-                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#7ff0bc' }}>
-                      ♻️ Reused
-                    </Text>
-                  </View>
-                )}
-
-                <View style={{ gap: 6 }}>
-                  {stage.previousFlights > 0 && (
-                    <StageDetail label="Previous Flights" value={stage.previousFlights.toString()} theme={theme} />
-                  )}
-                  {stage.engine && (
-                    <StageDetail label="Engine" value={stage.engine} theme={theme} />
-                  )}
-                  {stage.fuel && (
-                    <StageDetail label="Fuel" value={stage.fuel} theme={theme} />
-                  )}
-                </View>
-              </View>
-            ))}
-          </View>
+          {data.recovery ? (
+            <View style={{ gap: 12, marginTop: data.stages.length > 0 ? 6 : 0 }}>
+              {data.recovery.booster ? (
+                <RecoveryCard
+                  title="Booster recovery"
+                  summary={data.recovery.booster.type || 'Recovery status pending'}
+                  detail={data.recovery.booster.location}
+                  theme={theme}
+                  accent
+                />
+              ) : null}
+              {data.recovery.fairing ? (
+                <RecoveryCard
+                  title="Fairing recovery"
+                  summary={data.recovery.fairing.recovery ? 'Recovery attempted' : 'Expended'}
+                  detail={data.recovery.fairing.recovery ? 'Fairing recovery activity is expected for this mission.' : 'No fairing recovery attempt is listed.'}
+                  theme={theme}
+                />
+              ) : null}
+            </View>
+          ) : null}
         </SectionCard>
-      )}
+      ) : null}
 
-      {/* Recovery */}
-      {data.recovery && (
+      {data.missionStats ? (
         <SectionCard theme={theme}>
-          <SectionTitle theme={theme}>Recovery</SectionTitle>
+          <SectionTitle theme={theme}>Mission stats</SectionTitle>
+          {data.missionStats.cards.length ? (
+            <View style={{ gap: 12 }}>
+              {data.missionStats.cards.map((card, index) => (
+                <StoryCard key={card.id} card={card} theme={theme} accentIndex={index} />
+              ))}
+            </View>
+          ) : null}
 
-          {data.recovery.booster && (
-            <View style={{ marginBottom: 16 }}>
-              <Text style={{ fontSize: 14, fontWeight: '600', color: theme.foreground, marginBottom: 8 }}>
-                Booster
-              </Text>
-              <View
-                style={{
-                  padding: 14,
-                  borderRadius: 10,
-                  backgroundColor: getRecoveryColor(data.recovery.booster.type).bg,
-                  borderWidth: 1,
-                  borderColor: getRecoveryColor(data.recovery.booster.type).border,
-                }}
-              >
-                <Text style={{ fontSize: 14, fontWeight: '700', color: theme.foreground }}>
-                  {data.recovery.booster.type || 'Unknown'}
-                </Text>
-                {data.recovery.booster.location && (
-                  <Text style={{ fontSize: 12, color: theme.muted, marginTop: 4 }}>
-                    📍 {data.recovery.booster.location}
+          {data.missionStats.bonusInsights.length ? (
+            <View style={{ gap: 10, marginTop: data.missionStats.cards.length ? 6 : 0 }}>
+              {data.missionStats.bonusInsights.map((insight) => (
+                <View
+                  key={insight.label}
+                  style={{
+                    gap: 6,
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: theme.stroke,
+                    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                    padding: 14
+                  }}
+                >
+                  <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>
+                    {insight.label}
                   </Text>
-                )}
-              </View>
+                  <Text style={{ color: theme.foreground, fontSize: 18, fontWeight: '800' }}>{insight.value}</Text>
+                  {insight.detail ? <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>{insight.detail}</Text> : null}
+                </View>
+              ))}
             </View>
-          )}
+          ) : null}
 
-          {data.recovery.fairing && (
-            <View>
-              <Text style={{ fontSize: 14, fontWeight: '600', color: theme.foreground, marginBottom: 8 }}>
-                Fairing
-              </Text>
-              <View
-                style={{
-                  padding: 14,
-                  borderRadius: 10,
-                  backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                  borderWidth: 1,
-                  borderColor: theme.stroke,
-                }}
-              >
-                <Text style={{ fontSize: 14, fontWeight: '700', color: theme.foreground }}>
-                  {data.recovery.fairing.recovery ? 'Recovery Attempted' : 'Expended'}
-                </Text>
-              </View>
+          {data.missionStats.boosterCards.length ? (
+            <View style={{ gap: 12, marginTop: data.missionStats.cards.length || data.missionStats.bonusInsights.length ? 6 : 0 }}>
+              {data.missionStats.boosterCards.map((card) => (
+                <View
+                  key={card.id}
+                  style={{
+                    gap: 8,
+                    borderRadius: 18,
+                    borderWidth: 1,
+                    borderColor: theme.stroke,
+                    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                    padding: 16
+                  }}
+                >
+                  <View style={{ gap: 4 }}>
+                    <Text style={{ color: theme.foreground, fontSize: 16, fontWeight: '700' }}>{card.title}</Text>
+                    {card.subtitle ? <Text style={{ color: theme.muted, fontSize: 13 }}>{card.subtitle}</Text> : null}
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 12 }}>
+                    <StatPill label={card.allTimeLabel} value={card.allTime == null ? 'TBD' : String(card.allTime)} theme={theme} />
+                    <StatPill label={card.yearLabel} value={card.year == null ? 'TBD' : String(card.year)} theme={theme} />
+                  </View>
+                  {card.detailLines.map((line) => (
+                    <Text key={`${card.id}:${line}`} style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
+                      {line}
+                    </Text>
+                  ))}
+                </View>
+              ))}
             </View>
-          )}
+          ) : null}
         </SectionCard>
-      )}
-
-      {/* Booster History */}
-      {data.boosterHistory.length > 0 && (
-        <SectionCard theme={theme}>
-          <SectionTitle theme={theme}>
-            Booster History ({data.boosterHistory.length} flights)
-          </SectionTitle>
-          <View style={{ gap: 8 }}>
-            {data.boosterHistory.map((flight, idx) => (
-              <View
-                key={idx}
-                style={{
-                  flexDirection: 'row',
-                  justifyContent: 'space-between',
-                  padding: 12,
-                  borderRadius: 8,
-                  backgroundColor: 'rgba(255, 255, 255, 0.02)',
-                }}
-              >
-                <Text style={{ fontSize: 13, color: theme.foreground }}>
-                  Flight {idx + 1}
-                </Text>
-                <Text style={{ fontSize: 12, color: theme.muted }}>
-                  {flight.date}
-                </Text>
-              </View>
-            ))}
-          </View>
-        </SectionCard>
-      )}
-
-      {/* Mission Statistics */}
-      {data.missionStats && (
-        <SectionCard theme={theme}>
-          <SectionTitle theme={theme}>Statistics</SectionTitle>
-
-          <View style={{ gap: 16 }}>
-            {data.missionStats.vehicleFlightCount && (
-              <StatCard
-                label="Vehicle Flights"
-                value={data.missionStats.vehicleFlightCount.toString()}
-                theme={theme}
-              />
-            )}
-            {data.missionStats.providerFlightCount && (
-              <StatCard
-                label="Provider Launches"
-                value={data.missionStats.providerFlightCount.toString()}
-                theme={theme}
-              />
-            )}
-            {data.missionStats.successRate && (
-              <StatCard
-                label="Success Rate"
-                value={`${Math.round(data.missionStats.successRate * 100)}%`}
-                theme={theme}
-              />
-            )}
-          </View>
-        </SectionCard>
-      )}
+      ) : null}
     </ScrollView>
   );
 }
-
-// Helper Components
 
 function SectionCard({ children, theme }: { children: React.ReactNode; theme: MobileTheme }) {
   return (
     <View
       style={{
         padding: 20,
-        borderRadius: 16,
+        borderRadius: 18,
         borderWidth: 1,
         borderColor: theme.stroke,
         backgroundColor: 'rgba(255, 255, 255, 0.02)',
+        gap: 14
       }}
     >
       {children}
@@ -306,9 +206,8 @@ function SectionTitle({ children, theme }: { children: React.ReactNode; theme: M
         fontSize: 16,
         fontWeight: '700',
         color: theme.foreground,
-        marginBottom: 16,
         textTransform: 'uppercase',
-        letterSpacing: 0.5,
+        letterSpacing: 0.5
       }}
     >
       {children}
@@ -316,66 +215,138 @@ function SectionTitle({ children, theme }: { children: React.ReactNode; theme: M
   );
 }
 
-function SpecRow({ label, value, theme }: { label: string; value: string; theme: MobileTheme }) {
+function MetricRow({ label, value, theme }: { label: string; value: string; theme: MobileTheme }) {
+  return (
+    <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
+      <Text style={{ color: theme.muted, fontSize: 13, flex: 1 }}>{label}</Text>
+      <Text style={{ color: theme.foreground, fontSize: 13, fontWeight: '700', flexShrink: 1, textAlign: 'right' }}>{value}</Text>
+    </View>
+  );
+}
+
+function Badge({
+  label,
+  theme,
+  accent = false
+}: {
+  label: string;
+  theme: MobileTheme;
+  accent?: boolean;
+}) {
   return (
     <View
       style={{
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        paddingVertical: 8,
-        borderBottomWidth: 1,
-        borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: accent ? 'rgba(34, 211, 238, 0.28)' : theme.stroke,
+        backgroundColor: accent ? 'rgba(34, 211, 238, 0.1)' : 'rgba(255, 255, 255, 0.03)',
+        paddingHorizontal: 10,
+        paddingVertical: 6
       }}
     >
-      <Text style={{ fontSize: 13, color: theme.muted }}>{label}</Text>
-      <Text style={{ fontSize: 13, fontWeight: '600', color: theme.foreground }}>{value}</Text>
-    </View>
-  );
-}
-
-function StageDetail({ label, value, theme }: { label: string; value: string; theme: MobileTheme }) {
-  return (
-    <View style={{ flexDirection: 'row', gap: 8 }}>
-      <Text style={{ fontSize: 12, color: theme.muted, minWidth: 110 }}>
-        {label}:
-      </Text>
-      <Text style={{ fontSize: 12, color: theme.foreground, fontWeight: '600', flex: 1 }}>
-        {value}
-      </Text>
-    </View>
-  );
-}
-
-function StatCard({ label, value, theme }: { label: string; value: string; theme: MobileTheme }) {
-  return (
-    <View style={{ alignItems: 'center', padding: 16, backgroundColor: 'rgba(255, 255, 255, 0.03)', borderRadius: 12 }}>
-      <Text style={{ fontSize: 28, fontWeight: '800', color: theme.accent }}>
-        {value}
-      </Text>
-      <Text style={{ fontSize: 12, color: theme.muted, marginTop: 4 }}>
+      <Text
+        style={{
+          color: accent ? theme.accent : theme.foreground,
+          fontSize: 10,
+          fontWeight: '700',
+          letterSpacing: 0.8,
+          textTransform: 'uppercase'
+        }}
+      >
         {label}
       </Text>
     </View>
   );
 }
 
-function getRecoveryColor(type: string | undefined) {
-  switch (type?.toLowerCase()) {
-    case 'rtls':
-    case 'asds':
-      return {
-        bg: 'rgba(52, 211, 153, 0.1)',
-        border: 'rgba(52, 211, 153, 0.3)',
-      };
-    case 'expended':
-      return {
-        bg: 'rgba(251, 113, 133, 0.1)',
-        border: 'rgba(251, 113, 133, 0.3)',
-      };
-    default:
-      return {
-        bg: 'rgba(255, 255, 255, 0.03)',
-        border: 'rgba(255, 255, 255, 0.1)',
-      };
-  }
+function RecoveryCard({
+  title,
+  summary,
+  detail,
+  theme,
+  accent = false
+}: {
+  title: string;
+  summary: string;
+  detail: string | null;
+  theme: MobileTheme;
+  accent?: boolean;
+}) {
+  return (
+    <View
+      style={{
+        gap: 6,
+        borderRadius: 18,
+        borderWidth: 1,
+        borderColor: accent ? 'rgba(34, 211, 238, 0.28)' : theme.stroke,
+        backgroundColor: accent ? 'rgba(34, 211, 238, 0.08)' : 'rgba(255, 255, 255, 0.03)',
+        padding: 16
+      }}
+    >
+      <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>{title}</Text>
+      <Text style={{ color: theme.foreground, fontSize: 16, fontWeight: '700' }}>{summary}</Text>
+      {detail ? <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>{detail}</Text> : null}
+    </View>
+  );
+}
+
+function StoryCard({
+  card,
+  theme,
+  accentIndex
+}: {
+  card: NonNullable<VehicleTabData['missionStats']>['cards'][number];
+  theme: MobileTheme;
+  accentIndex: number;
+}) {
+  const accentPalette = [
+    'rgba(34, 211, 238, 0.08)',
+    'rgba(52, 211, 153, 0.08)',
+    'rgba(251, 146, 60, 0.08)'
+  ];
+  const borderPalette = [
+    'rgba(34, 211, 238, 0.22)',
+    'rgba(52, 211, 153, 0.22)',
+    'rgba(251, 146, 60, 0.22)'
+  ];
+
+  return (
+    <View
+      style={{
+        gap: 10,
+        borderRadius: 18,
+        borderWidth: 1,
+        borderColor: borderPalette[accentIndex % borderPalette.length],
+        backgroundColor: accentPalette[accentIndex % accentPalette.length],
+        padding: 16
+      }}
+    >
+      <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>{card.eyebrow}</Text>
+      <Text style={{ color: theme.foreground, fontSize: 18, fontWeight: '800' }}>{card.title}</Text>
+      <View style={{ flexDirection: 'row', gap: 12 }}>
+        <StatPill label={card.allTimeLabel} value={card.allTime == null ? 'TBD' : String(card.allTime)} theme={theme} />
+        <StatPill label={card.yearLabel} value={card.year == null ? 'TBD' : String(card.year)} theme={theme} />
+      </View>
+      <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>{card.story}</Text>
+    </View>
+  );
+}
+
+function StatPill({ label, value, theme }: { label: string; value: string; theme: MobileTheme }) {
+  return (
+    <View
+      style={{
+        flex: 1,
+        gap: 4,
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: theme.stroke,
+        backgroundColor: 'rgba(255, 255, 255, 0.04)',
+        padding: 12
+      }}
+    >
+      <Text style={{ color: theme.muted, fontSize: 10, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' }}>{label}</Text>
+      <Text style={{ color: theme.foreground, fontSize: 16, fontWeight: '800' }}>{value}</Text>
+    </View>
+  );
 }

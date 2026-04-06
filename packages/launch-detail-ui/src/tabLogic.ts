@@ -37,13 +37,21 @@ export function computeTabVisibility(detail: LaunchDetailV1 | null): TabVisibili
   const overview = true;
   const hasWebcast = getLaunchWatchLinks(detail).length > 0;
   const hasSocial = getLaunchSocialPosts(detail).length > 0;
+  const hasLaunchUpdates = detail.launchUpdates.length > 0;
+  const hasWeather = Boolean(detail.weather?.summary || detail.weather?.cards?.length || detail.weather?.concerns?.length);
+  const hasFaaAdvisories = (detail.enrichment?.faaAdvisories?.length ?? 0) > 0;
+  const hasJepScore = Boolean(detail.enrichment?.hasJepScore);
   const isNearLaunch = hoursUntilLaunch !== null && Math.abs(hoursUntilLaunch) < 72;
-  const live = hasWebcast || hasSocial || isNearLaunch;
+  const live = hasWebcast || hasSocial || hasLaunchUpdates || hasWeather || hasFaaAdvisories || hasJepScore || isNearLaunch;
 
   const hasPayloads = detail.payloadManifest.length > 0 || (launch?.payloads?.length ?? 0) > 0;
   const hasCrew = getLaunchCrew(detail).length > 0;
   const hasMission = Boolean(getLaunchMissionDescription(detail));
-  const mission = hasPayloads || hasCrew || hasMission;
+  const hasInventory =
+    Boolean(detail.objectInventory?.summaryBadges?.length) ||
+    Boolean(detail.objectInventory?.payloadObjects?.length) ||
+    Boolean(detail.objectInventory?.nonPayloadObjects?.length);
+  const mission = hasPayloads || hasCrew || hasMission || hasInventory;
 
   const hasStages = (detail.enrichment?.firstStages?.length ?? 0) > 0;
   const hasRecovery = (detail.enrichment?.recovery?.length ?? 0) > 0;
@@ -53,7 +61,9 @@ export function computeTabVisibility(detail: LaunchDetailV1 | null): TabVisibili
   const hasNews = detail.relatedNews.length > 0;
   const hasEvents = detail.relatedEvents.length > 0;
   const hasMedia = (detail.enrichment?.externalContent?.length ?? 0) > 0;
-  const related = hasNews || hasEvents || hasMedia;
+  const hasVehicleTimeline = detail.vehicleTimeline.length > 0;
+  const hasResources = Boolean(detail.resources?.externalLinks?.length || detail.resources?.missionResources?.length);
+  const related = hasNews || hasEvents || hasMedia || hasVehicleTimeline || hasResources;
 
   return { overview, live, mission, vehicle, related };
 }

@@ -24,6 +24,7 @@ export type StatTile = {
   description?: string;
   icon?: ReactNode;
   tone?: 'default' | 'primary' | 'success' | 'warning' | 'danger';
+  onPress?: () => void;
 };
 
 type InteractiveStatTilesProps = {
@@ -104,6 +105,8 @@ function StatTileCard({ tile, index }: { tile: StatTile; index: number }) {
   return (
     <Animated.View style={animatedStyle}>
       <Pressable
+        disabled={!tile.onPress}
+        onPress={tile.onPress}
         onPressIn={() => {
           pressed.value = true;
         }}

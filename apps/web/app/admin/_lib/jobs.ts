@@ -6,7 +6,17 @@ const ALERT_KEY_TO_JOB_ID: Record<string, string> = {
   trajectory_source_orbit_stale: 'trajectory_orbit_ingest',
   trajectory_source_landing_stale: 'trajectory_constraints_ingest',
   trajectory_source_hazard_stale: 'navcen_bnm_ingest',
-  ws45_forecasts_unmatched_upcoming: 'ws45_forecasts_ingest'
+  ws45_forecasts_unmatched_upcoming: 'ws45_forecasts_ingest',
+  ws45_source_fetch_failed: 'ws45_forecasts_ingest',
+  ws45_source_empty: 'ws45_forecasts_ingest',
+  ws45_shape_unknown_detected: 'ws45_forecasts_ingest',
+  ws45_parse_missing_issued: 'ws45_forecasts_ingest',
+  ws45_parse_missing_valid_window: 'ws45_forecasts_ingest',
+  ws45_parse_required_fields_missing: 'ws45_forecasts_ingest',
+  ws45_match_unmatched_upcoming: 'ws45_forecasts_ingest',
+  ws45_match_ambiguous_upcoming: 'ws45_forecasts_ingest',
+  ws45_florida_launch_coverage_gap: 'ws45_forecasts_ingest',
+  ws45_success_rate_degraded: 'ws45_forecasts_ingest'
 };
 
 export function formatJobStatusLabel(status: JobStatus['status']) {

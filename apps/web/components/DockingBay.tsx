@@ -118,25 +118,14 @@ export function DockingBay({ profile, viewerTier, onOpenCalendar, onOpenSearch, 
             <div className="grid grid-cols-[1fr_auto_1fr] items-center">
               <div className="flex">
                 <Link
-                  href={accountHref}
-                  className={clsx(
-                    dockIconClass,
-                    (pathname?.startsWith('/account') || pathname?.startsWith('/me')) && dockIconActiveClass
-                  )}
-                  aria-label="Account"
-                  title={profile?.first_name?.trim() ? `Account: ${profile.first_name.trim()}` : 'Account'}
-                >
-                  {accountInitials ? <ProfileBadge initials={accountInitials} /> : <UserIcon className="h-5 w-5" />}
-                </Link>
-              </div>
-              <div className="flex items-center gap-2">
-                <Link
                   href="/"
                   className={clsx(dockIconClass, homeActive && dockIconActiveClass)}
                   aria-label="Home"
                 >
                   <HomeIcon className="h-5 w-5" />
                 </Link>
+              </div>
+              <div className="flex items-center gap-2">
                 <Link
                   href="/news"
                   className={clsx(dockIconClass, newsActive && dockIconActiveClass)}
@@ -162,6 +151,17 @@ export function DockingBay({ profile, viewerTier, onOpenCalendar, onOpenSearch, 
                 <button type="button" className={dockIconClass} onClick={onOpenSearch} aria-label="Search">
                   <SearchIcon className="h-5 w-5" />
                 </button>
+                <Link
+                  href={accountHref}
+                  className={clsx(
+                    dockIconClass,
+                    (pathname?.startsWith('/account') || pathname?.startsWith('/me')) && dockIconActiveClass
+                  )}
+                  aria-label="Account"
+                  title={profile?.first_name?.trim() ? `Account: ${profile.first_name.trim()}` : 'Account'}
+                >
+                  {accountInitials ? <ProfileBadge initials={accountInitials} /> : <UserIcon className="h-5 w-5" />}
+                </Link>
               </div>
               <div className="flex justify-end">
                 <button
