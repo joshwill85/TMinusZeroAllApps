@@ -3,11 +3,13 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { buildAuthHref, buildPrivacyChoicesHref, buildProfileHref, buildUpgradeHref } from '@tminuszero/navigation';
 import type { RailProfile } from './DesktopRail';
 import { CalendarBadge } from './CalendarBadge';
+import { FacebookIcon, XIcon } from './SocialIcons';
 import { BRAND_NAME } from '@/lib/brand';
+import { getPublicSocialLinks } from '@/lib/env/public';
 import type { ViewerTier } from '@tminuszero/domain';
 
 type DockingBayProps = {
@@ -25,6 +27,7 @@ export function DockingBay({ profile, viewerTier, onOpenCalendar, onOpenSearch, 
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
   const closeTimeoutRef = useRef<number | null>(null);
+  const { facebookUrl, xUrl } = getPublicSocialLinks();
 
   const accountHref = profile ? buildProfileHref() : buildAuthHref('sign-in');
   const accountLabel = profile?.first_name?.trim() || 'Account';
@@ -63,9 +66,19 @@ export function DockingBay({ profile, viewerTier, onOpenCalendar, onOpenSearch, 
   const aboutLinks = useMemo(
     () => [
       { label: `Why ${BRAND_NAME}`, href: '/about' },
+      { label: 'Jellyfish Guide', href: '/jellyfish-effect' },
       { label: 'The Space Devs (LL2)', href: 'https://thespacedevs.com/llapi' }
     ],
     []
+  );
+
+  const socialLinks = useMemo(
+    () =>
+      [
+        xUrl ? { label: 'X', href: xUrl, icon: <XIcon className="h-4 w-4" /> } : null,
+        facebookUrl ? { label: 'Facebook', href: facebookUrl, icon: <FacebookIcon className="h-4 w-4" /> } : null
+      ].filter(Boolean) as Array<{ label: string; href: string; icon: ReactNode }>,
+    [facebookUrl, xUrl]
   );
 
   const openSheet = useCallback(() => {
@@ -257,6 +270,25 @@ export function DockingBay({ profile, viewerTier, onOpenCalendar, onOpenSearch, 
                     <TipJarIcon className="h-4 w-4" />
                     Tip
                   </button>
+                  {socialLinks.length ? (
+                    <div className="pt-2">
+                      <div className="text-[10px] uppercase tracking-[0.24em] text-text4">Follow</div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {socialLinks.map((link) => (
+                          <a
+                            key={link.href}
+                            href={link.href}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-2 rounded-full border border-stroke bg-[rgba(255,255,255,0.03)] px-3 py-2 text-xs text-text2 transition hover:border-primary hover:text-text1"
+                          >
+                            {link.icon}
+                            <span>{link.label}</span>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </Section>
               </div>
 
@@ -269,7 +301,7 @@ export function DockingBay({ profile, viewerTier, onOpenCalendar, onOpenSearch, 
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="space-y-2">
       <div className="text-[10px] uppercase tracking-[0.24em] text-text4">{title}</div>

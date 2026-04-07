@@ -11,7 +11,7 @@ export default function PrivacyPage() {
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 text-sm text-text2 md:px-6">
       <h1 className="text-3xl font-semibold text-text1">Privacy Notice</h1>
-      <p className="mt-3 text-text3">Last updated: April 3, 2026</p>
+      <p className="mt-3 text-text3">Last updated: April 6, 2026</p>
 
       <section className="mt-6 space-y-4">
         <p>
@@ -56,7 +56,7 @@ export default function PrivacyPage() {
             <span className="text-text1">Browser state</span>: first-party cookies, localStorage, and sessionStorage used for account sessions, auth callback state, dismissals, and feature state such as AR runtime or calibration settings.
           </li>
           <li>
-            <span className="text-text1">Third-party content context</span>: when you choose to load embedded posts, videos, or CAPTCHA-protected flows, the relevant third-party service may receive standard request and device information.
+            <span className="text-text1">Third-party content context</span>: when embedded posts or videos load on supported surfaces, or when CAPTCHA-protected flows run, the relevant third-party service may receive standard request and device information.
           </li>
         </ul>
 
@@ -120,7 +120,7 @@ export default function PrivacyPage() {
             <span className="text-text1">CAPTCHA providers</span> if enabled for account protection.
           </li>
           <li>
-            <span className="text-text1">Third-party media providers</span> such as X, YouTube, or Vimeo when you explicitly choose to load embedded posts or video.
+            <span className="text-text1">Third-party media providers</span> such as X, YouTube, or Vimeo when embedded posts or video load on supported surfaces, unless you block those embeds or use only the external link path.
           </li>
         </ul>
 

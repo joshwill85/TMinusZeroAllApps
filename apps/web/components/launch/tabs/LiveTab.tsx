@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import clsx from 'clsx';
-import type { LiveTabData } from '@tminuszero/launch-detail-ui';
+import { buildLaunchVideoEmbed, type LiveTabData } from '@tminuszero/launch-detail-ui';
+import { ForecastAdvisoriesDisclosure } from '@/components/launch/ForecastAdvisoriesDisclosure';
 import { JepScoreClient } from '@/components/JepScoreClient';
+import { ThirdPartyVideoEmbed } from '@/components/ThirdPartyVideoEmbed';
 import { XTweetEmbed } from '@/components/XTweetEmbed';
 import type { LaunchJepScore } from '@/lib/types/jep';
 
@@ -13,7 +15,6 @@ type LiveTabProps = {
 };
 
 export function LiveTab({ data, className }: LiveTabProps) {
-  const [isForecastExpanded, setIsForecastExpanded] = useState(false);
   const hasWeather = Boolean(data.weatherDetail?.summary || data.weatherDetail?.cards?.length || data.weatherDetail?.concerns?.length);
   const hasForecastOutlook = hasWeather || data.faaAdvisories.length > 0;
   const hasContent =
@@ -32,6 +33,7 @@ export function LiveTab({ data, className }: LiveTabProps) {
   }
 
   const primaryWatchLink = data.watchLinks[0] ?? null;
+  const primaryWatchEmbed = primaryWatchLink ? buildLaunchVideoEmbed(primaryWatchLink.url) : null;
   const matchedPost = data.socialPosts.find((post) => post.kind === 'matched') ?? null;
   const providerPosts = data.socialPosts.filter((post) => post.kind !== 'matched');
 
@@ -39,101 +41,79 @@ export function LiveTab({ data, className }: LiveTabProps) {
     <div className={clsx('space-y-8', className)}>
       {hasForecastOutlook ? (
         <section className="rounded-2xl border border-stroke bg-surface-1 p-6">
-          <button
-            type="button"
-            onClick={() => setIsForecastExpanded((current) => !current)}
-            className="flex w-full items-start justify-between gap-3 text-left"
-          >
-            <div className="min-w-0">
-              <h2 className="text-base font-bold uppercase tracking-wider text-text1">Forecast outlook</h2>
-              <p className="mt-2 text-sm leading-relaxed text-text3">
-                {hasWeather
-                  ? data.faaAdvisories.length > 0
-                    ? 'Weather sources and matched FAA launch advisories for launch day.'
-                    : 'Weather sources matched to this launch.'
-                  : 'Matched FAA launch advisories and launch-day airspace notices.'}
-              </p>
-            </div>
-            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-              {data.faaAdvisories.length > 0 ? (
-                <Badge>{data.faaAdvisories.length} match{data.faaAdvisories.length === 1 ? '' : 'es'}</Badge>
-              ) : null}
-              <span className="rounded-full border border-stroke bg-surface-0 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-text2">
-                {isForecastExpanded ? 'Collapse' : 'Expand'}
-              </span>
-            </div>
-          </button>
+          <div className="min-w-0">
+            <h2 className="text-base font-bold uppercase tracking-wider text-text1">Forecast outlook</h2>
+            <p className="mt-2 text-sm leading-relaxed text-text3">
+              {hasWeather
+                ? data.faaAdvisories.length > 0
+                  ? 'Weather sources and matched FAA launch advisories for launch day.'
+                  : 'Weather sources matched to this launch.'
+                : 'Matched FAA launch advisories and launch-day airspace notices.'}
+            </p>
+          </div>
 
-          {isForecastExpanded ? (
-            <div className="mt-6">
-              {hasWeather ? (
-                <>
-                  {data.weatherDetail?.summary ? (
-                    <p className="text-base font-semibold leading-relaxed text-text1">{data.weatherDetail.summary}</p>
-                  ) : null}
+          <div className="mt-6">
+            {hasWeather ? (
+              <>
+                {data.weatherDetail?.summary ? (
+                  <p className="text-base font-semibold leading-relaxed text-text1">{data.weatherDetail.summary}</p>
+                ) : null}
 
-                  {data.weatherDetail?.concerns?.length ? (
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {data.weatherDetail.concerns.map((concern) => (
-                        <Badge key={concern} accent>
-                          {concern}
-                        </Badge>
-                      ))}
-                    </div>
-                  ) : null}
-
-                  {data.weatherDetail?.cards?.length ? (
-                    <div className="mt-4 grid gap-3 md:grid-cols-2">
-                      {data.weatherDetail.cards.map((card) => (
-                        <article
-                          key={card.id}
-                          className="rounded-xl border border-stroke bg-surface-0 p-4"
-                        >
-                          <div className="text-xs uppercase tracking-[0.08em] text-text3">{card.title}</div>
-                          {card.subtitle ? <div className="mt-1 text-sm text-text2">{card.subtitle}</div> : null}
-                          {card.headline ? <div className="mt-3 text-lg font-semibold text-text1">{card.headline}</div> : null}
-                          {card.badges.length ? (
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              {card.badges.map((badge) => (
-                                <Badge key={`${card.id}:${badge}`}>{badge}</Badge>
-                              ))}
-                            </div>
-                          ) : null}
-                          {card.metrics.length ? (
-                            <div className="mt-3 space-y-2">
-                              {card.metrics.map((metric) => (
-                                <MetricRow key={`${card.id}:${metric.label}`} label={metric.label} value={metric.value} />
-                              ))}
-                            </div>
-                          ) : null}
-                          {card.detail ? <p className="mt-3 text-sm leading-relaxed text-text2">{card.detail}</p> : null}
-                          {card.actionUrl && card.actionLabel ? (
-                            <a
-                              className="mt-3 inline-flex text-sm font-semibold text-primary hover:text-primary/80"
-                              href={card.actionUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              {card.actionLabel}
-                            </a>
-                          ) : null}
-                        </article>
-                      ))}
-                    </div>
-                  ) : null}
-                </>
-              ) : null}
-
-              {data.faaAdvisories.length > 0 ? (
-                <div className={clsx('space-y-3', hasWeather ? 'mt-6 border-t border-stroke/50 pt-4' : '')}>
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <div className="text-xs uppercase tracking-[0.08em] text-text3">FAA airspace</div>
-                      <h3 className="mt-1 text-lg font-semibold text-text1">Launch advisories</h3>
-                      <p className="mt-1 text-sm text-text3">Temporary flight restrictions and NOTAM matches tied to this launch.</p>
-                    </div>
+                {data.weatherDetail?.concerns?.length ? (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {data.weatherDetail.concerns.map((concern) => (
+                      <Badge key={concern} accent>
+                        {concern}
+                      </Badge>
+                    ))}
                   </div>
+                ) : null}
 
+                {data.weatherDetail?.cards?.length ? (
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    {data.weatherDetail.cards.map((card) => (
+                      <article
+                        key={card.id}
+                        className="rounded-xl border border-stroke bg-surface-0 p-4"
+                      >
+                        <div className="text-xs uppercase tracking-[0.08em] text-text3">{card.title}</div>
+                        {card.subtitle ? <div className="mt-1 text-sm text-text2">{card.subtitle}</div> : null}
+                        {card.headline ? <div className="mt-3 text-lg font-semibold text-text1">{card.headline}</div> : null}
+                        {card.badges.length ? (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {card.badges.map((badge) => (
+                              <Badge key={`${card.id}:${badge}`}>{badge}</Badge>
+                            ))}
+                          </div>
+                        ) : null}
+                        {card.metrics.length ? (
+                          <div className="mt-3 space-y-2">
+                            {card.metrics.map((metric) => (
+                              <MetricRow key={`${card.id}:${metric.label}`} label={metric.label} value={metric.value} />
+                            ))}
+                          </div>
+                        ) : null}
+                        {card.detail ? <p className="mt-3 text-sm leading-relaxed text-text2">{card.detail}</p> : null}
+                        {card.actionUrl && card.actionLabel ? (
+                          <a
+                            className="mt-3 inline-flex text-sm font-semibold text-primary hover:text-primary/80"
+                            href={card.actionUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {card.actionLabel}
+                          </a>
+                        ) : null}
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+
+            {data.faaAdvisories.length > 0 ? (
+              <div className={clsx(hasWeather ? 'mt-6 border-t border-stroke/50 pt-4' : '')}>
+                <ForecastAdvisoriesDisclosure count={data.faaAdvisories.length}>
                   <div className="space-y-3">
                     {data.faaAdvisories.map((advisory) => (
                       <article
@@ -213,10 +193,10 @@ export function LiveTab({ data, className }: LiveTabProps) {
                       </article>
                     ))}
                   </div>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
+                </ForecastAdvisoriesDisclosure>
+              </div>
+            ) : null}
+          </div>
         </section>
       ) : null}
 
@@ -224,22 +204,50 @@ export function LiveTab({ data, className }: LiveTabProps) {
 
       {primaryWatchLink ? (
         <Section title="Live coverage">
-          <a
-            href={primaryWatchLink.url}
-            target="_blank"
-            rel="noreferrer"
-            className="block rounded-xl border border-primary/30 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.12),_transparent_70%)] p-4 transition hover:border-primary/60"
-          >
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-lg font-semibold text-text1">{primaryWatchLink.title || primaryWatchLink.label}</div>
-                {primaryWatchLink.meta ? <div className="mt-1 text-sm text-text2">{primaryWatchLink.meta}</div> : null}
+          {primaryWatchEmbed ? (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-lg font-semibold text-text1">{primaryWatchLink.title || primaryWatchLink.label}</div>
+                  {primaryWatchLink.meta ? <div className="mt-1 text-sm text-text2">{primaryWatchLink.meta}</div> : null}
+                </div>
+                <a
+                  href={primaryWatchLink.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-primary"
+                >
+                  Open stream
+                </a>
               </div>
-              <span className="rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-primary">
-                Open stream
-              </span>
+
+              <ThirdPartyVideoEmbed
+                src={primaryWatchEmbed.src}
+                title={primaryWatchEmbed.title}
+                externalUrl={primaryWatchLink.url}
+                previewImageUrl={primaryWatchLink.imageUrl || null}
+                previewAlt={primaryWatchLink.label || 'Stream preview'}
+                hostLabel={primaryWatchLink.host || primaryWatchEmbed.provider}
+              />
             </div>
-          </a>
+          ) : (
+            <a
+              href={primaryWatchLink.url}
+              target="_blank"
+              rel="noreferrer"
+              className="block rounded-xl border border-primary/30 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.12),_transparent_70%)] p-4 transition hover:border-primary/60"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-lg font-semibold text-text1">{primaryWatchLink.title || primaryWatchLink.label}</div>
+                  {primaryWatchLink.meta ? <div className="mt-1 text-sm text-text2">{primaryWatchLink.meta}</div> : null}
+                </div>
+                <span className="rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-primary">
+                  Open stream
+                </span>
+              </div>
+            </a>
+          )}
 
           {data.watchLinks.length > 1 ? (
             <div className="mt-4 grid gap-3 md:grid-cols-2">

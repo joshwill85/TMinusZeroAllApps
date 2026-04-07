@@ -65,6 +65,7 @@ import { buildStatusFilterOrClause, parseLaunchStatusFilter } from '@/lib/server
 import { fetchLaunchDetailEnrichment } from '@/lib/server/launchDetailEnrichment';
 import { loadMobileHubRollout } from '@/lib/server/mobileHubRollout';
 import {
+  buildLaunchMissionTimeline,
   normalizeLaunchFilterValue,
   parseSiteSearchInput,
   parseSiteSearchTypesParam,
@@ -939,20 +940,24 @@ function flattenMissionResources(enrichment: Awaited<ReturnType<typeof fetchLaun
   return rows;
 }
 
-function flattenMissionTimeline(enrichment: Awaited<ReturnType<typeof fetchLaunchDetailEnrichment>>) {
-  const rows: Array<{ id: string; label: string; time: string | null; description: string | null; phase: 'prelaunch' | 'postlaunch' | 'timeline' | null }> = [];
-  for (const item of enrichment.externalContent || []) {
-    for (const event of item.timelineEvents || []) {
-      rows.push({
-        id: event.id,
-        label: event.label,
-        time: event.time || null,
-        description: event.description || null,
-        phase: event.phase || null
-      });
-    }
-  }
-  return rows;
+function flattenMissionTimeline({
+  launchTimeline,
+  enrichment
+}: {
+  launchTimeline?: unknown[] | null;
+  enrichment: Awaited<ReturnType<typeof fetchLaunchDetailEnrichment>>;
+}) {
+  return buildLaunchMissionTimeline({
+    ll2Timeline: launchTimeline,
+    providerExternalContent: enrichment.externalContent || [],
+    includeFamilyTemplate: false
+  }).map((event) => ({
+    id: event.id,
+    label: event.label,
+    time: event.time,
+    description: event.description,
+    phase: event.phase
+  }));
 }
 
 async function loadRelatedNewsItems(launchId: string) {
@@ -3541,7 +3546,7 @@ export async function loadLaunchDetailPayload(id: string, session: ResolvedViewe
     watchLinks: buildWatchLinks(launch),
     externalLinks: buildExternalLinks(launch),
     missionResources: flattenMissionResources(mobileEnrichment),
-    missionTimeline: flattenMissionTimeline(mobileEnrichment)
+    missionTimeline: flattenMissionTimeline({ launchTimeline: launch.timeline, enrichment: mobileEnrichment })
   };
   const social = buildSocialModule(launch);
   const missionStats = buildMissionStatsModule(launch, rocketStats, boosterStats);

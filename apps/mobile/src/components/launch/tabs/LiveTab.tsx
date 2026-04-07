@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import type { MobileTheme } from '@tminuszero/design-tokens';
-import type { LiveTabData } from '@tminuszero/launch-detail-ui';
+import { buildLaunchVideoEmbed, type LiveTabData } from '@tminuszero/launch-detail-ui';
+import { ForecastAdvisoriesDisclosure } from '@/src/components/launch/ForecastAdvisoriesDisclosure';
 import { JepPanel } from '@/src/components/launch/JepPanel';
+import { LaunchVideoInlineEmbed } from '@/src/components/launch/LaunchVideoInlineEmbed';
 import { XPostInlineEmbed } from '@/src/components/launch/XPostInlineEmbed';
 import { openExternalCustomerUrl } from '@/src/features/customerRoutes/shared';
 import { formatTimestamp } from '@/src/utils/format';
@@ -13,7 +15,6 @@ type LiveTabProps = {
 };
 
 export function LiveTab({ data, theme }: LiveTabProps) {
-  const [isForecastExpanded, setIsForecastExpanded] = useState(false);
   const hasWeather = Boolean(data.weatherDetail?.summary || data.weatherDetail?.cards?.length || data.weatherDetail?.concerns?.length);
   const hasForecastOutlook = hasWeather || data.faaAdvisories.length > 0;
   const hasContent =
@@ -37,24 +38,15 @@ export function LiveTab({ data, theme }: LiveTabProps) {
   }
 
   const primaryWatchLink = data.watchLinks[0] ?? null;
+  const primaryWatchEmbed = primaryWatchLink ? buildLaunchVideoEmbed(primaryWatchLink.url) : null;
 
   return (
     <>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 24 }}>
         {hasForecastOutlook ? (
           <SectionCard theme={theme}>
-            <Pressable
-              onPress={() => {
-                setIsForecastExpanded((current) => !current);
-              }}
-              style={{
-                flexDirection: 'row',
-                alignItems: 'flex-start',
-                justifyContent: 'space-between',
-                gap: 12
-              }}
-            >
-              <View style={{ flex: 1, gap: 8 }}>
+            <View style={{ gap: 14 }}>
+              <View style={{ gap: 8 }}>
                 <SectionTitle theme={theme}>Forecast outlook</SectionTitle>
                 <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
                   {hasWeather
@@ -64,59 +56,41 @@ export function LiveTab({ data, theme }: LiveTabProps) {
                     : 'Matched FAA launch advisories and launch-day airspace notices.'}
                 </Text>
               </View>
-              <View style={{ alignItems: 'flex-end', gap: 8 }}>
-                {data.faaAdvisories.length > 0 ? (
-                  <Badge label={`${data.faaAdvisories.length} match${data.faaAdvisories.length === 1 ? '' : 'es'}`} theme={theme} />
-                ) : null}
-                <Text style={{ color: theme.foreground, fontSize: 12, fontWeight: '700' }}>
-                  {isForecastExpanded ? 'Collapse' : 'Expand'}
-                </Text>
-              </View>
-            </Pressable>
 
-            {isForecastExpanded ? (
-              <View style={{ gap: 14 }}>
-                {hasWeather ? (
-                  <>
-                    {data.weatherDetail?.summary ? (
-                      <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700', lineHeight: 22 }}>
-                        {data.weatherDetail.summary}
-                      </Text>
-                    ) : null}
-                    {data.weatherDetail?.concerns?.length ? (
-                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                        {data.weatherDetail.concerns.map((concern) => (
-                          <Badge key={concern} label={concern} theme={theme} />
-                        ))}
-                      </View>
-                    ) : null}
-                    {data.weatherDetail?.cards?.length ? (
-                      <View style={{ gap: 12 }}>
-                        {data.weatherDetail.cards.map((card) => (
-                          <WeatherCard key={card.id} card={card} theme={theme} />
-                        ))}
-                      </View>
-                    ) : null}
-                  </>
-                ) : null}
-
-                {data.faaAdvisories.length > 0 ? (
-                  <View
-                    style={{
-                      gap: 12,
-                      marginTop: hasWeather ? 2 : 0,
-                      borderTopWidth: hasWeather ? 1 : 0,
-                      borderTopColor: hasWeather ? theme.stroke : 'transparent',
-                      paddingTop: hasWeather ? 14 : 0
-                    }}
-                  >
-                    <View style={{ gap: 4 }}>
-                      <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>Launch advisories</Text>
-                      <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
-                        Temporary flight restrictions and NOTAM matches tied to this launch.
-                      </Text>
+              {hasWeather ? (
+                <>
+                  {data.weatherDetail?.summary ? (
+                    <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700', lineHeight: 22 }}>
+                      {data.weatherDetail.summary}
+                    </Text>
+                  ) : null}
+                  {data.weatherDetail?.concerns?.length ? (
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                      {data.weatherDetail.concerns.map((concern) => (
+                        <Badge key={concern} label={concern} theme={theme} />
+                      ))}
                     </View>
+                  ) : null}
+                  {data.weatherDetail?.cards?.length ? (
+                    <View style={{ gap: 12 }}>
+                      {data.weatherDetail.cards.map((card) => (
+                        <WeatherCard key={card.id} card={card} theme={theme} />
+                      ))}
+                    </View>
+                  ) : null}
+                </>
+              ) : null}
 
+              {data.faaAdvisories.length > 0 ? (
+                <View
+                  style={{
+                    marginTop: hasWeather ? 2 : 0,
+                    borderTopWidth: hasWeather ? 1 : 0,
+                    borderTopColor: hasWeather ? theme.stroke : 'transparent',
+                    paddingTop: hasWeather ? 14 : 0
+                  }}
+                >
+                  <ForecastAdvisoriesDisclosure count={data.faaAdvisories.length} theme={theme}>
                     {data.faaAdvisories.map((advisory) => (
                       <View
                         key={advisory.matchId}
@@ -181,10 +155,10 @@ export function LiveTab({ data, theme }: LiveTabProps) {
                         ) : null}
                       </View>
                     ))}
-                  </View>
-                ) : null}
-              </View>
-            ) : null}
+                  </ForecastAdvisoriesDisclosure>
+                </View>
+              ) : null}
+            </View>
           </SectionCard>
         ) : null}
 
@@ -193,28 +167,59 @@ export function LiveTab({ data, theme }: LiveTabProps) {
       {primaryWatchLink ? (
         <SectionCard theme={theme}>
           <SectionTitle theme={theme}>Live coverage</SectionTitle>
-          <Pressable
-            onPress={() => {
-              void openExternalCustomerUrl(primaryWatchLink.url);
-            }}
-            style={({ pressed }) => ({
-              gap: 8,
-              borderRadius: 18,
-              borderWidth: 1,
-              borderColor: theme.stroke,
-              backgroundColor: 'rgba(255, 255, 255, 0.035)',
-              padding: 16,
-              opacity: pressed ? 0.9 : 1
-            })}
-          >
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-              <View style={{ flex: 1, gap: 4 }}>
-                <Text style={{ color: theme.foreground, fontSize: 16, fontWeight: '700' }}>{primaryWatchLink.title || primaryWatchLink.label}</Text>
-                {primaryWatchLink.meta ? <Text style={{ color: theme.muted, fontSize: 13 }}>{primaryWatchLink.meta}</Text> : null}
+          {primaryWatchEmbed ? (
+            <View style={{ gap: 12 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                <View style={{ flex: 1, gap: 4 }}>
+                  <Text style={{ color: theme.foreground, fontSize: 16, fontWeight: '700' }}>{primaryWatchLink.title || primaryWatchLink.label}</Text>
+                  {primaryWatchLink.meta ? <Text style={{ color: theme.muted, fontSize: 13 }}>{primaryWatchLink.meta}</Text> : null}
+                </View>
+                <Pressable
+                  onPress={() => {
+                    void openExternalCustomerUrl(primaryWatchLink.url);
+                  }}
+                  style={({ pressed }) => ({
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: theme.stroke,
+                    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                    paddingHorizontal: 14,
+                    paddingVertical: 8,
+                    opacity: pressed ? 0.88 : 1
+                  })}
+                >
+                  <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Open stream</Text>
+                </Pressable>
               </View>
-              <OpenLabel theme={theme} />
+              <LaunchVideoInlineEmbed
+                src={primaryWatchEmbed.src}
+                providerLabel={primaryWatchLink.host || primaryWatchEmbed.provider}
+              />
             </View>
-          </Pressable>
+          ) : (
+            <Pressable
+              onPress={() => {
+                void openExternalCustomerUrl(primaryWatchLink.url);
+              }}
+              style={({ pressed }) => ({
+                gap: 8,
+                borderRadius: 18,
+                borderWidth: 1,
+                borderColor: theme.stroke,
+                backgroundColor: 'rgba(255, 255, 255, 0.035)',
+                padding: 16,
+                opacity: pressed ? 0.9 : 1
+              })}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                <View style={{ flex: 1, gap: 4 }}>
+                  <Text style={{ color: theme.foreground, fontSize: 16, fontWeight: '700' }}>{primaryWatchLink.title || primaryWatchLink.label}</Text>
+                  {primaryWatchLink.meta ? <Text style={{ color: theme.muted, fontSize: 13 }}>{primaryWatchLink.meta}</Text> : null}
+                </View>
+                <OpenLabel theme={theme} />
+              </View>
+            </Pressable>
+          )}
           {data.watchLinks.length > 1 ? (
             <View style={{ gap: 10, marginTop: 12 }}>
               {data.watchLinks.slice(1).map((link) => (

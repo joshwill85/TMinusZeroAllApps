@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@tminuszero/contracts": "*",
+    "@tminuszero/domain": "*",
     "@tminuszero/design-tokens": "*"
   },
   "peerDependencies": {

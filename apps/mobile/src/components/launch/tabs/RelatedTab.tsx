@@ -1,9 +1,10 @@
 import React from 'react';
 import { useRouter, type Href } from 'expo-router';
-import { Image, Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import type { MobileTheme } from '@tminuszero/design-tokens';
 import type { RelatedTabData } from '@tminuszero/launch-detail-ui';
 import { LaunchNewsCard } from '@/src/components/launch/LaunchNewsCard';
+import { LaunchMediaLightboxCard } from '@/src/components/launch/LaunchMediaLightboxCard';
 import { MissionTimelineCards } from '@/src/components/launch/MissionTimelineCards';
 import { openExternalCustomerUrl } from '@/src/features/customerRoutes/shared';
 import { formatTimestamp } from '@/src/utils/format';
@@ -288,6 +289,17 @@ function MediaCard({
   item: RelatedTabData['media'][number];
   theme: MobileTheme;
 }) {
+  if (item.imageUrl) {
+    return (
+      <LaunchMediaLightboxCard
+        imageUrl={item.imageUrl}
+        title={item.title || item.name || 'Media item'}
+        sourceUrl={item.url}
+        accessibilityLabel={`Open ${item.title || item.name || 'media item'}`}
+      />
+    );
+  }
+
   const subtitle = [formatMediaKindLabel(item.kind ?? item.type), item.host].filter(Boolean).join(' • ') || 'Official media';
   const detail = item.description || (item.name && item.name !== item.title ? item.name : null);
 
@@ -307,13 +319,6 @@ function MediaCard({
         opacity: pressed ? 0.9 : 1
       })}
     >
-      {item.imageUrl ? (
-        <Image
-          source={{ uri: item.imageUrl }}
-          style={{ width: '100%', height: 180, backgroundColor: 'rgba(255,255,255,0.04)' }}
-          resizeMode="cover"
-        />
-      ) : null}
       <View style={{ gap: 8, padding: 16 }}>
         <Text style={{ color: theme.foreground, fontSize: 16, fontWeight: '700', lineHeight: 22 }}>
           {item.title || item.name || 'Media item'}

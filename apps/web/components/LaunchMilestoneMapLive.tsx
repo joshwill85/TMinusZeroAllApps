@@ -73,15 +73,17 @@ export function LaunchMilestoneMapLive({
     <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="text-xs uppercase tracking-[0.1em] text-text3">Milestone map</div>
-          <h2 className="text-xl font-semibold text-text1">Flight plan</h2>
+          <div className="text-xs uppercase tracking-[0.1em] text-text3">Launch sequence</div>
+          <h2 className="text-xl font-semibold text-text1">Mission timeline</h2>
           <p className="text-sm text-text3">
-            {hasLaunched ? 'Live targets are highlighted across the sequence.' : 'Planned targets around liftoff.'}
+            {hasLaunched
+              ? 'Live timeline cues are highlighted across the sequence.'
+              : 'Deduped milestones from official resources and launch timeline data.'}
           </p>
         </div>
         {nextEvent && (
           <div className="rounded-xl border border-primary/40 bg-primary/10 px-3 py-2 text-xs text-primary">
-            <div className="text-[10px] uppercase tracking-[0.12em] text-primary/80">Next goal</div>
+            <div className="text-[10px] uppercase tracking-[0.12em] text-primary/80">Next event</div>
             <div className="text-sm font-semibold text-text1">{nextEvent.label}</div>
             {nextEvent.relativeLabel && <div className="text-[11px] text-primary/90">{nextEvent.relativeLabel}</div>}
           </div>
@@ -124,10 +126,9 @@ export function LaunchMilestoneMapLive({
       </div>
       {!hasLaunched && (
         <div className="mt-2 text-[11px] text-text3">
-          Milestones are planned targets before liftoff confirms progress.
+          Entries are merged from official resources and launch timeline data before liftoff confirms progress.
         </div>
       )}
     </section>
   );
 }
-

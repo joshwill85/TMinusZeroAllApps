@@ -187,7 +187,8 @@ export function PrivacyChoicesClient() {
       <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
         <h2 className="text-lg font-semibold text-text1">Privacy Preferences</h2>
         <p className="mt-1 text-sm text-text3">
-          The current web build does not use a sitewide analytics or advertising cookie banner. Embedded X posts and third-party video players only load after you choose to load them.
+          The current web build does not use a sitewide analytics or advertising cookie banner. Embedded X posts still require an explicit load, while supported launch video players can load
+          automatically unless you keep third-party media external-only.
         </p>
         <p className="mt-2 text-sm text-text3">
           The one browser-level preference that materially changes current behavior is whether to always keep third-party media external-only. If you are signed in, we also save that choice to
@@ -195,8 +196,8 @@ export function PrivacyChoicesClient() {
         </p>
         {gpcEnabled && (
           <div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
-            Your browser’s Global Privacy Control (GPC) signal is enabled. The current build does not use ad-tech or sale/sharing cookies, and third-party media still requires an explicit load
-            action.
+            Your browser’s Global Privacy Control (GPC) signal is enabled. The current build does not use ad-tech or sale/sharing cookies, and the external-media preference remains available if
+            you want supported embeds blocked in this browser.
           </div>
         )}
 

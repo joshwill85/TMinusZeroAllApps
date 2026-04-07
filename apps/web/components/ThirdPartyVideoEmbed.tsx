@@ -1,6 +1,6 @@
 'use client';
 
-import { ThirdPartyEmbedGate } from '@/components/ThirdPartyEmbedGate';
+import { useBlockThirdPartyEmbedsPreference } from '@/lib/privacy/embedPreference';
 
 type ThirdPartyVideoEmbedProps = {
   src: string;
@@ -22,25 +22,29 @@ export function ThirdPartyVideoEmbed({
   blocked = false
 }: ThirdPartyVideoEmbedProps) {
   const providerLabel = hostLabel?.trim() || 'third-party';
+  const embedsBlocked = useBlockThirdPartyEmbedsPreference() || blocked;
+
+  if (!embedsBlocked) {
+    return (
+      <div
+        className="overflow-hidden rounded-xl border border-stroke bg-black/50"
+        style={{ aspectRatio: '16 / 9' }}
+      >
+        <iframe
+          src={src}
+          title={title}
+          className="h-full w-full"
+          allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
+          allowFullScreen
+          loading="lazy"
+        />
+      </div>
+    );
+  }
 
   return (
-    <ThirdPartyEmbedGate
-      title="Embedded video"
-      description={`This ${providerLabel} video only loads after you choose to play it.`}
-      loadLabel="Load video"
-      externalUrl={externalUrl}
-      externalLabel="Open stream"
-      blocked={blocked}
-      blockedMessage={
-        <>
-          Third-party video embeds are disabled in your Privacy Choices settings.{' '}
-          <a className="text-primary hover:underline" href="/legal/privacy-choices">
-            Update preferences
-          </a>{' '}
-          or use the stream link instead.
-        </>
-      }
-      preview={
+    <div className="overflow-hidden rounded-xl border border-stroke bg-surface-0">
+      <div className="border-b border-stroke">
         <div className="relative bg-black/50" style={{ aspectRatio: '16 / 9' }}>
           {previewImageUrl ? (
             <img
@@ -55,21 +59,31 @@ export function ThirdPartyVideoEmbed({
           )}
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
         </div>
-      }
-    >
-      <div
-        className="overflow-hidden rounded-xl border border-stroke bg-black/50"
-        style={{ aspectRatio: '16 / 9' }}
-      >
-        <iframe
-          src={src}
-          title={title}
-          className="h-full w-full"
-          allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
-          allowFullScreen
-          loading="lazy"
-        />
       </div>
-    </ThirdPartyEmbedGate>
+      <div className="space-y-3 p-4">
+        <div className="space-y-1">
+          <div className="text-sm font-semibold text-text1">Embedded video</div>
+          <p className="text-sm text-text3">
+            Third-party video embeds from {providerLabel} are disabled in your Privacy Choices settings.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <a
+            href="/legal/privacy-choices"
+            className="btn rounded-lg px-4 py-2 text-sm"
+          >
+            Update preferences
+          </a>
+          <a
+            href={externalUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="btn-secondary rounded-lg px-4 py-2 text-sm"
+          >
+            Open stream
+          </a>
+        </div>
+      </div>
+    </div>
   );
 }

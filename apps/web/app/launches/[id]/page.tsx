@@ -6,6 +6,7 @@ import { cache, Suspense, type ReactNode } from 'react';
 import clsx from 'clsx';
 import type { ArTrajectorySummaryV1 } from '@tminuszero/contracts';
 import {
+  buildLaunchVideoEmbed,
   buildLaunchInventoryStatusMessage,
   selectPreferredResponsiveLaunchExternalResources,
   shouldShowLaunchInventoryCounts,
@@ -26,7 +27,8 @@ import { LaunchUpdateLog, type LaunchUpdateView } from '@/components/LaunchUpdat
 import { LaunchDetailAutoRefresh } from '@/components/LaunchDetailAutoRefresh';
 import { LaunchDetailRefreshButton } from '@/components/LaunchDetailRefreshButton';
 import { LaunchMilestoneMapLive } from '@/components/LaunchMilestoneMapLive';
-import { MissionTimelineCards } from '@/components/launch/MissionTimelineCards';
+import { ForecastAdvisoriesDisclosure } from '@/components/launch/ForecastAdvisoriesDisclosure';
+import { LaunchMediaLightboxCard } from '@/components/launch/LaunchMediaLightboxCard';
 import { Ws45ForecastPanel, type Ws45Forecast } from '@/components/Ws45ForecastPanel';
 import { NwsForecastPanel, type NwsLaunchWeather } from '@/components/NwsForecastPanel';
 import { PadSatellitePreviewImage } from '@/components/PadSatellitePreviewImage';
@@ -56,8 +58,7 @@ import { fetchLaunchJepScore } from '@/lib/server/jep';
 import { resolveJepObserverFromHeaders } from '@/lib/server/jepObserver';
 import { buildLaunchDetailVersionSeed } from '@/lib/server/launchDetailVersion';
 import {
-  formatTrajectoryMilestoneOffsetLabel,
-  resolveTrajectoryMilestones,
+  buildLaunchMissionTimeline,
   type ViewerTier
 } from '@tminuszero/domain';
 import type { LaunchJepScore } from '@/lib/types/jep';
@@ -2308,7 +2309,12 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
     ? fetchLaunchBoosterStats(launch.id, launch.ll2Id)
     : Promise.resolve([] as LaunchBoosterStats[]);
   const padTimezone = launch.pad?.timezone || 'America/New_York';
-  const timelineEvents = buildLaunchTimelineEvents(launch, padTimezone);
+  const launchDetailEnrichment = await launchDetailEnrichmentPromise;
+  const timelineEvents = buildLaunchTimelineEvents({
+    launch,
+    externalContent: launchDetailEnrichment.externalContent,
+    timezone: padTimezone
+  });
 
   const privacyPrefs = await getEffectivePrivacyPreferences({ userId: viewer.userId });
   const blockThirdPartyEmbeds = privacyPrefs.blockThirdPartyEmbeds;
@@ -2325,9 +2331,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
     netMs <= nowMs + 14 * 24 * 60 * 60 * 1000;
   const padCountry = (launch.pad?.countryCode || '').toUpperCase();
   const isUsPad = padCountry === 'USA' || padCountry === 'US';
-  const watchEmbed = primaryWatchUrl ? buildVideoEmbed(primaryWatchUrl) : null;
-  const showWatchEmbed = Boolean(primaryWatchUrl) && Boolean(watchEmbed) && !blockThirdPartyEmbeds;
-  const embedBlockedByPrefs = Boolean(primaryWatchUrl) && blockThirdPartyEmbeds && Boolean(watchEmbed);
+  const watchEmbed = primaryWatchUrl ? buildLaunchVideoEmbed(primaryWatchUrl) : null;
   const showWatchSection = Boolean(primaryWatchUrl);
   const jepObserver = resolveJepObserverFromHeaders(headers());
 
@@ -2439,8 +2443,8 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
   };
   const videoJsonLd = (() => {
     if (!primaryWatchUrl) return null;
-    const embed = buildVideoEmbed(primaryWatchUrl);
-    const thumbnailUrl = buildVideoThumbnail(primaryWatchUrl) || schemaImage || undefined;
+    const embed = buildLaunchVideoEmbed(primaryWatchUrl);
+    const thumbnailUrl = embed?.thumbnailUrl || schemaImage || undefined;
     const uploadDate = (() => {
       if (Number.isFinite(netMs) && netMs <= nowMs) return new Date(netMs).toISOString();
       if (schemaModifiedDate) return schemaModifiedDate;
@@ -2795,7 +2799,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
 
       <Suspense fallback={<LoadingPanel label="Loading stages and recovery..." />}>
         <LaunchStagesAndRecoverySection
-          enrichmentPromise={launchDetailEnrichmentPromise}
+          enrichmentPromise={Promise.resolve(launchDetailEnrichment)}
           payloadManifestPromise={payloadManifestPromise}
           launch={launch}
           padTimezone={padTimezone}
@@ -2803,7 +2807,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
       </Suspense>
 
       <Suspense fallback={<LoadingPanel label="Loading mission resources..." />}>
-        <LaunchMissionResourcesSection enrichmentPromise={launchDetailEnrichmentPromise} />
+        <LaunchMissionResourcesSection enrichmentPromise={Promise.resolve(launchDetailEnrichment)} />
       </Suspense>
 
       {showWatchSection && (
@@ -2828,7 +2832,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
 
           {primaryWatchUrl && (
             <div className="mt-4">
-              {showWatchEmbed && watchEmbed ? (
+              {watchEmbed ? (
                 <ThirdPartyVideoEmbed
                   src={watchEmbed.src}
                   title={watchEmbed.title}
@@ -2868,17 +2872,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
                     </div>
                   </a>
                   <div className="rounded-xl border border-dashed border-stroke bg-[rgba(255,255,255,0.02)] p-4 text-sm text-text3">
-                    {embedBlockedByPrefs ? (
-                      <>
-                        Embedded video is disabled in your Privacy Choices settings.{' '}
-                        <Link className="text-primary hover:underline" href="/legal/privacy-choices">
-                          Update preferences
-                        </Link>{' '}
-                        or use the stream link instead.
-                      </>
-                    ) : (
-                      <>This stream provider can&apos;t be embedded here. Use the stream link instead.</>
-                    )}
+                    This stream provider can&apos;t be embedded here. Use the stream link instead.
                   </div>
                 </div>
               )}
@@ -4075,8 +4069,8 @@ async function ConsolidatedWeatherSection({
   if (!hasForecastPanels && !hasAdvisories) return null;
 
   return (
-    <details className="overflow-hidden rounded-2xl border border-stroke bg-surface-1 [&_summary::-webkit-details-marker]:hidden">
-      <summary className="flex cursor-pointer list-none items-start justify-between gap-3 p-4">
+    <section className="overflow-hidden rounded-2xl border border-stroke bg-surface-1">
+      <div className="p-4">
         <div className="min-w-0">
           <div className="text-[11px] uppercase tracking-[0.08em] text-text3">Weather</div>
           <h2 className="mt-1 text-xl font-semibold text-text1">Forecast outlook</h2>
@@ -4088,17 +4082,7 @@ async function ConsolidatedWeatherSection({
             })}
           </p>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-          {hasAdvisories ? (
-            <span className="rounded-full border border-stroke px-3 py-1 text-xs uppercase tracking-[0.08em] text-text3">
-              {advisories.length} match{advisories.length === 1 ? '' : 'es'}
-            </span>
-          ) : null}
-          <span className="rounded-full border border-stroke/70 px-3 py-1 text-[11px] uppercase tracking-[0.08em] text-text3">
-            Expand/collapse
-          </span>
-        </div>
-      </summary>
+      </div>
 
       <div className="border-t border-stroke/70 px-4 pb-4 pt-4">
         {hasForecastPanels ? (
@@ -4121,18 +4105,20 @@ async function ConsolidatedWeatherSection({
         ) : null}
 
         {hasAdvisories ? (
-          <div className={clsx('space-y-3', hasForecastPanels ? 'mt-6 border-t border-stroke/50 pt-4' : '')}>
-            <LaunchFaaAirspaceContent
-              advisories={advisories}
-              mapData={faaAirspaceMap}
-              googleMapsWebApiKey={googleMapsWebApiKey}
-              googleMapsPadHref={googleMapsPadHref}
-              padTimezone={padTimezone}
-            />
+          <div className={clsx(hasForecastPanels ? 'mt-6 border-t border-stroke/50 pt-4' : '')}>
+            <ForecastAdvisoriesDisclosure count={advisories.length}>
+              <LaunchFaaAirspaceContent
+                advisories={advisories}
+                mapData={faaAirspaceMap}
+                googleMapsWebApiKey={googleMapsWebApiKey}
+                googleMapsPadHref={googleMapsPadHref}
+                padTimezone={padTimezone}
+              />
+            </ForecastAdvisoriesDisclosure>
           </div>
         ) : null}
       </div>
-    </details>
+    </section>
   );
 }
 
@@ -4203,29 +4189,19 @@ function LaunchFaaAirspaceContent({
   padTimezone: string | null;
 }) {
   const canRenderInteractiveMap = Boolean(googleMapsWebApiKey && mapData?.hasRenderableGeometry);
+  const hasMapBlock = canRenderInteractiveMap || Boolean(mapData?.advisoryCount);
 
   return (
     <>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="text-xs uppercase tracking-[0.1em] text-text3">FAA airspace</div>
-          <h3 className="text-xl font-semibold text-text1">Launch advisories</h3>
-          <p className="text-sm text-text3">Temporary flight restrictions and NOTAM matches tied to this launch.</p>
-        </div>
-        <span className="rounded-full border border-stroke px-3 py-1 text-xs uppercase tracking-[0.08em] text-text3">
-          {advisories.length} match{advisories.length === 1 ? '' : 'es'}
-        </span>
-      </div>
-
       {canRenderInteractiveMap && mapData && googleMapsWebApiKey ? (
         <LaunchFaaMapClient apiKey={googleMapsWebApiKey} data={mapData} padMapsHref={googleMapsPadHref} />
       ) : mapData?.advisoryCount ? (
-        <div className="mt-4 rounded-xl border border-dashed border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-3 text-sm text-text3">
+        <div className="rounded-xl border border-dashed border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-3 text-sm text-text3">
           FAA launch-day geometry is available for this launch, but the interactive map is not configured in this environment.
         </div>
       ) : null}
 
-      <div className="mt-4 space-y-3">
+      <div className={clsx('space-y-3', hasMapBlock ? 'mt-4' : '')}>
         {advisories.map((advisory) => {
           const confidence = advisory.matchConfidence != null ? `${Math.round(advisory.matchConfidence)}%` : 'n/a';
           const windowLabel = formatFaaWindow(advisory, padTimezone);
@@ -4626,16 +4602,15 @@ async function LaunchMissionResourcesSection({
 }) {
   const enrichment = await enrichmentPromise;
   const resources = flattenExternalResources(enrichment.externalContent);
-  const timelineEvents = flattenExternalTimelineEvents(enrichment.externalContent);
 
-  if (!resources.length && !timelineEvents.length) return null;
+  if (!resources.length) return null;
 
   return (
     <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-xs uppercase tracking-[0.1em] text-text3">Mission resources</div>
-          <h2 className="text-xl font-semibold text-text1">Official media & timelines</h2>
+          <h2 className="text-xl font-semibold text-text1">Official media & resources</h2>
           <p className="text-sm text-text3">Matched SpaceX launch-page assets and media references for this launch.</p>
         </div>
         <span className="rounded-full border border-stroke px-3 py-1 text-xs uppercase tracking-[0.08em] text-text3">
@@ -4650,13 +4625,6 @@ async function LaunchMissionResourcesSection({
           ))}
         </div>
       )}
-
-      {timelineEvents.length > 0 && (
-        <div className="mt-4 rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3">
-          <div className="text-xs uppercase tracking-[0.08em] text-text3">Mission timeline</div>
-          <MissionTimelineCards items={timelineEvents} className="mt-2" />
-        </div>
-      )}
     </section>
   );
 }
@@ -4667,17 +4635,31 @@ function LaunchExternalResourceCard({ resource }: { resource: LaunchExternalReso
       resource.previewUrl || (resource.kind === 'image' || resource.kind === 'infographic' ? resource.url : null)
     ) || null;
 
+  if (previewUrl) {
+    return (
+      <LaunchMediaLightboxCard
+        imageUrl={previewUrl}
+        alt={resource.label}
+        href={resource.url}
+        buttonLabel={`Open ${resource.label}`}
+        className="bg-[rgba(255,255,255,0.02)]"
+      />
+    );
+  }
+
   return (
-    <article className="group overflow-hidden rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)]">
-      {previewUrl ? (
-        <img src={previewUrl} alt={resource.label} className="h-40 w-full object-cover" loading="lazy" decoding="async" />
-      ) : null}
+    <a
+      href={resource.url}
+      target="_blank"
+      rel="noreferrer"
+      className="group block overflow-hidden rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] transition hover:border-primary"
+    >
       <div className="p-3">
         <div className="text-[11px] uppercase tracking-[0.08em] text-text3">{formatExternalResourceKind(resource.kind)}</div>
         <div className="mt-1 text-sm font-semibold text-text1">{resource.label}</div>
         <div className="mt-1 text-xs text-text3">{formatLinkHost(resource.url)}</div>
       </div>
-    </article>
+    </a>
   );
 }
 
@@ -5213,7 +5195,7 @@ async function RelatedEventsSection({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <div className="text-xs uppercase tracking-[0.1em] text-text3">Related events</div>
-          <h2 className="text-xl font-semibold text-text1">Mission timeline</h2>
+          <h2 className="text-xl font-semibold text-text1">Related events</h2>
         </div>
         {nextRelatedEvent && (
           <div className="text-xs text-text3">
@@ -5689,29 +5671,34 @@ type RelatedEventView = {
   isPast: boolean;
 };
 
-function buildLaunchTimelineEvents(launch: Launch, timezone: string | null): LaunchTimelineView[] {
-  const raw = Array.isArray(launch.timeline) ? launch.timeline : [];
-  if (!raw.length) return [];
+function buildLaunchTimelineEvents({
+  launch,
+  externalContent,
+  timezone
+}: {
+  launch: Launch;
+  externalContent: LaunchExternalContent[];
+  timezone: string | null;
+}): LaunchTimelineView[] {
   const netMs = Date.parse(launch.net);
-  const milestones = resolveTrajectoryMilestones({
-    ll2Timeline: raw,
+  const events = buildLaunchMissionTimeline({
+    ll2Timeline: Array.isArray(launch.timeline) ? launch.timeline : [],
+    providerExternalContent: externalContent,
     includeFamilyTemplate: false
-  });
-
-  const events = milestones
-    .map((milestone, index) => {
+  })
+    .map((event) => {
       const absoluteMs =
-        Number.isFinite(netMs) && typeof milestone.tPlusSec === 'number' && Number.isFinite(milestone.tPlusSec)
-          ? netMs + milestone.tPlusSec * 1000
+        Number.isFinite(netMs) && typeof event.offsetSeconds === 'number' && Number.isFinite(event.offsetSeconds)
+          ? netMs + event.offsetSeconds * 1000
           : null;
       const absoluteLabel =
         absoluteMs != null ? formatDate(new Date(absoluteMs).toISOString(), timezone) : undefined;
 
       return {
-        id: `${milestone.key}-${milestone.tPlusSec ?? milestone.timeText ?? index}`,
-        label: milestone.label,
-        description: milestone.description || undefined,
-        relativeLabel: formatTrajectoryMilestoneOffsetLabel(milestone.tPlusSec, milestone.timeText),
+        id: event.id,
+        label: event.label,
+        description: event.description || undefined,
+        relativeLabel: event.time || undefined,
         absoluteLabel: absoluteLabel === 'none' ? undefined : absoluteLabel,
         absoluteMs,
         isNext: false,
@@ -6485,7 +6472,7 @@ function buildWatchLinks(
     const url = entry.url.trim();
     if (!url) return;
     const host = formatLinkHost(url);
-    const imageUrl = entry.imageUrl?.trim() || buildVideoThumbnail(url) || undefined;
+    const imageUrl = entry.imageUrl?.trim() || buildLaunchVideoEmbed(url)?.thumbnailUrl || undefined;
     const existing = linksByUrl.get(url);
     if (existing) {
       if (!existing.imageUrl && imageUrl) existing.imageUrl = imageUrl;
@@ -6896,141 +6883,6 @@ function normalizeComparableUrl(url: string | null | undefined) {
   } catch {
     return null;
   }
-}
-
-type VideoEmbed = { src: string; title: string; provider: 'YouTube' | 'Vimeo' };
-
-function buildVideoEmbed(url: string): VideoEmbed | null {
-  try {
-    const parsed = new URL(url);
-    const host = parsed.hostname.toLowerCase().replace(/^www\\./, '');
-
-    const youtubeId = parseYouTubeVideoId(parsed, host);
-    if (youtubeId) {
-      const embed = new URL(`https://www.youtube-nocookie.com/embed/${youtubeId}`);
-      embed.searchParams.set('rel', '0');
-      embed.searchParams.set('modestbranding', '1');
-      embed.searchParams.set('playsinline', '1');
-      const startSeconds = parseYouTubeStartSeconds(parsed);
-      if (startSeconds != null) {
-        embed.searchParams.set('start', String(startSeconds));
-      }
-      return { src: embed.toString(), title: 'YouTube video player', provider: 'YouTube' };
-    }
-
-    const vimeoId = parseVimeoVideoId(parsed, host);
-    if (vimeoId) {
-      return {
-        src: `https://player.vimeo.com/video/${vimeoId}`,
-        title: 'Vimeo video player',
-        provider: 'Vimeo'
-      };
-    }
-
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function buildVideoThumbnail(url: string): string | null {
-  try {
-    const parsed = new URL(url);
-    const host = parsed.hostname.toLowerCase().replace(/^www\\./, '');
-
-    const youtubeId = parseYouTubeVideoId(parsed, host);
-    if (youtubeId) return `https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg`;
-
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function parseYouTubeVideoId(url: URL, host: string): string | null {
-  const isYouTubeHost =
-    host === 'youtu.be' ||
-    host === 'youtube.com' ||
-    host.endsWith('.youtube.com') ||
-    host === 'youtube-nocookie.com' ||
-    host.endsWith('.youtube-nocookie.com');
-  if (!isYouTubeHost) return null;
-
-  if (host === 'youtu.be') {
-    const id = url.pathname.split('/').filter(Boolean)[0];
-    return isValidYouTubeId(id) ? id : null;
-  }
-
-  if (url.pathname === '/watch') {
-    const id = url.searchParams.get('v');
-    return isValidYouTubeId(id) ? id : null;
-  }
-
-  const segments = url.pathname.split('/').filter(Boolean);
-  if (segments.length >= 2 && segments[0] === 'embed') {
-    const id = segments[1];
-    return isValidYouTubeId(id) ? id : null;
-  }
-
-  if (segments.length >= 2 && (segments[0] === 'live' || segments[0] === 'shorts')) {
-    const id = segments[1];
-    return isValidYouTubeId(id) ? id : null;
-  }
-
-  const fallback = url.searchParams.get('v');
-  return isValidYouTubeId(fallback) ? fallback : null;
-}
-
-function isValidYouTubeId(value: string | null | undefined) {
-  if (!value) return false;
-  const trimmed = value.trim();
-  if (!trimmed) return false;
-  return /^[a-zA-Z0-9_-]{6,}$/.test(trimmed);
-}
-
-function parseYouTubeStartSeconds(url: URL): number | null {
-  const candidates = [url.searchParams.get('start'), url.searchParams.get('t'), url.searchParams.get('time_continue')];
-  const hash = url.hash ? url.hash.replace(/^#/, '') : '';
-  if (hash.startsWith('t=')) candidates.push(hash.slice(2));
-
-  for (const value of candidates) {
-    const seconds = parseDurationSeconds(value);
-    if (seconds != null) return seconds;
-  }
-  return null;
-}
-
-function parseDurationSeconds(value: string | null | undefined): number | null {
-  if (!value) return null;
-  const trimmed = value.trim().toLowerCase();
-  if (!trimmed) return null;
-  if (/^\\d+$/.test(trimmed)) {
-    const seconds = Number(trimmed);
-    return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
-  }
-
-  const match = trimmed.match(/^(?:(\\d+)h)?(?:(\\d+)m)?(?:(\\d+)s)?$/);
-  if (!match) return null;
-  const hours = match[1] ? Number(match[1]) : 0;
-  const minutes = match[2] ? Number(match[2]) : 0;
-  const seconds = match[3] ? Number(match[3]) : 0;
-  if (![hours, minutes, seconds].every(Number.isFinite)) return null;
-  const total = hours * 3600 + minutes * 60 + seconds;
-  return total >= 0 ? total : null;
-}
-
-function parseVimeoVideoId(url: URL, host: string): string | null {
-  if (!(host === 'vimeo.com' || host.endsWith('.vimeo.com'))) return null;
-
-  const segments = url.pathname.split('/').filter(Boolean);
-  if (!segments.length) return null;
-
-  if (host === 'player.vimeo.com' && segments.length >= 2 && segments[0] === 'video') {
-    return /^\\d+$/.test(segments[1]) ? segments[1] : null;
-  }
-
-  const first = segments[0];
-  return /^\\d+$/.test(first) ? first : null;
 }
 
 function buildExternalLinks({

@@ -4,7 +4,10 @@ import { type Href, usePathname, useRouter, useSegments } from 'expo-router';
 import { useProfileQuery, useViewerEntitlementsQuery, useViewerSessionQuery } from '@/src/api/queries';
 import { buildClaimAuthHref } from '@/src/billing/nativeBillingUi';
 import { useNativeBilling } from '@/src/billing/useNativeBilling';
+import { getPublicSiteUrl } from '@/src/config/api';
 import { getProgramHubEntryOrCoreHref } from '@/src/features/programHubs/rollout';
+import { openExternalCustomerUrl } from '@/src/features/customerRoutes/shared';
+import { MOBILE_BRAND_FACEBOOK_URL, MOBILE_BRAND_X_URL } from '@/src/features/account/constants';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import { CustomerShellActionButton, CustomerShellBadge } from '@/src/components/CustomerShell';
 import {
@@ -20,7 +23,8 @@ type ManifestItem = {
   title: string;
   description: string;
   testID?: string;
-  href: Href;
+  href?: Href;
+  externalUrl?: string;
   badge?: string;
 };
 
@@ -43,6 +47,7 @@ export function MobileDockingBay() {
   const viewerTier = viewerEntitlementsQuery.data?.tier ?? 'anon';
   const isAuthed = Boolean(viewerSessionQuery.data?.viewerId);
   const isPremium = viewerTier === 'premium';
+  const publicSiteUrl = getPublicSiteUrl();
   const manifestSheetTranslateY = useRef(new Animated.Value(0)).current;
   const profileInitials = getProfileInitials({
     firstName: profileQuery.data?.firstName ?? null,
@@ -272,6 +277,20 @@ export function MobileDockingBay() {
             testID: 'manifest-link-support'
           },
           {
+            key: 'about',
+            title: 'About',
+            description: 'Why T-Minus Zero exists and how the customer product is framed.',
+            externalUrl: `${publicSiteUrl}/about`,
+            testID: 'manifest-link-about'
+          },
+          {
+            key: 'faq',
+            title: 'FAQ',
+            description: 'Answers to the common product and launch-data questions.',
+            externalUrl: `${publicSiteUrl}/docs/faq`,
+            testID: 'manifest-link-faq'
+          },
+          {
             key: 'roadmap',
             title: 'Roadmap',
             description: 'Current implementation phases and planned product work.',
@@ -302,6 +321,25 @@ export function MobileDockingBay() {
         ]
       },
       {
+        title: 'Follow',
+        items: [
+          {
+            key: 'x',
+            title: 'X',
+            description: 'Launch updates and product signals on X.',
+            externalUrl: MOBILE_BRAND_X_URL,
+            testID: 'manifest-link-x'
+          },
+          {
+            key: 'facebook',
+            title: 'Facebook',
+            description: 'Launch updates and product signals on Facebook.',
+            externalUrl: MOBILE_BRAND_FACEBOOK_URL,
+            testID: 'manifest-link-facebook'
+          }
+        ]
+      },
+      {
         title: 'Legal',
         items: [
           {
@@ -328,7 +366,7 @@ export function MobileDockingBay() {
         ]
       }
     ];
-  }, [profileHref, viewerSessionQuery.data]);
+  }, [profileHref, publicSiteUrl, viewerSessionQuery.data]);
   const manifestDockClearance = insets.bottom + MOBILE_DOCK_HEIGHT + MOBILE_DOCK_BOTTOM_OFFSET + 8;
 
   if (!showDock) {
@@ -449,9 +487,15 @@ export function MobileDockingBay() {
                           key={item.key}
                           item={item}
                           theme={theme}
-                          onPress={() => {
+                          onPress={async () => {
                             closeManifest();
-                            router.replace(item.href);
+                            if (item.externalUrl) {
+                              await openExternalCustomerUrl(item.externalUrl);
+                              return;
+                            }
+                            if (item.href) {
+                              router.replace(item.href);
+                            }
                           }}
                         />
                       ))}

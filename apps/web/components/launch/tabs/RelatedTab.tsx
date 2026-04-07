@@ -1,6 +1,7 @@
 import clsx from 'clsx';
 import type { RelatedTabData } from '@tminuszero/launch-detail-ui';
 import { ChronoHelixTimeline } from '@/components/ChronoHelixTimeline';
+import { LaunchMediaLightboxCard } from '@/components/launch/LaunchMediaLightboxCard';
 import { MissionTimelineCards } from '@/components/launch/MissionTimelineCards';
 
 type RelatedTabProps = {
@@ -250,6 +251,17 @@ function MediaCard({
   detail?: string;
   imageUrl?: string;
 }) {
+  if (imageUrl) {
+    return (
+      <LaunchMediaLightboxCard
+        imageUrl={imageUrl}
+        alt={title}
+        href={href}
+        buttonLabel={`Open ${title}`}
+      />
+    );
+  }
+
   return (
     <a
       href={href}
@@ -257,17 +269,6 @@ function MediaCard({
       rel="noreferrer"
       className="group overflow-hidden rounded-xl border border-stroke bg-surface-0 transition hover:border-primary"
     >
-      {imageUrl ? (
-        <div className="relative h-40 w-full overflow-hidden">
-          <img
-            src={imageUrl}
-            alt={title}
-            className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]"
-            loading="lazy"
-            decoding="async"
-          />
-        </div>
-      ) : null}
       <div className="p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">

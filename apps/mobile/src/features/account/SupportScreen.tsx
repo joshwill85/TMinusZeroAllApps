@@ -8,7 +8,7 @@ import {
   CustomerShellPanel
 } from '@/src/components/CustomerShell';
 import { getPublicSiteUrl } from '@/src/config/api';
-import { MOBILE_SUPPORT_EMAIL } from '@/src/features/account/constants';
+import { MOBILE_BRAND_FACEBOOK_URL, MOBILE_BRAND_X_URL, MOBILE_SUPPORT_EMAIL } from '@/src/features/account/constants';
 import { openExternalCustomerUrl } from '@/src/features/customerRoutes/shared';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 
@@ -17,6 +17,8 @@ export function SupportScreen() {
   const { theme } = useMobileBootstrap();
   const publicSiteUrl = getPublicSiteUrl();
   const supportUrl = `${publicSiteUrl}/support`;
+  const aboutUrl = `${publicSiteUrl}/about`;
+  const faqUrl = `${publicSiteUrl}/docs/faq`;
 
   async function openMail() {
     await Linking.openURL(`mailto:${MOBILE_SUPPORT_EMAIL}`);
@@ -69,6 +71,42 @@ export function SupportScreen() {
           </Text>
           <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
             If you delete your account, cancel any active App Store or Google Play subscription in the store first if you do not want renewal to continue.
+          </Text>
+        </View>
+      </CustomerShellPanel>
+
+      <CustomerShellPanel title="More from T-Minus Zero" description="Open the public about, FAQ, and social surfaces without relying on a persistent footer.">
+        <View style={{ gap: 10 }}>
+          <CustomerShellActionButton
+            label="About T-Minus Zero"
+            variant="secondary"
+            onPress={() => {
+              void openExternalCustomerUrl(aboutUrl);
+            }}
+          />
+          <CustomerShellActionButton
+            label="FAQ"
+            variant="secondary"
+            onPress={() => {
+              void openExternalCustomerUrl(faqUrl);
+            }}
+          />
+          <CustomerShellActionButton
+            label="Follow on X"
+            variant="secondary"
+            onPress={() => {
+              void openExternalCustomerUrl(MOBILE_BRAND_X_URL);
+            }}
+          />
+          <CustomerShellActionButton
+            label="Follow on Facebook"
+            variant="secondary"
+            onPress={() => {
+              void openExternalCustomerUrl(MOBILE_BRAND_FACEBOOK_URL);
+            }}
+          />
+          <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
+            Primary launch schedule data remains sourced from The Space Devs - Launch Library 2.
           </Text>
         </View>
       </CustomerShellPanel>

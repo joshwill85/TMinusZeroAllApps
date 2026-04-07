@@ -23,17 +23,16 @@ import {
   buildCountdownSnapshot,
   buildDetailVersionToken,
   canAutoRefreshActiveSurface,
-  formatTrajectoryMilestoneOffsetLabel,
   getNextAdaptiveLaunchRefreshMs,
   getRecommendedLaunchRefreshIntervalSeconds,
   getVisibleDetailUpdatedAt,
   hasVersionChanged,
   PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS,
-  resolveTrajectoryMilestones,
   shouldPrimeVersionRefresh
 } from '@tminuszero/domain';
 import { normalizeNativeMobileCustomerHref, toProviderSlug } from '@tminuszero/navigation';
 import {
+  buildLaunchVideoEmbed,
   buildLaunchInventoryStatusMessage,
   shouldShowLaunchInventoryCounts,
   shouldShowLaunchInventorySection
@@ -55,8 +54,11 @@ import { LaunchCalendarSheet } from '@/src/components/LaunchCalendarSheet';
 import { LaunchFollowSheet } from '@/src/components/LaunchFollowSheet';
 import { LaunchShareIconButton } from '@/src/components/LaunchShareIconButton';
 import { EmptyStateCard, ErrorStateCard, LoadingStateCard, SectionCard } from '@/src/components/SectionCard';
+import { ForecastAdvisoriesDisclosure } from '@/src/components/launch/ForecastAdvisoriesDisclosure';
 import { JepPanel } from '@/src/components/launch/JepPanel';
 import { LaunchNewsCard } from '@/src/components/launch/LaunchNewsCard';
+import { LaunchVideoInlineEmbed } from '@/src/components/launch/LaunchVideoInlineEmbed';
+import { LaunchMediaLightboxCard } from '@/src/components/launch/LaunchMediaLightboxCard';
 import { MissionTimelineCards } from '@/src/components/launch/MissionTimelineCards';
 import { XPostInlineEmbed } from '@/src/components/launch/XPostInlineEmbed';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
@@ -524,6 +526,7 @@ export default function LaunchDetailScreen() {
     );
     const watchUrl = watchLinks[0]?.url ?? getPrimaryWatchUrl(launch);
     const primaryWatchLink = watchLinks[0] ?? null;
+    const primaryWatchEmbed = primaryWatchLink ? buildLaunchVideoEmbed(primaryWatchLink.url) : null;
     const heroTitle = launch.mission?.name || title;
     const heroMeta = [launch.provider, launch.rocket?.fullName || launch.vehicle, launch.pad.shortCode || launch.pad.name]
       .filter(Boolean)
@@ -1134,12 +1137,11 @@ export default function LaunchDetailScreen() {
       ['Launch provider', launch.provider],
       ['Launch vehicle', launch.vehicle || launch.rocket?.fullName || 'TBD']
     ];
-    const resolvedLaunchTimeline = Array.isArray(launch.timeline)
-      ? resolveTrajectoryMilestones({
-          ll2Timeline: launch.timeline.map((event) => normalizeLegacyTimelineEvent(event)).filter((event) => event != null),
-          includeFamilyTemplate: false
-        })
-      : [];
+    const resourceMissionTimeline = resourcesModule?.missionTimeline ?? [];
+    const hasResourceMissionTimeline = resourceMissionTimeline.length > 0;
+    const officialMediaDescription = hasResourceMissionTimeline
+      ? 'Matched mission resources, SpaceX media assets, and mission timeline entries for this launch.'
+      : 'Matched mission resources and SpaceX media assets for this launch.';
     const vehicleTimeline = detail.vehicleTimeline ?? [];
     const advisoryCount = detail.enrichment.faaAdvisories.length;
     const hasForecastOutlook = Boolean(weatherModule?.cards?.length || advisoryCount > 0);
@@ -1363,55 +1365,87 @@ export default function LaunchDetailScreen() {
             description="Stream links and outbound coverage surfaced from the launch payload."
           >
             <View style={{ gap: 12 }}>
-              <Pressable
-                onPress={() => {
-                  void openExternalCustomerUrl(primaryWatchLink.url);
-                }}
-                style={({ pressed }) => ({
-                  overflow: 'hidden',
-                  borderRadius: 18,
-                  borderWidth: 1,
-                  borderColor: theme.stroke,
-                  backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                  opacity: pressed ? 0.92 : 1
-                })}
-              >
-                {primaryWatchLink.imageUrl ? (
-                  <Image
-                    source={{ uri: primaryWatchLink.imageUrl }}
-                    resizeMode="cover"
-                    style={{
-                      height: 188,
-                      width: '100%'
-                    }}
+              {primaryWatchEmbed ? (
+                <View style={{ gap: 12 }}>
+                  <View style={{ gap: 4 }}>
+                    <Text style={{ color: theme.foreground, fontSize: 17, fontWeight: '700', lineHeight: 22 }}>{primaryWatchLink.label}</Text>
+                    {primaryWatchLink.meta ? (
+                      <Text style={{ color: theme.muted, fontSize: 12, fontWeight: '600', lineHeight: 18 }}>{primaryWatchLink.meta}</Text>
+                    ) : null}
+                  </View>
+                  <LaunchVideoInlineEmbed
+                    src={primaryWatchEmbed.src}
+                    providerLabel={primaryWatchLink.host || primaryWatchEmbed.provider}
                   />
-                ) : (
+                  <Pressable
+                    onPress={() => {
+                      void openExternalCustomerUrl(primaryWatchLink.url);
+                    }}
+                    style={({ pressed }) => ({
+                      alignSelf: 'flex-start',
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: theme.stroke,
+                      backgroundColor: 'rgba(255, 255, 255, 0.04)',
+                      paddingHorizontal: 14,
+                      paddingVertical: 8,
+                      opacity: pressed ? 0.9 : 1
+                    })}
+                  >
+                    <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Open stream</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <Pressable
+                  onPress={() => {
+                    void openExternalCustomerUrl(primaryWatchLink.url);
+                  }}
+                  style={({ pressed }) => ({
+                    overflow: 'hidden',
+                    borderRadius: 18,
+                    borderWidth: 1,
+                    borderColor: theme.stroke,
+                    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                    opacity: pressed ? 0.92 : 1
+                  })}
+                >
+                  {primaryWatchLink.imageUrl ? (
+                    <Image
+                      source={{ uri: primaryWatchLink.imageUrl }}
+                      resizeMode="cover"
+                      style={{
+                        height: 188,
+                        width: '100%'
+                      }}
+                    />
+                  ) : (
+                    <View
+                      style={{
+                        height: 188,
+                        width: '100%',
+                        backgroundColor: 'rgba(34, 211, 238, 0.08)'
+                      }}
+                    />
+                  )}
                   <View
                     style={{
-                      height: 188,
-                      width: '100%',
-                      backgroundColor: 'rgba(34, 211, 238, 0.08)'
+                      position: 'absolute',
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      padding: 16,
+                      backgroundColor: 'rgba(7, 9, 19, 0.72)',
+                      gap: 4
                     }}
-                  />
-                )}
-                <View
-                  style={{
-                    position: 'absolute',
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    padding: 16,
-                    backgroundColor: 'rgba(7, 9, 19, 0.72)',
-                    gap: 4
-                  }}
-                >
-                  <Text style={{ color: theme.muted, fontSize: 10, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase' }}>
-                    {primaryWatchLink.meta}
-                  </Text>
-                  <Text style={{ color: theme.foreground, fontSize: 17, fontWeight: '700', lineHeight: 22 }}>{primaryWatchLink.label}</Text>
-                  <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Open stream</Text>
-                </View>
-              </Pressable>
+                  >
+                    <Text style={{ color: theme.muted, fontSize: 10, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase' }}>
+                      {primaryWatchLink.meta}
+                    </Text>
+                    <Text style={{ color: theme.foreground, fontSize: 17, fontWeight: '700', lineHeight: 22 }}>{primaryWatchLink.label}</Text>
+                    <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Open stream</Text>
+                  </View>
+                </Pressable>
+              )}
 
               {watchLinks.length > 1 ? (
                 <View style={{ gap: 10 }}>
@@ -1717,7 +1751,7 @@ export default function LaunchDetailScreen() {
             id="forecast-outlook"
             title="Forecast outlook"
             description={forecastOutlookDescription}
-            defaultExpanded={false}
+            collapsible={false}
           >
             <View style={{ gap: 12 }}>
               {weatherModule?.cards?.map((card) => (
@@ -1768,90 +1802,82 @@ export default function LaunchDetailScreen() {
               ))}
 
               {advisoryCount > 0 ? (
-                <View style={{ gap: 12, marginTop: weatherModule?.cards?.length ? 4 : 0 }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                    <View style={{ flex: 1, gap: 4 }}>
-                      <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>Launch advisories</Text>
-                      <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
-                        Temporary flight restrictions and NOTAM matches tied to this launch.
-                      </Text>
-                    </View>
-                    <DetailChip label={`${advisoryCount} match${advisoryCount === 1 ? '' : 'es'}`} />
-                  </View>
-
-                  {launchFaaAirspaceMapQuery.isPending ? (
-                    <SectionCard title="Launch zone map" compact>
-                      <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>Loading launch-day FAA geometry…</Text>
-                    </SectionCard>
-                  ) : launchFaaAirspaceMap?.advisoryCount ? (
-                    <SectionCard title="Launch zone map" compact>
-                      <View style={{ gap: 10 }}>
-                        <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
-                          Native satellite view with launch-day FAA polygons and the launch pad in the same frame.
-                        </Text>
-                        {showNativeFaaMapPreview && faaMapPayload ? (
-                          <Pressable
-                            onPress={() => {
-                              setFaaMapModalOpen(true);
-                            }}
-                            accessibilityRole="button"
-                            accessibilityLabel="Open launch zone map"
-                            style={{ gap: 8 }}
-                          >
-                            <NativeLaunchMapPreview
-                              payload={faaMapPayload}
-                              renderMode="faa"
-                              theme={theme}
-                              height={224}
-                              interactive={false}
-                            />
-                            <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Open full-screen map</Text>
-                          </Pressable>
-                        ) : (
-                          platformPadMapHref ? (
-                            <LinkRow
-                              title={Platform.OS === 'ios' ? 'Open in Apple Maps' : 'Open in Google Maps'}
-                              subtitle={launchMapCapabilities?.reason || 'Native launch map rendering is unavailable right now.'}
+                <View style={{ marginTop: weatherModule?.cards?.length ? 4 : 0 }}>
+                  <ForecastAdvisoriesDisclosure count={advisoryCount} theme={theme}>
+                    {launchFaaAirspaceMapQuery.isPending ? (
+                      <SectionCard title="Launch zone map" compact>
+                        <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>Loading launch-day FAA geometry…</Text>
+                      </SectionCard>
+                    ) : launchFaaAirspaceMap?.advisoryCount ? (
+                      <SectionCard title="Launch zone map" compact>
+                        <View style={{ gap: 10 }}>
+                          <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
+                            Native satellite view with launch-day FAA polygons and the launch pad in the same frame.
+                          </Text>
+                          {showNativeFaaMapPreview && faaMapPayload ? (
+                            <Pressable
                               onPress={() => {
-                                void Linking.openURL(platformPadMapHref);
+                                setFaaMapModalOpen(true);
                               }}
-                            />
-                          ) : (
-                            <View
-                              style={{
-                                borderRadius: 14,
-                                borderWidth: 1,
-                                borderColor: theme.stroke,
-                                padding: 12
-                              }}
+                              accessibilityRole="button"
+                              accessibilityLabel="Open launch zone map"
+                              style={{ gap: 8 }}
                             >
-                              <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '600' }}>Map unavailable</Text>
-                              <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
-                                {launchMapCapabilities?.reason || 'Native launch map rendering is unavailable right now.'}
-                              </Text>
-                            </View>
-                          )
-                        )}
-                      </View>
-                    </SectionCard>
-                  ) : null}
+                              <NativeLaunchMapPreview
+                                payload={faaMapPayload}
+                                renderMode="faa"
+                                theme={theme}
+                                height={224}
+                                interactive={false}
+                              />
+                              <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Open full-screen map</Text>
+                            </Pressable>
+                          ) : (
+                            platformPadMapHref ? (
+                              <LinkRow
+                                title={Platform.OS === 'ios' ? 'Open in Apple Maps' : 'Open in Google Maps'}
+                                subtitle={launchMapCapabilities?.reason || 'Native launch map rendering is unavailable right now.'}
+                                onPress={() => {
+                                  void Linking.openURL(platformPadMapHref);
+                                }}
+                              />
+                            ) : (
+                              <View
+                                style={{
+                                  borderRadius: 14,
+                                  borderWidth: 1,
+                                  borderColor: theme.stroke,
+                                  padding: 12
+                                }}
+                              >
+                                <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '600' }}>Map unavailable</Text>
+                                <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
+                                  {launchMapCapabilities?.reason || 'Native launch map rendering is unavailable right now.'}
+                                </Text>
+                              </View>
+                            )
+                          )}
+                        </View>
+                      </SectionCard>
+                    ) : null}
 
-                  {detail.enrichment.faaAdvisories.map((advisory) => {
-                    return (
-                      <FaaNoticeCard
-                        key={advisory.matchId}
-                        advisory={advisory}
-                        expandedRawText={Boolean(expandedFaaRawTextIds[advisory.matchId])}
-                        onToggleRawText={() => {
-                          toggleFaaRawText(advisory.matchId);
-                        }}
-                      />
-                    );
-                  })}
+                    {detail.enrichment.faaAdvisories.map((advisory) => {
+                      return (
+                        <FaaNoticeCard
+                          key={advisory.matchId}
+                          advisory={advisory}
+                          expandedRawText={Boolean(expandedFaaRawTextIds[advisory.matchId])}
+                          onToggleRawText={() => {
+                            toggleFaaRawText(advisory.matchId);
+                          }}
+                        />
+                      );
+                    })}
 
-                  <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 19 }}>
-                    Advisory data is informational. Confirm operational constraints with official FAA publications.
-                  </Text>
+                    <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 19 }}>
+                      Advisory data is informational. Confirm operational constraints with official FAA publications.
+                    </Text>
+                  </ForecastAdvisoriesDisclosure>
                 </View>
               ) : null}
             </View>
@@ -1937,7 +1963,7 @@ export default function LaunchDetailScreen() {
           <DetailModuleSection
             id="official-media"
             title="Official media & timelines"
-            description="Matched mission resources, SpaceX media assets, and mission timelines for this launch."
+            description={officialMediaDescription}
           >
             <View style={{ gap: 10 }}>
               {resourcesModule?.missionResources?.filter((resource) => !isSpaceXWebsiteUrl(resource.url))?.map((resource) => (
@@ -1964,22 +1990,9 @@ export default function LaunchDetailScreen() {
                   ))}
                 </View>
               ))}
-              {resourcesModule?.missionTimeline?.length ? (
+              {hasResourceMissionTimeline ? (
                 <SectionCard title="Mission timeline" compact>
-                  <MissionTimelineCards items={resourcesModule.missionTimeline} theme={theme} />
-                </SectionCard>
-              ) : resolvedLaunchTimeline.length ? (
-                <SectionCard title="Mission timeline" compact>
-                  <MissionTimelineCards
-                    items={resolvedLaunchTimeline.map((milestone, index) => ({
-                      id: `${milestone.key}:${milestone.tPlusSec ?? milestone.timeText ?? index}`,
-                      label: milestone.label,
-                      time: formatTrajectoryMilestoneOffsetLabel(milestone.tPlusSec, milestone.timeText),
-                      description: milestone.description ?? null,
-                      phase: milestone.phase ?? null
-                    }))}
-                    theme={theme}
-                  />
+                  <MissionTimelineCards items={resourceMissionTimeline} theme={theme} />
                 </SectionCard>
               ) : null}
             </View>
@@ -3158,14 +3171,58 @@ function DetailModuleSection({
   title,
   description,
   children,
-  defaultExpanded = true
+  defaultExpanded = true,
+  collapsible = true
 }: {
   id: string;
   title: string;
   description?: string;
   children: ReactNode;
   defaultExpanded?: boolean;
+  collapsible?: boolean;
 }) {
+  const { theme } = useMobileBootstrap();
+
+  if (!collapsible) {
+    return (
+      <View
+        style={{
+          borderRadius: 24,
+          borderWidth: 1,
+          borderColor: theme.stroke,
+          backgroundColor: 'rgba(11, 16, 35, 0.84)',
+          overflow: 'hidden',
+        }}
+      >
+        <View style={{ padding: 20 }}>
+          <Text
+            style={{
+              fontSize: 20,
+              fontWeight: '700',
+              color: theme.foreground,
+            }}
+          >
+            {title}
+          </Text>
+          {description ? (
+            <Text
+              style={{
+                marginTop: 6,
+                fontSize: 13,
+                color: theme.muted,
+              }}
+            >
+              {description}
+            </Text>
+          ) : null}
+        </View>
+        <View style={{ padding: 20, paddingTop: 0 }}>
+          {children}
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View>
       <CollapsibleSection id={id} title={title} description={description} defaultExpanded={defaultExpanded}>
@@ -3486,33 +3543,6 @@ function normalizeFaaNoticeText(value: string | null | undefined) {
   return normalized.length ? normalized : null;
 }
 
-function normalizeLegacyTimelineEvent(event: unknown) {
-  if (!event || typeof event !== 'object') {
-    return null;
-  }
-
-  const entry = event as Record<string, unknown>;
-  const typeValue = entry.type;
-  const typeRecord =
-    typeValue && typeof typeValue === 'object'
-      ? (typeValue as Record<string, unknown>)
-      : typeof typeValue === 'string'
-        ? ({ name: typeValue } as Record<string, unknown>)
-        : null;
-
-  return {
-    relative_time: typeof entry.relative_time === 'string' ? entry.relative_time : undefined,
-    type: typeRecord
-      ? {
-          id: typeof typeRecord.id === 'number' ? typeRecord.id : null,
-          abbrev: typeof typeRecord.abbrev === 'string' ? typeRecord.abbrev : null,
-          description: typeof typeRecord.description === 'string' ? typeRecord.description : null,
-          name: typeof typeRecord.name === 'string' ? typeRecord.name : null
-        }
-      : null
-  };
-}
-
 function formatFaaCoverageLabel(shapeCount: number, hasShape: boolean) {
   if (shapeCount > 0) {
     return `${shapeCount} mapped area${shapeCount === 1 ? '' : 's'}`;
@@ -3783,34 +3813,39 @@ function LinkRow({ title, subtitle, onPress }: { title: string; subtitle: string
 function ExternalContentResourceCard({ resource }: { resource: LaunchExternalContentResource }) {
   const { theme } = useMobileBootstrap();
   const previewUrl = normalizeExternalContentPreviewUrl(resource);
+
+  if (previewUrl) {
+    return (
+      <LaunchMediaLightboxCard
+        imageUrl={previewUrl}
+        title={resource.label}
+        sourceUrl={resource.url}
+        accessibilityLabel={`Open ${resource.label}`}
+      />
+    );
+  }
+
   return (
-    <View
-      style={{
+    <Pressable
+      onPress={() => {
+        void openExternalCustomerUrl(resource.url);
+      }}
+      style={({ pressed }) => ({
         borderRadius: 16,
         borderWidth: 1,
         borderColor: theme.stroke,
         backgroundColor: 'rgba(255, 255, 255, 0.03)',
-        overflow: 'hidden'
-      }}
+        overflow: 'hidden',
+        opacity: pressed ? 0.9 : 1
+      })}
     >
-      {previewUrl ? (
-        <Image
-          source={{ uri: previewUrl }}
-          resizeMode="cover"
-          style={{
-            width: '100%',
-            height: 180,
-            backgroundColor: 'rgba(255,255,255,0.04)'
-          }}
-        />
-      ) : null}
       <View style={{ padding: 14, gap: 6 }}>
         <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{resource.label}</Text>
         <Text style={{ color: theme.muted, fontSize: 13 }}>
           {[formatExternalContentKindLabel(resource.kind), formatUrlHost(resource.url)].filter(Boolean).join(' • ') || 'SpaceX content'}
         </Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
 

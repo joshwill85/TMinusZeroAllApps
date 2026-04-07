@@ -10,3 +10,4 @@ export * from './detailModel';
 export * from './tabLogic';
 export * from './contentOrganization';
 export * from './externalResources';
+export * from './videoEmbeds';

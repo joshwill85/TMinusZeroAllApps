@@ -110,7 +110,8 @@ export default function PrivacyChoicesScreen() {
       >
         <View style={{ gap: 10 }}>
           <Text style={{ color: '#d4e0eb', fontSize: 14, lineHeight: 21 }}>
-            The current website does not use a broad analytics or advertising cookie banner. Embedded X, YouTube, and Vimeo content only loads after the user explicitly chooses to load it.
+            The current website does not use a broad analytics or advertising cookie banner. Embedded X posts still require an explicit load, while supported launch video players can load
+            automatically unless the web external-media preference blocks them.
           </Text>
           <Text style={{ color: '#d4e0eb', fontSize: 14, lineHeight: 21 }}>
             If you want to keep supported third-party media external-only in the browser, use the web Privacy Choices page.

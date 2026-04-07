@@ -7,7 +7,6 @@ import { RecoveryRedirect } from '@/components/RecoveryRedirect';
 import { PrivacySignals } from '@/components/PrivacySignals';
 import { SiteChrome } from '@/components/SiteChrome';
 import { Starfield } from '@/components/Starfield';
-import { Footer } from '@/components/Footer';
 import { ToastProvider } from '@/components/ToastProvider';
 import { WebQueryProvider } from '@/components/WebQueryProvider';
 
@@ -32,11 +31,6 @@ export function RootFrame({ children }: { children: ReactNode }) {
         <main id="main" tabIndex={-1} className={clsx('relative outline-none', !isEmbed && 'md:pl-[60px]')}>
           {children}
         </main>
-        {!isEmbed && !isCameraGuide && (
-          <div className="hidden md:block md:pl-[60px]">
-            <Footer />
-          </div>
-        )}
       </ToastProvider>
     </WebQueryProvider>
   );

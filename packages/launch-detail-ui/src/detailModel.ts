@@ -1,4 +1,5 @@
 import type { LaunchDetailV1 } from '@tminuszero/contracts';
+import { buildLaunchMissionTimeline } from '@tminuszero/domain';
 import { selectPreferredResponsiveLaunchExternalResources } from './externalResources';
 
 type LaunchDetailLaunchData = NonNullable<LaunchDetailV1['launchData']>;
@@ -794,28 +795,20 @@ export function getLaunchMedia(detail: LaunchDetailV1): LaunchMediaItem[] {
 }
 
 export function getLaunchMissionTimeline(detail: LaunchDetailV1): LaunchMissionTimelineItem[] {
-  const deduped = new Set<string>();
-  const events: LaunchMissionTimelineItem[] = [];
-
-  for (const item of detail.enrichment?.externalContent ?? []) {
-    const sourceTitle = item.title?.trim() || null;
-    for (const event of item.timelineEvents ?? []) {
-      const key = `${event.phase ?? 'timeline'}:${event.time ?? ''}:${event.label}`;
-      if (deduped.has(key)) continue;
-      deduped.add(key);
-      events.push({
-        id: event.id,
-        label: event.label,
-        time: event.time ?? null,
-        description: event.description ?? null,
-        kind: event.kind ?? null,
-        phase: event.phase ?? null,
-        sourceTitle
-      });
-    }
-  }
-
-  return events;
+  const launch = getLaunchData(detail);
+  return buildLaunchMissionTimeline({
+    ll2Timeline: launch?.timeline ?? [],
+    providerExternalContent: detail.enrichment?.externalContent ?? [],
+    includeFamilyTemplate: false
+  }).map((event) => ({
+    id: event.id,
+    label: event.label,
+    time: event.time,
+    description: event.description,
+    kind: event.kind,
+    phase: event.phase,
+    sourceTitle: event.sourceTitle
+  }));
 }
 
 export function getLaunchEvents(detail: LaunchDetailV1): LaunchEventSummary[] {
