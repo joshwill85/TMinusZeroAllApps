@@ -6,6 +6,7 @@ import {
   getLaunchHeroModel,
   getLaunchMissionDescription,
   getLaunchSocialPosts,
+  shouldShowLaunchInventorySectionForDetail,
   getLaunchWatchLinks
 } from './detailModel';
 
@@ -47,10 +48,7 @@ export function computeTabVisibility(detail: LaunchDetailV1 | null): TabVisibili
   const hasPayloads = detail.payloadManifest.length > 0 || (launch?.payloads?.length ?? 0) > 0;
   const hasCrew = getLaunchCrew(detail).length > 0;
   const hasMission = Boolean(getLaunchMissionDescription(detail));
-  const hasInventory =
-    Boolean(detail.objectInventory?.summaryBadges?.length) ||
-    Boolean(detail.objectInventory?.payloadObjects?.length) ||
-    Boolean(detail.objectInventory?.nonPayloadObjects?.length);
+  const hasInventory = shouldShowLaunchInventorySectionForDetail(detail);
   const mission = hasPayloads || hasCrew || hasMission || hasInventory;
 
   const hasStages = (detail.enrichment?.firstStages?.length ?? 0) > 0;

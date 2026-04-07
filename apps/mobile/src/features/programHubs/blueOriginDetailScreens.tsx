@@ -1,7 +1,11 @@
 import { useEffect, useMemo, type ReactNode } from 'react';
 import { Linking, Pressable, Text, View } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
-import type { CanonicalContractDetailV1, CanonicalContractsResponseV1 } from '@tminuszero/contracts';
+import type {
+  BlueOriginFlightsResponseV1,
+  CanonicalContractDetailV1,
+  CanonicalContractsResponseV1
+} from '@tminuszero/contracts';
 import type { BlueOriginMissionKeyV1 } from '@tminuszero/api-client';
 import { buildLaunchHref } from '@tminuszero/navigation';
 import {
@@ -12,6 +16,7 @@ import {
   useBlueOriginVehiclesQuery
 } from '@/src/api/queries';
 import { AppScreen } from '@/src/components/AppScreen';
+import { ChronoHelixTimeline, type ChronoHelixNode } from '@/src/components/ChronoHelixTimeline';
 import { LaunchShareIconButton } from '@/src/components/LaunchShareIconButton';
 import {
   CustomerShellHero,
@@ -217,11 +222,24 @@ export function BlueOriginVehicleDetailScreen({ slug }: { slug: string }) {
   const enginesQuery = useBlueOriginEnginesQuery({ mission: 'all' });
   const flightsQuery = useBlueOriginFlightsQuery({ mission: 'all' });
   const vehicle = vehiclesQuery.data?.items.find((entry) => entry.vehicleSlug === slug) ?? null;
-  const relatedEngineSlugs = vehicle ? BLUE_ORIGIN_VEHICLE_ENGINES[vehicle.vehicleSlug] || [] : [];
-  const relatedEngines = (enginesQuery.data?.items ?? []).filter((entry) => relatedEngineSlugs.includes(entry.engineSlug));
-  const relatedFlights = vehicle
-    ? (flightsQuery.data?.items ?? []).filter((entry) => entry.missionKey === vehicle.missionKey).slice(0, 8)
-    : [];
+  const relatedEngineSlugs = useMemo(() => (vehicle ? BLUE_ORIGIN_VEHICLE_ENGINES[vehicle.vehicleSlug] || [] : []), [vehicle]);
+  const relatedEngines = useMemo(
+    () => (enginesQuery.data?.items ?? []).filter((entry) => relatedEngineSlugs.includes(entry.engineSlug)),
+    [enginesQuery.data?.items, relatedEngineSlugs]
+  );
+  const relatedFlights = useMemo(
+    () => (vehicle ? (flightsQuery.data?.items ?? []).filter((entry) => entry.missionKey === vehicle.missionKey).slice(0, 8) : []),
+    [flightsQuery.data?.items, vehicle]
+  );
+  const timelineNodes = useMemo(
+    () =>
+      buildBlueOriginVehicleTimelineNodes({
+        flights: relatedFlights,
+        vehicleLabel: vehicle?.displayName,
+        onOpenFlight: (flightSlug) => router.push(`/blue-origin/flights/${encodeURIComponent(flightSlug)}` as Href)
+      }),
+    [relatedFlights, router, vehicle?.displayName]
+  );
 
   return (
     <AppScreen testID="blue-origin-vehicle-detail-screen">
@@ -290,23 +308,12 @@ export function BlueOriginVehicleDetailScreen({ slug }: { slug: string }) {
                 </View>
               </CustomerShellPanel>
 
-              <CustomerShellPanel title="Related flights" description={`${relatedFlights.length} mission-linked flight record${relatedFlights.length === 1 ? '' : 's'} available.`}>
-                <View style={{ gap: 10 }}>
-                  {relatedFlights.length ? (
-                    relatedFlights.map((flight) => (
-                      <DetailRow
-                        key={flight.id}
-                        title={flight.flightCode.toUpperCase()}
-                        body={[flight.launchName, flight.launchDate ? formatDate(flight.launchDate) : null, flight.status].filter(Boolean).join(' • ') || 'Flight record'}
-                        meta="Open flight route"
-                        onPress={() => router.push(`/blue-origin/flights/${flight.flightSlug}` as Href)}
-                      />
-                    ))
-                  ) : (
-                    <TextBlock value="No mission-linked flight records are currently available on mobile." />
-                  )}
-                </View>
-              </CustomerShellPanel>
+              <ChronoHelixTimeline
+                nodes={timelineNodes}
+                vehicleLabel={vehicle.displayName}
+                description={`${relatedFlights.length} mission-linked flight record${relatedFlights.length === 1 ? '' : 's'} rendered in the native helix.`}
+                emptyMessage="No mission-linked flight records are currently available on mobile."
+              />
             </>
           );
         }
@@ -714,6 +721,42 @@ function extractLaunchIdFromHref(href: string | null | undefined) {
 function TextBlock({ value }: { value: string }) {
   const { theme } = useMobileBootstrap();
   return <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>{value}</Text>;
+}
+
+function buildBlueOriginVehicleTimelineNodes({
+  flights,
+  vehicleLabel,
+  onOpenFlight
+}: {
+  flights: BlueOriginFlightsResponseV1['items'];
+  vehicleLabel?: string | null;
+  onOpenFlight: (flightSlug: string) => void;
+}): ChronoHelixNode[] {
+  return flights.map((flight) => ({
+    id: flight.id,
+    title: flight.flightCode.toUpperCase(),
+    subtitle: [flight.launchName, flight.status].filter(Boolean).join(' • ') || null,
+    date: flight.launchDate || null,
+    status: inferChronoHelixStatus(flight.status, flight.launchDate),
+    statusLabel: flight.status || null,
+    vehicleName: vehicleLabel || missionLabel(flight.missionKey),
+    actionLabel: 'Open flight',
+    onPress: () => onOpenFlight(flight.flightSlug)
+  }));
+}
+
+function inferChronoHelixStatus(statusLabel?: string | null, netIso?: string | null): ChronoHelixNode['status'] {
+  const label = String(statusLabel || '').toLowerCase();
+  if (label.includes('success')) return 'success';
+  if (label.includes('failure') || label.includes('fail') || label.includes('scrub') || label.includes('abort')) {
+    return 'failure';
+  }
+  if (label.includes('hold') || label.includes('tbd') || label.includes('go') || label.includes('pending')) return 'upcoming';
+  if (netIso) {
+    const timestamp = Date.parse(netIso);
+    if (Number.isFinite(timestamp) && timestamp > Date.now()) return 'upcoming';
+  }
+  return 'failure';
 }
 
 function takeFirst(value: string | string[] | undefined) {

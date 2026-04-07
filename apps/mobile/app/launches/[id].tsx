@@ -14,17 +14,15 @@ import {
   RefreshControl,
   ScrollView,
   Text,
-  View,
-  type LayoutChangeEvent
+  View
 } from 'react-native';
-import { runOnJS, useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated';
+import { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { ArTrajectorySummaryV1, LaunchDetailV1, LaunchFaaAirspaceMapV1 } from '@tminuszero/contracts';
 import {
   buildCountdownSnapshot,
   buildDetailVersionToken,
   canAutoRefreshActiveSurface,
-  formatMissionTimelineTimeLabel,
   formatTrajectoryMilestoneOffsetLabel,
   getNextAdaptiveLaunchRefreshMs,
   getRecommendedLaunchRefreshIntervalSeconds,
@@ -35,6 +33,11 @@ import {
   shouldPrimeVersionRefresh
 } from '@tminuszero/domain';
 import { normalizeNativeMobileCustomerHref, toProviderSlug } from '@tminuszero/navigation';
+import {
+  buildLaunchInventoryStatusMessage,
+  shouldShowLaunchInventoryCounts,
+  shouldShowLaunchInventorySection
+} from '@tminuszero/launch-detail-ui';
 import { useApiClient } from '@/src/api/client';
 import {
   fetchLaunchDetailVersion,
@@ -53,7 +56,9 @@ import { LaunchFollowSheet } from '@/src/components/LaunchFollowSheet';
 import { LaunchShareIconButton } from '@/src/components/LaunchShareIconButton';
 import { EmptyStateCard, ErrorStateCard, LoadingStateCard, SectionCard } from '@/src/components/SectionCard';
 import { JepPanel } from '@/src/components/launch/JepPanel';
-import { XPostPreviewModal } from '@/src/components/launch/XPostPreviewModal';
+import { LaunchNewsCard } from '@/src/components/launch/LaunchNewsCard';
+import { MissionTimelineCards } from '@/src/components/launch/MissionTimelineCards';
+import { XPostInlineEmbed } from '@/src/components/launch/XPostInlineEmbed';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import { useMobilePush } from '@/src/providers/MobilePushProvider';
 import { useMobileToast } from '@/src/providers/MobileToastProvider';
@@ -79,12 +84,12 @@ import { LiveBadge } from '@/src/components/launch/LiveDataPulse';
 import { LiveLaunchCountdownClock, LiveLaunchCountdownLabel } from '@/src/components/launch/LiveLaunchCountdown';
 import { AnimationErrorBoundary } from '@/src/components/launch/AnimationErrorBoundary';
 import { CollapsibleSection } from '@/src/components/launch/CollapsibleSection';
-import { SectionNav, StickyNavPills, type NavSection } from '@/src/components/launch/StickyNavPills';
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 import { useSharedNow } from '@/src/hooks/useSharedNow';
 import { TmzLaunchMapView, getTmzLaunchMapCapabilitiesAsync, type TmzLaunchMapCapabilities } from '@/modules/tmz-launch-map';
 import { resolveNativeProgramHubOrCoreHref } from '@/src/features/programHubs/rollout';
 import { openExternalCustomerUrl } from '@/src/features/customerRoutes/shared';
+import { formatRefreshTimeLabel } from '@/src/utils/launchRefresh';
 
 type LegacyLaunchSummary = LaunchDetailV1['launch'];
 type RichLaunchSummary = NonNullable<LaunchDetailV1['launchData']>;
@@ -100,13 +105,6 @@ type RefreshNotice = {
   kind?: 'anon_refresh';
   actionLabel?: string;
   onAction?: () => void;
-};
-
-type XPreviewPost = {
-  postId: string;
-  postUrl: string;
-  title: string;
-  subtitle?: string | null;
 };
 
 function getLaunchId(value: string | string[] | undefined) {
@@ -166,15 +164,12 @@ export default function LaunchDetailScreen() {
   const [calendarLaunch, setCalendarLaunch] = useState<LaunchCalendarLaunch | null>(null);
   const [followSheetOpen, setFollowSheetOpen] = useState(false);
   const [savedStatus, setSavedStatus] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
-  const [sectionOffsets, setSectionOffsets] = useState<Record<string, number>>({});
-  const [activeSection, setActiveSection] = useState<string | null>('mission-control');
   const [detailRefreshing, setDetailRefreshing] = useState(false);
   const [appStateStatus, setAppStateStatus] = useState(AppState.currentState);
   const [launchMapCapabilities, setLaunchMapCapabilities] = useState<TmzLaunchMapCapabilities | null>(null);
   const [faaMapModalOpen, setFaaMapModalOpen] = useState(false);
   const [expandedFaaRawTextIds, setExpandedFaaRawTextIds] = useState<Record<string, boolean>>({});
   const [refreshNotice, setRefreshNotice] = useState<RefreshNotice | null>(null);
-  const [xPreviewPost, setXPreviewPost] = useState<XPreviewPost | null>(null);
   const watchlistState = usePrimaryWatchlist({
     enabled: isAuthed && canUseSavedItems,
     ruleLimit: entitlementsQuery.data?.limits.watchlistRuleLimit ?? null
@@ -182,8 +177,6 @@ export default function LaunchDetailScreen() {
   const title = launch?.name ?? legacyLaunch?.name ?? 'Launch detail';
   const shouldReduceMotion = useReducedMotion();
   const scrollRef = useRef<ScrollView | null>(null);
-  const activeSectionRef = useRef<string | null>('mission-control');
-  const sectionNavItemsRef = useRef<NavSection[]>([]);
   const lastSeenVersionRef = useRef<string | null>(null);
   const refetchLaunchDetail = launchDetailQuery.refetch;
   const refetchLaunchFaaAirspaceMap = launchFaaAirspaceMapQuery.refetch;
@@ -230,79 +223,22 @@ export default function LaunchDetailScreen() {
     };
   }, []);
 
-  const handleMissionControlScroll = (offsetY: number) => {
-    const sections = sectionNavItemsRef.current;
-    if (sections.length === 0) {
-      return;
-    }
-
-    let nextActive = sections[0]?.id ?? null;
-    const scrollProbe = offsetY + 180;
-
-    for (const section of sections) {
-      if (section.offsetY < 0) {
-        continue;
-      }
-      if (scrollProbe >= section.offsetY) {
-        nextActive = section.id;
-      } else {
-        break;
-      }
-    }
-
-    if (nextActive && activeSectionRef.current !== nextActive) {
-      activeSectionRef.current = nextActive;
-      setActiveSection(nextActive);
-    }
-  };
-
-  const handleSectionPress = (sectionId: string, offsetY: number) => {
-    if (offsetY < 0) {
-      return;
-    }
-    const targetY = Math.max(offsetY - 124, 0);
-    activeSectionRef.current = sectionId;
-    setActiveSection(sectionId);
-    scrollRef.current?.scrollTo({ y: targetY, animated: true });
-  };
-
-  const registerSectionOffset = (sectionId: string, event: LayoutChangeEvent) => {
-    const nextOffset = Math.max(0, Math.round(event.nativeEvent.layout.y));
-    setSectionOffsets((current) => {
-      if (current[sectionId] === nextOffset) {
-        return current;
-      }
-      return {
-        ...current,
-        [sectionId]: nextOffset
-      };
-    });
-  };
-
-  // Mission Control scroll tracking
   const scrollY = useSharedValue(0);
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {
       scrollY.value = event.contentOffset.y;
-      runOnJS(handleMissionControlScroll)(event.contentOffset.y);
-    },
+    }
   });
 
   let content: JSX.Element;
   let followSheetNode: ReactNode = null;
-  let overlayNavigation: JSX.Element | null = null;
   let floatingTopBarNode: JSX.Element | null = null;
 
   useEffect(() => {
     setSavedStatus(null);
-    setSectionOffsets({});
-    setActiveSection('mission-control');
-    activeSectionRef.current = 'mission-control';
-    sectionNavItemsRef.current = [];
     lastSeenVersionRef.current = null;
     setPendingDetailRefresh(null);
     setRefreshNotice(null);
-    setXPreviewPost(null);
   }, [launchId]);
 
   useEffect(() => {
@@ -335,34 +271,12 @@ export default function LaunchDetailScreen() {
   }, [detail?.launchData, detailVersionScope, launchId, refetchLaunchDetail, refetchLaunchFaaAirspaceMap]);
 
   const refreshDetail = useCallback(async () => {
-    if (!launchId) {
-      return;
-    }
-
-    if (detailVersionScope !== 'live') {
-      const nextRefreshAt = getNextAdaptiveLaunchRefreshMs({
-        nowMs: Date.now(),
-        intervalSeconds: refreshIntervalSeconds,
-        cadenceAnchorNet
-      });
-      setRefreshNotice((current) => (current?.kind === 'anon_refresh' ? null : current));
-      showToast({
-        message: `Public launch data refreshes next around ${formatRefreshTimeLabel(nextRefreshAt)}.`,
-        actionLabel: 'Go Premium for near-live data',
-        onAction: openPremiumGate,
-        durationMs: 7000
-      });
+    if (!launchId || detailRefreshing) {
       return;
     }
 
     setDetailRefreshing(true);
     try {
-      if (pendingDetailRefresh) {
-        await applyResolvedDetailRefresh(pendingDetailRefresh.version);
-        showToast({ message: 'Launch detail updated.', tone: 'success' });
-        return;
-      }
-
       const payload = await fetchLaunchDetailVersion(queryClient, client, launchId, { scope: detailVersionScope });
       setScheduledRefreshIntervalSeconds(
         getRecommendedLaunchRefreshIntervalSeconds(payload.recommendedIntervalSeconds, fallbackRefreshIntervalSeconds)
@@ -374,23 +288,37 @@ export default function LaunchDetailScreen() {
           ? payload.version
           : buildDetailVersionToken(launchId, detailVersionScope, payload.updatedAt ?? null);
       const visibleUpdatedAt = getVisibleDetailUpdatedAt(detail?.launchData ?? null);
-      const shouldApply = lastSeenVersionRef.current
-        ? hasVersionChanged(lastSeenVersionRef.current, nextVersion)
-        : shouldPrimeVersionRefresh(payload.updatedAt, visibleUpdatedAt);
+      const shouldApply = pendingDetailRefresh
+        ? true
+        : lastSeenVersionRef.current
+          ? hasVersionChanged(lastSeenVersionRef.current, nextVersion)
+          : shouldPrimeVersionRefresh(payload.updatedAt, visibleUpdatedAt);
 
       if (!shouldApply) {
         lastSeenVersionRef.current = nextVersion;
         showToast({
-          message: `Launch detail is up to date. Next live check around ${formatRefreshTimeLabel(
-            getNextAdaptiveLaunchRefreshMs({
-              nowMs: Date.now(),
-              intervalSeconds: getRecommendedLaunchRefreshIntervalSeconds(
-                payload.recommendedIntervalSeconds,
-                fallbackRefreshIntervalSeconds
-              ),
-              cadenceAnchorNet: typeof payload.cadenceAnchorNet === 'string' ? payload.cadenceAnchorNet : cadenceAnchorNet
-            })
-          )}.`
+          message:
+            detailVersionScope === 'live'
+              ? `Launch detail is up to date. Next live check around ${formatRefreshTimeLabel(
+                  getNextAdaptiveLaunchRefreshMs({
+                    nowMs: Date.now(),
+                    intervalSeconds: getRecommendedLaunchRefreshIntervalSeconds(
+                      payload.recommendedIntervalSeconds,
+                      fallbackRefreshIntervalSeconds
+                    ),
+                    cadenceAnchorNet: typeof payload.cadenceAnchorNet === 'string' ? payload.cadenceAnchorNet : cadenceAnchorNet
+                  })
+                )}.`
+              : `Launch detail is up to date. Next public refresh around ${formatRefreshTimeLabel(
+                  getNextAdaptiveLaunchRefreshMs({
+                    nowMs: Date.now(),
+                    intervalSeconds: getRecommendedLaunchRefreshIntervalSeconds(
+                      payload.recommendedIntervalSeconds,
+                      fallbackRefreshIntervalSeconds
+                    ),
+                    cadenceAnchorNet: typeof payload.cadenceAnchorNet === 'string' ? payload.cadenceAnchorNet : cadenceAnchorNet
+                  })
+                )}.`
         });
         return;
       }
@@ -416,12 +344,11 @@ export default function LaunchDetailScreen() {
     client,
     detail?.launchData,
     detailVersionScope,
+    detailRefreshing,
     fallbackRefreshIntervalSeconds,
     launchId,
-    openPremiumGate,
     pendingDetailRefresh,
     queryClient,
-    refreshIntervalSeconds,
     showToast
   ]);
 
@@ -451,10 +378,6 @@ export default function LaunchDetailScreen() {
       if (!lastSeenVersionRef.current) {
         const shouldPrimePending = shouldPrimeVersionRefresh(payload.updatedAt, visibleUpdatedAt);
         if (shouldPrimePending) {
-          if (detailVersionScope === 'public') {
-            await applyResolvedDetailRefresh(nextVersion);
-            return;
-          }
           lastSeenVersionRef.current = nextVersion;
           setPendingDetailRefresh({
             version: nextVersion,
@@ -468,10 +391,6 @@ export default function LaunchDetailScreen() {
       }
 
       if (hasVersionChanged(lastSeenVersionRef.current, nextVersion)) {
-        if (detailVersionScope === 'public') {
-          await applyResolvedDetailRefresh(nextVersion);
-          return;
-        }
         lastSeenVersionRef.current = nextVersion;
         setPendingDetailRefresh({
           version: nextVersion,
@@ -529,19 +448,14 @@ export default function LaunchDetailScreen() {
   ]);
 
   if (!launchId) {
-    sectionNavItemsRef.current = [];
     content = <EmptyStateCard title="Missing launch id" body="A launch detail route was opened without an id parameter." />;
   } else if (launchDetailQuery.isPending) {
-    sectionNavItemsRef.current = [];
     content = <LoadingStateCard title="Loading launch detail" body={`Fetching /api/v1/launches/${launchId}.`} />;
   } else if (launchDetailQuery.isError) {
-    sectionNavItemsRef.current = [];
     content = <ErrorStateCard title="Launch detail unavailable" body={launchDetailQuery.error.message} />;
   } else if (!detail) {
-    sectionNavItemsRef.current = [];
     content = <EmptyStateCard title="Launch detail unavailable" body="No launch detail was returned for this route." />;
   } else if (!launch) {
-    sectionNavItemsRef.current = [];
     content = legacyLaunch ? (
       <LegacyLaunchDetail
         legacyLaunch={legacyLaunch}
@@ -562,6 +476,26 @@ export default function LaunchDetailScreen() {
     const relatedNews = detail.relatedNews ?? [];
     const payloadManifest = detail.payloadManifest ?? [];
     const objectInventory = detail.objectInventory ?? null;
+    const inventoryStatus = objectInventory?.status ?? null;
+    const inventoryTotalObjectCount = (objectInventory?.payloadObjects?.length ?? 0) + (objectInventory?.nonPayloadObjects?.length ?? 0);
+    const inventoryCatalogState =
+      inventoryStatus?.catalogState ?? (inventoryTotalObjectCount > 0 ? 'catalog_available' : null);
+    const inventoryStatusMessage = buildLaunchInventoryStatusMessage({
+      launchDesignator: objectInventory?.launchDesignator ?? launchRecord.launchDesignator ?? null,
+      catalogState: inventoryCatalogState,
+      totalObjectCount: inventoryTotalObjectCount
+    });
+    const showInventoryCounts = shouldShowLaunchInventoryCounts({
+      catalogState: inventoryCatalogState,
+      totalObjectCount: inventoryTotalObjectCount
+    });
+    const shouldShowInventorySection = shouldShowLaunchInventorySection({
+      launchNet: launchRecord.net ?? null,
+      launchDesignator: objectInventory?.launchDesignator ?? launchRecord.launchDesignator ?? null,
+      catalogState: inventoryCatalogState,
+      totalObjectCount: inventoryTotalObjectCount,
+      hasSummaryBadges: (objectInventory?.summaryBadges?.length ?? 0) > 0
+    });
     const launchUpdates = detail.launchUpdates ?? [];
     const missionStats = detail.missionStats ?? null;
     const weatherConcerns =
@@ -691,9 +625,7 @@ export default function LaunchDetailScreen() {
         canUseArTrajectory &&
         (arTrajectory.availabilityReason === 'not_eligible' || arTrajectory.availabilityReason === 'trajectory_missing' || !arTrajectory.hasTrajectory)
     );
-    const floatingTopBarHeight = 58;
     const floatingTopBarTop = Math.max(insets.top + 8, 14);
-    const floatingTopBarOffsetTop = floatingTopBarTop + floatingTopBarHeight + 14;
     const floatingTopBarSpacerHeight = 52;
     const launchFaaAirspaceMap = launchFaaAirspaceMapQuery.data ?? null;
     const nativeLaunchMapsSupported = launchMapCapabilities?.isAvailable === true;
@@ -1202,68 +1134,20 @@ export default function LaunchDetailScreen() {
       ['Launch provider', launch.provider],
       ['Launch vehicle', launch.vehicle || launch.rocket?.fullName || 'TBD']
     ];
-    const hasLiveCoverage = Boolean(primaryWatchLink);
-    const hasSocialUpdates = Boolean(socialModule?.matchedPost || socialModule?.providerFeeds?.length);
-    const hasRocketProfile = Boolean(launch.rocket?.fullName || launch.vehicle || rocketPhotoUrl);
-    const hasForecastOutlook = Boolean(weatherModule?.cards?.length);
-    const hasLaunchAdvisories = detail.enrichment.faaAdvisories.length > 0;
-    const hasStagesAndRecovery = detail.enrichment.firstStages.length > 0 || detail.enrichment.recovery.length > 0;
-    const hasOfficialMedia = Boolean(
-      resourcesModule?.missionResources?.length ||
-      resourcesModule?.missionTimeline?.length ||
-      launch.launchVidUrls?.length ||
-      launch.launchInfoUrls?.length ||
-      detail.enrichment.externalContent.length
-    );
     const resolvedLaunchTimeline = Array.isArray(launch.timeline)
       ? resolveTrajectoryMilestones({
           ll2Timeline: launch.timeline.map((event) => normalizeLegacyTimelineEvent(event)).filter((event) => event != null),
           includeFamilyTemplate: false
         })
       : [];
-    const hasPayloadMissionContext = Boolean(launch.payloads?.length || launch.mission?.agencies?.length || launchUpdates.length);
-    const hasPayloadManifestInventory = Boolean(
-      payloadManifest.length > 0 ||
-      objectInventory?.payloadObjects?.length ||
-      objectInventory?.nonPayloadObjects?.length ||
-      objectInventory?.summaryBadges?.length
-    );
-    const hasBlueOriginMissionDetails = Boolean(
-      blueOriginModule &&
-        (
-          blueOriginModule.resourceLinks.length ||
-          blueOriginModule.travelerProfiles.length ||
-          blueOriginModule.missionGraphics.length ||
-          blueOriginModule.facts.length ||
-          blueOriginModule.payloadNotes.length
-        )
-    );
-    const hasMissionStats = Boolean(missionStats?.cards?.length || missionStats?.boosterCards?.length || missionStats?.bonusInsights?.length);
     const vehicleTimeline = detail.vehicleTimeline ?? [];
-    const hasVehicleTimeline = vehicleTimeline.length > 0;
-    const hasRelatedCoverage = relatedEvents.length === 0 && relatedNews.length === 0 && detail.related.length > 0;
-    const getSectionOffset = (sectionId: string, fallback = -1) => sectionOffsets[sectionId] ?? fallback;
-    const navSections: NavSection[] = [
-      { id: 'mission-control', label: 'Mission Control', offsetY: getSectionOffset('mission-control', 0) },
-      ...(hasLiveCoverage ? [{ id: 'live-coverage', label: 'Coverage', offsetY: getSectionOffset('live-coverage') }] : []),
-      ...(hasSocialUpdates ? [{ id: 'social-updates', label: 'Social', offsetY: getSectionOffset('social-updates') }] : []),
-      ...(hasRocketProfile ? [{ id: 'rocket-profile', label: 'Rocket', offsetY: getSectionOffset('rocket-profile') }] : []),
-      { id: 'launch-info', label: 'Info', offsetY: getSectionOffset('launch-info') },
-      ...(hasForecastOutlook ? [{ id: 'forecast-outlook', label: 'Weather', offsetY: getSectionOffset('forecast-outlook') }] : []),
-      ...(hasLaunchAdvisories ? [{ id: 'launch-advisories', label: 'Advisories', offsetY: getSectionOffset('launch-advisories') }] : []),
-      ...(hasStagesAndRecovery ? [{ id: 'stages-recovery', label: 'Stages', offsetY: getSectionOffset('stages-recovery') }] : []),
-      ...(hasOfficialMedia ? [{ id: 'official-media', label: 'Media', offsetY: getSectionOffset('official-media') }] : []),
-      ...(hasPayloadMissionContext ? [{ id: 'payload-updates', label: 'Payloads', offsetY: getSectionOffset('payload-updates') }] : []),
-      ...(hasPayloadManifestInventory ? [{ id: 'payload-inventory', label: 'Inventory', offsetY: getSectionOffset('payload-inventory') }] : []),
-      ...(relatedEvents.length > 0 ? [{ id: 'related-events', label: 'Events', offsetY: getSectionOffset('related-events') }] : []),
-      ...(relatedNews.length > 0 ? [{ id: 'launch-news', label: 'News', offsetY: getSectionOffset('launch-news') }] : []),
-      ...(hasBlueOriginMissionDetails ? [{ id: 'blue-origin', label: 'Blue Origin', offsetY: getSectionOffset('blue-origin') }] : []),
-      ...(hasMissionStats ? [{ id: 'mission-stats', label: 'Stats', offsetY: getSectionOffset('mission-stats') }] : []),
-      ...(hasVehicleTimeline ? [{ id: 'vehicle-timeline', label: 'Timeline', offsetY: getSectionOffset('vehicle-timeline') }] : []),
-      ...(hasRelatedCoverage ? [{ id: 'related-coverage', label: 'Related', offsetY: getSectionOffset('related-coverage') }] : [])
-    ];
-
-    sectionNavItemsRef.current = navSections;
+    const advisoryCount = detail.enrichment.faaAdvisories.length;
+    const hasForecastOutlook = Boolean(weatherModule?.cards?.length || advisoryCount > 0);
+    const forecastOutlookDescription = weatherModule?.cards?.length
+      ? advisoryCount > 0
+        ? 'Structured weather sources and matched FAA advisories for this launch.'
+        : 'Structured weather sources matched to this launch.'
+      : `Launch-day FAA advisories matched to this launch. ${advisoryCount} match${advisoryCount === 1 ? '' : 'es'} found.`;
 
     floatingTopBarNode = (
       <LaunchDetailFloatingBar
@@ -1278,19 +1162,6 @@ export default function LaunchDetailScreen() {
         arButtonDisabled={topBarArDisabled}
       />
     );
-
-    overlayNavigation =
-      !shouldReduceMotion && navSections.length > 1 ? (
-        <AnimationErrorBoundary fallback={null}>
-          <StickyNavPills
-            sections={navSections}
-            scrollY={scrollY}
-            activeSection={activeSection}
-            onSectionPress={handleSectionPress}
-            offsetTop={floatingTopBarOffsetTop}
-          />
-        </AnimationErrorBoundary>
-      ) : null;
 
     content = (
       <>
@@ -1408,39 +1279,14 @@ export default function LaunchDetailScreen() {
           </View>
         ) : null}
 
-        {shouldReduceMotion && navSections.length > 1 ? (
-          <View
-            style={{
-              borderRadius: 20,
-              borderWidth: 1,
-              borderColor: theme.stroke,
-              backgroundColor: 'rgba(11, 16, 35, 0.84)',
-              paddingHorizontal: 16,
-              paddingVertical: 14,
-              gap: 10
-            }}
-          >
-            <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase' }}>
-              Jump to section
-            </Text>
-            <SectionNav
-              sections={navSections.map((section) => ({ id: section.id, label: section.label }))}
-              activeSection={activeSection}
-              onSectionPress={(sectionId) => {
-                const selectedSection = navSections.find((section) => section.id === sectionId);
-                if (selectedSection) {
-                  handleSectionPress(sectionId, selectedSection.offsetY);
-                }
-              }}
-            />
-          </View>
+        {arTrajectory && shouldShowArTrajectoryCard(arTrajectory, canUseArTrajectory) ? (
+          <ArTrajectoryCard launchId={launch.id} arTrajectory={arTrajectory} canUseArTrajectory={canUseArTrajectory} />
         ) : null}
 
         <DetailModuleSection
           id="mission-control"
           title="Mission control dashboard"
           description="Countdown, launch actions, alerts, and live launch signals."
-          onLayout={registerSectionOffset}
         >
           <View style={{ gap: 16 }}>
             {weatherModule?.summary || weatherConcerns.length ? (
@@ -1507,10 +1353,6 @@ export default function LaunchDetailScreen() {
             <AnimationErrorBoundary fallback={<FactGrid items={statTileFallbackItems} />}>
               <InteractiveStatTiles tiles={statTiles} />
             </AnimationErrorBoundary>
-
-            {arTrajectory && shouldShowArTrajectoryCard(arTrajectory, canUseArTrajectory) ? (
-              <ArTrajectoryCard launchId={launch.id} arTrajectory={arTrajectory} canUseArTrajectory={canUseArTrajectory} />
-            ) : null}
           </View>
         </DetailModuleSection>
 
@@ -1519,7 +1361,6 @@ export default function LaunchDetailScreen() {
             id="live-coverage"
             title="Live coverage"
             description="Stream links and outbound coverage surfaced from the launch payload."
-            onLayout={registerSectionOffset}
           >
             <View style={{ gap: 12 }}>
               <Pressable
@@ -1598,7 +1439,6 @@ export default function LaunchDetailScreen() {
             id="social-updates"
             title="Social & updates"
             description="Provider post matches and program feeds tied to this launch."
-            onLayout={registerSectionOffset}
           >
             <View style={{ gap: 10 }}>
               {socialModule.matchedPost ? (
@@ -1633,29 +1473,6 @@ export default function LaunchDetailScreen() {
                     </Text>
                   ) : null}
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 }}>
-                    {socialModule.matchedPost.postId ? (
-                      <Pressable
-                        onPress={() => {
-                          setXPreviewPost({
-                            postId: socialModule.matchedPost?.postId || '',
-                            postUrl: socialModule.matchedPost?.url || '',
-                            title: socialModule.matchedPost?.title || 'Matched post on X',
-                            subtitle: socialModule.matchedPost?.subtitle || socialModule.matchedPost?.handle || null
-                          });
-                        }}
-                        style={({ pressed }) => ({
-                          borderRadius: 999,
-                          borderWidth: 1,
-                          borderColor: theme.accent,
-                          backgroundColor: 'rgba(34, 211, 238, 0.12)',
-                          paddingHorizontal: 14,
-                          paddingVertical: 8,
-                          opacity: pressed ? 0.88 : 1
-                        })}
-                      >
-                        <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Preview post</Text>
-                      </Pressable>
-                    ) : null}
                     <Pressable
                       onPress={() => {
                         openTarget(socialModule.matchedPost?.url || '');
@@ -1673,6 +1490,25 @@ export default function LaunchDetailScreen() {
                       <Text style={{ color: theme.foreground, fontSize: 12, fontWeight: '700' }}>Open on X</Text>
                     </Pressable>
                   </View>
+                  {socialModule.matchedPost.postId ? (
+                    <XPostInlineEmbed postId={socialModule.matchedPost.postId} />
+                  ) : (
+                    <View
+                      style={{
+                        marginTop: 4,
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        borderStyle: 'dashed',
+                        borderColor: theme.stroke,
+                        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                        padding: 14
+                      }}
+                    >
+                      <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
+                        A matched source URL is available, but no X status ID could be extracted for inline embed rendering.
+                      </Text>
+                    </View>
+                  )}
                 </View>
               ) : null}
               {socialModule.providerFeeds.map((feed) => (
@@ -1694,7 +1530,6 @@ export default function LaunchDetailScreen() {
             id="rocket-profile"
             title="Rocket profile"
             description={launch.rocket?.fullName || launch.vehicle}
-            onLayout={registerSectionOffset}
           >
             {rocketPhotoUrl ? (
               <Image
@@ -1727,7 +1562,6 @@ export default function LaunchDetailScreen() {
           id="launch-info"
           title="Launch info"
           description="Provider, vehicle, pad, window, and mission facts aligned with the web detail layout."
-          onLayout={registerSectionOffset}
         >
           <FactGrid
             onOpenHref={(href) => {
@@ -1878,15 +1712,15 @@ export default function LaunchDetailScreen() {
           ) : null}
         </DetailModuleSection>
 
-        {weatherModule?.cards?.length ? (
+        {hasForecastOutlook ? (
           <DetailModuleSection
             id="forecast-outlook"
             title="Forecast outlook"
-            description="Structured weather sources matched to this launch."
-            onLayout={registerSectionOffset}
+            description={forecastOutlookDescription}
+            defaultExpanded={false}
           >
             <View style={{ gap: 12 }}>
-              {weatherModule.cards.map((card) => (
+              {weatherModule?.cards?.map((card) => (
                 <View
                   key={card.id}
                   style={{
@@ -1932,6 +1766,94 @@ export default function LaunchDetailScreen() {
                   ) : null}
                 </View>
               ))}
+
+              {advisoryCount > 0 ? (
+                <View style={{ gap: 12, marginTop: weatherModule?.cards?.length ? 4 : 0 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                    <View style={{ flex: 1, gap: 4 }}>
+                      <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>Launch advisories</Text>
+                      <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
+                        Temporary flight restrictions and NOTAM matches tied to this launch.
+                      </Text>
+                    </View>
+                    <DetailChip label={`${advisoryCount} match${advisoryCount === 1 ? '' : 'es'}`} />
+                  </View>
+
+                  {launchFaaAirspaceMapQuery.isPending ? (
+                    <SectionCard title="Launch zone map" compact>
+                      <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>Loading launch-day FAA geometry…</Text>
+                    </SectionCard>
+                  ) : launchFaaAirspaceMap?.advisoryCount ? (
+                    <SectionCard title="Launch zone map" compact>
+                      <View style={{ gap: 10 }}>
+                        <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
+                          Native satellite view with launch-day FAA polygons and the launch pad in the same frame.
+                        </Text>
+                        {showNativeFaaMapPreview && faaMapPayload ? (
+                          <Pressable
+                            onPress={() => {
+                              setFaaMapModalOpen(true);
+                            }}
+                            accessibilityRole="button"
+                            accessibilityLabel="Open launch zone map"
+                            style={{ gap: 8 }}
+                          >
+                            <NativeLaunchMapPreview
+                              payload={faaMapPayload}
+                              renderMode="faa"
+                              theme={theme}
+                              height={224}
+                              interactive={false}
+                            />
+                            <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Open full-screen map</Text>
+                          </Pressable>
+                        ) : (
+                          platformPadMapHref ? (
+                            <LinkRow
+                              title={Platform.OS === 'ios' ? 'Open in Apple Maps' : 'Open in Google Maps'}
+                              subtitle={launchMapCapabilities?.reason || 'Native launch map rendering is unavailable right now.'}
+                              onPress={() => {
+                                void Linking.openURL(platformPadMapHref);
+                              }}
+                            />
+                          ) : (
+                            <View
+                              style={{
+                                borderRadius: 14,
+                                borderWidth: 1,
+                                borderColor: theme.stroke,
+                                padding: 12
+                              }}
+                            >
+                              <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '600' }}>Map unavailable</Text>
+                              <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
+                                {launchMapCapabilities?.reason || 'Native launch map rendering is unavailable right now.'}
+                              </Text>
+                            </View>
+                          )
+                        )}
+                      </View>
+                    </SectionCard>
+                  ) : null}
+
+                  {detail.enrichment.faaAdvisories.map((advisory) => {
+                    return (
+                      <FaaNoticeCard
+                        key={advisory.matchId}
+                        advisory={advisory}
+                        expandedRawText={Boolean(expandedFaaRawTextIds[advisory.matchId])}
+                        onToggleRawText={() => {
+                          toggleFaaRawText(advisory.matchId);
+                        }}
+                      />
+                    );
+                  })}
+
+                  <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 19 }}>
+                    Advisory data is informational. Confirm operational constraints with official FAA publications.
+                  </Text>
+                </View>
+              ) : null}
             </View>
           </DetailModuleSection>
         ) : null}
@@ -1940,100 +1862,14 @@ export default function LaunchDetailScreen() {
           id="jep-visibility"
           title="JEP visibility score"
           description="Jellyfish effect scoring based on geometry, sun angle, and the current forecast."
-          onLayout={registerSectionOffset}
         >
           <JepPanel launchId={launch.id} hasJepScore={detail.enrichment.hasJepScore} theme={theme} />
         </DetailModuleSection>
-
-        {detail.enrichment.faaAdvisories.length > 0 ? (
-          <DetailModuleSection
-            id="launch-advisories"
-            title="Launch advisories"
-            description={`Temporary flight restrictions and NOTAM matches tied to this launch. ${detail.enrichment.faaAdvisories.length} match${detail.enrichment.faaAdvisories.length === 1 ? '' : 'es'} found.`}
-            onLayout={registerSectionOffset}
-          >
-            <View style={{ gap: 12 }}>
-              {launchFaaAirspaceMapQuery.isPending ? (
-                <SectionCard title="Launch zone map" compact>
-                  <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>Loading launch-day FAA geometry…</Text>
-                </SectionCard>
-              ) : launchFaaAirspaceMap?.advisoryCount ? (
-                <SectionCard title="Launch zone map" compact>
-                  <View style={{ gap: 10 }}>
-                    <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
-                      Native satellite view with launch-day FAA polygons and the launch pad in the same frame.
-                    </Text>
-                    {showNativeFaaMapPreview && faaMapPayload ? (
-                      <Pressable
-                        onPress={() => {
-                          setFaaMapModalOpen(true);
-                        }}
-                        accessibilityRole="button"
-                        accessibilityLabel="Open launch zone map"
-                        style={{ gap: 8 }}
-                      >
-                        <NativeLaunchMapPreview
-                          payload={faaMapPayload}
-                          renderMode="faa"
-                          theme={theme}
-                          height={224}
-                          interactive={false}
-                        />
-                        <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Open full-screen map</Text>
-                      </Pressable>
-                    ) : (
-                      platformPadMapHref ? (
-                        <LinkRow
-                          title={Platform.OS === 'ios' ? 'Open in Apple Maps' : 'Open in Google Maps'}
-                          subtitle={launchMapCapabilities?.reason || 'Native launch map rendering is unavailable right now.'}
-                          onPress={() => {
-                            void Linking.openURL(platformPadMapHref);
-                          }}
-                        />
-                      ) : (
-                        <View
-                          style={{
-                            borderRadius: 14,
-                            borderWidth: 1,
-                            borderColor: theme.stroke,
-                            padding: 12
-                          }}
-                        >
-                          <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '600' }}>Map unavailable</Text>
-                          <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
-                            {launchMapCapabilities?.reason || 'Native launch map rendering is unavailable right now.'}
-                          </Text>
-                        </View>
-                      )
-                    )}
-                  </View>
-                </SectionCard>
-              ) : null}
-              {detail.enrichment.faaAdvisories.map((advisory) => {
-                return (
-                  <FaaNoticeCard
-                    key={advisory.matchId}
-                    advisory={advisory}
-                    expandedRawText={Boolean(expandedFaaRawTextIds[advisory.matchId])}
-                    onToggleRawText={() => {
-                      toggleFaaRawText(advisory.matchId);
-                    }}
-                  />
-                );
-              })}
-            </View>
-            <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 19 }}>
-              Advisory data is informational. Confirm operational constraints with official FAA publications.
-            </Text>
-          </DetailModuleSection>
-        ) : null}
 
         {(detail.enrichment.firstStages.length > 0 || detail.enrichment.recovery.length > 0) ? (
           <DetailModuleSection
             id="stages-recovery"
             title="Stages & recovery"
-            description="Launch-stage and landing context surfaced from LL2 when it exists."
-            onLayout={registerSectionOffset}
           >
             {detail.enrichment.firstStages.length > 0 ? (
               <View style={{ gap: 10 }}>
@@ -2051,7 +1887,7 @@ export default function LaunchDetailScreen() {
                     >
                       <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{stage.title}</Text>
                       <Text style={{ color: theme.muted, fontSize: 13 }}>
-                        {[stage.serialNumber, stage.status, stage.source.toUpperCase()].filter(Boolean).join(' • ')}
+                        {[stage.serialNumber, normalizeLaunchDetailText(stage.status), stage.source.toUpperCase()].filter(Boolean).join(' • ')}
                       </Text>
                       <Text style={{ color: theme.muted, fontSize: 13 }}>
                         {[stage.totalMissions != null ? `Tracked flights: ${stage.totalMissions}` : null, stage.lastMissionNet ? `Last mission: ${formatTimestamp(stage.lastMissionNet)}` : null]
@@ -2077,12 +1913,16 @@ export default function LaunchDetailScreen() {
                       gap: 6
                     }}
                     >
-                      <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{entry.title || 'Recovery detail'}</Text>
+                      <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{buildLegacyRecoveryTitle(entry)}</Text>
                       <Text style={{ color: theme.muted, fontSize: 13 }}>
-                        {[entry.role.toUpperCase(), entry.landingLocationName, entry.landingTypeName].filter(Boolean).join(' • ')}
+                        {[formatLegacyRecoveryRole(entry.role), normalizeLaunchDetailText(entry.landingLocationName), normalizeLaunchDetailText(entry.landingTypeName)]
+                          .filter(Boolean)
+                          .join(' • ')}
                       </Text>
                       <Text style={{ color: theme.muted, fontSize: 13 }}>
-                        {[entry.downrangeDistanceKm != null ? `${Math.round(entry.downrangeDistanceKm)} km downrange` : null, entry.returnSite].filter(Boolean).join(' • ')}
+                        {[entry.downrangeDistanceKm != null ? `${Math.round(entry.downrangeDistanceKm)} km downrange` : null, normalizeLaunchDetailText(entry.returnSite)]
+                          .filter(Boolean)
+                          .join(' • ')}
                       </Text>
                       {entry.description ? <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>{entry.description}</Text> : null}
                       {entry.returnDateTime ? <Text style={{ color: theme.muted, fontSize: 13 }}>Return: {formatTimestamp(entry.returnDateTime)}</Text> : null}
@@ -2098,7 +1938,6 @@ export default function LaunchDetailScreen() {
             id="official-media"
             title="Official media & timelines"
             description="Matched mission resources, SpaceX media assets, and mission timelines for this launch."
-            onLayout={registerSectionOffset}
           >
             <View style={{ gap: 10 }}>
               {resourcesModule?.missionResources?.filter((resource) => !isSpaceXWebsiteUrl(resource.url))?.map((resource) => (
@@ -2127,24 +1966,20 @@ export default function LaunchDetailScreen() {
               ))}
               {resourcesModule?.missionTimeline?.length ? (
                 <SectionCard title="Mission timeline" compact>
-                  {resourcesModule.missionTimeline.map((event) => (
-                    <Text key={event.id} style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
-                      {[formatMissionTimelineTimeLabel(event.time, event.phase), event.label, event.description].filter(Boolean).join(' • ')}
-                    </Text>
-                  ))}
+                  <MissionTimelineCards items={resourcesModule.missionTimeline} theme={theme} />
                 </SectionCard>
               ) : resolvedLaunchTimeline.length ? (
                 <SectionCard title="Mission timeline" compact>
-                  {resolvedLaunchTimeline.map((milestone, index) => (
-                    <Text
-                      key={`${milestone.key}:${milestone.tPlusSec ?? milestone.timeText ?? index}`}
-                      style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}
-                    >
-                      {[formatTrajectoryMilestoneOffsetLabel(milestone.tPlusSec, milestone.timeText), milestone.label, milestone.description]
-                        .filter(Boolean)
-                        .join(' • ')}
-                    </Text>
-                  ))}
+                  <MissionTimelineCards
+                    items={resolvedLaunchTimeline.map((milestone, index) => ({
+                      id: `${milestone.key}:${milestone.tPlusSec ?? milestone.timeText ?? index}`,
+                      label: milestone.label,
+                      time: formatTrajectoryMilestoneOffsetLabel(milestone.tPlusSec, milestone.timeText),
+                      description: milestone.description ?? null,
+                      phase: milestone.phase ?? null
+                    }))}
+                    theme={theme}
+                  />
                 </SectionCard>
               ) : null}
             </View>
@@ -2156,7 +1991,6 @@ export default function LaunchDetailScreen() {
             id="payload-updates"
             title="Payloads, agencies, and updates"
             description="Mission-side context carried through the shared launch payload."
-            onLayout={registerSectionOffset}
           >
             {launch.payloads?.length ? (
               <SectionCard title="Payloads" compact>
@@ -2188,12 +2022,11 @@ export default function LaunchDetailScreen() {
           </DetailModuleSection>
         ) : null}
 
-        {(payloadManifest.length > 0 || objectInventory?.payloadObjects?.length || objectInventory?.nonPayloadObjects?.length || objectInventory?.summaryBadges?.length) ? (
+        {(payloadManifest.length > 0 || shouldShowInventorySection) ? (
           <DetailModuleSection
             id="payload-inventory"
             title="Payload manifest & inventory"
             description="Manifested payloads and tracked launch objects linked to this mission."
-            onLayout={registerSectionOffset}
           >
             {payloadManifest.length ? (
               <SectionCard title="Manifest" compact>
@@ -2243,7 +2076,21 @@ export default function LaunchDetailScreen() {
                 </View>
               </SectionCard>
             ) : null}
-            {objectInventory?.summaryBadges?.length ? (
+            {inventoryStatusMessage ? (
+              <View style={{ gap: 4 }}>
+                <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 18 }}>{inventoryStatusMessage}</Text>
+                {inventoryStatus?.lastCheckedAt ? (
+                  <Text style={{ color: theme.muted, fontSize: 12 }}>Last checked: {inventoryStatus.lastCheckedAt}</Text>
+                ) : null}
+                {inventoryStatus?.lastNonEmptyAt ? (
+                  <Text style={{ color: theme.muted, fontSize: 12 }}>Last non-empty: {inventoryStatus.lastNonEmptyAt}</Text>
+                ) : null}
+                {inventoryStatus?.lastError ? (
+                  <Text style={{ color: '#f87171', fontSize: 12 }}>Error: {inventoryStatus.lastError}</Text>
+                ) : null}
+              </View>
+            ) : null}
+            {showInventoryCounts && objectInventory?.summaryBadges?.length ? (
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                 {objectInventory.summaryBadges.map((badge) => (
                   <DetailChip key={badge} label={badge} />
@@ -2312,7 +2159,6 @@ export default function LaunchDetailScreen() {
             id="related-events"
             title="Related events"
             description="Mission-adjacent events linked to this launch."
-            onLayout={registerSectionOffset}
           >
             <View style={{ gap: 10 }}>
               {relatedEvents.map((item) => (
@@ -2348,31 +2194,27 @@ export default function LaunchDetailScreen() {
             id="launch-news"
             title="Launch news"
             description="Related news coverage surfaced from linked launch joins."
-            onLayout={registerSectionOffset}
           >
-            <View style={{ gap: 10 }}>
+            <View style={{ gap: 12 }}>
               {relatedNews.map((item) => (
-                <Pressable
+                <LaunchNewsCard
                   key={`news:${item.id}`}
+                  article={{
+                    title: item.title,
+                    summary: item.summary,
+                    url: item.url,
+                    source: item.newsSite,
+                    imageUrl: item.imageUrl,
+                    publishedAt: item.publishedAt,
+                    itemType: item.itemType,
+                    authors: item.authors,
+                    featured: item.featured
+                  }}
+                  theme={theme}
                   onPress={() => {
                     openTarget(item.url);
                   }}
-                  style={({ pressed }) => ({
-                    borderRadius: 16,
-                    borderWidth: 1,
-                    borderColor: theme.stroke,
-                    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                    padding: 14,
-                    gap: 6,
-                    opacity: pressed ? 0.88 : 1
-                  })}
-                >
-                  <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{item.title}</Text>
-                  <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
-                    {[item.newsSite, item.publishedAt ? formatTimestamp(item.publishedAt) : null, item.itemType].filter(Boolean).join(' • ')}
-                  </Text>
-                  {item.summary ? <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>{item.summary}</Text> : null}
-                </Pressable>
+                />
               ))}
             </View>
           </DetailModuleSection>
@@ -2389,7 +2231,6 @@ export default function LaunchDetailScreen() {
             id="blue-origin"
             title="Blue Origin mission details"
             description="Provider-specific traveler, media, and mission context for Blue Origin launches."
-            onLayout={registerSectionOffset}
           >
             {blueOriginModule.resourceLinks.length ? (
               <SectionCard title="Resources" compact>
@@ -2538,7 +2379,6 @@ export default function LaunchDetailScreen() {
             id="mission-stats"
             title="Mission stats"
             description="Provider, rocket, pad, and booster history tied to this launch."
-            onLayout={registerSectionOffset}
           >
             {missionStats?.cards?.length ? (
               <View style={{ gap: 10 }}>
@@ -2595,7 +2435,6 @@ export default function LaunchDetailScreen() {
             id="vehicle-timeline"
             title="Chrono-Helix vehicle timeline"
             description="Recent and upcoming flights for the same launch vehicle."
-            onLayout={registerSectionOffset}
           >
             <View style={{ gap: 12 }}>
               {vehicleTimeline.map((item, index) => (
@@ -2663,7 +2502,6 @@ export default function LaunchDetailScreen() {
             id="related-coverage"
             title="Related coverage"
             description={`${detail.related.length} linked result${detail.related.length === 1 ? '' : 's'} surfaced for this launch.`}
-            onLayout={registerSectionOffset}
           >
             <View style={{ gap: 10 }}>
               {detail.related.map((item) => (
@@ -2731,16 +2569,7 @@ export default function LaunchDetailScreen() {
         {content}
       </AppScreen>
       {floatingTopBarNode}
-      {overlayNavigation}
       {followSheetNode}
-      <XPostPreviewModal
-        open={xPreviewPost != null}
-        postId={xPreviewPost?.postId}
-        postUrl={xPreviewPost?.postUrl || ''}
-        title={xPreviewPost?.title || 'Matched post on X'}
-        subtitle={xPreviewPost?.subtitle || null}
-        onClose={() => setXPreviewPost(null)}
-      />
       <LaunchCalendarSheet launch={calendarLaunch} open={calendarLaunch != null} onClose={() => setCalendarLaunch(null)} />
     </>
   );
@@ -3329,22 +3158,16 @@ function DetailModuleSection({
   title,
   description,
   children,
-  onLayout,
   defaultExpanded = true
 }: {
   id: string;
   title: string;
   description?: string;
   children: ReactNode;
-  onLayout?: (sectionId: string, event: LayoutChangeEvent) => void;
   defaultExpanded?: boolean;
 }) {
   return (
-    <View
-      onLayout={(event) => {
-        onLayout?.(id, event);
-      }}
-    >
+    <View>
       <CollapsibleSection id={id} title={title} description={description} defaultExpanded={defaultExpanded}>
         {children}
       </CollapsibleSection>
@@ -3858,12 +3681,9 @@ function ArTrajectoryCard({
   const isAndroid = Platform.OS === 'android';
   const isUnavailable = arTrajectory.availabilityReason === 'not_eligible';
   const isPending = arTrajectory.availabilityReason === 'trajectory_missing' || !arTrajectory.hasTrajectory;
-  const qualityLabel = formatArQualityLabel(arTrajectory.qualityState);
-  const confidenceLabel = formatArConfidenceLabel(arTrajectory.confidenceBadge);
   const generatedAtLabel = arTrajectory.generatedAt ? formatTimestamp(arTrajectory.generatedAt) : null;
 
   let actionLabel = 'Open AR trajectory';
-  let actionVariant: 'primary' | 'secondary' = 'primary';
   let disabled = false;
   let onPress = () => {
     if (isIos || isAndroid) {
@@ -3873,63 +3693,71 @@ function ArTrajectoryCard({
 
   if (!isIos && !isAndroid) {
     actionLabel = 'AR unavailable';
-    actionVariant = 'secondary';
     disabled = true;
     onPress = () => undefined;
   } else if (!canUseArTrajectory) {
     actionLabel = 'Upgrade for AR';
-    actionVariant = 'secondary';
     onPress = () => {
       router.push('/profile');
     };
   } else if (isUnavailable) {
     actionLabel = 'AR unavailable';
-    actionVariant = 'secondary';
     disabled = true;
     onPress = () => undefined;
   } else if (isPending) {
     actionLabel = 'Trajectory pending';
-    actionVariant = 'secondary';
     disabled = true;
     onPress = () => undefined;
   }
 
-  return (
+  const cardContent = (
     <SectionCard
       title="AR trajectory"
       description={buildArTrajectoryDescription(arTrajectory, canUseArTrajectory, isIos, isAndroid)}
       body={generatedAtLabel ? `Latest trajectory package generated ${generatedAtLabel}.` : undefined}
     >
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        <DetailChip label="Premium" tone={canUseArTrajectory ? 'accent' : 'default'} />
-        <DetailChip label={isIos ? 'iPhone native' : isAndroid ? 'Android native' : 'AR unavailable'} />
-        {qualityLabel ? <DetailChip label={qualityLabel} tone={arTrajectory.qualityState === 'precision' ? 'success' : 'default'} /> : null}
-        {confidenceLabel ? <DetailChip label={confidenceLabel} /> : null}
-        {arTrajectory.publishPolicy?.enforcePadOnly ? <DetailChip label="Guide only" /> : null}
-      </View>
       <View
         style={{
-          borderRadius: 16,
-          borderWidth: 1,
-          borderColor: theme.stroke,
-          backgroundColor: 'rgba(255, 255, 255, 0.03)',
-          padding: 14,
-          gap: 8
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12
         }}
       >
-        <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>
-          {isIos ? 'Native iPhone AR runtime' : isAndroid ? 'Native Android AR runtime' : 'AR runtime'}
+        <Text
+          style={{
+            flex: 1,
+            color: disabled ? theme.muted : canUseArTrajectory ? theme.accent : theme.foreground,
+            fontSize: 14,
+            fontWeight: '700'
+          }}
+        >
+          {actionLabel}
         </Text>
-        <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
-          {isIos
-            ? 'Uses ARKit world tracking, premium trajectory calibration, and session-quality safeguards instead of the Safari camera stack.'
-            : isAndroid
-              ? 'Uses Android native camera controls for smooth pinch zoom and falls back to web AR only when native capabilities are unavailable.'
-              : 'AR trajectory is available on supported iPhone and Android devices.'}
-        </Text>
+        {!disabled ? (
+          <Text style={{ color: canUseArTrajectory ? theme.accent : theme.foreground, fontSize: 18, fontWeight: '700' }}>
+            →
+          </Text>
+        ) : null}
       </View>
-      <ActionButton label={actionLabel} onPress={onPress} variant={actionVariant} disabled={disabled} />
     </SectionCard>
+  );
+
+  if (disabled) {
+    return <View style={{ opacity: 0.68 }}>{cardContent}</View>;
+  }
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={actionLabel}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        opacity: pressed ? 0.9 : 1
+      })}
+    >
+      {cardContent}
+    </Pressable>
   );
 }
 
@@ -4022,18 +3850,6 @@ function buildArTrajectoryDescription(arTrajectory: ArTrajectorySummaryV1, canUs
   }
 
   return 'Guide-only native AR is ready. Precision lock-on stays disabled until directional confidence improves.';
-}
-
-function formatArQualityLabel(qualityState: ArTrajectorySummaryV1['qualityState']) {
-  if (qualityState === 'precision') return 'Precision';
-  if (qualityState === 'safe_corridor') return 'Safe corridor';
-  if (qualityState === 'pad_only') return 'Pad guide';
-  return null;
-}
-
-function formatArConfidenceLabel(confidenceBadge: ArTrajectorySummaryV1['confidenceBadge']) {
-  if (!confidenceBadge) return null;
-  return `Confidence ${confidenceBadge}`;
 }
 
 function buildWatchLinks(launch: RichLaunchSummary): WatchLinkView[] {
@@ -4309,6 +4125,29 @@ function isUnknownEntityLabel(value: string | null | undefined) {
   return !normalized || normalized === 'unknown' || normalized === 'tbd' || normalized === 'none' || normalized === 'n/a' || normalized === 'na';
 }
 
+function normalizeLaunchDetailText(value: string | null | undefined) {
+  return isUnknownEntityLabel(value) ? null : String(value || '').trim() || null;
+}
+
+function formatLegacyRecoveryRole(role: string | null | undefined) {
+  if (role === 'booster') return 'Booster';
+  if (role === 'spacecraft') return 'Spacecraft';
+  return null;
+}
+
+function buildLegacyRecoveryTitle(entry: {
+  title?: string | null;
+  landingLocationName?: string | null;
+  returnSite?: string | null;
+}) {
+  return (
+    normalizeLaunchDetailText(entry.title) ||
+    normalizeLaunchDetailText(entry.landingLocationName) ||
+    normalizeLaunchDetailText(entry.returnSite) ||
+    'Recovery detail'
+  );
+}
+
 function slugifyRouteSegment(value: string | null | undefined) {
   return String(value || '')
     .trim()
@@ -4383,9 +4222,4 @@ function buildLaunchPadEntityHref({
     return `/catalog/pads/${encodeURIComponent(String(ll2PadId))}`;
   }
   return fallbackLocationHref;
-}
-
-function formatRefreshTimeLabel(timestampMs: number) {
-  if (!Number.isFinite(timestampMs)) return 'the next scheduled refresh';
-  return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(timestampMs));
 }

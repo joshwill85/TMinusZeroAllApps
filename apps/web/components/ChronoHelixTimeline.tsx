@@ -18,6 +18,7 @@ export type TimelineNode = {
   missionName: string;
   isCurrent: boolean;
   statusLabel?: string;
+  href?: string | null;
 };
 
 type ChronoHelixTimelineProps = {
@@ -276,6 +277,10 @@ export function ChronoHelixTimeline({
   const handleNodeActivate = useCallback(
     (node: TimelineNode, index: number) => {
       if (isDragging || dragMovedRef.current) return;
+      if (node.href) {
+        router.push(node.href);
+        return;
+      }
       if (node.id && node.id !== initialLaunchId) {
         router.push(buildLaunchHref({ id: node.id, name: node.missionName }));
         return;

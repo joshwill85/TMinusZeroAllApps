@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createSupabaseAdminClient } from '@/lib/server/supabaseServer';
 import { isSupabaseAdminConfigured } from '@/lib/server/env';
+import { resolveLaunchRefreshCadenceHint } from '@/lib/server/launchRefreshCadence';
 import { getViewerTier } from '@/lib/server/viewerTier';
 import { parseLaunchRegion, US_PAD_COUNTRY_CODES } from '@/lib/server/us';
 
@@ -134,12 +135,16 @@ export async function GET(request: Request) {
       return bTime - aTime;
     });
   }
+  const cadenceHint = await resolveLaunchRefreshCadenceHint({ client: supabase, scope: 'live' });
 
   return NextResponse.json(
     {
       hours,
       tier: viewer.tier,
-      intervalSeconds: viewer.refreshIntervalSeconds,
+      intervalSeconds: cadenceHint.recommendedIntervalSeconds,
+      recommendedIntervalSeconds: cadenceHint.recommendedIntervalSeconds,
+      cadenceReason: cadenceHint.cadenceReason,
+      cadenceAnchorNet: cadenceHint.cadenceAnchorNet,
       results
     },
     { headers: { 'Cache-Control': 'private, no-store' } }

@@ -66,7 +66,7 @@ export function LaunchDetailHero({
           <div className="space-y-6 md:col-span-2">
             <div className="rounded-[2rem] border border-white/10 bg-[rgba(7,9,19,0.56)] p-5 shadow-[0_18px_60px_rgba(0,0,0,0.28)] backdrop-blur-xl md:max-w-[42rem] md:p-7">
               {/* Badges */}
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 pt-1">
                 {status && (
                   <StatusBadge
                     label={status}

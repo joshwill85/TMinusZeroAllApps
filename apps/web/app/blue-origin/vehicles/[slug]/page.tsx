@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound, permanentRedirect } from 'next/navigation';
+import { ChronoHelixTimeline, type TimelineNode } from '@/components/ChronoHelixTimeline';
 import { JsonLd } from '@/components/JsonLd';
 import { ProgramHubBackLink } from '@/components/ProgramHubBackLink';
 import { BRAND_NAME } from '@/lib/brand';
@@ -13,7 +14,6 @@ import {
 } from '@/lib/server/blueOriginEntities';
 import { fetchBlueOriginPassengers, fetchBlueOriginPayloads } from '@/lib/server/blueOriginPeoplePayloads';
 import { buildSiteMeta, SITE_META } from '@/lib/server/siteMeta';
-import { buildLaunchHref } from '@/lib/utils/launchLinks';
 import { BlueOriginRouteTraceLink } from '@/app/blue-origin/_components/BlueOriginRouteTransitionTracker';
 
 export const revalidate = 60 * 10;
@@ -159,36 +159,11 @@ export default async function BlueOriginVehicleDetailPage({ params }: { params: 
         )}
       </section>
 
-      <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
-        <h2 className="text-xl font-semibold text-text1">Recent mission flights</h2>
-        {flights.items.length ? (
-          <ul className="mt-3 grid gap-2 md:grid-cols-2">
-            {flights.items.slice(0, 16).map((flight) => {
-              const launchHref = flight.launchId
-                ? buildLaunchHref({ id: flight.launchId, name: flight.launchName || flight.flightCode.toUpperCase() })
-                : null;
-
-              return (
-                <li key={flight.id} className="rounded-lg border border-stroke bg-surface-0 px-3 py-2">
-                  <div className="flex items-center justify-between gap-2">
-                    {launchHref ? (
-                      <Link href={launchHref} className="text-sm font-semibold text-text1 hover:text-primary">
-                        {flight.flightCode.toUpperCase()}
-                      </Link>
-                    ) : (
-                      <span className="text-sm font-semibold text-text1">{flight.flightCode.toUpperCase()}</span>
-                    )}
-                    <span className="text-xs text-text3">{flight.launchDate ? formatDate(flight.launchDate) : 'Date pending'}</span>
-                  </div>
-                  <p className="mt-1 text-xs text-text3">{flight.launchName || 'Mission flight record'}</p>
-                </li>
-              );
-            })}
-          </ul>
-        ) : (
-          <p className="mt-3 text-sm text-text3">No mission flights are currently mapped.</p>
-        )}
-      </section>
+      <ChronoHelixTimeline
+        nodes={buildBlueOriginVehicleTimelineNodes(flights.items, vehicle.displayName)}
+        initialLaunchId="vehicle-focus"
+        vehicleLabel={vehicle.displayName}
+      />
 
       <div className="flex flex-wrap items-center gap-3 text-xs text-text3">
         <Link href="/blue-origin/vehicles" className="rounded-full border border-stroke px-3 py-1 uppercase tracking-[0.14em] hover:text-text1">
@@ -205,8 +180,32 @@ export default async function BlueOriginVehicleDetailPage({ params }: { params: 
   );
 }
 
-function formatDate(value: string) {
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed)) return value;
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: '2-digit', year: 'numeric' }).format(new Date(parsed));
+function buildBlueOriginVehicleTimelineNodes(
+  flights: Awaited<ReturnType<typeof fetchBlueOriginFlights>>['items'],
+  vehicleLabel: string
+): TimelineNode[] {
+  return flights.map((flight) => ({
+    id: flight.id,
+    date: flight.launchDate || '',
+    status: inferTimelineStatus(flight.status, flight.launchDate),
+    vehicleName: vehicleLabel || getBlueOriginMissionLabel(flight.missionKey),
+    missionName: flight.launchName || flight.flightCode.toUpperCase(),
+    isCurrent: false,
+    statusLabel: flight.status || undefined,
+    href: `/blue-origin/flights/${encodeURIComponent(flight.flightSlug)}`
+  }));
+}
+
+function inferTimelineStatus(statusLabel?: string | null, netIso?: string | null): TimelineNode['status'] {
+  const label = String(statusLabel || '').toLowerCase();
+  if (label.includes('success')) return 'success';
+  if (label.includes('failure') || label.includes('fail') || label.includes('scrub') || label.includes('abort')) {
+    return 'failure';
+  }
+  if (label.includes('hold') || label.includes('tbd') || label.includes('go') || label.includes('pending')) return 'upcoming';
+  if (netIso) {
+    const timestamp = Date.parse(netIso);
+    if (Number.isFinite(timestamp) && timestamp > Date.now()) return 'upcoming';
+  }
+  return 'failure';
 }

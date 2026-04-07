@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { launchDetailVersionSchemaV1 } from '@tminuszero/contracts';
 import { isSupabaseConfigured } from '@/lib/server/env';
 import { enforceLaunchDetailVersionRateLimit } from '@/lib/server/launchApiRateLimit';
+import { buildLaunchDetailVersionSeed } from '@/lib/server/launchDetailVersion';
 import { resolveLaunchRefreshCadenceHint } from '@/lib/server/launchRefreshCadence';
 import { createSupabaseAccessTokenClient, createSupabasePublicClient, createSupabaseServerClient } from '@/lib/server/supabaseServer';
 import { getViewerTier } from '@/lib/server/viewerTier';
@@ -60,7 +61,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
       scope === 'live'
         ? liveClient
             .from('launches')
-            .select('id, last_updated_source')
+            .select('id, ll2_id, last_updated_source')
             .eq('id', parsedLaunch.launchId)
             .eq('hidden', false)
         : createSupabasePublicClient()
@@ -77,7 +78,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
       return NextResponse.json({ error: 'not_found' }, { status: 404 });
     }
 
-    const updatedAt =
+    const launchCoreUpdatedAt =
       scope === 'live'
         ? (typeof (data as { last_updated_source?: unknown }).last_updated_source === 'string'
             ? ((data as { last_updated_source?: string | null }).last_updated_source ?? null)
@@ -85,6 +86,14 @@ export async function GET(request: Request, { params }: { params: { id: string }
         : (typeof (data as { cache_generated_at?: unknown }).cache_generated_at === 'string'
             ? ((data as { cache_generated_at?: string | null }).cache_generated_at ?? null)
             : null);
+    const detailVersionSeed = await buildLaunchDetailVersionSeed({
+      launchId: parsedLaunch.launchId,
+      scope,
+      launchCoreUpdatedAt,
+      ll2LaunchId:
+        typeof (data as { ll2_id?: unknown }).ll2_id === 'string' ? ((data as { ll2_id?: string | null }).ll2_id ?? null) : null,
+      client: createSupabasePublicClient()
+    });
     const cadenceHint =
       scope === 'live'
         ? await resolveLaunchRefreshCadenceHint({ client: liveClient, scope: 'live' })
@@ -98,9 +107,10 @@ export async function GET(request: Request, { params }: { params: { id: string }
       launchId: parsedLaunch.launchId,
       scope,
       tier: viewer.tier,
-      intervalSeconds: viewer.refreshIntervalSeconds,
-      updatedAt,
-      version: `${parsedLaunch.launchId}|${scope}|${updatedAt ?? 'null'}`,
+      intervalSeconds: scope === 'live' ? cadenceHint.recommendedIntervalSeconds : viewer.refreshIntervalSeconds,
+      updatedAt: detailVersionSeed.updatedAt,
+      version: detailVersionSeed.version,
+      moduleUpdatedAt: detailVersionSeed.moduleUpdatedAt,
       recommendedIntervalSeconds: cadenceHint.recommendedIntervalSeconds,
       cadenceReason: cadenceHint.cadenceReason,
       cadenceAnchorNet: cadenceHint.cadenceAnchorNet

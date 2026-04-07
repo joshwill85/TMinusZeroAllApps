@@ -8,6 +8,7 @@ import { getViewerTier } from '@/lib/server/viewerTier';
 import { Launch } from '@/lib/types/launch';
 import { parseLaunchRegion, US_PAD_COUNTRY_CODES } from '@/lib/server/us';
 import { buildStatusFilterOrClause, parseLaunchStatusFilter } from '@/lib/server/launchStatus';
+import { resolveLaunchRefreshCadenceHint } from '@/lib/server/launchRefreshCadence';
 import { isLaunchWithinMilestoneWindow } from '@/lib/utils/launchMilestones';
 export const dynamic = 'force-dynamic';
 
@@ -89,11 +90,15 @@ export async function GET(request: Request) {
         })
       )
     : launchesWithEvents;
+  const cadenceHint = await resolveLaunchRefreshCadenceHint({ client: supabase, scope: 'live' });
 
   return NextResponse.json(
     {
       freshness: 'live-db',
-      intervalSeconds: viewer.refreshIntervalSeconds,
+      intervalSeconds: cadenceHint.recommendedIntervalSeconds,
+      recommendedIntervalSeconds: cadenceHint.recommendedIntervalSeconds,
+      cadenceReason: cadenceHint.cadenceReason,
+      cadenceAnchorNet: cadenceHint.cadenceAnchorNet,
       tier: viewer.tier,
       launches: launchesInWindow
     },

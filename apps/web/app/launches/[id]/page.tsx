@@ -4,6 +4,13 @@ import type { Metadata } from 'next';
 import { cookies, headers } from 'next/headers';
 import { cache, Suspense, type ReactNode } from 'react';
 import clsx from 'clsx';
+import type { ArTrajectorySummaryV1 } from '@tminuszero/contracts';
+import {
+  buildLaunchInventoryStatusMessage,
+  selectPreferredResponsiveLaunchExternalResources,
+  shouldShowLaunchInventoryCounts,
+  shouldShowLaunchInventorySection
+} from '@tminuszero/launch-detail-ui';
 import type { BadgeTone } from '@/components/Badge';
 import { Countdown } from '@/components/Countdown';
 import { JsonLd } from '@/components/JsonLd';
@@ -17,7 +24,9 @@ import { ChronoHelixTimeline } from '@/components/ChronoHelixTimeline';
 import { ImageCreditLine } from '@/components/ImageCreditLine';
 import { LaunchUpdateLog, type LaunchUpdateView } from '@/components/LaunchUpdateLog';
 import { LaunchDetailAutoRefresh } from '@/components/LaunchDetailAutoRefresh';
+import { LaunchDetailRefreshButton } from '@/components/LaunchDetailRefreshButton';
 import { LaunchMilestoneMapLive } from '@/components/LaunchMilestoneMapLive';
+import { MissionTimelineCards } from '@/components/launch/MissionTimelineCards';
 import { Ws45ForecastPanel, type Ws45Forecast } from '@/components/Ws45ForecastPanel';
 import { NwsForecastPanel, type NwsLaunchWeather } from '@/components/NwsForecastPanel';
 import { PadSatellitePreviewImage } from '@/components/PadSatellitePreviewImage';
@@ -38,15 +47,15 @@ import {
   isSupabaseAdminConfigured,
   isSupabaseConfigured
 } from '@/lib/server/env';
+import { loadArTrajectorySummary } from '@/lib/server/arTrajectory';
 import { buildOgVersionSegment } from '@/lib/server/og';
-import { fetchArEligibleLaunches } from '@/lib/server/arEligibility';
 import { US_PAD_COUNTRY_CODES } from '@/lib/server/us';
 import { createSupabaseAdminClient, createSupabaseServerClient } from '@/lib/server/supabaseServer';
 import { getViewerTier } from '@/lib/server/viewerTier';
 import { fetchLaunchJepScore } from '@/lib/server/jep';
 import { resolveJepObserverFromHeaders } from '@/lib/server/jepObserver';
+import { buildLaunchDetailVersionSeed } from '@/lib/server/launchDetailVersion';
 import {
-  formatMissionTimelineTimeLabel,
   formatTrajectoryMilestoneOffsetLabel,
   resolveTrajectoryMilestones,
   type ViewerTier
@@ -2114,6 +2123,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
     permanentRedirect(canonicalPath);
   }
   const arHref = `${canonicalPath}/ar`;
+  const canUseArTrajectory = viewer.tier === 'premium';
 
   const isAuthed = viewer.isAuthed;
   const isEasternRange = launch.pad?.state === 'FL';
@@ -2304,8 +2314,10 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
   const blockThirdPartyEmbeds = privacyPrefs.blockThirdPartyEmbeds;
   const nowMs = Date.now();
   const netMs = Date.parse(launch.net);
-  const arEligibleLaunches = await fetchArEligibleLaunches({ nowMs });
-  const isArEligible = arEligibleLaunches.some((entry) => entry.launchId === launch.id);
+  const arTrajectory = await loadArTrajectorySummary(launch.id);
+  const isArEligible = arTrajectory.eligible;
+  const showArTrajectoryCard = shouldShowLaunchDetailArTrajectoryCard(arTrajectory, canUseArTrajectory);
+  const arTrajectoryAction = getLaunchDetailArTrajectoryAction(arTrajectory, canUseArTrajectory);
   const within14Days =
     !dateOnly &&
     Number.isFinite(netMs) &&
@@ -2324,7 +2336,13 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
   const jepScorePromise = fetchLaunchJepScore(launch.id, { observer: jepObserver, viewerIsAdmin: viewer.isAdmin });
   const faaAirspacePromise = fetchLaunchFaaAirspace({ launchId: launch.id, limit: 6 });
   const faaAirspaceMapPromise = fetchLaunchFaaAirspaceMap({ launchId: launch.id, limit: 8 });
-  const refreshVersion = viewer.tier === 'premium' ? launch.lastUpdated : launch.cacheGeneratedAt;
+  const refreshVersion = (viewer.tier === 'premium' ? launch.lastUpdated : launch.cacheGeneratedAt) ?? null;
+  const detailVersionSeed = await buildLaunchDetailVersionSeed({
+    launchId: launch.id,
+    scope: viewer.tier === 'premium' ? 'live' : 'public',
+    launchCoreUpdatedAt: refreshVersion,
+    ll2LaunchId: launch.ll2Id ?? null
+  });
 
   const siteUrl = getSiteUrl();
   const pageUrl = `${siteUrl}${canonicalPath}`;
@@ -2509,6 +2527,13 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
                 isAuthed={isAuthed}
                 className="h-10 w-10 rounded-full"
               />
+              <LaunchDetailRefreshButton
+                tier={viewer.tier}
+                launchId={launch.id}
+                lastUpdated={refreshVersion}
+                initialVersion={detailVersionSeed.version}
+                className="h-10 w-10 rounded-full"
+              />
               <ShareButton url={share.path} title={share.title} text={share.text} variant="icon" className="h-10 w-10 rounded-full" />
             </div>
           </div>
@@ -2531,9 +2556,47 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
             </Link>{' '}
             • {launch.pad.name} ({launch.pad.state})
           </p>
-          <LaunchDetailAutoRefresh tier={viewer.tier} launchId={launch.id} lastUpdated={refreshVersion} />
+          <LaunchDetailAutoRefresh
+            tier={viewer.tier}
+            launchId={launch.id}
+            lastUpdated={refreshVersion}
+            initialVersion={detailVersionSeed.version}
+          />
         </div>
       </div>
+
+      {showArTrajectoryCard &&
+        (arTrajectoryAction.disabled ? (
+          <LaunchDetailArTrajectoryCard
+            description={buildLaunchDetailArTrajectoryDescription(arTrajectory, canUseArTrajectory)}
+            generatedAt={arTrajectory.generatedAt}
+            actionLabel={arTrajectoryAction.label}
+            disabled
+          />
+        ) : canUseArTrajectory ? (
+          <CameraGuideButton href={arHref} launchId={launch.id} className="group block">
+            <LaunchDetailArTrajectoryCard
+              description={buildLaunchDetailArTrajectoryDescription(arTrajectory, canUseArTrajectory)}
+              generatedAt={arTrajectory.generatedAt}
+              actionLabel={arTrajectoryAction.label}
+            />
+          </CameraGuideButton>
+        ) : (
+          <PremiumGateButton
+            isAuthed={isAuthed}
+            featureLabel="AR trajectory"
+            ariaLabel="AR trajectory (Premium)"
+            className="group block w-full text-left"
+            showLockIcon={false}
+            asDiv
+          >
+            <LaunchDetailArTrajectoryCard
+              description={buildLaunchDetailArTrajectoryDescription(arTrajectory, canUseArTrajectory)}
+              generatedAt={arTrajectory.generatedAt}
+              actionLabel={arTrajectoryAction.label}
+            />
+          </PremiumGateButton>
+        ))}
 
       <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(380px,1fr)]">
         <div className="relative overflow-hidden rounded-2xl border border-stroke bg-surface-1 md:col-span-2">
@@ -2548,7 +2611,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
           )}
           <div className="relative z-10 flex flex-col gap-4 p-5">
             <div className="max-w-[42rem] rounded-[2rem] border border-white/10 bg-[rgba(7,9,19,0.56)] p-5 shadow-[0_18px_60px_rgba(0,0,0,0.28)] backdrop-blur-xl md:p-6">
-              <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.1em] text-text3">
+              <div className="flex flex-wrap items-center gap-2 pt-1 text-xs uppercase tracking-[0.1em] text-text3">
                 <span className={`rounded-full border px-3 py-1 ${statusToneStyles.badge}`}>{launch.statusText}</span>
                 <span className="rounded-full border border-stroke px-3 py-1">{launch.tier.toUpperCase()}</span>
                 {launch.webcastLive && <span className="rounded-full border border-success px-3 py-1 text-success">Webcast live</span>}
@@ -2710,10 +2773,14 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
         <LaunchMilestoneMapLive events={timelineEvents} launchNetMs={Number.isFinite(netMs) ? netMs : null} />
       )}
 
-      <Suspense fallback={<LoadingPanel label="Loading weather..." />}>
+      <Suspense fallback={<LoadingPanel label="Loading forecast outlook..." />}>
         <ConsolidatedWeatherSection
           ws45ForecastPromise={ws45ForecastPromise}
           nwsForecastPromise={nwsForecastPromise}
+          faaAirspacePromise={faaAirspacePromise}
+          faaAirspaceMapPromise={faaAirspaceMapPromise}
+          googleMapsWebApiKey={googleMapsWebApiKey}
+          googleMapsPadHref={googleMapsPadHref}
           isEasternRange={isEasternRange}
           isUsPad={isUsPad}
           within14Days={within14Days}
@@ -2724,16 +2791,6 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
 
       <Suspense fallback={<LoadingPanel label="Loading visibility score..." />}>
         <LaunchJepScoreSection jepScorePromise={jepScorePromise} padTimezone={padTimezone} />
-      </Suspense>
-
-      <Suspense fallback={<LoadingPanel label="Loading FAA airspace..." />}>
-        <LaunchFaaAirspaceSection
-          faaAirspacePromise={faaAirspacePromise}
-          faaAirspaceMapPromise={faaAirspaceMapPromise}
-          googleMapsWebApiKey={googleMapsWebApiKey}
-          googleMapsPadHref={googleMapsPadHref}
-          padTimezone={padTimezone}
-        />
       </Suspense>
 
       <Suspense fallback={<LoadingPanel label="Loading stages and recovery..." />}>
@@ -3548,12 +3605,15 @@ async function PayloadManifestSection({
   const nonPayloadObjects = Array.isArray(launchObjectInventory?.satcat_non_payload_objects)
     ? (launchObjectInventory?.satcat_non_payload_objects as LaunchInventoryObject[])
     : [];
-  const hasInventory = payloadObjects.length > 0 || nonPayloadObjects.length > 0;
-  const shouldShowInventoryBlock =
-    hasInventory ||
-    Boolean(launchObjectInventory?.inventory_status) ||
-    Boolean(launchObjectInventory?.launch_designator) ||
-    Boolean(launch.launchDesignator);
+  const totalInventoryObjects = payloadObjects.length + nonPayloadObjects.length;
+  const inventoryCatalogState =
+    launchObjectInventory?.inventory_status?.catalog_state ?? (totalInventoryObjects > 0 ? 'catalog_available' : null);
+  const shouldShowInventoryBlock = shouldShowLaunchInventorySection({
+    launchNet: launch.net ?? null,
+    launchDesignator: launchObjectInventory?.launch_designator || launch.launchDesignator || null,
+    catalogState: inventoryCatalogState,
+    totalObjectCount: totalInventoryObjects
+  });
   const hasManifest = resolvedManifest.length > 0;
   const hasSummary = Array.isArray(launch.payloads) && launch.payloads.length > 0;
 
@@ -3783,7 +3843,7 @@ function LaunchObjectInventoryBlock({
   const designator = inventory?.launch_designator || launchDesignatorFallback || null;
   const reconciliation = inventory?.reconciliation || null;
   const status = inventory?.inventory_status || null;
-  const state = status?.catalog_state || (totalObjects > 0 ? 'catalog_available' : designator ? 'pending' : 'pending');
+  const state = status?.catalog_state || (totalObjects > 0 ? 'catalog_available' : null);
   const ll2ManifestCount =
     typeof reconciliation?.ll2_manifest_payload_count === 'number' ? reconciliation.ll2_manifest_payload_count : null;
   const satcatPayloadCount =
@@ -3793,29 +3853,28 @@ function LaunchObjectInventoryBlock({
   const rbCount = typeof reconciliation?.satcat_type_counts?.RB === 'number' ? reconciliation.satcat_type_counts.RB : null;
   const debCount = typeof reconciliation?.satcat_type_counts?.DEB === 'number' ? reconciliation.satcat_type_counts.DEB : null;
   const unkCount = typeof reconciliation?.satcat_type_counts?.UNK === 'number' ? reconciliation.satcat_type_counts.UNK : null;
+  const showInventoryCounts = shouldShowLaunchInventoryCounts({
+    catalogState: state,
+    totalObjectCount: totalObjects
+  });
+  const shouldShowReconciliation = showInventoryCounts;
   const latestHistoryCapturedAt =
     Array.isArray(inventory?.history) && inventory.history[0]?.captured_at ? inventory.history[0].captured_at : null;
-
-  const statusMessage =
-    !designator
-      ? 'No COSPAR launch designator is available for this launch yet.'
-      : state === 'catalog_empty'
-        ? 'Catalog query completed, but no SATCAT objects are available yet.'
-        : state === 'error'
-          ? 'Latest catalog refresh failed. Retry will happen on the next ingestion run.'
-          : state === 'pending'
-            ? 'Catalog is not available yet for this launch.'
-            : totalObjects === 0
-              ? 'SATCAT inventory has not populated yet.'
-              : null;
+  const statusMessage = buildLaunchInventoryStatusMessage({
+    launchDesignator: designator,
+    catalogState: state,
+    totalObjectCount: totalObjects
+  });
 
   return (
     <div className="mt-3 rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3 text-sm text-text2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-xs uppercase tracking-[0.08em] text-text3">Objects from this launch</div>
-        <div className="text-xs text-text3">
-          {totalObjects} object{totalObjects === 1 ? '' : 's'}
-        </div>
+        {showInventoryCounts ? (
+          <div className="text-xs text-text3">
+            {totalObjects} object{totalObjects === 1 ? '' : 's'}
+          </div>
+        ) : null}
       </div>
       <div className="mt-1 text-xs text-text3">SATCAT inventory{designator ? ` for ${designator}` : ''}</div>
 
@@ -3831,16 +3890,22 @@ function LaunchObjectInventoryBlock({
       ) : null}
       {state === 'error' && status?.last_error ? <div className="mt-1 text-[11px] text-danger">Error: {status.last_error}</div> : null}
 
-      {(ll2ManifestCount != null || satcatPayloadCount != null || delta != null || rbCount != null || debCount != null || unkCount != null) && (
+      {shouldShowReconciliation &&
+      (ll2ManifestCount != null ||
+        satcatPayloadCount != null ||
+        (delta != null && delta !== 0) ||
+        (rbCount != null && rbCount > 0) ||
+        (debCount != null && debCount > 0) ||
+        (unkCount != null && unkCount > 0)) ? (
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text3">
           {ll2ManifestCount != null ? <span>LL2 payloads: {ll2ManifestCount}</span> : null}
           {satcatPayloadCount != null ? <span>SATCAT payloads: {satcatPayloadCount}</span> : null}
-          {delta != null ? <span>Delta: {delta > 0 ? `+${delta}` : delta}</span> : null}
-          {rbCount != null ? <span>RB: {rbCount}</span> : null}
-          {debCount != null ? <span>DEB: {debCount}</span> : null}
-          {unkCount != null ? <span>UNK: {unkCount}</span> : null}
+          {delta != null && delta !== 0 ? <span>Delta: {delta > 0 ? `+${delta}` : delta}</span> : null}
+          {rbCount != null && rbCount > 0 ? <span>RB: {rbCount}</span> : null}
+          {debCount != null && debCount > 0 ? <span>DEB: {debCount}</span> : null}
+          {unkCount != null && unkCount > 0 ? <span>UNK: {unkCount}</span> : null}
         </div>
-      )}
+      ) : null}
 
       {payloadObjects.length > 0 ? (
         <>
@@ -3973,6 +4038,10 @@ function LaunchObjectList({ objects }: { objects: LaunchInventoryObject[] }) {
 async function ConsolidatedWeatherSection({
   ws45ForecastPromise,
   nwsForecastPromise,
+  faaAirspacePromise,
+  faaAirspaceMapPromise,
+  googleMapsWebApiKey,
+  googleMapsPadHref,
   isEasternRange,
   isUsPad,
   within14Days,
@@ -3981,6 +4050,10 @@ async function ConsolidatedWeatherSection({
 }: {
   ws45ForecastPromise: Promise<Ws45Forecast | null>;
   nwsForecastPromise: Promise<NwsLaunchWeather | null>;
+  faaAirspacePromise: ReturnType<typeof fetchLaunchFaaAirspace>;
+  faaAirspaceMapPromise: ReturnType<typeof fetchLaunchFaaAirspaceMap>;
+  googleMapsWebApiKey: string | null;
+  googleMapsPadHref: string | null;
   isEasternRange: boolean;
   isUsPad: boolean;
   within14Days: boolean;
@@ -3989,46 +4062,77 @@ async function ConsolidatedWeatherSection({
 }) {
   const ws45Eligible = isEasternRange && tier === 'premium';
   const showNws = isUsPad && within14Days;
-  if (!ws45Eligible && !showNws) return null;
-
-  const [ws45Forecast, nwsForecast] = await Promise.all([ws45ForecastPromise, nwsForecastPromise]);
+  const [ws45Forecast, nwsForecast, faaAirspace, faaAirspaceMap] = await Promise.all([
+    ws45ForecastPromise,
+    nwsForecastPromise,
+    faaAirspacePromise,
+    faaAirspaceMapPromise
+  ]);
   const showWs45 = ws45Eligible && Boolean(ws45Forecast);
-  const hasForecasts = showWs45 || showNws;
-  if (!hasForecasts) return null;
+  const hasForecastPanels = showWs45 || showNws;
+  const advisories = faaAirspace?.advisories ?? [];
+  const hasAdvisories = advisories.length > 0;
+  if (!hasForecastPanels && !hasAdvisories) return null;
 
   return (
-    <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
+    <details className="overflow-hidden rounded-2xl border border-stroke bg-surface-1 [&_summary::-webkit-details-marker]:hidden">
+      <summary className="flex cursor-pointer list-none items-start justify-between gap-3 p-4">
+        <div className="min-w-0">
           <div className="text-[11px] uppercase tracking-[0.08em] text-text3">Weather</div>
           <h2 className="mt-1 text-xl font-semibold text-text1">Forecast outlook</h2>
           <p className="mt-1 max-w-2xl text-xs text-text3">
-            {showWs45 && showNws
-              ? 'Enhanced forecast insights (select launches) plus an NWS forecast for the pad location at T-0 (api.weather.gov).'
-              : showWs45
-                ? 'Enhanced forecast insights (select launches).'
-                : 'NWS forecast for the pad location at T-0 (api.weather.gov).'}
+            {buildForecastOutlookDescription({
+              showWs45,
+              showNws,
+              advisoryCount: advisories.length
+            })}
           </p>
         </div>
-      </div>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          {hasAdvisories ? (
+            <span className="rounded-full border border-stroke px-3 py-1 text-xs uppercase tracking-[0.08em] text-text3">
+              {advisories.length} match{advisories.length === 1 ? '' : 'es'}
+            </span>
+          ) : null}
+          <span className="rounded-full border border-stroke/70 px-3 py-1 text-[11px] uppercase tracking-[0.08em] text-text3">
+            Expand/collapse
+          </span>
+        </div>
+      </summary>
 
-      <div className="mt-3 flex flex-col gap-3">
-        {showWs45 && (
-          <Ws45ForecastPanel
-            forecast={ws45Forecast}
-            padTimezone={padTimezone}
-            className="rounded-xl border border-stroke bg-black/20 p-4"
-          />
-        )}
-        {showNws && (
-          <NwsForecastPanel
-            forecast={nwsForecast}
-            padTimezone={padTimezone}
-            className="rounded-xl border border-stroke bg-black/20 p-4"
-          />
-        )}
+      <div className="border-t border-stroke/70 px-4 pb-4 pt-4">
+        {hasForecastPanels ? (
+          <div className="flex flex-col gap-3">
+            {showWs45 && (
+              <Ws45ForecastPanel
+                forecast={ws45Forecast}
+                padTimezone={padTimezone}
+                className="rounded-xl border border-stroke bg-black/20 p-4"
+              />
+            )}
+            {showNws && (
+              <NwsForecastPanel
+                forecast={nwsForecast}
+                padTimezone={padTimezone}
+                className="rounded-xl border border-stroke bg-black/20 p-4"
+              />
+            )}
+          </div>
+        ) : null}
+
+        {hasAdvisories ? (
+          <div className={clsx('space-y-3', hasForecastPanels ? 'mt-6 border-t border-stroke/50 pt-4' : '')}>
+            <LaunchFaaAirspaceContent
+              advisories={advisories}
+              mapData={faaAirspaceMap}
+              googleMapsWebApiKey={googleMapsWebApiKey}
+              googleMapsPadHref={googleMapsPadHref}
+              padTimezone={padTimezone}
+            />
+          </div>
+        ) : null}
       </div>
-    </section>
+    </details>
   );
 }
 
@@ -4057,30 +4161,55 @@ async function LaunchJepScoreSection({
   );
 }
 
-async function LaunchFaaAirspaceSection({
-  faaAirspacePromise,
-  faaAirspaceMapPromise,
+function buildForecastOutlookDescription({
+  showWs45,
+  showNws,
+  advisoryCount
+}: {
+  showWs45: boolean;
+  showNws: boolean;
+  advisoryCount: number;
+}) {
+  const forecastDescription = showWs45 && showNws
+    ? 'Enhanced forecast insights (select launches) plus an NWS forecast for the pad location at T-0 (api.weather.gov).'
+    : showWs45
+      ? 'Enhanced forecast insights (select launches).'
+      : showNws
+        ? 'NWS forecast for the pad location at T-0 (api.weather.gov).'
+        : null;
+
+  if (!forecastDescription) {
+    return 'Matched FAA launch advisories and launch-day airspace notices.';
+  }
+
+  if (advisoryCount > 0) {
+    return `${forecastDescription} Includes ${advisoryCount} matched FAA launch ${advisoryCount === 1 ? 'advisory' : 'advisories'}.`;
+  }
+
+  return forecastDescription;
+}
+
+function LaunchFaaAirspaceContent({
+  advisories,
+  mapData,
   googleMapsWebApiKey,
   googleMapsPadHref,
   padTimezone
 }: {
-  faaAirspacePromise: ReturnType<typeof fetchLaunchFaaAirspace>;
-  faaAirspaceMapPromise: ReturnType<typeof fetchLaunchFaaAirspaceMap>;
+  advisories: LaunchFaaAirspaceAdvisory[];
+  mapData: Awaited<ReturnType<typeof fetchLaunchFaaAirspaceMap>>;
   googleMapsWebApiKey: string | null;
   googleMapsPadHref: string | null;
   padTimezone: string | null;
 }) {
-  const [data, mapData] = await Promise.all([faaAirspacePromise, faaAirspaceMapPromise]);
-  const advisories = data?.advisories || [];
-  if (advisories.length === 0) return null;
   const canRenderInteractiveMap = Boolean(googleMapsWebApiKey && mapData?.hasRenderableGeometry);
 
   return (
-    <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
+    <>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-xs uppercase tracking-[0.1em] text-text3">FAA airspace</div>
-          <h2 className="text-xl font-semibold text-text1">Launch advisories</h2>
+          <h3 className="text-xl font-semibold text-text1">Launch advisories</h3>
           <p className="text-sm text-text3">Temporary flight restrictions and NOTAM matches tied to this launch.</p>
         </div>
         <span className="rounded-full border border-stroke px-3 py-1 text-xs uppercase tracking-[0.08em] text-text3">
@@ -4203,7 +4332,7 @@ async function LaunchFaaAirspaceSection({
       <p className="mt-3 text-xs text-text3">
         Advisory data is informational. Confirm operational constraints with official FAA publications.
       </p>
-    </section>
+    </>
   );
 }
 
@@ -4305,7 +4434,6 @@ async function LaunchStagesAndRecoverySection({
         <div>
           <div className="text-xs uppercase tracking-[0.1em] text-text3">Vehicle details</div>
           <h2 className="text-xl font-semibold text-text1">Stages & recovery</h2>
-          <p className="text-sm text-text3">Launch-stage and landing context surfaced from LL2 when it exists.</p>
         </div>
         <span className="rounded-full border border-stroke px-3 py-1 text-xs uppercase tracking-[0.08em] text-text3">
           Presence based
@@ -4341,6 +4469,7 @@ async function LaunchStagesAndRecoverySection({
 function LaunchFirstStageCard({ stage }: { stage: LaunchStageSummary }) {
   const currentYear = new Date().getUTCFullYear();
   const hasImage = Boolean(normalizeImageUrl(stage.imageUrl || null));
+  const status = normalizeMeaningfulText(stage.status);
 
   return (
     <article className="overflow-hidden rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)]">
@@ -4362,9 +4491,9 @@ function LaunchFirstStageCard({ stage }: { stage: LaunchStageSummary }) {
               <div className="text-xs text-text3">Serial: {stage.serialNumber}</div>
             ) : null}
           </div>
-          {stage.status ? (
+          {status ? (
             <span className="rounded-full border border-stroke px-2 py-0.5 text-[11px] uppercase tracking-[0.08em] text-text3">
-              {stage.status}
+              {status}
             </span>
           ) : null}
         </div>
@@ -4453,11 +4582,12 @@ function LaunchRecoveryCard({
   detail: LaunchRecoveryDetail;
   padTimezone: string | null;
 }) {
-  const title = detail.title || detail.returnSite || detail.landingLocationName || 'Recovery';
+  const location = buildRecoveryLocationLabel(detail);
+  const title = normalizeMeaningfulText(detail.title) || normalizeMeaningfulText(detail.returnSite) || location || 'Recovery';
   const badgeTone =
     detail.success === true ? 'border-success text-success' : detail.success === false ? 'border-danger text-danger' : 'border-stroke text-text3';
   const returnTime = detail.returnDateTime ? formatDate(detail.returnDateTime, padTimezone) : null;
-  const location = buildRecoveryLocationLabel(detail);
+  const subtitle = buildRecoverySubtitle(detail);
   const coordinates =
     detail.latitude != null && detail.longitude != null
       ? `${detail.latitude.toFixed(3)}, ${detail.longitude.toFixed(3)}`
@@ -4469,7 +4599,7 @@ function LaunchRecoveryCard({
         <div>
           <div className="text-[11px] uppercase tracking-[0.08em] text-text3">{formatRecoveryRoleLabel(detail.role)}</div>
           <h3 className="mt-1 text-sm font-semibold text-text1">{title}</h3>
-          <div className="mt-1 text-xs text-text3">{buildRecoverySubtitle(detail)}</div>
+          {subtitle ? <div className="mt-1 text-xs text-text3">{subtitle}</div> : null}
         </div>
         <span className={clsx('rounded-full border px-2 py-0.5 text-[11px] uppercase tracking-[0.08em]', badgeTone)}>
           {formatRecoverySourceLabel(detail)}
@@ -4477,7 +4607,7 @@ function LaunchRecoveryCard({
       </div>
 
       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text3">
-        {detail.landingTypeName ? <div>Type: {detail.landingTypeName}</div> : null}
+        {normalizeMeaningfulText(detail.landingTypeName) ? <div>Type: {normalizeMeaningfulText(detail.landingTypeName)}</div> : null}
         {location ? <div>Location: {location}</div> : null}
         {detail.downrangeDistanceKm != null ? <div>Downrange: {formatCount(Math.round(detail.downrangeDistanceKm))} km</div> : null}
         {returnTime ? <div>Return: {returnTime}</div> : null}
@@ -4524,20 +4654,7 @@ async function LaunchMissionResourcesSection({
       {timelineEvents.length > 0 && (
         <div className="mt-4 rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3">
           <div className="text-xs uppercase tracking-[0.08em] text-text3">Mission timeline</div>
-          <div className="mt-2 grid gap-2 md:grid-cols-2">
-            {timelineEvents.map((event) => (
-              <div key={event.id} className="rounded-lg border border-stroke bg-surface-0 p-3">
-                <div className="text-[11px] uppercase tracking-[0.08em] text-text3">
-                  {formatTimelinePhaseLabel(event.phase)}
-                </div>
-                <div className="mt-1 text-sm font-semibold text-text1">{event.label}</div>
-                {formatMissionTimelineTimeLabel(event.time, event.phase) ? (
-                  <div className="mt-1 text-xs text-text3">{formatMissionTimelineTimeLabel(event.time, event.phase)}</div>
-                ) : null}
-                {event.description ? <p className="mt-2 text-xs text-text2">{event.description}</p> : null}
-              </div>
-            ))}
-          </div>
+          <MissionTimelineCards items={timelineEvents} className="mt-2" />
         </div>
       )}
     </section>
@@ -4608,17 +4725,11 @@ function buildManifestRecoveryDetails(manifest: PayloadManifestEntry[]): LaunchR
     const locationContext =
       location?.location && typeof location.location === 'object' ? (location.location as Record<string, unknown>) : null;
     const landingLocationName =
-      typeof location?.name === 'string'
-        ? location.name
-        : typeof location?.abbrev === 'string'
-          ? location.abbrev
-          : null;
+      normalizeMeaningfulText(typeof location?.name === 'string' ? location.name : null) ||
+      normalizeMeaningfulText(typeof location?.abbrev === 'string' ? location.abbrev : null);
     const landingTypeName =
-      typeof landingType?.name === 'string'
-        ? landingType.name
-        : typeof landingType?.abbrev === 'string'
-          ? landingType.abbrev
-          : null;
+      normalizeMeaningfulText(typeof landingType?.name === 'string' ? landingType.name : null) ||
+      normalizeMeaningfulText(typeof landingType?.abbrev === 'string' ? landingType.abbrev : null);
 
     rows.push({
       id: `${entry.kind === 'spacecraft_flight' ? 'spacecraft' : 'unknown'}:${landingId}`,
@@ -4628,20 +4739,20 @@ function buildManifestRecoveryDetails(manifest: PayloadManifestEntry[]): LaunchR
       title: [landingTypeName, landingLocationName].filter(Boolean).join(' • ') || `Landing ${landingId}`,
       attempt: typeof landing?.attempt === 'boolean' ? landing.attempt : null,
       success: typeof landing?.success === 'boolean' ? landing.success : null,
-      description: typeof landing?.description === 'string' ? landing.description : null,
+      description: normalizeMeaningfulText(typeof landing?.description === 'string' ? landing.description : null),
       downrangeDistanceKm:
         typeof landing?.downrange_distance_km === 'number' && Number.isFinite(landing.downrange_distance_km)
           ? landing.downrange_distance_km
           : null,
       landingLocationName,
-      landingLocationAbbrev: typeof location?.abbrev === 'string' ? location.abbrev : null,
-      landingLocationContext: typeof locationContext?.name === 'string' ? locationContext.name : null,
+      landingLocationAbbrev: normalizeMeaningfulText(typeof location?.abbrev === 'string' ? location.abbrev : null),
+      landingLocationContext: normalizeMeaningfulText(typeof locationContext?.name === 'string' ? locationContext.name : null),
       latitude:
         typeof location?.latitude === 'number' && Number.isFinite(location.latitude) ? location.latitude : null,
       longitude:
         typeof location?.longitude === 'number' && Number.isFinite(location.longitude) ? location.longitude : null,
       landingTypeName,
-      landingTypeAbbrev: typeof landingType?.abbrev === 'string' ? landingType.abbrev : null,
+      landingTypeAbbrev: normalizeMeaningfulText(typeof landingType?.abbrev === 'string' ? landingType.abbrev : null),
       returnSite: null,
       returnDateTime: null,
       fetchedAt: null
@@ -4694,8 +4805,8 @@ function buildManifestLandingSummary(landing: PayloadManifestEntry['landing']) {
 
   const location =
     landing.landing_location && typeof landing.landing_location === 'object'
-      ? ((landing.landing_location as Record<string, unknown>).name ||
-          (landing.landing_location as Record<string, unknown>).abbrev ||
+      ? (normalizeMeaningfulText((landing.landing_location as Record<string, unknown>).name as string | null | undefined) ||
+          normalizeMeaningfulText((landing.landing_location as Record<string, unknown>).abbrev as string | null | undefined) ||
           null)
       : null;
 
@@ -4719,8 +4830,11 @@ function buildDockingSummary(events: PayloadManifestEntry['docking_events']) {
 }
 
 function buildRecoveryLocationLabel(detail: LaunchRecoveryDetail) {
-  if (detail.returnSite) return detail.returnSite;
-  return [detail.landingLocationName, detail.landingLocationContext].filter(Boolean).join(' • ') || null;
+  const returnSite = normalizeMeaningfulText(detail.returnSite);
+  if (returnSite) return returnSite;
+  return [normalizeMeaningfulText(detail.landingLocationName), normalizeMeaningfulText(detail.landingLocationContext)]
+    .filter(Boolean)
+    .join(' • ') || null;
 }
 
 function buildRecoverySubtitle(detail: LaunchRecoveryDetail) {
@@ -4733,13 +4847,12 @@ function buildRecoverySubtitle(detail: LaunchRecoveryDetail) {
           : 'Landing attempted'
       : detail.attempt === false
         ? 'No landing attempt'
-        : detail.returnSite || detail.returnDateTime
+      : detail.returnSite || detail.returnDateTime
           ? 'Recovery hint'
           : null;
 
-  return [outcome, detail.source === 'spacex_content' ? 'SpaceX content' : 'LL2']
-    .filter(Boolean)
-    .join(' • ');
+  if (!outcome) return null;
+  return [outcome, detail.source === 'spacex_content' ? 'SpaceX content' : 'LL2'].join(' • ');
 }
 
 function formatRecoveryRoleLabel(role: LaunchRecoveryDetail['role']) {
@@ -4756,7 +4869,8 @@ function flattenExternalResources(items: LaunchExternalContent[]) {
   const deduped = new Map<string, LaunchExternalResource>();
 
   for (const item of items || []) {
-    for (const resource of item.resources || []) {
+    const resources = selectPreferredResponsiveLaunchExternalResources(item.resources || [], 'desktop');
+    for (const resource of resources) {
       const normalizedUrl = normalizeComparableUrl(resource.url) || resource.url;
       const key = `${resource.kind}:${normalizedUrl}`;
       if (!deduped.has(key)) deduped.set(key, resource);
@@ -4878,12 +4992,6 @@ function parseUnsignedTimelineEventClock(value: string): number | null {
   if (![first, second, third].every(Number.isFinite)) return null;
 
   return match[3] != null ? first * 3600 + second * 60 + third : first * 60 + second;
-}
-
-function formatTimelinePhaseLabel(phase: LaunchTimelineResourceEvent['phase']) {
-  if (phase === 'prelaunch') return 'Pre-launch';
-  if (phase === 'postlaunch') return 'Post-launch';
-  return 'Timeline';
 }
 
 function formatExternalResourceKind(kind: LaunchExternalResource['kind']) {
@@ -5213,7 +5321,7 @@ async function RelatedNewsSection({ relatedNewsPromise }: { relatedNewsPromise: 
           const published = formatNewsDate(item.published_at);
           const authors = formatAuthors(item.authors);
           const badge = formatNewsType(item.item_type);
-          const site = item.news_site || 'Spaceflight News';
+          const site = formatNewsSourceLabel(item.news_site, item.url);
           const imageUrl = normalizeImageUrl(item.image_url);
           return (
             <a
@@ -6064,6 +6172,16 @@ function formatNewsDate(value?: string | null) {
   return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' }).format(date);
 }
 
+function formatNewsSourceLabel(source?: string | null, url?: string | null) {
+  if (source && source.trim().length > 0) return source.trim();
+  if (!url) return 'Launch coverage';
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return 'Launch coverage';
+  }
+}
+
 function formatNewsType(type: RelatedNewsItem['item_type']) {
   switch (type) {
     case 'blog':
@@ -6402,6 +6520,18 @@ function normalizeOptionalText(value: string | null | undefined) {
     .replace(/\s+/g, ' ')
     .trim();
   return normalized || null;
+}
+
+function normalizeMeaningfulText(value: string | null | undefined) {
+  const normalized = normalizeOptionalText(value);
+  if (!normalized) return null;
+
+  const lower = normalized.toLowerCase();
+  if (lower === 'unknown' || lower === 'tbd' || lower === 'n/a' || lower === 'na' || lower === 'none') {
+    return null;
+  }
+
+  return normalized;
 }
 
 function isLikelyBlueOriginEnhancementCrewName(value: string | null | undefined) {
@@ -6948,6 +7078,105 @@ function buildExternalLinks({
   infoLinks.forEach(add);
   vidLinks.forEach(add);
   return [...links.values()];
+}
+
+function LaunchDetailArTrajectoryCard({
+  description,
+  generatedAt,
+  actionLabel,
+  disabled = false
+}: {
+  description: string;
+  generatedAt: string | null;
+  actionLabel: string;
+  disabled?: boolean;
+}) {
+  const generatedAtLabel = formatArTrajectoryGeneratedAt(generatedAt);
+
+  return (
+    <div
+      className={clsx(
+        'rounded-2xl border p-4 transition',
+        disabled
+          ? 'border-stroke bg-surface-1 opacity-70'
+          : 'border-primary/30 bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.14),_rgba(11,16,35,0.92)_70%)] hover:border-primary/60'
+      )}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-xs uppercase tracking-[0.1em] text-text3">AR trajectory</div>
+          <h2 className="mt-1 text-xl font-semibold text-text1">Launch camera guide</h2>
+          <p className="mt-2 max-w-3xl text-sm text-text3">{description}</p>
+        </div>
+        <TrajectoryBadgeIcon className={clsx('h-5 w-5', disabled ? 'text-text4' : 'text-primary')} />
+      </div>
+
+      {generatedAtLabel && (
+        <p className="mt-3 text-sm text-text3">Latest trajectory package generated {generatedAtLabel}.</p>
+      )}
+
+      <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/10 pt-3">
+        <span className={clsx('text-sm font-semibold', disabled ? 'text-text3' : 'text-primary')}>{actionLabel}</span>
+        {!disabled ? <ArrowUpRightIcon className="h-4 w-4 text-primary transition group-hover:translate-x-0.5" /> : null}
+      </div>
+    </div>
+  );
+}
+
+function shouldShowLaunchDetailArTrajectoryCard(arTrajectory: ArTrajectorySummaryV1, canUseArTrajectory: boolean) {
+  return canUseArTrajectory || arTrajectory.availabilityReason !== 'not_eligible';
+}
+
+function getLaunchDetailArTrajectoryAction(arTrajectory: ArTrajectorySummaryV1, canUseArTrajectory: boolean) {
+  if (!canUseArTrajectory) {
+    return { label: 'Upgrade for AR', disabled: false };
+  }
+
+  if (arTrajectory.availabilityReason === 'not_eligible') {
+    return { label: 'AR unavailable', disabled: true };
+  }
+
+  if (arTrajectory.availabilityReason === 'trajectory_missing' || !arTrajectory.hasTrajectory) {
+    return { label: 'Trajectory pending', disabled: true };
+  }
+
+  return { label: 'Open AR trajectory', disabled: false };
+}
+
+function buildLaunchDetailArTrajectoryDescription(arTrajectory: ArTrajectorySummaryV1, canUseArTrajectory: boolean) {
+  if (!canUseArTrajectory) {
+    return arTrajectory.hasTrajectory
+      ? 'Premium unlocks the AR trajectory experience for this launch.'
+      : 'Premium unlocks AR trajectory when an eligible launch package is ready.';
+  }
+
+  if (arTrajectory.availabilityReason === 'not_eligible') {
+    return 'This launch is outside the current AR-eligible program window, so AR trajectory stays locked out.';
+  }
+
+  if (arTrajectory.availabilityReason === 'trajectory_missing') {
+    return 'This launch is AR-eligible, but the premium trajectory package has not been published yet.';
+  }
+
+  if (arTrajectory.qualityState === 'precision') {
+    return 'Precision-grade AR is ready with full trajectory guidance and milestone overlays.';
+  }
+
+  if (arTrajectory.qualityState === 'safe_corridor') {
+    return 'Safe-corridor AR is ready with guided trajectory bounds and milestone overlays.';
+  }
+
+  return 'Guide-only AR is ready. Precision lock-on stays disabled until directional confidence improves.';
+}
+
+function formatArTrajectoryGeneratedAt(value: string | null) {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return null;
+  return new Date(parsed).toLocaleString('en-US', {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  });
 }
 
 function BackArrowIcon({ className }: { className?: string }) {

@@ -2,6 +2,7 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createSupabaseAdminClient } from '../_shared/supabase.ts';
 import { TRAJECTORY_PRODUCTS_FOLLOWUP_COALESCE, triggerEdgeJob } from '../_shared/edgeJobTrigger.ts';
 import { requireJobAuth } from '../_shared/jobAuth.ts';
+import { normalizeLandingRole, upsertLl2LandingCatalogRows } from '../_shared/ll2LandingCatalog.ts';
 import { getSettings, readBooleanSetting, readNumberSetting } from '../_shared/settings.ts';
 
 const LL2_BASE = 'https://ll.thespacedevs.com/2.3.0';
@@ -89,6 +90,7 @@ serve(async (req) => {
     ll2RateLimited: false,
     ll2RemoteRateLimited: false,
     landingsFetched: 0,
+    landingCatalogRowsUpserted: 0,
     launchLandingRowsUpserted: 0,
     rowsUpserted: 0,
     rowsMergedInput: 0,
@@ -185,6 +187,9 @@ serve(async (req) => {
       coverage.landingsFetched = fetched.length;
 
       if (!(stats.ll2RateLimited as boolean) && !(stats.ll2RemoteRateLimited as boolean)) {
+        const landingCatalogRows = await upsertLl2LandingCatalogRows(supabase, fetched, nowIso);
+        stats.landingCatalogRowsUpserted = (stats.landingCatalogRowsUpserted as number) + landingCatalogRows;
+
         const refreshedRows = await refreshLaunchLandingRows(supabase, {
           launchId: launch.launch_id,
           ll2LaunchUuid: launch.ll2_launch_uuid,
@@ -382,10 +387,6 @@ async function refreshLaunchLandingRows(
   if (error) throw error;
 
   return rows.length;
-}
-
-function normalizeLandingRole(role: LandingRole | undefined) {
-  return role === 'booster' || role === 'spacecraft' ? role : 'unknown';
 }
 
 function dedupeLaunchLandingRows(

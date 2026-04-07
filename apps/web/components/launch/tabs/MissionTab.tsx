@@ -1,6 +1,7 @@
 import clsx from 'clsx';
 import type {
   LaunchInventoryObjectSummary,
+  LaunchPayloadListSummary,
   LaunchPayloadSummary,
   MissionTabData
 } from '@tminuszero/launch-detail-ui';
@@ -11,16 +12,12 @@ type MissionTabProps = {
 };
 
 export function MissionTab({ data, className }: MissionTabProps) {
-  const hasInventory = Boolean(
-    data.objectInventory &&
-      (data.objectInventory.summaryBadges.length > 0 ||
-        data.objectInventory.payloadObjects.length > 0 ||
-        data.objectInventory.nonPayloadObjects.length > 0)
-  );
+  const hasInventory = Boolean(data.objectInventory && data.showObjectInventory);
   const hasContent =
     Boolean(data.missionOverview.description) ||
     Boolean(data.missionOverview.customer) ||
     data.payloadManifest.length > 0 ||
+    data.payloadSummary.length > 0 ||
     data.crew.length > 0 ||
     data.programs.length > 0 ||
     Boolean(data.blueOriginDetails) ||
@@ -60,9 +57,34 @@ export function MissionTab({ data, className }: MissionTabProps) {
         </Section>
       )}
 
+      {data.payloadManifest.length === 0 && data.payloadSummary.length > 0 && (
+        <Section title={`Payloads (${data.payloadSummary.length})`}>
+          <PayloadSummaryList items={data.payloadSummary} />
+        </Section>
+      )}
+
       {data.objectInventory && hasInventory && (
         <>
           <Section title="Launch Object Inventory">
+            {data.objectInventory.status?.message && (
+              <p className="text-sm leading-relaxed text-text2">{data.objectInventory.status.message}</p>
+            )}
+            {(data.objectInventory.status?.lastCheckedAt ||
+              data.objectInventory.status?.lastNonEmptyAt ||
+              data.objectInventory.status?.lastError) && (
+              <div className="mt-4 space-y-1 text-xs text-text3">
+                {data.objectInventory.status?.lastCheckedAt && (
+                  <div>Last checked: {data.objectInventory.status.lastCheckedAt}</div>
+                )}
+                {data.objectInventory.status?.lastNonEmptyAt && (
+                  <div>Last non-empty: {data.objectInventory.status.lastNonEmptyAt}</div>
+                )}
+                {data.objectInventory.status?.lastError && (
+                  <div className="text-danger">Error: {data.objectInventory.status.lastError}</div>
+                )}
+              </div>
+            )}
+
             <div className="grid gap-4 sm:grid-cols-3">
               {data.objectInventory.totalObjectCount > 0 && (
                 <StatCard label="Tracked Objects" value={String(data.objectInventory.totalObjectCount)} highlight />
@@ -191,6 +213,19 @@ function PayloadCard({ payload }: { payload: LaunchPayloadSummary }) {
         </div>
       )}
     </article>
+  );
+}
+
+function PayloadSummaryList({ items }: { items: LaunchPayloadListSummary[] }) {
+  return (
+    <div className="space-y-3">
+      {items.map((payload) => (
+        <article key={payload.id} className="rounded-xl border border-stroke bg-surface-0 p-4">
+          <div className="text-base font-semibold text-text1">{payload.name}</div>
+          {payload.subtitle && <div className="mt-1 text-sm text-text2">{payload.subtitle}</div>}
+        </article>
+      ))}
+    </div>
   );
 }
 

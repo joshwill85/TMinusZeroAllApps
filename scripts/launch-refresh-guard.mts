@@ -102,10 +102,10 @@ async function main() {
 
   assertPattern(
     'apps/mobile/app/(tabs)/feed.tsx',
-    /async function applyFeedRefresh\(\) \{[\s\S]*if \(feedScope !== 'live'\) \{[\s\S]*Public launch data refreshes next around[\s\S]*actionLabel:\s*'Go Premium for near-live data'[\s\S]*return;/s,
-    'mobile feed anon pull-to-refresh stays local and surfaces the scheduled refresh/upgrade notice'
+    /async function applyFeedRefresh\(\) \{[\s\S]*const snapshot = latestFeedStateRef\.current;[\s\S]*fetchLaunchFeedVersion\(queryClient,\s*client,\s*\{[\s\S]*scope:\s*snapshot\.feedScope/s,
+    'mobile feed pull-to-refresh checks the scoped version route before applying newer backend data'
   );
-  sourceAssertions.push('mobile feed anon pull-to-refresh avoids network fetches');
+  sourceAssertions.push('mobile feed pull-to-refresh checks for newer backend data before applying');
 
   assertPattern(
     'apps/mobile/app/(tabs)/feed.tsx',
@@ -151,10 +151,10 @@ async function main() {
 
   assertPattern(
     'apps/mobile/app/(tabs)/feed.tsx',
-    /if \(snapshot\.feedScope === 'public'\) \{[\s\S]*await autoApplyPublicRefresh\(\);[\s\S]*return;\s*\}/s,
-    'mobile feed auto-applies scheduled public updates instead of leaving anon users stranded on stale UI'
+    /^((?!autoApplyPublicRefresh).)*$/s,
+    'mobile feed no longer auto-applies public updates in the background'
   );
-  sourceAssertions.push('mobile feed public cadence auto-applies fresh public snapshots');
+  sourceAssertions.push('mobile feed stages public updates instead of auto-applying them');
 
   assertPattern(
     'apps/mobile/app/(tabs)/feed.tsx',
@@ -179,17 +179,17 @@ async function main() {
 
   assertPattern(
     'apps/mobile/app/launches/[id].tsx',
-    /if \(detailVersionScope !== 'live'\) \{[\s\S]*Public launch data refreshes next around[\s\S]*actionLabel:\s*'Go Premium for near-live data'[\s\S]*return;/s,
-    'mobile detail anon pull-to-refresh stays local and surfaces the scheduled refresh/upgrade notice'
+    /const refreshDetail = useCallback\(async \(\) => \{[\s\S]*fetchLaunchDetailVersion\(queryClient,\s*client,\s*launchId,\s*\{\s*scope:\s*detailVersionScope\s*\}\)/s,
+    'mobile detail pull-to-refresh checks the scoped version route before applying newer backend data'
   );
-  sourceAssertions.push('mobile detail anon pull-to-refresh avoids network fetches');
+  sourceAssertions.push('mobile detail pull-to-refresh checks for newer backend data before applying');
 
   assertPattern(
     'apps/mobile/app/launches/[id].tsx',
-    /if \(detailVersionScope === 'public'\) \{[\s\S]*await applyResolvedDetailRefresh\(nextVersion\);[\s\S]*return;\s*\}/s,
-    'mobile detail auto-applies scheduled public updates when the public version changes'
+    /^((?!if \(detailVersionScope === 'public'\) \{).)*$/s,
+    'mobile detail no longer auto-applies public detail updates in the background'
   );
-  sourceAssertions.push('mobile detail public cadence auto-applies fresh public detail');
+  sourceAssertions.push('mobile detail stages public updates instead of auto-applying them');
 
   assertPattern(
     'apps/mobile/src/feed/feedSnapshotStorage.ts',
@@ -206,11 +206,32 @@ async function main() {
   sourceAssertions.push('mobile detail uses adaptive cadence scheduling');
 
   assertPattern(
-    'apps/web/components/LaunchFeed.tsx',
-    /buildPendingFeedRefreshMessage\(\)/,
-    'web feed refresh banner copy uses the shared helper'
+    'apps/mobile/app/launches/[id].tabs.tsx',
+    /const detailVersionScope = entitlementsQuery\.data\?\.mode === 'live' \? 'live' : 'public';/,
+    'tabbed mobile detail version checks resolve live vs public scope from entitlements'
   );
-  sourceAssertions.push('web feed banner messaging is sourced from the shared helper');
+  sourceAssertions.push('tabbed mobile detail version scope follows entitlements');
+
+  assertPattern(
+    'apps/mobile/app/launches/[id].tabs.tsx',
+    /const refreshDetail = useCallback\(async \(\) => \{[\s\S]*fetchLaunchDetailVersion\(queryClient,\s*client,\s*launchId,\s*\{\s*scope:\s*detailVersionScope\s*\}\)/s,
+    'tabbed mobile detail pull-to-refresh checks the scoped version route before applying newer backend data'
+  );
+  sourceAssertions.push('tabbed mobile detail pull-to-refresh checks for newer backend data before applying');
+
+  assertPattern(
+    'apps/mobile/app/launches/[id].tabs.tsx',
+    /refreshing=\{detailRefreshing\}[\s\S]*onRefresh=\{\(\) => \{[\s\S]*void refreshDetail\(\);/s,
+    'tabbed mobile detail refresh control is bound to the version-gated refresh handler'
+  );
+  sourceAssertions.push('tabbed mobile detail refresh control uses the version-gated refresh handler');
+
+  assertPattern(
+    'apps/web/components/LaunchFeed.tsx',
+    /const applyPendingRefresh = useCallback\(async \(\) => \{[\s\S]*pending_refresh_apply/s,
+    'web feed applies pending live refreshes through the replace fetch path'
+  );
+  sourceAssertions.push('web feed applies pending live refreshes through the replace fetch path');
 
   assertPattern(
     'apps/web/components/LaunchDetailAutoRefresh.tsx',
@@ -218,6 +239,20 @@ async function main() {
     'web detail refresh only applies after a version change'
   );
   sourceAssertions.push('web detail avoids blind refetches when the version is unchanged');
+
+  assertPattern(
+    'apps/web/components/LaunchDetailRefreshButton.tsx',
+    /fetchLaunchDetailVersion\(queryClient,\s*launchId,\s*\{\s*scope\s*\}\)/,
+    'web launch detail refresh button checks the scoped version route before refreshing'
+  );
+  sourceAssertions.push('web launch detail refresh button checks for newer backend data before refreshing');
+
+  assertPattern(
+    'apps/web/app/launches/[id]/page.tsx',
+    /<LaunchDetailRefreshButton[\s\S]*tier=\{viewer\.tier\}[\s\S]*launchId=\{launch\.id\}[\s\S]*lastUpdated=\{refreshVersion\}/s,
+    'web launch detail page exposes the manual refresh button with the current viewer scope and version seed'
+  );
+  sourceAssertions.push('web launch detail page renders the manual refresh button');
 
   assertPattern(
     'apps/web/lib/server/v1/mobileApi.ts',

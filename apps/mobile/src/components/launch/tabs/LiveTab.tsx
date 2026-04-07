@@ -3,7 +3,7 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import type { MobileTheme } from '@tminuszero/design-tokens';
 import type { LiveTabData } from '@tminuszero/launch-detail-ui';
 import { JepPanel } from '@/src/components/launch/JepPanel';
-import { XPostPreviewModal } from '@/src/components/launch/XPostPreviewModal';
+import { XPostInlineEmbed } from '@/src/components/launch/XPostInlineEmbed';
 import { openExternalCustomerUrl } from '@/src/features/customerRoutes/shared';
 import { formatTimestamp } from '@/src/utils/format';
 
@@ -13,20 +13,15 @@ type LiveTabProps = {
 };
 
 export function LiveTab({ data, theme }: LiveTabProps) {
-  const [previewPost, setPreviewPost] = useState<{
-    postId: string;
-    postUrl: string;
-    title: string;
-    subtitle?: string | null;
-  } | null>(null);
+  const [isForecastExpanded, setIsForecastExpanded] = useState(false);
   const hasWeather = Boolean(data.weatherDetail?.summary || data.weatherDetail?.cards?.length || data.weatherDetail?.concerns?.length);
+  const hasForecastOutlook = hasWeather || data.faaAdvisories.length > 0;
   const hasContent =
-    hasWeather ||
+    hasForecastOutlook ||
     data.hasJepScore ||
     data.watchLinks.length > 0 ||
     data.launchUpdates.length > 0 ||
-    data.socialPosts.length > 0 ||
-    data.faaAdvisories.length > 0;
+    data.socialPosts.length > 0;
 
   if (!hasContent) {
     return (
@@ -46,30 +41,152 @@ export function LiveTab({ data, theme }: LiveTabProps) {
   return (
     <>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 24 }}>
-        {hasWeather ? (
+        {hasForecastOutlook ? (
           <SectionCard theme={theme}>
-          <SectionTitle theme={theme}>Forecast outlook</SectionTitle>
-          {data.weatherDetail?.summary ? (
-            <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700', lineHeight: 22 }}>
-              {data.weatherDetail.summary}
-            </Text>
-          ) : null}
-          {data.weatherDetail?.concerns?.length ? (
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
-              {data.weatherDetail.concerns.map((concern) => (
-                <Badge key={concern} label={concern} theme={theme} />
-              ))}
-            </View>
-          ) : null}
-          {data.weatherDetail?.cards?.length ? (
-            <View style={{ gap: 12, marginTop: 12 }}>
-              {data.weatherDetail.cards.map((card) => (
-                <WeatherCard key={card.id} card={card} theme={theme} />
-              ))}
-            </View>
-          ) : null}
-        </SectionCard>
-      ) : null}
+            <Pressable
+              onPress={() => {
+                setIsForecastExpanded((current) => !current);
+              }}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'flex-start',
+                justifyContent: 'space-between',
+                gap: 12
+              }}
+            >
+              <View style={{ flex: 1, gap: 8 }}>
+                <SectionTitle theme={theme}>Forecast outlook</SectionTitle>
+                <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
+                  {hasWeather
+                    ? data.faaAdvisories.length > 0
+                      ? 'Weather sources and matched FAA launch advisories for launch day.'
+                      : 'Weather sources matched to this launch.'
+                    : 'Matched FAA launch advisories and launch-day airspace notices.'}
+                </Text>
+              </View>
+              <View style={{ alignItems: 'flex-end', gap: 8 }}>
+                {data.faaAdvisories.length > 0 ? (
+                  <Badge label={`${data.faaAdvisories.length} match${data.faaAdvisories.length === 1 ? '' : 'es'}`} theme={theme} />
+                ) : null}
+                <Text style={{ color: theme.foreground, fontSize: 12, fontWeight: '700' }}>
+                  {isForecastExpanded ? 'Collapse' : 'Expand'}
+                </Text>
+              </View>
+            </Pressable>
+
+            {isForecastExpanded ? (
+              <View style={{ gap: 14 }}>
+                {hasWeather ? (
+                  <>
+                    {data.weatherDetail?.summary ? (
+                      <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700', lineHeight: 22 }}>
+                        {data.weatherDetail.summary}
+                      </Text>
+                    ) : null}
+                    {data.weatherDetail?.concerns?.length ? (
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                        {data.weatherDetail.concerns.map((concern) => (
+                          <Badge key={concern} label={concern} theme={theme} />
+                        ))}
+                      </View>
+                    ) : null}
+                    {data.weatherDetail?.cards?.length ? (
+                      <View style={{ gap: 12 }}>
+                        {data.weatherDetail.cards.map((card) => (
+                          <WeatherCard key={card.id} card={card} theme={theme} />
+                        ))}
+                      </View>
+                    ) : null}
+                  </>
+                ) : null}
+
+                {data.faaAdvisories.length > 0 ? (
+                  <View
+                    style={{
+                      gap: 12,
+                      marginTop: hasWeather ? 2 : 0,
+                      borderTopWidth: hasWeather ? 1 : 0,
+                      borderTopColor: hasWeather ? theme.stroke : 'transparent',
+                      paddingTop: hasWeather ? 14 : 0
+                    }}
+                  >
+                    <View style={{ gap: 4 }}>
+                      <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>Launch advisories</Text>
+                      <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
+                        Temporary flight restrictions and NOTAM matches tied to this launch.
+                      </Text>
+                    </View>
+
+                    {data.faaAdvisories.map((advisory) => (
+                      <View
+                        key={advisory.matchId}
+                        style={{
+                          gap: 10,
+                          borderRadius: 18,
+                          borderWidth: 1,
+                          borderColor: advisory.isActiveNow ? 'rgba(251, 191, 36, 0.4)' : theme.stroke,
+                          backgroundColor: advisory.isActiveNow ? 'rgba(251, 191, 36, 0.08)' : 'rgba(255, 255, 255, 0.03)',
+                          padding: 16
+                        }}
+                      >
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
+                          <View style={{ flex: 1, gap: 4 }}>
+                            <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{advisory.title}</Text>
+                            <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>
+                              {buildFaaSummary(advisory)}
+                            </Text>
+                          </View>
+                          <Badge label={advisory.isActiveNow ? 'Active' : formatStatusLabel(advisory.status)} theme={theme} accent={advisory.isActiveNow} />
+                        </View>
+
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                          {advisory.notamId ? <Badge label={advisory.notamId} theme={theme} /> : null}
+                          {advisory.type ? <Badge label={advisory.type} theme={theme} /> : null}
+                          {advisory.matchConfidence != null ? <Badge label={`Match ${Math.round(advisory.matchConfidence)}%`} theme={theme} /> : null}
+                        </View>
+
+                        <Text style={{ color: theme.muted, fontSize: 12 }}>
+                          {formatFaaWindow(advisory.validStart, advisory.validEnd)}
+                        </Text>
+
+                        {advisory.rawText ? (
+                          <Text style={{ color: theme.foreground, fontSize: 13, lineHeight: 20 }}>
+                            {buildFaaPreview(advisory.rawText)}
+                          </Text>
+                        ) : null}
+
+                        {advisory.sourceGraphicUrl || advisory.sourceRawUrl || advisory.sourceUrl ? (
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+                            {advisory.sourceGraphicUrl || advisory.sourceUrl ? (
+                              <Pressable
+                                onPress={() => {
+                                  void openExternalCustomerUrl(advisory.sourceGraphicUrl || advisory.sourceUrl || '');
+                                }}
+                              >
+                                <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>
+                                  {advisory.sourceGraphicUrl ? 'Open FAA graphic page' : 'View FAA source'}
+                                </Text>
+                              </Pressable>
+                            ) : null}
+                            {advisory.sourceRawUrl && advisory.sourceRawUrl !== advisory.sourceGraphicUrl && advisory.sourceRawUrl !== advisory.sourceUrl ? (
+                              <Pressable
+                                onPress={() => {
+                                  void openExternalCustomerUrl(advisory.sourceRawUrl || '');
+                                }}
+                              >
+                                <Text style={{ color: theme.muted, fontSize: 12, fontWeight: '700' }}>View raw notice text</Text>
+                              </Pressable>
+                            ) : null}
+                          </View>
+                        ) : null}
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+          </SectionCard>
+        ) : null}
 
       <JepPanel launchId={data.launchId} hasJepScore={data.hasJepScore} theme={theme} />
 
@@ -145,29 +262,6 @@ export function LiveTab({ data, theme }: LiveTabProps) {
                     </View>
                   </View>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 }}>
-                    {post.postId ? (
-                      <Pressable
-                        onPress={() => {
-                          setPreviewPost({
-                            postId: post.postId || '',
-                            postUrl: post.url,
-                            title: post.title,
-                            subtitle: post.subtitle || post.handle || null
-                          });
-                        }}
-                        style={({ pressed }) => ({
-                          borderRadius: 999,
-                          borderWidth: 1,
-                          borderColor: theme.accent,
-                          backgroundColor: 'rgba(34, 211, 238, 0.12)',
-                          paddingHorizontal: 14,
-                          paddingVertical: 8,
-                          opacity: pressed ? 0.88 : 1
-                        })}
-                      >
-                        <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>Preview post</Text>
-                      </Pressable>
-                    ) : null}
                     <Pressable
                       onPress={() => {
                         void openExternalCustomerUrl(post.url);
@@ -185,6 +279,25 @@ export function LiveTab({ data, theme }: LiveTabProps) {
                       <Text style={{ color: theme.foreground, fontSize: 12, fontWeight: '700' }}>Open on X</Text>
                     </Pressable>
                   </View>
+                  {post.postId ? (
+                    <XPostInlineEmbed postId={post.postId} />
+                  ) : (
+                    <View
+                      style={{
+                        marginTop: 4,
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        borderStyle: 'dashed',
+                        borderColor: theme.stroke,
+                        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                        padding: 14
+                      }}
+                    >
+                      <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
+                        A matched source URL is available, but no X status ID could be extracted for inline embed rendering.
+                      </Text>
+                    </View>
+                  )}
                 </View>
               ) : (
                 <Pressable
@@ -237,87 +350,7 @@ export function LiveTab({ data, theme }: LiveTabProps) {
           </View>
         </SectionCard>
       ) : null}
-
-      {data.faaAdvisories.length > 0 ? (
-        <SectionCard theme={theme}>
-          <SectionTitle theme={theme}>FAA airspace launch advisories</SectionTitle>
-          <View style={{ gap: 12 }}>
-            {data.faaAdvisories.map((advisory) => (
-              <View
-                key={advisory.matchId}
-                style={{
-                  gap: 10,
-                  borderRadius: 18,
-                  borderWidth: 1,
-                  borderColor: advisory.isActiveNow ? 'rgba(251, 191, 36, 0.4)' : theme.stroke,
-                  backgroundColor: advisory.isActiveNow ? 'rgba(251, 191, 36, 0.08)' : 'rgba(255, 255, 255, 0.03)',
-                  padding: 16
-                }}
-              >
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
-                  <View style={{ flex: 1, gap: 4 }}>
-                    <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{advisory.title}</Text>
-                    <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>
-                      {buildFaaSummary(advisory)}
-                    </Text>
-                  </View>
-                  <Badge label={advisory.isActiveNow ? 'Active' : formatStatusLabel(advisory.status)} theme={theme} accent={advisory.isActiveNow} />
-                </View>
-
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  {advisory.notamId ? <Badge label={advisory.notamId} theme={theme} /> : null}
-                  {advisory.type ? <Badge label={advisory.type} theme={theme} /> : null}
-                  {advisory.matchConfidence != null ? <Badge label={`Match ${Math.round(advisory.matchConfidence)}%`} theme={theme} /> : null}
-                </View>
-
-                <Text style={{ color: theme.muted, fontSize: 12 }}>
-                  {formatFaaWindow(advisory.validStart, advisory.validEnd)}
-                </Text>
-
-                {advisory.rawText ? (
-                  <Text style={{ color: theme.foreground, fontSize: 13, lineHeight: 20 }}>
-                    {buildFaaPreview(advisory.rawText)}
-                  </Text>
-                ) : null}
-
-                {advisory.sourceGraphicUrl || advisory.sourceRawUrl || advisory.sourceUrl ? (
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-                    {advisory.sourceGraphicUrl || advisory.sourceUrl ? (
-                      <Pressable
-                        onPress={() => {
-                          void openExternalCustomerUrl(advisory.sourceGraphicUrl || advisory.sourceUrl || '');
-                        }}
-                      >
-                        <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>
-                          {advisory.sourceGraphicUrl ? 'Open FAA graphic page' : 'View FAA source'}
-                        </Text>
-                      </Pressable>
-                    ) : null}
-                    {advisory.sourceRawUrl && advisory.sourceRawUrl !== advisory.sourceGraphicUrl && advisory.sourceRawUrl !== advisory.sourceUrl ? (
-                      <Pressable
-                        onPress={() => {
-                          void openExternalCustomerUrl(advisory.sourceRawUrl || '');
-                        }}
-                      >
-                        <Text style={{ color: theme.muted, fontSize: 12, fontWeight: '700' }}>View raw notice text</Text>
-                      </Pressable>
-                    ) : null}
-                  </View>
-                ) : null}
-              </View>
-            ))}
-          </View>
-          </SectionCard>
-        ) : null}
       </ScrollView>
-      <XPostPreviewModal
-        open={previewPost != null}
-        postId={previewPost?.postId}
-        postUrl={previewPost?.postUrl || ''}
-        title={previewPost?.title || 'Matched post on X'}
-        subtitle={previewPost?.subtitle || null}
-        onClose={() => setPreviewPost(null)}
-      />
     </>
   );
 }

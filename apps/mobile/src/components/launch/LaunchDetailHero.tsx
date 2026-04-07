@@ -128,7 +128,7 @@ export function LaunchDetailHero({
         ]}
       >
         {/* Top: Badges */}
-        <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, paddingTop: 4 }}>
           <View style={{ flex: 1, flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
             {status && (
               <View

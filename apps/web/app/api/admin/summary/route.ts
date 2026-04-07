@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import { startOfDay } from 'date-fns';
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS,
+  PREMIUM_LAUNCH_HOT_REFRESH_SECONDS
+} from '@tminuszero/domain';
 import { summarizeArRuntimePolicies, type ArRuntimePolicySummary } from '@/lib/ar/runtimePolicyTelemetry';
 import { createSupabaseAdminClient, createSupabaseServerClient } from '@/lib/server/supabaseServer';
 import { isSupabaseAdminConfigured } from '@/lib/server/env';
@@ -184,12 +188,12 @@ const SERVER_JOB_DEFS: readonly JobDef[] = [
   {
     id: 'll2_incremental',
     label: 'LL2 incremental',
-    schedule: 'Every ~15 sec',
+    schedule: `Adaptive: every ${Math.trunc(PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS / 60)} min, every ${PREMIUM_LAUNCH_HOT_REFRESH_SECONDS} sec in the hot window`,
     cronJobName: null,
     category: 'scheduled',
     origin: 'server',
     source: 'heartbeat',
-    thresholdMinutes: 2,
+    thresholdMinutes: 5,
     enabledKey: 'll2_incremental_job_enabled'
   },
   {
@@ -276,6 +280,26 @@ const SERVER_JOB_DEFS: readonly JobDef[] = [
     newData: (stats) => {
       const fetched = readNumber(stats, 'fetched') ?? 0;
       return { count: fetched, detail: fetched ? `fetched=${fetched}` : null };
+    }
+  },
+  {
+    id: 'll2_future_launch_sync',
+    label: 'LL2 future launch sync',
+    schedule: 'Every 12 hours (:30 UTC)',
+    cronJobName: 'll2_future_launch_sync',
+    category: 'scheduled',
+    origin: 'server',
+    source: 'ingestion_runs',
+    thresholdMinutes: 1440,
+    enabledKey: 'll2_future_launch_sync_job_enabled',
+    newData: (stats) => {
+      const launcherJoins = readNumber(stats, 'launcherJoinRowsUpserted') ?? 0;
+      const launchLandings = readNumber(stats, 'launchLandingRowsUpserted') ?? 0;
+      const total = launcherJoins + launchLandings;
+      return {
+        count: total,
+        detail: total ? `launcherJoins=${launcherJoins}, launchLandings=${launchLandings}` : null
+      };
     }
   },
   {
@@ -924,6 +948,7 @@ function buildJobSettingKeys() {
 
     'll2_catalog_job_enabled',
     'll2_catalog_agencies_job_enabled',
+    'll2_future_launch_sync_job_enabled',
     'll2_event_ingest_enabled',
 
     'll2_backfill_job_enabled',

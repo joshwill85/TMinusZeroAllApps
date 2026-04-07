@@ -1533,7 +1533,35 @@ const launchObjectInventoryItemSchemaV1 = z.object({
   lines: z.array(z.string()).default([])
 });
 
+const launchObjectInventoryStatusSchemaV1 = z.object({
+  catalogState: z.string().nullable().optional(),
+  lastCheckedAt: z.string().nullable().optional(),
+  lastSuccessAt: z.string().nullable().optional(),
+  lastError: z.string().nullable().optional(),
+  lastNonEmptyAt: z.string().nullable().optional(),
+  latestSnapshotHash: z.string().nullable().optional()
+});
+
+const launchObjectInventoryTypeCountsSchemaV1 = z.object({
+  PAY: z.number().int().nullable().optional(),
+  RB: z.number().int().nullable().optional(),
+  DEB: z.number().int().nullable().optional(),
+  UNK: z.number().int().nullable().optional()
+});
+
+const launchObjectInventoryReconciliationSchemaV1 = z.object({
+  manifestPayloadCount: z.number().int().nullable().optional(),
+  satcatPayloadCount: z.number().int().nullable().optional(),
+  satcatPayloadsFilterCount: z.number().int().nullable().optional(),
+  satcatTotalCount: z.number().int().nullable().optional(),
+  satcatTypeCounts: launchObjectInventoryTypeCountsSchemaV1.nullable().optional(),
+  deltaManifestVsSatcatPayload: z.number().int().nullable().optional()
+});
+
 const launchObjectInventorySchemaV1 = z.object({
+  launchDesignator: z.string().nullable().optional(),
+  status: launchObjectInventoryStatusSchemaV1.nullable().optional(),
+  reconciliation: launchObjectInventoryReconciliationSchemaV1.nullable().optional(),
   summaryBadges: z.array(z.string()).default([]),
   payloadObjects: z.array(launchObjectInventoryItemSchemaV1).default([]),
   nonPayloadObjects: z.array(launchObjectInventoryItemSchemaV1).default([])
@@ -3592,6 +3620,12 @@ export const launchDetailVersionSchemaV1 = z.object({
   intervalSeconds: z.number().int().nonnegative(),
   updatedAt: z.string().nullable(),
   version: z.string(),
+  moduleUpdatedAt: z
+    .object({
+      launchCore: z.string().nullable(),
+      payloadManifest: z.string().nullable()
+    })
+    .optional(),
   recommendedIntervalSeconds: z.number().int().nonnegative().optional(),
   cadenceReason: launchRefreshCadenceReasonSchemaV1.optional(),
   cadenceAnchorNet: z.string().nullable().optional()

@@ -97,11 +97,13 @@ function truncateResourceName(name: string) {
 export function LaunchDetailAutoRefresh({
   tier,
   launchId,
-  lastUpdated
+  lastUpdated,
+  initialVersion
 }: {
   tier: ViewerTier;
   launchId: string;
   lastUpdated?: string | null;
+  initialVersion?: string | null;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -129,7 +131,7 @@ export function LaunchDetailAutoRefresh({
   const refreshIntervalMs = refreshIntervalSeconds * 1000;
   const scope = tierToMode(tier);
   const [nextRefreshAt, setNextRefreshAt] = useState<number | null>(null);
-  const lastSeenRef = useRef<string | null>(buildDetailVersionToken(launchId, scope, lastUpdated ?? null));
+  const lastSeenRef = useRef<string | null>(initialVersion ?? buildDetailVersionToken(launchId, scope, lastUpdated ?? null));
   const debugSessionIdRef = useRef(Math.random().toString(36).slice(2));
   const debugName = useMemo(() => `LaunchDetailAutoRefresh:${debugSessionIdRef.current}`, []);
 
@@ -186,8 +188,8 @@ export function LaunchDetailAutoRefresh({
   }, [debugEnabled, pathname]);
 
   useEffect(() => {
-    lastSeenRef.current = buildDetailVersionToken(launchId, scope, lastUpdated ?? null);
-  }, [lastUpdated, launchId, scope]);
+    lastSeenRef.current = initialVersion ?? buildDetailVersionToken(launchId, scope, lastUpdated ?? null);
+  }, [initialVersion, lastUpdated, launchId, scope]);
 
   useEffect(() => {
     setScheduledRefreshIntervalSeconds(tier === 'premium' ? PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS : getTierRefreshSeconds(tier));

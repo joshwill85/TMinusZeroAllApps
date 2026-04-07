@@ -183,10 +183,10 @@ export const fetchLaunchBoosterStats = cache(async (launchId: string, ll2LaunchU
 
     return {
       ll2LauncherId: launcherId,
-      serialNumber: normalizeText(launcher?.serial_number) || null,
-      status: normalizeText(launcher?.status) || null,
+      serialNumber: normalizeDisplayText(launcher?.serial_number),
+      status: normalizeDisplayText(launcher?.status),
       flightProven: typeof launcher?.flight_proven === 'boolean' ? launcher.flight_proven : null,
-      details: normalizeText(launcher?.details) || null,
+      details: normalizeDisplayText(launcher?.details),
       imageUrl: normalizeText(launcher?.image_url) || null,
       launcherConfigId: toFiniteNumber(launcher?.launcher_config_id),
       firstLaunchDate: normalizeDateOnly(launcher?.first_launch_date) || null,
@@ -310,6 +310,18 @@ async function fetchLaunchRecordsByLl2Uuid(
 
 function normalizeText(value: unknown) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeDisplayText(value: unknown) {
+  const normalized = normalizeText(value);
+  if (!normalized) return null;
+
+  const lower = normalized.toLowerCase();
+  if (lower === 'unknown' || lower === 'tbd' || lower === 'n/a' || lower === 'na' || lower === 'none') {
+    return null;
+  }
+
+  return normalized;
 }
 
 function normalizeDateOnly(value: unknown) {

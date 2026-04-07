@@ -5,6 +5,7 @@ import {
   getLaunchEvents,
   getLaunchLocation,
   getLaunchMedia,
+  getLaunchMissionTimeline,
   getLaunchMissionDescription,
   getLaunchMissionStats,
   getLaunchMissionName,
@@ -13,10 +14,12 @@ import {
   getLaunchOrbit,
   getLaunchPadName,
   getLaunchPayloadManifest,
+  getLaunchPayloadSummary,
   getLaunchPrograms,
   getLaunchRecovery,
   getLaunchResourceLinks,
   getLaunchSocialPosts,
+  shouldShowLaunchInventorySectionForDetail,
   getLaunchUpdates,
   getLaunchVehicleTimeline,
   getLaunchVehicle,
@@ -25,10 +28,12 @@ import {
   type LaunchCrewSummary,
   type LaunchEventSummary,
   type LaunchMediaItem,
+  type LaunchMissionTimelineItem,
   type LaunchMissionStatsSummary,
   type LaunchNewsSummary,
   type LaunchObjectInventorySummary,
   type LaunchPayloadSummary,
+  type LaunchPayloadListSummary,
   type LaunchProgramSummary,
   type LaunchRecoverySummary,
   type LaunchResourceLinks,
@@ -100,7 +105,9 @@ export interface MissionTabData {
     customer: string | null;
   };
   payloadManifest: LaunchPayloadSummary[];
+  payloadSummary: LaunchPayloadListSummary[];
   objectInventory: LaunchObjectInventorySummary | null;
+  showObjectInventory: boolean;
   crew: LaunchCrewSummary[];
   blueOriginDetails: {
     travelers: Array<{ name: string }>;
@@ -137,6 +144,7 @@ export interface RelatedTabData {
   news: LaunchNewsSummary[];
   events: LaunchEventSummary[];
   media: LaunchMediaItem[];
+  missionTimeline: LaunchMissionTimelineItem[];
   resources: LaunchResourceLinks | null;
   vehicleTimeline: LaunchVehicleTimelineSummary[];
 }
@@ -213,7 +221,9 @@ export function extractMissionData(detail: LaunchDetailV1): MissionTabData {
       customer: launch?.mission?.agencies?.[0]?.name ?? null
     },
     payloadManifest: getLaunchPayloadManifest(detail),
+    payloadSummary: getLaunchPayloadSummary(detail),
     objectInventory: getLaunchObjectInventory(detail),
+    showObjectInventory: shouldShowLaunchInventorySectionForDetail(detail),
     crew: getLaunchCrew(detail),
     blueOriginDetails: detail.blueOrigin
       ? {
@@ -259,6 +269,7 @@ export function extractRelatedData(detail: LaunchDetailV1): RelatedTabData {
     news: getLaunchNews(detail),
     events: getLaunchEvents(detail),
     media: getLaunchMedia(detail),
+    missionTimeline: getLaunchMissionTimeline(detail),
     resources: getLaunchResourceLinks(detail),
     vehicleTimeline: getLaunchVehicleTimeline(detail)
   };

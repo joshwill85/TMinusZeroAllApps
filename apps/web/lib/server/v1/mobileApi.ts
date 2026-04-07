@@ -1,4 +1,5 @@
 import { createApiClient } from '@tminuszero/api-client';
+import { selectPreferredResponsiveLaunchExternalContent, selectPreferredResponsiveLaunchExternalResources } from '@tminuszero/launch-detail-ui';
 import { z } from 'zod';
 import {
   adminAccessOverrideSchemaV1,
@@ -270,9 +271,19 @@ type LaunchInventoryObject = {
 };
 
 type LaunchObjectInventory = {
+  launch_designator?: string | null;
+  inventory_status?: {
+    catalog_state?: 'pending' | 'catalog_available' | 'catalog_empty' | 'error' | string | null;
+    last_checked_at?: string | null;
+    last_success_at?: string | null;
+    last_error?: string | null;
+    last_non_empty_at?: string | null;
+    latest_snapshot_hash?: string | null;
+  } | null;
   reconciliation?: {
     ll2_manifest_payload_count?: number | null;
     satcat_payload_count?: number | null;
+    satcat_payloads_filter_count?: number | null;
     satcat_total_count?: number | null;
     satcat_type_counts?: {
       PAY?: number | null;
@@ -912,7 +923,8 @@ function flattenMissionResources(enrichment: Awaited<ReturnType<typeof fetchLaun
   const rows: Array<{ id: string; title: string; subtitle: string | null; url: string }> = [];
   const seen = new Set<string>();
   for (const item of enrichment.externalContent || []) {
-    for (const resource of item.resources || []) {
+    const resources = selectPreferredResponsiveLaunchExternalResources(item.resources || [], 'mobile');
+    for (const resource of resources) {
       const url = normalizeUrlString(resource?.url);
       if (!url || seen.has(url)) continue;
       seen.add(url);
@@ -1352,6 +1364,17 @@ function formatCount(value?: number | null) {
   return new Intl.NumberFormat('en-US').format(value);
 }
 
+function readInventoryCount(value?: number | null) {
+  if (value == null || !Number.isFinite(value)) return null;
+  return Math.trunc(value);
+}
+
+function formatSignedCount(value: number) {
+  if (!Number.isFinite(value) || value === 0) return '0';
+  const formatted = formatCount(Math.abs(value));
+  return value > 0 ? `+${formatted}` : `-${formatted}`;
+}
+
 function buildObjectInventoryCard(obj: LaunchInventoryObject) {
   const id = String(obj.object_id || obj.intl_des || obj.norad_cat_id || obj.name || 'object');
   const title = String(obj.name || obj.intl_des || obj.object_id || `Object ${obj.norad_cat_id || ''}`).trim() || 'Object';
@@ -1370,27 +1393,97 @@ function buildObjectInventoryCard(obj: LaunchInventoryObject) {
 
 function buildObjectInventoryModule(inventory: LaunchObjectInventory | null) {
   if (!inventory) return null;
+  const status = inventory.inventory_status || null;
   const reconciliation = inventory.reconciliation || null;
   const typeCounts = reconciliation?.satcat_type_counts || null;
-  const summaryBadges = [
-    reconciliation?.ll2_manifest_payload_count != null ? `Manifest ${formatCount(reconciliation.ll2_manifest_payload_count)}` : null,
-    reconciliation?.satcat_payload_count != null ? `SATCAT payloads ${formatCount(reconciliation.satcat_payload_count)}` : null,
-    reconciliation?.satcat_total_count != null ? `Total objects ${formatCount(reconciliation.satcat_total_count)}` : null,
-    typeCounts?.RB != null ? `RB ${formatCount(typeCounts.RB)}` : null,
-    typeCounts?.DEB != null ? `Debris ${formatCount(typeCounts.DEB)}` : null,
-    typeCounts?.UNK != null ? `Unknown ${formatCount(typeCounts.UNK)}` : null,
-    reconciliation?.delta_manifest_vs_satcat_payload != null
-      ? `Delta ${formatCount(reconciliation.delta_manifest_vs_satcat_payload)}`
-      : null
-  ].filter(Boolean) as string[];
   const payloadObjects = Array.isArray(inventory.satcat_payload_objects)
     ? inventory.satcat_payload_objects.map(buildObjectInventoryCard)
     : [];
   const nonPayloadObjects = Array.isArray(inventory.satcat_non_payload_objects)
     ? inventory.satcat_non_payload_objects.map(buildObjectInventoryCard)
     : [];
-  if (!summaryBadges.length && !payloadObjects.length && !nonPayloadObjects.length) return null;
+  const catalogState = normalizeText(status?.catalog_state);
+  const manifestPayloadCount = readInventoryCount(reconciliation?.ll2_manifest_payload_count);
+  const satcatPayloadCount = readInventoryCount(reconciliation?.satcat_payload_count);
+  const satcatPayloadsFilterCount = readInventoryCount(reconciliation?.satcat_payloads_filter_count);
+  const satcatTotalCount = readInventoryCount(reconciliation?.satcat_total_count);
+  const payCount = readInventoryCount(typeCounts?.PAY);
+  const rbCount = readInventoryCount(typeCounts?.RB);
+  const debCount = readInventoryCount(typeCounts?.DEB);
+  const unkCount = readInventoryCount(typeCounts?.UNK);
+  const deltaManifestVsSatcatPayload = readInventoryCount(reconciliation?.delta_manifest_vs_satcat_payload);
+  const hasCatalogEvidence =
+    catalogState === 'catalog_available' ||
+    payloadObjects.length > 0 ||
+    nonPayloadObjects.length > 0;
+  const summaryBadges = [
+    hasCatalogEvidence && manifestPayloadCount != null ? `Manifest ${formatCount(manifestPayloadCount)}` : null,
+    hasCatalogEvidence && satcatPayloadCount != null ? `SATCAT payloads ${formatCount(satcatPayloadCount)}` : null,
+    hasCatalogEvidence && satcatTotalCount != null ? `Total objects ${formatCount(satcatTotalCount)}` : null,
+    hasCatalogEvidence && rbCount != null && rbCount > 0 ? `RB ${formatCount(rbCount)}` : null,
+    hasCatalogEvidence && debCount != null && debCount > 0 ? `Debris ${formatCount(debCount)}` : null,
+    hasCatalogEvidence && unkCount != null && unkCount > 0 ? `Unknown ${formatCount(unkCount)}` : null,
+    hasCatalogEvidence && deltaManifestVsSatcatPayload != null && deltaManifestVsSatcatPayload !== 0
+      ? `Delta ${formatSignedCount(deltaManifestVsSatcatPayload)}`
+      : null
+  ].filter(Boolean) as string[];
+  const normalizedStatus =
+    catalogState ||
+    status?.last_checked_at ||
+    status?.last_success_at ||
+    status?.last_error ||
+    status?.last_non_empty_at ||
+    status?.latest_snapshot_hash
+      ? {
+          catalogState: catalogState ?? null,
+          lastCheckedAt: normalizeText(status?.last_checked_at),
+          lastSuccessAt: normalizeText(status?.last_success_at),
+          lastError: normalizeText(status?.last_error),
+          lastNonEmptyAt: normalizeText(status?.last_non_empty_at),
+          latestSnapshotHash: normalizeText(status?.latest_snapshot_hash)
+        }
+      : null;
+  const normalizedReconciliation =
+    manifestPayloadCount != null ||
+    satcatPayloadCount != null ||
+    satcatPayloadsFilterCount != null ||
+    satcatTotalCount != null ||
+    payCount != null ||
+    rbCount != null ||
+    debCount != null ||
+    unkCount != null ||
+    deltaManifestVsSatcatPayload != null
+      ? {
+          manifestPayloadCount,
+          satcatPayloadCount,
+          satcatPayloadsFilterCount,
+          satcatTotalCount,
+          satcatTypeCounts:
+            payCount != null || rbCount != null || debCount != null || unkCount != null
+              ? {
+                  PAY: payCount,
+                  RB: rbCount,
+                  DEB: debCount,
+                  UNK: unkCount
+                }
+              : null,
+          deltaManifestVsSatcatPayload
+        }
+      : null;
+  if (
+    !summaryBadges.length &&
+    !payloadObjects.length &&
+    !nonPayloadObjects.length &&
+    !normalizedStatus &&
+    !normalizedReconciliation &&
+    !normalizeText(inventory.launch_designator)
+  ) {
+    return null;
+  }
   return {
+    launchDesignator: normalizeText(inventory.launch_designator),
+    status: normalizedStatus,
+    reconciliation: normalizedReconciliation,
     summaryBadges,
     payloadObjects,
     nonPayloadObjects
@@ -3439,12 +3532,16 @@ export async function loadLaunchDetailPayload(id: string, session: ResolvedViewe
           graphics: []
         })
   ]);
+  const mobileEnrichment = {
+    ...enrichment,
+    externalContent: selectPreferredResponsiveLaunchExternalContent(enrichment.externalContent, 'mobile')
+  };
   const weather = buildWeatherModule(launch, ws45Forecast, nwsForecast);
   const resources = {
     watchLinks: buildWatchLinks(launch),
     externalLinks: buildExternalLinks(launch),
-    missionResources: flattenMissionResources(enrichment),
-    missionTimeline: flattenMissionTimeline(enrichment)
+    missionResources: flattenMissionResources(mobileEnrichment),
+    missionTimeline: flattenMissionTimeline(mobileEnrichment)
   };
   const social = buildSocialModule(launch);
   const missionStats = buildMissionStatsModule(launch, rocketStats, boosterStats);
@@ -3503,12 +3600,12 @@ export async function loadLaunchDetailPayload(id: string, session: ResolvedViewe
     enrichment: {
       firstStageCount: enrichment.firstStages.length,
       recoveryCount: enrichment.recovery.length,
-      externalContentCount: enrichment.externalContent.length,
+      externalContentCount: mobileEnrichment.externalContent.length,
       hasJepScore: Boolean(jepScore),
       faaAdvisoryCount: faaAirspace?.advisories.length ?? 0,
       firstStages: enrichment.firstStages,
       recovery: enrichment.recovery,
-      externalContent: enrichment.externalContent,
+      externalContent: mobileEnrichment.externalContent,
       faaAdvisories: faaAirspace?.advisories ?? []
     },
     resources,

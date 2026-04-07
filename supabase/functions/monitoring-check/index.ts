@@ -1,4 +1,8 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
+import {
+  getLl2IncrementalHeartbeatThresholdMinutes,
+  resolveLaunchRefreshCadence
+} from '../_shared/launchRefreshPolicy.ts';
 import { createSupabaseAdminClient } from '../_shared/supabase.ts';
 import { requireJobAuth } from '../_shared/jobAuth.ts';
 import { getSettings, readBooleanSetting, readNumberSetting, readStringArraySetting, readStringSetting } from '../_shared/settings.ts';
@@ -8,6 +12,7 @@ const JOB_THRESHOLDS_MINUTES: Record<string, number> = {
   public_cache_refresh: 60,
   ll2_catalog: 240,
   ll2_catalog_agencies: 96 * 60,
+  ll2_future_launch_sync: 1440,
   ws45_forecasts_ingest: 180,
   notifications_dispatch: 10,
   notifications_send: 5,
@@ -33,6 +38,7 @@ const JOB_ENABLED_SETTING_KEYS: Record<string, string> = {
 
   ll2_catalog: 'll2_catalog_job_enabled',
   ll2_catalog_agencies: 'll2_catalog_agencies_job_enabled',
+  ll2_future_launch_sync: 'll2_future_launch_sync_job_enabled',
   navcen_bnm_ingest: 'navcen_bnm_job_enabled',
   faa_trajectory_hazard_ingest: 'faa_trajectory_hazard_job_enabled',
   spacex_infographics_ingest: 'spacex_infographics_job_enabled',
@@ -49,7 +55,6 @@ const JOB_ENABLED_SETTING_KEYS: Record<string, string> = {
 };
 const JOB_CRON_MISMATCH_SUFFIX = '_cron_enabled_mismatch';
 const DEFAULT_IGNORED_JOBS: string[] = [];
-const LL2_INCREMENTAL_HEARTBEAT_THRESHOLD_MINUTES = 2;
 
 const CELESTRAK_DATASET_STALE_HOURS: Record<string, number> = {
   gp: 24,
@@ -140,10 +145,14 @@ serve(async (req) => {
     }
 
     if (!ignoredJobs.has('ll2_incremental')) {
+      const ll2Cadence = await resolveLaunchRefreshCadence(supabase, Date.now());
+      const ll2HeartbeatThresholdMinutes = getLl2IncrementalHeartbeatThresholdMinutes(ll2Cadence.recommendedIntervalSeconds);
+      stats.ll2IncrementalCadence = ll2Cadence;
+      stats.ll2IncrementalHeartbeatThresholdMinutes = ll2HeartbeatThresholdMinutes;
       await checkLl2IncrementalHeartbeat(supabase, {
         lastSuccessAt: readStringSetting(settings.ll2_incremental_last_success_at, ''),
         lastError: readStringSetting(settings.ll2_incremental_last_error, ''),
-        thresholdMinutes: LL2_INCREMENTAL_HEARTBEAT_THRESHOLD_MINUTES
+        thresholdMinutes: ll2HeartbeatThresholdMinutes
       });
     } else {
       await resolveJobAlerts(supabase, ['ll2_incremental']);

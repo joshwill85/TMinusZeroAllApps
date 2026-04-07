@@ -24,7 +24,7 @@ export function VehicleTab({ data, className }: VehicleTabProps) {
       data.vehicleConfig.specs.gtoCapacity
   );
   const hasStages = data.stages.length > 0;
-  const hasRecovery = Boolean(data.recovery?.booster || data.recovery?.fairing);
+  const hasRecovery = Boolean(data.recovery?.booster || data.recovery?.spacecraft);
   const hasMissionStats = Boolean(
     missionStats?.cards?.length || missionStats?.bonusInsights?.length || missionStats?.boosterCards?.length
   );
@@ -118,11 +118,11 @@ export function VehicleTab({ data, className }: VehicleTabProps) {
                   detail={data.recovery.booster.location || 'Recovery zone pending'}
                 />
               ) : null}
-              {data.recovery?.fairing ? (
+              {data.recovery?.spacecraft ? (
                 <RecoveryCard
-                  title="Fairing recovery"
-                  value={data.recovery.fairing.recovery ? 'Recovery attempt planned' : 'No recovery attempt listed'}
-                  detail="Recovery posture sourced from launch enrichment."
+                  title="Spacecraft recovery"
+                  value={data.recovery.spacecraft.summary}
+                  detail={data.recovery.spacecraft.detail || 'Recovery posture sourced from launch enrichment.'}
                 />
               ) : null}
             </div>

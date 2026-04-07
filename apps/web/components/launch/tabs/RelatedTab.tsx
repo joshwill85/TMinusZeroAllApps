@@ -1,6 +1,7 @@
 import clsx from 'clsx';
 import type { RelatedTabData } from '@tminuszero/launch-detail-ui';
 import { ChronoHelixTimeline } from '@/components/ChronoHelixTimeline';
+import { MissionTimelineCards } from '@/components/launch/MissionTimelineCards';
 
 type RelatedTabProps = {
   data: RelatedTabData;
@@ -14,6 +15,7 @@ export function RelatedTab({ data, className }: RelatedTabProps) {
     data.news.length > 0 ||
     data.events.length > 0 ||
     mediaItems.length > 0 ||
+    data.missionTimeline.length > 0 ||
     Boolean(data.resources?.pressKit || data.resources?.missionPage);
 
   if (!hasContent) {
@@ -52,13 +54,13 @@ export function RelatedTab({ data, className }: RelatedTabProps) {
           <div className="grid gap-3 md:grid-cols-2">
             {data.news.map((item) => (
               <a
-                key={item.url}
+                key={item.id || item.url}
                 href={item.url}
                 target="_blank"
                 rel="noreferrer"
-                className="group overflow-hidden rounded-xl border border-stroke bg-surface-0 transition hover:border-primary"
+                className="group flex h-full flex-col overflow-hidden rounded-xl border border-stroke bg-surface-0 transition hover:border-primary"
               >
-                <div className="relative h-32 w-full overflow-hidden">
+                <div className="relative h-36 w-full overflow-hidden">
                   {item.image ? (
                     <img
                       src={item.image}
@@ -71,14 +73,28 @@ export function RelatedTab({ data, className }: RelatedTabProps) {
                     <div className="h-full w-full bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.24),_transparent_68%)]" />
                   )}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-                  <span className="absolute left-3 top-3 rounded-full border border-white/20 bg-black/40 px-2 py-1 text-[10px] uppercase tracking-[0.08em] text-white">
-                    {item.source}
-                  </span>
+                  <div className="absolute left-3 top-3 flex flex-wrap gap-2">
+                    <span className="rounded-full border border-white/20 bg-black/40 px-2 py-1 text-[10px] uppercase tracking-[0.08em] text-white">
+                      {formatNewsType(item.itemType)}
+                    </span>
+                    {item.featured ? (
+                      <span className="rounded-full border border-white/20 bg-black/40 px-2 py-1 text-[10px] uppercase tracking-[0.08em] text-white">
+                        Featured
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
-                <div className="p-4">
-                  <div className="text-xs uppercase tracking-[0.08em] text-text3">{formatTimestamp(item.date)}</div>
-                  <div className="mt-2 text-base font-semibold text-text1">{item.title}</div>
-                  {item.summary ? <p className="mt-2 text-sm leading-relaxed text-text2">{item.summary}</p> : null}
+                <div className="flex flex-1 flex-col gap-3 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-text3">
+                    <span className="uppercase tracking-[0.08em]">{item.source}</span>
+                    {item.date ? <span>{formatTimestamp(item.date)}</span> : null}
+                  </div>
+                  <div className="text-base font-semibold text-text1">{item.title}</div>
+                  {item.summary ? <p className="text-sm leading-relaxed text-text2">{item.summary}</p> : null}
+                  <div className="mt-auto flex flex-wrap items-center justify-between gap-2 text-[11px] text-text3">
+                    {item.authors.length > 0 ? <span>By {formatNewsAuthors(item.authors)}</span> : <span>{item.source}</span>}
+                    <span className="font-semibold uppercase tracking-[0.08em] text-primary">Open source</span>
+                  </div>
                 </div>
               </a>
             ))}
@@ -123,15 +139,22 @@ export function RelatedTab({ data, className }: RelatedTabProps) {
         <Section title="Official media">
           <div className="grid gap-3 md:grid-cols-2">
             {mediaItems.map((item, index) => (
-              <LinkCard
+              <MediaCard
                 key={`${item.url}:${index}`}
                 href={item.url || '#'}
                 title={item.title || item.name || 'Media link'}
-                subtitle={item.type || 'Official media'}
-                detail={item.description || undefined}
+                subtitle={[formatMediaKind(item.kind ?? item.type), item.host].filter(Boolean).join(' • ') || 'Official media'}
+                detail={item.description || (item.name && item.name !== item.title ? item.name : undefined)}
+                imageUrl={item.imageUrl ?? undefined}
               />
             ))}
           </div>
+        </Section>
+      ) : null}
+
+      {data.missionTimeline.length > 0 ? (
+        <Section title="Mission timeline">
+          <MissionTimelineCards items={data.missionTimeline} />
         </Section>
       ) : null}
 
@@ -214,6 +237,51 @@ function LinkCard({
   );
 }
 
+function MediaCard({
+  href,
+  title,
+  subtitle,
+  detail,
+  imageUrl
+}: {
+  href: string;
+  title: string;
+  subtitle: string;
+  detail?: string;
+  imageUrl?: string;
+}) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="group overflow-hidden rounded-xl border border-stroke bg-surface-0 transition hover:border-primary"
+    >
+      {imageUrl ? (
+        <div className="relative h-40 w-full overflow-hidden">
+          <img
+            src={imageUrl}
+            alt={title}
+            className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+            loading="lazy"
+            decoding="async"
+          />
+        </div>
+      ) : null}
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-text1">{title}</div>
+            <div className="mt-1 text-xs text-text3">{subtitle}</div>
+          </div>
+          <span className="shrink-0 text-xs font-semibold uppercase tracking-[0.08em] text-primary">Open</span>
+        </div>
+        {detail ? <p className="mt-3 text-sm leading-relaxed text-text2">{detail}</p> : null}
+      </div>
+    </a>
+  );
+}
+
 function Badge({
   children,
   accent = false
@@ -242,4 +310,27 @@ function formatTimestamp(value: string | null | undefined) {
     day: 'numeric',
     year: 'numeric'
   }).format(date);
+}
+
+function formatNewsType(type: RelatedTabData['news'][number]['itemType']) {
+  if (type === 'blog') return 'Blog';
+  if (type === 'report') return 'Report';
+  return 'Article';
+}
+
+function formatNewsAuthors(authors: RelatedTabData['news'][number]['authors']) {
+  if (!Array.isArray(authors) || authors.length === 0) return '';
+  if (authors.length <= 2) return authors.join(', ');
+  return `${authors.slice(0, 2).join(', ')} +${authors.length - 2}`;
+}
+
+function formatMediaKind(kind: string | null | undefined) {
+  if (kind === 'page') return 'Launch page';
+  if (kind === 'infographic') return 'Infographic';
+  if (kind === 'webcast') return 'Webcast';
+  if (kind === 'image') return 'Image';
+  if (kind === 'video') return 'Video';
+  if (kind === 'document') return 'Document';
+  if (kind === 'timeline') return 'Timeline';
+  return kind ?? 'Resource';
 }

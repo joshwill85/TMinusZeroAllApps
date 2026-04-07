@@ -451,7 +451,7 @@ async function loadLiveFeedVersion(feedRequest: FeedRequest, viewer: ViewerTierI
   return launchFeedVersionSchemaV1.parse({
     scope: 'live',
     tier: viewer.tier,
-    intervalSeconds: viewer.refreshIntervalSeconds,
+    intervalSeconds: cadenceHint.recommendedIntervalSeconds,
     matchCount,
     updatedAt,
     version: buildFeedVersionToken(matchCount, updatedAt),

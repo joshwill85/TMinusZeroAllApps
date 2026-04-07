@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound, permanentRedirect } from 'next/navigation';
+import { ChronoHelixTimeline, type TimelineNode } from '@/components/ChronoHelixTimeline';
 import { JsonLd } from '@/components/JsonLd';
 import { ProgramHubBackLink } from '@/components/ProgramHubBackLink';
 import { BRAND_NAME } from '@/lib/brand';
@@ -97,29 +98,38 @@ export default async function SpaceXVehicleDetailPage({ params }: { params: Para
         )}
       </section>
 
-      <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
-        <h2 className="text-xl font-semibold text-text1">Mission flights</h2>
-        {flights.items.length ? (
-          <ul className="mt-3 grid gap-2 md:grid-cols-2">
-            {flights.items.slice(0, 16).map((flight) => (
-              <li key={flight.id} className="rounded-lg border border-stroke bg-surface-0 px-3 py-2">
-                <Link href={`/spacex/flights/${flight.flightSlug}`} className="text-sm font-semibold text-text1 hover:text-primary">
-                  {flight.launch.name}
-                </Link>
-                <p className="mt-1 text-xs text-text3">{formatDate(flight.launch.net)}</p>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="mt-3 text-sm text-text3">No mission flights currently mapped.</p>
-        )}
-      </section>
+      <ChronoHelixTimeline
+        nodes={buildSpaceXVehicleTimelineNodes(flights.items, detail.vehicle.displayName)}
+        initialLaunchId="vehicle-focus"
+        vehicleLabel={detail.vehicle.displayName}
+      />
     </div>
   );
 }
 
-function formatDate(value: string) {
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed)) return value;
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: '2-digit', year: 'numeric' }).format(new Date(parsed));
+function buildSpaceXVehicleTimelineNodes(flights: Awaited<ReturnType<typeof fetchSpaceXFlights>>['items'], vehicleLabel: string): TimelineNode[] {
+  return flights.map((flight) => ({
+    id: flight.id,
+    date: flight.launch.net || '',
+    status: inferTimelineStatus(flight.launch.statusText, flight.launch.net),
+    vehicleName: vehicleLabel || flight.launch.vehicle || 'SpaceX vehicle',
+    missionName: flight.launch.name || flight.flightSlug,
+    isCurrent: false,
+    statusLabel: flight.launch.statusText || undefined,
+    href: `/spacex/flights/${encodeURIComponent(flight.flightSlug)}`
+  }));
+}
+
+function inferTimelineStatus(statusLabel?: string | null, netIso?: string | null): TimelineNode['status'] {
+  const label = String(statusLabel || '').toLowerCase();
+  if (label.includes('success')) return 'success';
+  if (label.includes('failure') || label.includes('fail') || label.includes('scrub') || label.includes('abort')) {
+    return 'failure';
+  }
+  if (label.includes('hold') || label.includes('tbd') || label.includes('go')) return 'upcoming';
+  if (netIso) {
+    const timestamp = Date.parse(netIso);
+    if (Number.isFinite(timestamp) && timestamp > Date.now()) return 'upcoming';
+  }
+  return 'failure';
 }

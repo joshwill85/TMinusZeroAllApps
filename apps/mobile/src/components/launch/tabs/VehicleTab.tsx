@@ -97,11 +97,11 @@ export function VehicleTab({ data, theme }: VehicleTabProps) {
                   accent
                 />
               ) : null}
-              {data.recovery.fairing ? (
+              {data.recovery.spacecraft ? (
                 <RecoveryCard
-                  title="Fairing recovery"
-                  summary={data.recovery.fairing.recovery ? 'Recovery attempted' : 'Expended'}
-                  detail={data.recovery.fairing.recovery ? 'Fairing recovery activity is expected for this mission.' : 'No fairing recovery attempt is listed.'}
+                  title="Spacecraft recovery"
+                  summary={data.recovery.spacecraft.summary}
+                  detail={data.recovery.spacecraft.detail || 'Recovery posture sourced from launch enrichment.'}
                   theme={theme}
                 />
               ) : null}

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, type ReactNode } from 'react';
 import { Linking, Pressable, Text, View } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
-import type { CanonicalContractDetailV1, CanonicalContractsResponseV1 } from '@tminuszero/contracts';
+import type { CanonicalContractDetailV1, CanonicalContractsResponseV1, SpaceXFlightsResponseV1 } from '@tminuszero/contracts';
 import {
   useSpaceXContractsQuery,
   useSpaceXEnginesQuery,
@@ -9,6 +9,7 @@ import {
   useSpaceXVehiclesQuery
 } from '@/src/api/queries';
 import { AppScreen } from '@/src/components/AppScreen';
+import { ChronoHelixTimeline, type ChronoHelixNode } from '@/src/components/ChronoHelixTimeline';
 import {
   CustomerShellHero,
   CustomerShellBadge,
@@ -124,11 +125,24 @@ export function SpaceXVehicleDetailScreen({ slug }: { slug: string }) {
   const enginesQuery = useSpaceXEnginesQuery({ mission: 'all' });
   const flightsQuery = useSpaceXFlightsQuery({ mission: 'all' });
   const vehicle = vehiclesQuery.data?.items.find((entry) => entry.vehicleSlug === slug) ?? null;
-  const relatedEngineSlugs = vehicle ? SPACE_X_VEHICLE_ENGINES[vehicle.vehicleSlug] || [] : [];
-  const relatedEngines = (enginesQuery.data?.items ?? []).filter((entry) => relatedEngineSlugs.includes(entry.engineSlug));
-  const relatedFlights = vehicle
-    ? (flightsQuery.data?.items ?? []).filter((entry) => entry.missionKey === vehicle.missionKey).slice(0, 8)
-    : [];
+  const relatedEngineSlugs = useMemo(() => (vehicle ? SPACE_X_VEHICLE_ENGINES[vehicle.vehicleSlug] || [] : []), [vehicle]);
+  const relatedEngines = useMemo(
+    () => (enginesQuery.data?.items ?? []).filter((entry) => relatedEngineSlugs.includes(entry.engineSlug)),
+    [enginesQuery.data?.items, relatedEngineSlugs]
+  );
+  const relatedFlights = useMemo(
+    () => (vehicle ? (flightsQuery.data?.items ?? []).filter((entry) => entry.missionKey === vehicle.missionKey).slice(0, 8) : []),
+    [flightsQuery.data?.items, vehicle]
+  );
+  const timelineNodes = useMemo(
+    () =>
+      buildSpaceXVehicleTimelineNodes({
+        flights: relatedFlights,
+        vehicleLabel: vehicle?.displayName,
+        onOpenFlight: (flightSlug) => router.push(buildSpaceXFlightHref(flightSlug) as Href)
+      }),
+    [relatedFlights, router, vehicle?.displayName]
+  );
 
   return (
     <AppScreen testID="spacex-vehicle-detail-screen">
@@ -197,23 +211,12 @@ export function SpaceXVehicleDetailScreen({ slug }: { slug: string }) {
                 </View>
               </CustomerShellPanel>
 
-              <CustomerShellPanel title="Mission flights" description={`${relatedFlights.length} mission-linked flight record${relatedFlights.length === 1 ? '' : 's'} available.`}>
-                <View style={{ gap: 10 }}>
-                  {relatedFlights.length ? (
-                    relatedFlights.map((flight) => (
-                      <DetailRow
-                        key={flight.id}
-                        title={flight.launch.name}
-                        body={[flight.launch.net ? formatDate(flight.launch.net) : null, flight.launch.statusText].filter(Boolean).join(' • ') || 'Flight record'}
-                        meta="Open flight route"
-                        onPress={() => router.push(buildSpaceXFlightHref(flight.flightSlug) as Href)}
-                      />
-                    ))
-                  ) : (
-                    <TextBlock value="No mission-linked flight records are currently available on mobile." />
-                  )}
-                </View>
-              </CustomerShellPanel>
+              <ChronoHelixTimeline
+                nodes={timelineNodes}
+                vehicleLabel={vehicle.displayName}
+                description={`${relatedFlights.length} mission-linked flight record${relatedFlights.length === 1 ? '' : 's'} rendered in the native helix.`}
+                emptyMessage="No mission-linked flight records are currently available on mobile."
+              />
             </>
           );
         }
@@ -608,6 +611,45 @@ function DetailRow({
 function TextBlock({ value }: { value: string }) {
   const { theme } = useMobileBootstrap();
   return <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>{value}</Text>;
+}
+
+function buildSpaceXVehicleTimelineNodes({
+  flights,
+  vehicleLabel,
+  onOpenFlight
+}: {
+  flights: SpaceXFlightsResponseV1['items'];
+  vehicleLabel?: string | null;
+  onOpenFlight: (flightSlug: string) => void;
+}): ChronoHelixNode[] {
+  return flights.map((flight) => {
+    const recoveryLabel = flight.droneShipName || flight.droneShipAbbrev;
+    return {
+      id: flight.id,
+      title: flight.launch.name || flight.flightSlug,
+      subtitle: [recoveryLabel, flight.launch.statusText].filter(Boolean).join(' • ') || null,
+      date: flight.launch.net || null,
+      status: inferChronoHelixStatus(flight.launch.statusText, flight.launch.net),
+      statusLabel: flight.launch.statusText || null,
+      vehicleName: vehicleLabel || flight.launch.vehicle || 'SpaceX vehicle',
+      actionLabel: 'Open flight',
+      onPress: () => onOpenFlight(flight.flightSlug)
+    };
+  });
+}
+
+function inferChronoHelixStatus(statusLabel?: string | null, netIso?: string | null): ChronoHelixNode['status'] {
+  const label = String(statusLabel || '').toLowerCase();
+  if (label.includes('success')) return 'success';
+  if (label.includes('failure') || label.includes('fail') || label.includes('scrub') || label.includes('abort')) {
+    return 'failure';
+  }
+  if (label.includes('hold') || label.includes('tbd') || label.includes('go')) return 'upcoming';
+  if (netIso) {
+    const timestamp = Date.parse(netIso);
+    if (Number.isFinite(timestamp) && timestamp > Date.now()) return 'upcoming';
+  }
+  return 'failure';
 }
 
 function formatDate(value: string) {

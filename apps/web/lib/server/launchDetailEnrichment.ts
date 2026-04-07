@@ -210,15 +210,15 @@ function normalizeLaunchRecoveryRow(row: LaunchLandingRow): LaunchRecoveryDetail
   const landingLocationContext = asObject(landingLocation.location);
 
   const landingLocationName =
-    normalizeText(landingLocation.name) ||
-    normalizeText(landingLocation.abbrev) ||
-    normalizeText(landingLocation.location_name) ||
+    normalizeDisplayText(landingLocation.name) ||
+    normalizeDisplayText(landingLocation.abbrev) ||
+    normalizeDisplayText(landingLocation.location_name) ||
     '';
 
   const landingTypeName =
-    normalizeText(landingType.name) ||
-    normalizeText(landingType.abbrev) ||
-    normalizeText(landingType.description) ||
+    normalizeDisplayText(landingType.name) ||
+    normalizeDisplayText(landingType.abbrev) ||
+    normalizeDisplayText(landingType.description) ||
     '';
 
   const title = [landingTypeName, landingLocationName].filter(Boolean).join(' • ');
@@ -231,15 +231,15 @@ function normalizeLaunchRecoveryRow(row: LaunchLandingRow): LaunchRecoveryDetail
     title: title || `Landing ${landingId}`,
     attempt: typeof landing?.attempt === 'boolean' ? landing.attempt : null,
     success: typeof landing?.success === 'boolean' ? landing.success : null,
-    description: normalizeText(landing?.description) || null,
+    description: normalizeDisplayText(landing?.description),
     downrangeDistanceKm: readNumber(landing?.downrange_distance_km),
     landingLocationName: landingLocationName || null,
-    landingLocationAbbrev: normalizeText(landingLocation.abbrev) || null,
-    landingLocationContext: normalizeText(landingLocationContext.name) || null,
+    landingLocationAbbrev: normalizeDisplayText(landingLocation.abbrev),
+    landingLocationContext: normalizeDisplayText(landingLocationContext.name),
     latitude: readNumber(landingLocation.latitude),
     longitude: readNumber(landingLocation.longitude),
     landingTypeName: landingTypeName || null,
-    landingTypeAbbrev: normalizeText(landingType.abbrev) || null,
+    landingTypeAbbrev: normalizeDisplayText(landingType.abbrev),
     fetchedAt: normalizeText(row.fetched_at) || null,
     returnSite: null,
     returnDateTime: null
@@ -257,10 +257,10 @@ function normalizeLaunchExternalContentRow(row: LaunchExternalResourceRow): Laun
     `${source}:${contentType}`;
 
   const title =
-    normalizeText(data.missionTitle) ||
-    normalizeText(data.title) ||
-    normalizeText(asObject(data.mission).title) ||
-    normalizeText(asObject(data.tile).title) ||
+    normalizeDisplayText(data.missionTitle) ||
+    normalizeDisplayText(data.title) ||
+    normalizeDisplayText(asObject(data.mission).title) ||
+    normalizeDisplayText(asObject(data.tile).title) ||
     null;
 
   const launchPageUrl =
@@ -272,10 +272,10 @@ function normalizeLaunchExternalContentRow(row: LaunchExternalResourceRow): Laun
     buildSpaceXLaunchPageUrl(source, sourceId);
 
   const returnSite =
-    normalizeText(data.returnSite) ||
-    normalizeText(data.return_site) ||
-    normalizeText(asObject(data.recovery).returnSite) ||
-    normalizeText(asObject(data.tile).returnSite) ||
+    normalizeDisplayText(data.returnSite) ||
+    normalizeDisplayText(data.return_site) ||
+    normalizeDisplayText(asObject(data.recovery).returnSite) ||
+    normalizeDisplayText(asObject(data.tile).returnSite) ||
     null;
 
   const returnDateTime =
@@ -678,6 +678,18 @@ function buildSpaceXLaunchPageUrl(source: string, sourceId: string) {
 
 function normalizeText(value: unknown) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeDisplayText(value: unknown) {
+  const normalized = normalizeText(value);
+  if (!normalized) return null;
+
+  const lower = normalized.toLowerCase();
+  if (lower === 'unknown' || lower === 'tbd' || lower === 'n/a' || lower === 'na' || lower === 'none') {
+    return null;
+  }
+
+  return normalized;
 }
 
 function normalizeUrl(value: unknown) {

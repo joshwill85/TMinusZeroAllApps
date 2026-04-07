@@ -3,6 +3,7 @@ import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import type { MobileTheme } from '@tminuszero/design-tokens';
 import type {
   LaunchInventoryObjectSummary,
+  LaunchPayloadListSummary,
   LaunchPayloadSummary,
   MissionTabData
 } from '@tminuszero/launch-detail-ui';
@@ -13,15 +14,11 @@ type MissionTabProps = {
 };
 
 export function MissionTab({ data, theme }: MissionTabProps) {
-  const hasInventory = Boolean(
-    data.objectInventory &&
-      (data.objectInventory.summaryBadges.length > 0 ||
-        data.objectInventory.payloadObjects.length > 0 ||
-        data.objectInventory.nonPayloadObjects.length > 0)
-  );
+  const hasInventory = Boolean(data.objectInventory && data.showObjectInventory);
   const hasContent =
     data.missionOverview.description ||
     data.payloadManifest.length > 0 ||
+    data.payloadSummary.length > 0 ||
     data.crew.length > 0 ||
     data.programs.length > 0 ||
     data.blueOriginDetails ||
@@ -75,10 +72,47 @@ export function MissionTab({ data, theme }: MissionTabProps) {
         </SectionCard>
       )}
 
+      {data.payloadManifest.length === 0 && data.payloadSummary.length > 0 && (
+        <SectionCard theme={theme}>
+          <SectionTitle theme={theme}>Payloads ({data.payloadSummary.length})</SectionTitle>
+          <View style={{ gap: 12 }}>
+            {data.payloadSummary.map((payload) => (
+              <PayloadSummaryCard key={payload.id} payload={payload} theme={theme} />
+            ))}
+          </View>
+        </SectionCard>
+      )}
+
       {data.objectInventory && hasInventory && (
         <>
           <SectionCard theme={theme}>
             <SectionTitle theme={theme}>Launch Object Inventory</SectionTitle>
+            {data.objectInventory.status?.message ? (
+              <Text style={{ fontSize: 13, color: theme.muted, lineHeight: 18 }}>
+                {data.objectInventory.status.message}
+              </Text>
+            ) : null}
+            {(data.objectInventory.status?.lastCheckedAt ||
+              data.objectInventory.status?.lastNonEmptyAt ||
+              data.objectInventory.status?.lastError) ? (
+              <View style={{ gap: 4, marginTop: 12 }}>
+                {data.objectInventory.status?.lastCheckedAt ? (
+                  <Text style={{ fontSize: 12, color: theme.muted }}>
+                    Last checked: {data.objectInventory.status.lastCheckedAt}
+                  </Text>
+                ) : null}
+                {data.objectInventory.status?.lastNonEmptyAt ? (
+                  <Text style={{ fontSize: 12, color: theme.muted }}>
+                    Last non-empty: {data.objectInventory.status.lastNonEmptyAt}
+                  </Text>
+                ) : null}
+                {data.objectInventory.status?.lastError ? (
+                  <Text style={{ fontSize: 12, color: '#f87171' }}>
+                    Error: {data.objectInventory.status.lastError}
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
             <View style={{ gap: 12 }}>
               {data.objectInventory.totalObjectCount > 0 && (
                 <InventoryStatRow
@@ -298,6 +332,25 @@ function PayloadCard({ payload, theme }: { payload: LaunchPayloadSummary; theme:
           {payload.wikiUrl ? <LinkAction label="Reference" href={payload.wikiUrl} theme={theme} muted /> : null}
         </View>
       )}
+    </View>
+  );
+}
+
+function PayloadSummaryCard({ payload, theme }: { payload: LaunchPayloadListSummary; theme: MobileTheme }) {
+  return (
+    <View
+      style={{
+        padding: 16,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: theme.stroke,
+        backgroundColor: 'rgba(255, 255, 255, 0.03)'
+      }}
+    >
+      <Text style={{ fontSize: 15, fontWeight: '700', color: theme.foreground }}>{payload.name}</Text>
+      {payload.subtitle ? (
+        <Text style={{ fontSize: 13, color: theme.muted, marginTop: 4 }}>{payload.subtitle}</Text>
+      ) : null}
     </View>
   );
 }

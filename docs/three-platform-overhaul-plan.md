@@ -76,6 +76,10 @@ Related implementation plans:
 
 ## Current Slice Tracker
 
+- 2026-04-06: Launch live-refresh and inventory-availability alignment planning is in progress for `Web`, `iOS`, and `Android`.
+  - Source-of-truth plan: `docs/2026-04-06-launch-live-refresh-and-inventory-availability-plan.md`
+  - Scope: align the Premium LL2 backend cadence to the shared `120s/15s` launch hot-window contract, keep customer refresh gestures DB/cache-only, standardize refresh-toast outcomes, and hide future-launch inventory until real catalog data exists.
+  - Guardrails: no request-time provider ingestion, no breaking `/api/v1` contract changes, no fake inventory zero-count UI, and no silent expansion of slower modules into the Premium "live" promise.
 - 2026-04-05: Launch detail three-surface refinement is in progress for `Web`, `iOS`, and `Android`.
   - Source-of-truth plan: `docs/2026-04-05-launch-detail-three-surface-implementation-plan.md`
   - Scope: refactor launch detail chrome, move launch notifications into the follow flow, widen reminder options, gate notification controls on native push enablement, clean up entity linking, de-dup mission profile media, and make mission timelines explicitly `T-` or `T+`.

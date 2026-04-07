@@ -13,14 +13,15 @@ type LiveTabProps = {
 };
 
 export function LiveTab({ data, className }: LiveTabProps) {
+  const [isForecastExpanded, setIsForecastExpanded] = useState(false);
   const hasWeather = Boolean(data.weatherDetail?.summary || data.weatherDetail?.cards?.length || data.weatherDetail?.concerns?.length);
+  const hasForecastOutlook = hasWeather || data.faaAdvisories.length > 0;
   const hasContent =
-    hasWeather ||
+    hasForecastOutlook ||
     data.hasJepScore ||
     data.watchLinks.length > 0 ||
     data.socialPosts.length > 0 ||
-    data.launchUpdates.length > 0 ||
-    data.faaAdvisories.length > 0;
+    data.launchUpdates.length > 0;
 
   if (!hasContent) {
     return (
@@ -36,62 +37,187 @@ export function LiveTab({ data, className }: LiveTabProps) {
 
   return (
     <div className={clsx('space-y-8', className)}>
-      {hasWeather ? (
-        <Section title="Forecast outlook">
-          {data.weatherDetail?.summary ? (
-            <p className="text-base font-semibold leading-relaxed text-text1">{data.weatherDetail.summary}</p>
-          ) : null}
-
-          {data.weatherDetail?.concerns?.length ? (
-            <div className="mt-4 flex flex-wrap gap-2">
-              {data.weatherDetail.concerns.map((concern) => (
-                <Badge key={concern} accent>
-                  {concern}
-                </Badge>
-              ))}
+      {hasForecastOutlook ? (
+        <section className="rounded-2xl border border-stroke bg-surface-1 p-6">
+          <button
+            type="button"
+            onClick={() => setIsForecastExpanded((current) => !current)}
+            className="flex w-full items-start justify-between gap-3 text-left"
+          >
+            <div className="min-w-0">
+              <h2 className="text-base font-bold uppercase tracking-wider text-text1">Forecast outlook</h2>
+              <p className="mt-2 text-sm leading-relaxed text-text3">
+                {hasWeather
+                  ? data.faaAdvisories.length > 0
+                    ? 'Weather sources and matched FAA launch advisories for launch day.'
+                    : 'Weather sources matched to this launch.'
+                  : 'Matched FAA launch advisories and launch-day airspace notices.'}
+              </p>
             </div>
-          ) : null}
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+              {data.faaAdvisories.length > 0 ? (
+                <Badge>{data.faaAdvisories.length} match{data.faaAdvisories.length === 1 ? '' : 'es'}</Badge>
+              ) : null}
+              <span className="rounded-full border border-stroke bg-surface-0 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-text2">
+                {isForecastExpanded ? 'Collapse' : 'Expand'}
+              </span>
+            </div>
+          </button>
 
-          {data.weatherDetail?.cards?.length ? (
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              {data.weatherDetail.cards.map((card) => (
-                <article
-                  key={card.id}
-                  className="rounded-xl border border-stroke bg-surface-0 p-4"
-                >
-                  <div className="text-xs uppercase tracking-[0.08em] text-text3">{card.title}</div>
-                  {card.subtitle ? <div className="mt-1 text-sm text-text2">{card.subtitle}</div> : null}
-                  {card.headline ? <div className="mt-3 text-lg font-semibold text-text1">{card.headline}</div> : null}
-                  {card.badges.length ? (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {card.badges.map((badge) => (
-                        <Badge key={`${card.id}:${badge}`}>{badge}</Badge>
+          {isForecastExpanded ? (
+            <div className="mt-6">
+              {hasWeather ? (
+                <>
+                  {data.weatherDetail?.summary ? (
+                    <p className="text-base font-semibold leading-relaxed text-text1">{data.weatherDetail.summary}</p>
+                  ) : null}
+
+                  {data.weatherDetail?.concerns?.length ? (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {data.weatherDetail.concerns.map((concern) => (
+                        <Badge key={concern} accent>
+                          {concern}
+                        </Badge>
                       ))}
                     </div>
                   ) : null}
-                  {card.metrics.length ? (
-                    <div className="mt-3 space-y-2">
-                      {card.metrics.map((metric) => (
-                        <MetricRow key={`${card.id}:${metric.label}`} label={metric.label} value={metric.value} />
+
+                  {data.weatherDetail?.cards?.length ? (
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      {data.weatherDetail.cards.map((card) => (
+                        <article
+                          key={card.id}
+                          className="rounded-xl border border-stroke bg-surface-0 p-4"
+                        >
+                          <div className="text-xs uppercase tracking-[0.08em] text-text3">{card.title}</div>
+                          {card.subtitle ? <div className="mt-1 text-sm text-text2">{card.subtitle}</div> : null}
+                          {card.headline ? <div className="mt-3 text-lg font-semibold text-text1">{card.headline}</div> : null}
+                          {card.badges.length ? (
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {card.badges.map((badge) => (
+                                <Badge key={`${card.id}:${badge}`}>{badge}</Badge>
+                              ))}
+                            </div>
+                          ) : null}
+                          {card.metrics.length ? (
+                            <div className="mt-3 space-y-2">
+                              {card.metrics.map((metric) => (
+                                <MetricRow key={`${card.id}:${metric.label}`} label={metric.label} value={metric.value} />
+                              ))}
+                            </div>
+                          ) : null}
+                          {card.detail ? <p className="mt-3 text-sm leading-relaxed text-text2">{card.detail}</p> : null}
+                          {card.actionUrl && card.actionLabel ? (
+                            <a
+                              className="mt-3 inline-flex text-sm font-semibold text-primary hover:text-primary/80"
+                              href={card.actionUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {card.actionLabel}
+                            </a>
+                          ) : null}
+                        </article>
                       ))}
                     </div>
                   ) : null}
-                  {card.detail ? <p className="mt-3 text-sm leading-relaxed text-text2">{card.detail}</p> : null}
-                  {card.actionUrl && card.actionLabel ? (
-                    <a
-                      className="mt-3 inline-flex text-sm font-semibold text-primary hover:text-primary/80"
-                      href={card.actionUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {card.actionLabel}
-                    </a>
-                  ) : null}
-                </article>
-              ))}
+                </>
+              ) : null}
+
+              {data.faaAdvisories.length > 0 ? (
+                <div className={clsx('space-y-3', hasWeather ? 'mt-6 border-t border-stroke/50 pt-4' : '')}>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="text-xs uppercase tracking-[0.08em] text-text3">FAA airspace</div>
+                      <h3 className="mt-1 text-lg font-semibold text-text1">Launch advisories</h3>
+                      <p className="mt-1 text-sm text-text3">Temporary flight restrictions and NOTAM matches tied to this launch.</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {data.faaAdvisories.map((advisory) => (
+                      <article
+                        key={advisory.matchId}
+                        className={clsx(
+                          'rounded-xl border p-4',
+                          advisory.isActiveNow
+                            ? 'border-warning/40 bg-warning/10'
+                            : 'border-stroke bg-surface-0'
+                        )}
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-base font-semibold text-text1">{advisory.title}</div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <Badge accent={advisory.isActiveNow}>{advisory.isActiveNow ? 'Active now' : formatStatusLabel(advisory.status)}</Badge>
+                              <Badge>{advisory.matchStatus}</Badge>
+                              {advisory.notamId ? <Badge>{advisory.notamId}</Badge> : null}
+                              {advisory.type ? <Badge>{advisory.type}</Badge> : null}
+                            </div>
+                          </div>
+                          {advisory.matchConfidence != null ? (
+                            <div className="rounded-full border border-stroke px-3 py-1 text-xs uppercase tracking-[0.08em] text-text3">
+                              Match {Math.round(advisory.matchConfidence)}%
+                            </div>
+                          ) : null}
+                        </div>
+
+                        <div className="mt-3 grid gap-3 text-sm text-text2 md:grid-cols-2">
+                          <div>
+                            <div className="text-[11px] uppercase tracking-[0.08em] text-text3">Window</div>
+                            <div className="mt-1">{formatFaaWindow(advisory.validStart, advisory.validEnd)}</div>
+                          </div>
+                          <div>
+                            <div className="text-[11px] uppercase tracking-[0.08em] text-text3">Summary</div>
+                            <div className="mt-1">{buildFaaSummary(advisory)}</div>
+                          </div>
+                        </div>
+
+                        {advisory.rawText ? (
+                          <div className="mt-3 rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3">
+                            <div className="text-[11px] uppercase tracking-[0.08em] text-text3">Restriction summary</div>
+                            <p className="mt-2 text-sm leading-relaxed text-text2">{buildFaaPreview(advisory.rawText)}</p>
+                            <details className="mt-3 text-xs text-text3">
+                              <summary className="cursor-pointer select-none text-text1">Official notice text</summary>
+                              <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words rounded-xl border border-stroke bg-surface-0 p-3 text-xs leading-6 text-text2">
+                                {advisory.rawText}
+                              </pre>
+                            </details>
+                          </div>
+                        ) : null}
+
+                        {(advisory.sourceGraphicUrl || advisory.sourceUrl || advisory.sourceRawUrl) ? (
+                          <div className="mt-3 flex flex-wrap gap-3 text-sm">
+                            {advisory.sourceGraphicUrl || advisory.sourceUrl ? (
+                              <a
+                                className="font-semibold text-primary hover:text-primary/80"
+                                href={advisory.sourceGraphicUrl || advisory.sourceUrl || undefined}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                {advisory.sourceGraphicUrl ? 'Open FAA graphic page' : 'View FAA source'}
+                              </a>
+                            ) : null}
+                            {advisory.sourceRawUrl && advisory.sourceRawUrl !== advisory.sourceGraphicUrl && advisory.sourceRawUrl !== advisory.sourceUrl ? (
+                              <a
+                                className="font-semibold text-text2 hover:text-text1"
+                                href={advisory.sourceRawUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                View raw notice text
+                              </a>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : null}
-        </Section>
+        </section>
       ) : null}
 
       <LiveTabJepSection launchId={data.launchId} hasJepScore={data.hasJepScore} padTimezone={data.padTimezone} />
@@ -198,90 +324,6 @@ export function LiveTab({ data, className }: LiveTabProps) {
               ))}
             </div>
           ) : null}
-        </Section>
-      ) : null}
-
-      {data.faaAdvisories.length > 0 ? (
-        <Section title="FAA airspace launch advisories">
-          <div className="space-y-3">
-            {data.faaAdvisories.map((advisory) => (
-              <article
-                key={advisory.matchId}
-                className={clsx(
-                  'rounded-xl border p-4',
-                  advisory.isActiveNow
-                    ? 'border-warning/40 bg-warning/10'
-                    : 'border-stroke bg-surface-0'
-                )}
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-base font-semibold text-text1">{advisory.title}</div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <Badge accent={advisory.isActiveNow}>{advisory.isActiveNow ? 'Active now' : formatStatusLabel(advisory.status)}</Badge>
-                      <Badge>{advisory.matchStatus}</Badge>
-                      {advisory.notamId ? <Badge>{advisory.notamId}</Badge> : null}
-                      {advisory.type ? <Badge>{advisory.type}</Badge> : null}
-                    </div>
-                  </div>
-                  {advisory.matchConfidence != null ? (
-                    <div className="rounded-full border border-stroke px-3 py-1 text-xs uppercase tracking-[0.08em] text-text3">
-                      Match {Math.round(advisory.matchConfidence)}%
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="mt-3 grid gap-3 text-sm text-text2 md:grid-cols-2">
-                  <div>
-                    <div className="text-[11px] uppercase tracking-[0.08em] text-text3">Window</div>
-                    <div className="mt-1">{formatFaaWindow(advisory.validStart, advisory.validEnd)}</div>
-                  </div>
-                  <div>
-                    <div className="text-[11px] uppercase tracking-[0.08em] text-text3">Summary</div>
-                    <div className="mt-1">{buildFaaSummary(advisory)}</div>
-                  </div>
-                </div>
-
-                {advisory.rawText ? (
-                  <div className="mt-3 rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3">
-                    <div className="text-[11px] uppercase tracking-[0.08em] text-text3">Restriction summary</div>
-                    <p className="mt-2 text-sm leading-relaxed text-text2">{buildFaaPreview(advisory.rawText)}</p>
-                    <details className="mt-3 text-xs text-text3">
-                      <summary className="cursor-pointer select-none text-text1">Official notice text</summary>
-                      <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words rounded-xl border border-stroke bg-surface-0 p-3 text-xs leading-6 text-text2">
-                        {advisory.rawText}
-                      </pre>
-                    </details>
-                  </div>
-                ) : null}
-
-                {(advisory.sourceGraphicUrl || advisory.sourceUrl || advisory.sourceRawUrl) ? (
-                  <div className="mt-3 flex flex-wrap gap-3 text-sm">
-                    {advisory.sourceGraphicUrl || advisory.sourceUrl ? (
-                      <a
-                        className="font-semibold text-primary hover:text-primary/80"
-                        href={advisory.sourceGraphicUrl || advisory.sourceUrl || undefined}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {advisory.sourceGraphicUrl ? 'Open FAA graphic page' : 'View FAA source'}
-                      </a>
-                    ) : null}
-                    {advisory.sourceRawUrl && advisory.sourceRawUrl !== advisory.sourceGraphicUrl && advisory.sourceRawUrl !== advisory.sourceUrl ? (
-                      <a
-                        className="font-semibold text-text2 hover:text-text1"
-                        href={advisory.sourceRawUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        View raw notice text
-                      </a>
-                    ) : null}
-                  </div>
-                ) : null}
-              </article>
-            ))}
-          </div>
         </Section>
       ) : null}
     </div>

@@ -10,29 +10,56 @@ export function PremiumGateButton({
   featureLabel,
   className,
   children,
-  ariaLabel
+  ariaLabel,
+  showLockIcon = true,
+  asDiv = false
 }: {
   isAuthed: boolean;
   featureLabel: string;
   className?: string;
   children: ReactNode;
   ariaLabel?: string;
+  showLockIcon?: boolean;
+  asDiv?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const content = showLockIcon ? (
+    <span className="relative inline-flex items-center gap-2">
+      {children}
+      <LockIcon className="h-3.5 w-3.5 opacity-80" />
+    </span>
+  ) : (
+    children
+  );
 
   return (
     <>
-      <button
-        type="button"
-        className={clsx(className)}
-        onClick={() => setOpen(true)}
-        aria-label={ariaLabel ?? `${featureLabel} (Premium)`}
-      >
-        <span className="relative inline-flex items-center gap-2">
-          {children}
-          <LockIcon className="h-3.5 w-3.5 opacity-80" />
-        </span>
-      </button>
+      {asDiv ? (
+        <div
+          role="button"
+          tabIndex={0}
+          className={clsx(className)}
+          onClick={() => setOpen(true)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              setOpen(true);
+            }
+          }}
+          aria-label={ariaLabel ?? `${featureLabel} (Premium)`}
+        >
+          {content}
+        </div>
+      ) : (
+        <button
+          type="button"
+          className={clsx(className)}
+          onClick={() => setOpen(true)}
+          aria-label={ariaLabel ?? `${featureLabel} (Premium)`}
+        >
+          {content}
+        </button>
+      )}
       <PremiumUpsellModal open={open} onClose={() => setOpen(false)} isAuthed={isAuthed} featureLabel={featureLabel} />
     </>
   );
@@ -55,4 +82,3 @@ function LockIcon({ className }: { className?: string }) {
     </svg>
   );
 }
-

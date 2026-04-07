@@ -321,6 +321,33 @@ async function main() {
           blockingReasons: [],
           reasons: []
         }
+      },
+      objectInventory: {
+        launchDesignator: '2026-067',
+        status: {
+          catalogState: 'catalog_empty',
+          lastCheckedAt: '2026-04-06T18:11:01.402Z',
+          lastSuccessAt: '2026-04-06T18:11:01.402Z',
+          lastError: null,
+          lastNonEmptyAt: null,
+          latestSnapshotHash: null
+        },
+        reconciliation: {
+          manifestPayloadCount: 0,
+          satcatPayloadCount: 0,
+          satcatPayloadsFilterCount: 0,
+          satcatTotalCount: 0,
+          satcatTypeCounts: {
+            PAY: 0,
+            RB: 0,
+            DEB: 0,
+            UNK: 0
+          },
+          deltaManifestVsSatcatPayload: 0
+        },
+        summaryBadges: [],
+        payloadObjects: [],
+        nonPayloadObjects: []
       }
     },
     launchDetailVersion: {
@@ -328,6 +355,10 @@ async function main() {
       scope: 'public',
       tier: 'anon',
       intervalSeconds: 7200,
+      moduleUpdatedAt: {
+        launchCore: '2026-03-08T11:59:00.000Z',
+        payloadManifest: null
+      },
       recommendedIntervalSeconds: 7200,
       cadenceReason: 'default',
       cadenceAnchorNet: null,
@@ -1559,8 +1590,10 @@ async function main() {
     assert.match(request.search, /\bregion=non-us\b/);
   }
 
-  await guestClient.getLaunchDetail(launchId);
+  const launchDetail = await guestClient.getLaunchDetail(launchId);
   expectGuest(popLastRequest(), `/api/v1/launches/${launchId}`);
+  assert.equal(launchDetail.objectInventory?.status?.catalogState, 'catalog_empty');
+  assert.deepEqual(launchDetail.objectInventory?.summaryBadges ?? [], []);
 
   await guestClient.getLaunchDetailVersion(launchId, { scope: 'public' });
   {

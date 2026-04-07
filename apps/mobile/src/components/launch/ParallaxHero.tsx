@@ -80,6 +80,7 @@ export function ParallaxHero({
   };
 
   const statusColor = statusColors[statusTone];
+  const statusTopInset = 8;
 
   return (
     <View
@@ -131,7 +132,7 @@ export function ParallaxHero({
         <HeroContentSurface>
           {/* Status Badge */}
           {status && (
-            <View style={{ marginTop: 4, marginBottom: 12 }}>
+            <View style={{ marginTop: statusTopInset, marginBottom: 12 }}>
               <View
                 style={{
                   alignSelf: 'flex-start',
@@ -226,6 +227,7 @@ export function StaticHero({
   };
 
   const statusColor = statusColors[statusTone];
+  const statusTopInset = 8;
 
   return (
     <View
@@ -262,7 +264,7 @@ export function StaticHero({
       >
         <HeroContentSurface>
           {status && (
-            <View style={{ marginTop: 4, marginBottom: 12 }}>
+            <View style={{ marginTop: statusTopInset, marginBottom: 12 }}>
               <View
                 style={{
                   alignSelf: 'flex-start',

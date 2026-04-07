@@ -1,7 +1,11 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createSupabaseAdminClient } from '../_shared/supabase.ts';
 import { requireJobAuth } from '../_shared/jobAuth.ts';
-import { getSettings, readBooleanSetting, readNumberSetting } from '../_shared/settings.ts';
+import {
+  PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS,
+  resolveLaunchRefreshCadence
+} from '../_shared/launchRefreshPolicy.ts';
+import { getSettings, readBooleanSetting, readNumberSetting, readStringSetting } from '../_shared/settings.ts';
 import { runLl2IncrementalOnce, type Ll2IncrementalResult } from '../_shared/ll2Incremental.ts';
 
 const DEFAULTS = {
@@ -24,7 +28,8 @@ serve(async (req) => {
     const settings = await getSettings(supabase, [
       'll2_incremental_job_enabled',
       'll2_incremental_calls_per_minute',
-      'll2_incremental_interval_seconds'
+      'll2_incremental_interval_seconds',
+      'll2_incremental_last_success_at'
     ]);
 
     const enabled = readBooleanSetting(settings.ll2_incremental_job_enabled, true);
@@ -32,18 +37,40 @@ serve(async (req) => {
       return jsonResponse({ ok: true, skipped: true, reason: 'disabled', elapsedMs: Date.now() - startedAt });
     }
 
-    const intervalSeconds = clampInt(
+    const configuredIntervalSeconds = clampInt(
       readNumberSetting(settings.ll2_incremental_interval_seconds, DEFAULTS.intervalSeconds),
       1,
       60
     );
-    const maxCallsPerMinute = Math.floor(55 / intervalSeconds) + 1;
+    const maxCallsPerMinute = Math.floor(55 / configuredIntervalSeconds) + 1;
     const callsPerMinuteRaw = clampInt(
       readNumberSetting(settings.ll2_incremental_calls_per_minute, DEFAULTS.callsPerMinute),
       1,
       20
     );
-    const callsPerMinute = Math.max(1, Math.min(callsPerMinuteRaw, maxCallsPerMinute));
+    const configuredCallsPerMinute = Math.max(1, Math.min(callsPerMinuteRaw, maxCallsPerMinute));
+    const cadence = await resolveLaunchRefreshCadence(supabase, startedAt);
+    const intervalSeconds = cadence.isHotWindow ? configuredIntervalSeconds : PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS;
+    const callsPerMinute = cadence.isHotWindow ? configuredCallsPerMinute : 1;
+
+    if (!cadence.isHotWindow) {
+      const lastSuccessAt = readStringSetting(settings.ll2_incremental_last_success_at, '');
+      const lastSuccessMs = Date.parse(lastSuccessAt);
+      const sinceLastSuccessMs = Number.isFinite(lastSuccessMs) ? startedAt - lastSuccessMs : Number.POSITIVE_INFINITY;
+      const minIntervalMs = PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS * 1000;
+      if (sinceLastSuccessMs < minIntervalMs) {
+        return jsonResponse({
+          ok: true,
+          skipped: true,
+          reason: 'default_cadence_wait',
+          intervalSeconds,
+          cadenceReason: cadence.cadenceReason,
+          cadenceAnchorNet: cadence.cadenceAnchorNet,
+          waitMsRemaining: Math.max(0, minIntervalMs - sinceLastSuccessMs),
+          elapsedMs: Date.now() - startedAt
+        });
+      }
+    }
 
     const lockTtlSeconds = clampInt(
       callsPerMinute * intervalSeconds + 60,
@@ -97,6 +124,9 @@ serve(async (req) => {
       ok,
       calls: callsPerMinute,
       intervalSeconds,
+      cadenceReason: cadence.cadenceReason,
+      cadenceAnchorNet: cadence.cadenceAnchorNet,
+      hotWindow: cadence.isHotWindow,
       upsertedTotal,
       failures,
       last: results.length ? results[results.length - 1].result : null,
@@ -166,4 +196,3 @@ function stringifyError(err: unknown) {
     return String(err);
   }
 }
-

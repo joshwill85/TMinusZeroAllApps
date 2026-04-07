@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createSupabaseAdminClient, createSupabaseServerClient } from '@/lib/server/supabaseServer';
 import { isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
+import { resolveLaunchRefreshCadenceHint } from '@/lib/server/launchRefreshCadence';
 import { getViewerTier } from '@/lib/server/viewerTier';
 import { parseLaunchRegion, US_PAD_COUNTRY_CODES } from '@/lib/server/us';
 import { buildStatusFilterOrClause, parseLaunchStatusFilter } from '@/lib/server/launchStatus';
@@ -126,11 +127,15 @@ export async function GET(request: Request) {
   const version = isSupabaseAdminConfigured()
     ? `${matchCount ?? 0}|${latestUpdateId ?? 'null'}`
     : `${matchCount ?? 0}|null`;
+  const cadenceHint = await resolveLaunchRefreshCadenceHint({ client: supabase, scope: 'live' });
 
   return NextResponse.json(
     {
       tier: viewer.tier,
-      intervalSeconds: viewer.refreshIntervalSeconds,
+      intervalSeconds: cadenceHint.recommendedIntervalSeconds,
+      recommendedIntervalSeconds: cadenceHint.recommendedIntervalSeconds,
+      cadenceReason: cadenceHint.cadenceReason,
+      cadenceAnchorNet: cadenceHint.cadenceAnchorNet,
       matchCount: matchCount ?? 0,
       latestUpdateId,
       version

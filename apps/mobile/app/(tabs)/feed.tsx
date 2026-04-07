@@ -705,20 +705,10 @@ export default function FeedScreen() {
 
       const nextVersion = payload.version;
       const visibleUpdatedAt = getVisibleFeedUpdatedAt(snapshot.launches, snapshot.feedScope);
-      const autoApplyPublicRefresh = async () => {
-        await refetchLaunchFeed();
-        lastSeenVersionRef.current = nextVersion;
-        setPendingRefresh(null);
-        setNotice((current) => (current?.kind === 'anon_refresh' ? null : current));
-      };
 
       if (!lastSeenVersionRef.current) {
         const shouldPrimePending = shouldPrimeVersionRefresh(payload.updatedAt, visibleUpdatedAt);
         if (shouldPrimePending) {
-          if (snapshot.feedScope === 'public') {
-            await autoApplyPublicRefresh();
-            return;
-          }
           lastSeenVersionRef.current = nextVersion;
           setPendingRefresh({
             version: nextVersion,
@@ -732,10 +722,6 @@ export default function FeedScreen() {
       }
 
       if (nextVersion !== lastSeenVersionRef.current) {
-        if (snapshot.feedScope === 'public') {
-          await autoApplyPublicRefresh();
-          return;
-        }
         lastSeenVersionRef.current = nextVersion;
         setPendingRefresh({
           version: nextVersion,
@@ -790,74 +776,98 @@ export default function FeedScreen() {
     refreshIntervalSeconds
   ]);
 
-  const applyPendingFeedRefresh = useCallback(
-    async ({ announce = true }: { announce?: boolean } = {}) => {
-      if (!pendingRefresh || refreshApplying) {
+  const applyResolvedFeedRefresh = useCallback(
+    async (nextVersion: string) => {
+      await refetchLaunchFeed();
+      lastSeenVersionRef.current = nextVersion;
+      setPendingRefresh(null);
+      setNotice((current) => (current?.kind === 'anon_refresh' ? null : current));
+    },
+    [refetchLaunchFeed]
+  );
+
+  async function applyFeedRefresh() {
+    if (refreshApplying) {
+      return;
+    }
+
+    setRefreshApplying(true);
+    try {
+      const snapshot = latestFeedStateRef.current;
+      if (snapshot.isFollowingFeed) {
+        await refetchLaunchFeed();
+        setPendingRefresh(null);
+        showToast({
+          message: 'My Launches refreshed.',
+          tone: 'success'
+        });
         return;
       }
 
-      setRefreshApplying(true);
-      try {
-        await refetchLaunchFeed();
-        lastSeenVersionRef.current = pendingRefresh.version;
-        setPendingRefresh(null);
-        setNotice((current) => (current?.kind === 'anon_refresh' ? null : current));
-        if (announce) {
-          showToast({
-            message: 'Launch schedule updated.',
-            tone: 'success'
-          });
-        }
-      } catch (error) {
-        setNotice({
-          tone: 'warning',
-          message: error instanceof Error ? error.message : 'Unable to refresh the launch feed.'
+      const payload = await fetchLaunchFeedVersion(queryClient, client, {
+        scope: snapshot.feedScope,
+        range: snapshot.filters.range ?? DEFAULT_LAUNCH_FILTERS.range,
+        region: snapshot.filters.region ?? DEFAULT_LAUNCH_FILTERS.region,
+        location: snapshot.filters.location ?? null,
+        state: snapshot.filters.state ?? null,
+        pad: snapshot.filters.pad ?? null,
+        provider: snapshot.filters.provider ?? null,
+        status: snapshot.filters.status && snapshot.filters.status !== 'all' ? snapshot.filters.status : null
+      });
+
+      const recommendedIntervalSeconds = getRecommendedLaunchRefreshIntervalSeconds(
+        payload.recommendedIntervalSeconds,
+        fallbackRefreshIntervalSeconds
+      );
+      const nextCadenceAnchorNet = typeof payload.cadenceAnchorNet === 'string' ? payload.cadenceAnchorNet : null;
+      setScheduledRefreshIntervalSeconds(recommendedIntervalSeconds);
+      setCadenceAnchorNet(nextCadenceAnchorNet);
+
+      const nextVersion = payload.version;
+      const visibleUpdatedAt = getVisibleFeedUpdatedAt(snapshot.launches, snapshot.feedScope);
+      const shouldApply = pendingRefresh
+        ? true
+        : lastSeenVersionRef.current
+          ? nextVersion !== lastSeenVersionRef.current
+          : shouldPrimeVersionRefresh(payload.updatedAt, visibleUpdatedAt);
+
+      if (!shouldApply) {
+        lastSeenVersionRef.current = nextVersion;
+        const nextRefreshAt = getNextAdaptiveLaunchRefreshMs({
+          nowMs: Date.now(),
+          intervalSeconds: recommendedIntervalSeconds,
+          cadenceAnchorNet: nextCadenceAnchorNet
         });
-      } finally {
-        setRefreshApplying(false);
+        showToast({
+          message:
+            snapshot.feedScope === 'live'
+              ? `Launch schedule is up to date. Next live check around ${formatRefreshTimeLabel(nextRefreshAt)}.`
+              : `Launch schedule is up to date. Next public refresh around ${formatRefreshTimeLabel(nextRefreshAt)}.`
+        });
+        return;
       }
-    },
-    [pendingRefresh, refreshApplying, refetchLaunchFeed, showToast]
-  );
 
-  useEffect(() => {
-    if (!pendingRefresh || refreshApplying) {
-      return;
-    }
-    void applyPendingFeedRefresh({ announce: false });
-  }, [applyPendingFeedRefresh, pendingRefresh, refreshApplying]);
-
-  async function applyFeedRefresh() {
-    if (feedScope !== 'live') {
-      const nextRefreshAt = getNextAdaptiveLaunchRefreshMs({
-        nowMs: Date.now(),
-        intervalSeconds: refreshIntervalSeconds,
-        cadenceAnchorNet
-      });
-      const message = `Public launch data refreshes next around ${formatRefreshTimeLabel(nextRefreshAt)}.`;
-      setNotice((current) => (current?.kind === 'anon_refresh' ? null : current));
+      await applyResolvedFeedRefresh(nextVersion);
       showToast({
-        message,
-        actionLabel: 'Go Premium for near-live data',
-        onAction: openPremiumGate,
-        durationMs: 7000
+        message: 'Launch schedule updated.',
+        tone: 'success'
       });
-      return;
+    } catch (error) {
+      const status = error instanceof ApiClientError ? error.status : null;
+      if (status === 401 || status === 402) {
+        setPendingRefresh(null);
+        showToast({
+          message: 'Live launch data requires Premium.'
+        });
+        return;
+      }
+      setNotice({
+        tone: 'warning',
+        message: error instanceof Error ? error.message : 'Unable to refresh the launch feed.'
+      });
+    } finally {
+      setRefreshApplying(false);
     }
-
-    if (!pendingRefresh) {
-      const nextRefreshAt = getNextAdaptiveLaunchRefreshMs({
-        nowMs: Date.now(),
-        intervalSeconds: refreshIntervalSeconds,
-        cadenceAnchorNet
-      });
-      showToast({
-        message: `Launch schedule is up to date. Next live check around ${formatRefreshTimeLabel(nextRefreshAt)}.`
-      });
-      return;
-    }
-
-    await applyPendingFeedRefresh({ announce: true });
   }
 
   async function handleSavePreset(name: string) {
