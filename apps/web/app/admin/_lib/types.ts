@@ -56,6 +56,21 @@ export type TrajectoryPipelineFreshness = {
   staleLaunchIds: string[];
   precisionStaleProductsCount: number;
   precisionStaleLaunchIds: string[];
+  catalogCoverage: {
+    futureLaunches: number;
+    rocketFamilyFilled: number;
+    rocketFamilyFillRate: number | null;
+    ll2RocketConfigFilled: number;
+    ll2RocketConfigFillRate: number | null;
+    configFamilyAvailable: number;
+    configFamilyAvailableRate: number | null;
+    repairableMissingRocketFamily: number;
+    repairableMissingRocketFamilyRate: number | null;
+    unrepairableMissingRocketFamily: number;
+    unrepairableMissingRocketFamilyRate: number | null;
+    sampleRepairableLaunchIds: string[];
+    sampleUnrepairableLaunchIds: string[];
+  };
   sourceFreshness: {
     alertsEnabled: boolean;
     orbit: {
@@ -140,6 +155,29 @@ export type TrajectoryPipelineFreshness = {
         q2: number;
         q3: number;
       };
+    };
+    completeness: {
+      requiredFieldValues: number;
+      filledFieldValues: number;
+      overallFillRate: number | null;
+      fields: Array<{
+        key: string;
+        label: string;
+        applicableSessions: number;
+        filledSessions: number;
+        fillRate: number | null;
+      }>;
+      runtimeFamilies: Array<{
+        runtimeFamily: 'web' | 'ios_native' | 'android_native' | 'unknown';
+        sessions: number;
+        fields: Array<{
+          key: string;
+          label: string;
+          applicableSessions: number;
+          filledSessions: number;
+          fillRate: number | null;
+        }>;
+      }>;
     };
     trend: Array<{
       day: string;

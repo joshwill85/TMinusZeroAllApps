@@ -5,7 +5,7 @@ Policy file: `docs/specs/ar-trajectory-coverage-policy-v1.json`
 
 ## Purpose
 
-Provide a repeatable field-report command for next-launch trajectory coverage quality (truth-tier orbit usage, derived-only rate, directional-constraint gaps, and product freshness gaps).
+Provide a repeatable field-report command for next-launch trajectory coverage quality (truth-tier orbit usage, derived-only rate, directional-constraint gaps, product freshness gaps, and family-segmentation readiness).
 
 ## Command
 
@@ -31,6 +31,8 @@ npm run trajectory:coverage:check -- --skip-db --output=.artifacts/ar-trajectory
 - `derivedOnlyOrbitCoverageRate`
 - `noDirectionalConstraintRate`
 - `missingOrStaleProductRate`
+- `rocketFamilyFillRate`
+- `repairableMissingRocketFamilyRate`
 
 ## Notes
 

@@ -23,6 +23,8 @@ type CoveragePolicy = {
     maxNoDirectionalConstraintRate: number;
     maxMissingOrStaleProductRate: number;
     maxPadOnlyProductRate: number;
+    minRocketFamilyFillRate: number;
+    maxRepairableMissingRocketFamilyRate: number;
   };
 };
 
@@ -54,6 +56,8 @@ type LaunchCoverageRow = {
   launchId: string;
   title: string;
   net: string | null;
+  rocketFamily: string | null;
+  repairableMissingRocketFamily: boolean;
   productQuality: number | null;
   productGeneratedAt: string | null;
   productDirectionalSource: string | null;
@@ -74,11 +78,15 @@ type CoverageSummary = {
   launchesWithoutDirectionalConstraint: number;
   launchesMissingOrStaleProduct: number;
   launchesPadOnlyProduct: number;
+  launchesWithRocketFamily: number;
+  launchesWithRepairableMissingRocketFamily: number;
   truthTierOrbitCoverageRate: number | null;
   derivedOnlyOrbitCoverageRate: number | null;
   noDirectionalConstraintRate: number | null;
   missingOrStaleProductRate: number | null;
   padOnlyProductRate: number | null;
+  rocketFamilyFillRate: number | null;
+  repairableMissingRocketFamilyRate: number | null;
 };
 
 type CoverageCheckReport = {
@@ -104,6 +112,8 @@ type LaunchRow = {
   pad_longitude: number | null;
   name: string | null;
   mission_name: string | null;
+  ll2_rocket_config_id: number | null;
+  rocket_family: string | null;
 };
 
 type ProductRow = {
@@ -270,22 +280,24 @@ function buildMarkdown(report: CoverageCheckReport) {
     lines.push(`- launchesEvaluated=${report.summary.launchesEvaluated}`);
     lines.push(`- truthTierOrbitCoverageRate=${fmtPct(report.summary.truthTierOrbitCoverageRate)}`);
     lines.push(`- derivedOnlyOrbitCoverageRate=${fmtPct(report.summary.derivedOnlyOrbitCoverageRate)}`);
-    lines.push(`- noDirectionalConstraintRate=${fmtPct(report.summary.noDirectionalConstraintRate)}`);
-    lines.push(`- missingOrStaleProductRate=${fmtPct(report.summary.missingOrStaleProductRate)}`);
-    lines.push(`- padOnlyProductRate=${fmtPct(report.summary.padOnlyProductRate)}`);
-    lines.push('');
+  lines.push(`- noDirectionalConstraintRate=${fmtPct(report.summary.noDirectionalConstraintRate)}`);
+  lines.push(`- missingOrStaleProductRate=${fmtPct(report.summary.missingOrStaleProductRate)}`);
+  lines.push(`- padOnlyProductRate=${fmtPct(report.summary.padOnlyProductRate)}`);
+  lines.push(`- rocketFamilyFillRate=${fmtPct(report.summary.rocketFamilyFillRate)}`);
+  lines.push(`- repairableMissingRocketFamilyRate=${fmtPct(report.summary.repairableMissingRocketFamilyRate)}`);
+  lines.push('');
   }
 
   lines.push('## Launches');
   lines.push('');
-  lines.push('| Launch | NET | Product | Directional source | Primary gap | Truth orbit | Derived-only orbit | Directional constraint | Pad-only product | Missing/stale product |');
-  lines.push('|---|---|---:|---|---|---|---|---|---|---|');
+  lines.push('| Launch | NET | Rocket family | Repairable family gap | Product | Directional source | Primary gap | Truth orbit | Derived-only orbit | Directional constraint | Pad-only product | Missing/stale product |');
+  lines.push('|---|---|---|---|---:|---|---|---|---|---|---|---|');
   if (!report.launches.length) {
-    lines.push('| — | — | — | — | — | — | — | — | — | — |');
+    lines.push('| — | — | — | — | — | — | — | — | — | — | — | — |');
   } else {
     for (const row of report.launches) {
       lines.push(
-        `| ${row.title} | ${row.net ?? '—'} | ${row.productQuality ?? '—'} | ${row.productDirectionalSource ?? '—'} | ${row.primaryGap ?? '—'} | ${row.hasTruthTierOrbit ? 'yes' : 'no'} | ${row.hasDerivedOnlyOrbit ? 'yes' : 'no'} | ${row.hasDirectionalConstraint ? 'yes' : 'no'} | ${row.productPadOnly ? 'yes' : 'no'} | ${row.productMissingOrStale ? 'yes' : 'no'} |`
+        `| ${row.title} | ${row.net ?? '—'} | ${row.rocketFamily ?? '—'} | ${row.repairableMissingRocketFamily ? 'yes' : 'no'} | ${row.productQuality ?? '—'} | ${row.productDirectionalSource ?? '—'} | ${row.primaryGap ?? '—'} | ${row.hasTruthTierOrbit ? 'yes' : 'no'} | ${row.hasDerivedOnlyOrbit ? 'yes' : 'no'} | ${row.hasDirectionalConstraint ? 'yes' : 'no'} | ${row.productPadOnly ? 'yes' : 'no'} | ${row.productMissingOrStale ? 'yes' : 'no'} |`
       );
     }
   }
@@ -328,7 +340,7 @@ async function main() {
 
     const { data: launchesData, error: launchesError } = await supabase
       .from('launches_public_cache')
-      .select('launch_id, net, status_name, timeline, pad_latitude, pad_longitude, name, mission_name')
+      .select('launch_id, net, status_name, timeline, pad_latitude, pad_longitude, name, mission_name, ll2_rocket_config_id, rocket_family')
       .gte('net', fromIso)
       .order('net', { ascending: true })
       .limit(candidateLimit);
@@ -356,13 +368,40 @@ async function main() {
         launchesWithoutDirectionalConstraint: 0,
         launchesMissingOrStaleProduct: 0,
         launchesPadOnlyProduct: 0,
+        launchesWithRocketFamily: 0,
+        launchesWithRepairableMissingRocketFamily: 0,
         truthTierOrbitCoverageRate: null,
         derivedOnlyOrbitCoverageRate: null,
         noDirectionalConstraintRate: null,
         missingOrStaleProductRate: null,
-        padOnlyProductRate: null
+        padOnlyProductRate: null,
+        rocketFamilyFillRate: null,
+        repairableMissingRocketFamilyRate: null
       };
     } else {
+      const rocketConfigIds = Array.from(
+        new Set(
+          eligible
+            .map((row) => (typeof row.ll2_rocket_config_id === 'number' ? row.ll2_rocket_config_id : null))
+            .filter((value): value is number => value != null)
+        )
+      );
+      const configFamilyById = new Map<number, string>();
+      for (let index = 0; index < rocketConfigIds.length; index += 500) {
+        const chunk = rocketConfigIds.slice(index, index + 500);
+        if (!chunk.length) continue;
+        const { data, error } = await supabase
+          .from('ll2_rocket_configs')
+          .select('ll2_config_id, family')
+          .in('ll2_config_id', chunk);
+        if (error) throw new Error(`Failed to load ll2_rocket_configs: ${error.message}`);
+        for (const row of data || []) {
+          const configId = typeof row?.ll2_config_id === 'number' ? row.ll2_config_id : null;
+          const family = typeof row?.family === 'string' ? row.family.trim() : '';
+          if (configId != null && family) configFamilyById.set(configId, family);
+        }
+      }
+
       const [{ data: productsData, error: productsError }, { data: constraintsData, error: constraintsError }] = await Promise.all([
         supabase
           .from('launch_trajectory_products')
@@ -396,6 +435,8 @@ async function main() {
       let launchesWithoutDirectionalConstraint = 0;
       let launchesMissingOrStaleProduct = 0;
       let launchesPadOnlyProduct = 0;
+      let launchesWithRocketFamily = 0;
+      let launchesWithRepairableMissingRocketFamily = 0;
 
       for (const launch of eligible) {
         const product = productsByLaunch.get(launch.launch_id) ?? null;
@@ -411,17 +452,26 @@ async function main() {
         const hasDerivedOnlyOrbit = gapSummary.signals.hasDerivedOnlyOrbit;
         const productMissingOrStale = gapSummary.freshness.missingProduct || gapSummary.freshness.productStale;
         const productPadOnly = Boolean(product && (gapSummary.product.qualityLabel === 'pad_only' || product.quality === 0));
+        const hasRocketFamily = typeof launch.rocket_family === 'string' && launch.rocket_family.trim().length > 0;
+        const repairableMissingRocketFamily =
+          !hasRocketFamily &&
+          typeof launch.ll2_rocket_config_id === 'number' &&
+          configFamilyById.has(launch.ll2_rocket_config_id);
 
         if (hasTruthTierOrbit) launchesWithTruthTierOrbit += 1;
         if (hasDerivedOnlyOrbit) launchesWithDerivedOnlyOrbit += 1;
         if (!hasDirectionalConstraint) launchesWithoutDirectionalConstraint += 1;
         if (productMissingOrStale) launchesMissingOrStaleProduct += 1;
         if (productPadOnly) launchesPadOnlyProduct += 1;
+        if (hasRocketFamily) launchesWithRocketFamily += 1;
+        if (repairableMissingRocketFamily) launchesWithRepairableMissingRocketFamily += 1;
 
         launchRows.push({
           launchId: launch.launch_id,
           title: launch.mission_name || launch.name || launch.launch_id,
           net: launch.net,
+          rocketFamily: hasRocketFamily ? launch.rocket_family : null,
+          repairableMissingRocketFamily,
           productQuality: product?.quality ?? null,
           productGeneratedAt: product?.generated_at ?? null,
           productDirectionalSource: gapSummary.product.directionalSourceLabel,
@@ -443,11 +493,15 @@ async function main() {
         launchesWithoutDirectionalConstraint: launchesWithoutDirectionalConstraint,
         launchesMissingOrStaleProduct,
         launchesPadOnlyProduct,
+        launchesWithRocketFamily,
+        launchesWithRepairableMissingRocketFamily,
         truthTierOrbitCoverageRate: safeRate(launchesWithTruthTierOrbit, eligible.length),
         derivedOnlyOrbitCoverageRate: safeRate(launchesWithDerivedOnlyOrbit, eligible.length),
         noDirectionalConstraintRate: safeRate(launchesWithoutDirectionalConstraint, eligible.length),
         missingOrStaleProductRate: safeRate(launchesMissingOrStaleProduct, eligible.length),
-        padOnlyProductRate: safeRate(launchesPadOnlyProduct, eligible.length)
+        padOnlyProductRate: safeRate(launchesPadOnlyProduct, eligible.length),
+        rocketFamilyFillRate: safeRate(launchesWithRocketFamily, eligible.length),
+        repairableMissingRocketFamilyRate: safeRate(launchesWithRepairableMissingRocketFamily, eligible.length)
       };
     }
 
@@ -505,6 +559,28 @@ async function main() {
         threshold: `<= ${policy.thresholds.maxPadOnlyProductRate}`
       })
     );
+    checks.push(
+      check({
+        id: 'coverage.rocket_family_fill_rate',
+        label: 'Rocket-family fill rate',
+        pass: summary.rocketFamilyFillRate != null && summary.rocketFamilyFillRate >= policy.thresholds.minRocketFamilyFillRate,
+        value: summary.rocketFamilyFillRate,
+        threshold: `>= ${policy.thresholds.minRocketFamilyFillRate}`,
+        details: `filled=${summary.launchesWithRocketFamily}/${summary.launchesEvaluated}`
+      })
+    );
+    checks.push(
+      check({
+        id: 'coverage.repairable_missing_rocket_family_rate',
+        label: 'Repairable missing rocket-family rate',
+        pass:
+          summary.repairableMissingRocketFamilyRate != null &&
+          summary.repairableMissingRocketFamilyRate <= policy.thresholds.maxRepairableMissingRocketFamilyRate,
+        value: summary.repairableMissingRocketFamilyRate,
+        threshold: `<= ${policy.thresholds.maxRepairableMissingRocketFamilyRate}`,
+        details: `repairable_missing=${summary.launchesWithRepairableMissingRocketFamily}/${summary.launchesEvaluated}`
+      })
+    );
   }
 
   const pass = checks.every((row) => row.status !== 'fail');
@@ -534,7 +610,7 @@ async function main() {
     console.log(`Checks: pass=${checks.filter((row) => row.status === 'pass').length} fail=${failed.length} skip=${skipped.length}`);
     if (summary) {
       console.log(
-        `Summary: launches=${summary.launchesEvaluated} truth=${fmtPct(summary.truthTierOrbitCoverageRate)} derivedOnly=${fmtPct(summary.derivedOnlyOrbitCoverageRate)} noDirectional=${fmtPct(summary.noDirectionalConstraintRate)} stale=${fmtPct(summary.missingOrStaleProductRate)}`
+        `Summary: launches=${summary.launchesEvaluated} truth=${fmtPct(summary.truthTierOrbitCoverageRate)} derivedOnly=${fmtPct(summary.derivedOnlyOrbitCoverageRate)} noDirectional=${fmtPct(summary.noDirectionalConstraintRate)} stale=${fmtPct(summary.missingOrStaleProductRate)} family=${fmtPct(summary.rocketFamilyFillRate)} repairableFamilyGap=${fmtPct(summary.repairableMissingRocketFamilyRate)}`
       );
     } else {
       console.log('Summary: skipped');

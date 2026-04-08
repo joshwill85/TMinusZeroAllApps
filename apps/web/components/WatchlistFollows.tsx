@@ -1,10 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import type { WatchlistRuleV1 } from '@tminuszero/api-client';
-import { buildPreferencesHref } from '@tminuszero/navigation';
+import { buildPreferencesHref, buildUpgradeHref } from '@tminuszero/navigation';
 import {
   useBasicFollowsQuery,
   useCreateWatchlistMutation,
@@ -14,7 +14,6 @@ import {
   useWatchlistsQuery
 } from '@/lib/api/queries';
 import { FollowMenuButton, type FollowMenuOption } from './FollowMenuButton';
-import { PremiumUpsellModal } from './PremiumUpsellModal';
 import { useToast } from './ToastProvider';
 
 type WatchlistFollowsProps = {
@@ -48,6 +47,7 @@ export function WatchlistFollows({
   launchSiteLabel,
   state
 }: WatchlistFollowsProps) {
+  const pathname = usePathname();
   const router = useRouter();
   const { pushToast } = useToast();
   const entitlementsQuery = useViewerEntitlementsQuery();
@@ -60,7 +60,6 @@ export function WatchlistFollows({
   const [didAttemptEnsureWatchlist, setDidAttemptEnsureWatchlist] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
-  const [upsellOpen, setUpsellOpen] = useState(false);
 
   const watchlists = useMemo(() => watchlistsQuery.data?.watchlists ?? [], [watchlistsQuery.data?.watchlists]);
   const selectedWatchlist = useMemo(
@@ -74,7 +73,8 @@ export function WatchlistFollows({
   const activeBasicLaunchFollow = basicFollowsQuery.data?.activeLaunchFollow ?? null;
   const normalizedLaunchId = String(launchId || '').trim().toLowerCase();
   const currentBasicLaunchActive = activeBasicLaunchFollow?.launchId === normalizedLaunchId;
-  const basicFollowCapacityLabel = canUseSavedItems ? undefined : `${activeBasicLaunchFollow ? 1 : 0}/${singleLaunchFollowLimit}`;
+  const isAnonViewer = !isAuthed;
+  const basicFollowCapacityLabel = canUseSavedItems || isAnonViewer ? undefined : `${activeBasicLaunchFollow ? 1 : 0}/${singleLaunchFollowLimit}`;
   const queryErrorMessage =
     canUseSavedItems
       ? watchlistsQuery.error
@@ -91,6 +91,9 @@ export function WatchlistFollows({
   const stateRuleValue = useMemo(() => buildStateRuleValue(state), [state]);
   const rocketDisplayLabel = normalizeText(rocketLabel) ?? (rocketRuleValue ? formatRocketRuleLabel(rocketRuleValue) : 'this rocket');
   const launchSiteDisplayLabel = normalizeText(launchSiteLabel ?? padLabel) ?? 'this site';
+  const openFollowUpgrade = useCallback(() => {
+    router.push(buildUpgradeHref({ returnTo: pathname || null }));
+  }, [pathname, router]);
 
   const launchRuleId = useMemo(
     () => (launchId ? findRuleId(selectedWatchlist?.rules ?? [], 'launch', launchId) : null),
@@ -165,7 +168,7 @@ export function WatchlistFollows({
       locked,
       onPress: () => {
         if (locked) {
-          setUpsellOpen(true);
+          openFollowUpgrade();
           return;
         }
         void toggleRule('launch', launchId, launchName || 'this launch');
@@ -180,7 +183,7 @@ export function WatchlistFollows({
       locked,
       onPress: () => {
         if (locked) {
-          setUpsellOpen(true);
+          openFollowUpgrade();
           return;
         }
         if (!providerKey) return;
@@ -196,7 +199,7 @@ export function WatchlistFollows({
       locked,
       onPress: () => {
         if (locked) {
-          setUpsellOpen(true);
+          openFollowUpgrade();
           return;
         }
         if (!rocketRuleValue) return;
@@ -212,7 +215,7 @@ export function WatchlistFollows({
       locked,
       onPress: () => {
         if (locked) {
-          setUpsellOpen(true);
+          openFollowUpgrade();
           return;
         }
         if (!padRuleValue) return;
@@ -228,7 +231,7 @@ export function WatchlistFollows({
       locked,
       onPress: () => {
         if (locked) {
-          setUpsellOpen(true);
+          openFollowUpgrade();
           return;
         }
         if (!launchSiteRuleValue) return;
@@ -244,7 +247,7 @@ export function WatchlistFollows({
       locked,
       onPress: () => {
         if (locked) {
-          setUpsellOpen(true);
+          openFollowUpgrade();
           return;
         }
         if (!stateRuleValue) return;
@@ -274,7 +277,7 @@ export function WatchlistFollows({
       disabled: !providerKey,
       locked: Boolean(providerKey),
       onPress: () => {
-        setUpsellOpen(true);
+        openFollowUpgrade();
       }
     },
     {
@@ -285,7 +288,7 @@ export function WatchlistFollows({
       disabled: !rocketRuleValue,
       locked: Boolean(rocketRuleValue),
       onPress: () => {
-        setUpsellOpen(true);
+        openFollowUpgrade();
       }
     },
     {
@@ -296,7 +299,7 @@ export function WatchlistFollows({
       disabled: !padRuleValue,
       locked: Boolean(padRuleValue),
       onPress: () => {
-        setUpsellOpen(true);
+        openFollowUpgrade();
       }
     },
     {
@@ -307,7 +310,7 @@ export function WatchlistFollows({
       disabled: !launchSiteRuleValue,
       locked: Boolean(launchSiteRuleValue),
       onPress: () => {
-        setUpsellOpen(true);
+        openFollowUpgrade();
       }
     },
     {
@@ -318,11 +321,79 @@ export function WatchlistFollows({
       disabled: !stateRuleValue,
       locked: Boolean(stateRuleValue),
       onPress: () => {
-        setUpsellOpen(true);
+        openFollowUpgrade();
       }
     }
   ];
-  const followOptions = canUseSavedItems ? premiumFollowOptions : basicFollowOptions;
+  const anonFollowOptions: FollowMenuOption[] = [
+    {
+      key: 'launch',
+      label: 'This launch',
+      description: launchName ? `Premium unlocks launch reminders and follow tracking for ${launchName}.` : 'Premium unlocks launch reminders and follow tracking for this launch.',
+      active: false,
+      disabled: false,
+      locked: true,
+      onPress: () => {
+        openFollowUpgrade();
+      }
+    },
+    {
+      key: 'provider',
+      label: 'This provider',
+      description: providerKey ? `All launches from ${providerKey}. Premium unlocks recurring provider follows.` : 'Provider follow unavailable for this card.',
+      active: false,
+      disabled: !providerKey,
+      locked: Boolean(providerKey),
+      onPress: () => {
+        openFollowUpgrade();
+      }
+    },
+    {
+      key: 'rocket',
+      label: 'This rocket',
+      description: rocketRuleValue ? `All launches for ${rocketDisplayLabel}. Premium unlocks recurring rocket follows.` : 'Rocket follow unavailable for this card.',
+      active: false,
+      disabled: !rocketRuleValue,
+      locked: Boolean(rocketRuleValue),
+      onPress: () => {
+        openFollowUpgrade();
+      }
+    },
+    {
+      key: 'pad',
+      label: 'This pad',
+      description: padRuleValue ? `Launches from ${resolvePadFollowTarget({ padLabel, padShortCode })}. Premium unlocks recurring pad follows.` : 'Pad follow unavailable for this card.',
+      active: false,
+      disabled: !padRuleValue,
+      locked: Boolean(padRuleValue),
+      onPress: () => {
+        openFollowUpgrade();
+      }
+    },
+    {
+      key: 'launch_site',
+      label: 'This launch site',
+      description: launchSiteRuleValue ? `Launches from ${launchSiteDisplayLabel}. Premium unlocks recurring launch-site follows.` : 'Launch-site follow unavailable for this card.',
+      active: false,
+      disabled: !launchSiteRuleValue,
+      locked: Boolean(launchSiteRuleValue),
+      onPress: () => {
+        openFollowUpgrade();
+      }
+    },
+    {
+      key: 'state',
+      label: 'This state',
+      description: stateRuleValue ? `Launches in ${stateRuleValue.toUpperCase()}. Premium unlocks state-wide follows.` : 'State follow unavailable for this card.',
+      active: false,
+      disabled: !stateRuleValue,
+      locked: Boolean(stateRuleValue),
+      onPress: () => {
+        openFollowUpgrade();
+      }
+    }
+  ];
+  const followOptions = canUseSavedItems ? premiumFollowOptions : isAnonViewer ? anonFollowOptions : basicFollowOptions;
 
   const availableOptionCount = followOptions.filter((option) => !option.disabled || option.locked || option.active).length;
   const activeFollowCount = followOptions.filter((option) => option.active).length;
@@ -358,7 +429,6 @@ export function WatchlistFollows({
           options={followOptions}
         />
       </div>
-      <PremiumUpsellModal open={upsellOpen} onClose={() => setUpsellOpen(false)} isAuthed={isAuthed} featureLabel="Follow" />
     </>
   );
 

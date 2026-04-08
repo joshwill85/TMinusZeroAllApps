@@ -133,7 +133,7 @@ export default function LaunchDetailScreen() {
     router.replace('/feed' as Href);
   }, [router]);
   const openPremiumGate = useCallback(() => {
-    router.push('/profile');
+    router.push('/account/membership' as Href);
   }, [router]);
   const { installationId, deviceSecret, isRegistered } = useMobilePush();
   const { client } = useApiClient();
@@ -666,7 +666,7 @@ export default function LaunchDetailScreen() {
     const basicActiveLaunchRule = !canUseSavedItems ? mobilePushRules.find((rule) => rule.scopeKind === 'launch') ?? null : null;
     const currentBasicLaunchActive = basicActiveLaunchRule?.launchId === launchRecord.id;
     const basicLaunchSlotOccupiedElsewhere = Boolean(basicActiveLaunchRule && !currentBasicLaunchActive);
-    const basicFollowCapacityLabel = canUseSavedItems ? undefined : `${basicActiveLaunchRule ? 1 : 0}/${singleLaunchFollowLimit}`;
+    const basicFollowCapacityLabel = canUseSavedItems || !isAuthed ? undefined : `${basicActiveLaunchRule ? 1 : 0}/${singleLaunchFollowLimit}`;
     const launchNotificationRule = mobilePushRules.find((rule) => rule.scopeKind === 'launch' && rule.launchId === launchRecord.id) ?? null;
 
     const showFollowToast = ({
@@ -967,7 +967,8 @@ export default function LaunchDetailScreen() {
             }
           }
         ]
-      : [
+      : isAuthed
+        ? [
           {
             key: 'launch_notifications',
             label: 'This launch',
@@ -1053,7 +1054,81 @@ export default function LaunchDetailScreen() {
               openPremiumGate();
             }
           }
-        ];
+        ]
+        : [
+            {
+              key: 'launch_locked',
+              label: 'This launch',
+              description: title ? `Premium unlocks launch reminders and follow tracking for ${title}.` : 'Premium unlocks launch reminders and follow tracking for this launch.',
+              active: false,
+              disabled: false,
+              locked: true,
+              onPress: () => {
+                closeFollowSheet();
+                openPremiumGate();
+              }
+            },
+            {
+              key: 'state_locked',
+              label: 'This state',
+              description: 'Premium adds state-wide launch alerts.',
+              active: false,
+              disabled: false,
+              locked: true,
+              onPress: () => {
+                closeFollowSheet();
+                openPremiumGate();
+              }
+            },
+            {
+              key: 'provider_locked',
+              label: 'This provider',
+              description: 'Premium adds recurring provider follows.',
+              active: false,
+              disabled: false,
+              locked: true,
+              onPress: () => {
+                closeFollowSheet();
+                openPremiumGate();
+              }
+            },
+            {
+              key: 'rocket_locked',
+              label: 'This rocket',
+              description: 'Premium adds recurring rocket follows.',
+              active: false,
+              disabled: false,
+              locked: true,
+              onPress: () => {
+                closeFollowSheet();
+                openPremiumGate();
+              }
+            },
+            {
+              key: 'pad_locked',
+              label: 'This pad',
+              description: 'Premium adds recurring pad follows.',
+              active: false,
+              disabled: false,
+              locked: true,
+              onPress: () => {
+                closeFollowSheet();
+                openPremiumGate();
+              }
+            },
+            {
+              key: 'launch_site_locked',
+              label: 'This launch site',
+              description: 'Premium adds recurring launch-site follows.',
+              active: false,
+              disabled: false,
+              locked: true,
+              onPress: () => {
+                closeFollowSheet();
+                openPremiumGate();
+              }
+            }
+          ];
     const activeFollowCount = followOptions.filter((option) => option.active).length;
     const followButtonLabel = activeFollowCount > 0 ? 'Following' : 'Follow';
 
@@ -1074,7 +1149,7 @@ export default function LaunchDetailScreen() {
             isPushRegistered={isRegistered}
             onOpenUpgrade={() => {
               closeFollowSheet();
-              router.push('/profile');
+              openPremiumGate();
             }}
             onOpenPreferences={() => {
               closeFollowSheet();
@@ -1085,9 +1160,11 @@ export default function LaunchDetailScreen() {
         message={
           canUseSavedItems
             ? 'Following keeps matching launches in your saved list, and launch alerts live in the Notifications tab for this launch.'
-            : canUseAllUsLaunchAlerts
+            : isAuthed && canUseAllUsLaunchAlerts
               ? 'Public access keeps one launch reminder slot on this device. Manage this launch in the Notifications tab and All U.S. launches from Preferences. Premium adds synced follows across broader scopes.'
-              : 'Public access keeps one launch reminder slot on this device. Manage launch alerts from the Notifications tab here. Premium adds synced follows across broader scopes.'
+              : isAuthed
+                ? 'Public access keeps one launch reminder slot on this device. Manage launch alerts from the Notifications tab here. Premium adds synced follows across broader scopes.'
+                : 'Premium unlocks launch reminders, followed-launch tracking, and broader follow scopes from this sheet.'
         }
         onClose={() => setFollowSheetOpen(false)}
       />

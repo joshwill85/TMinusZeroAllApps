@@ -864,6 +864,9 @@ internal class TmzArTrajectoryView(context: Context, appContext: AppContext) : E
 
   private fun createPayloadMap(): WritableMap {
     refreshPermissionState()
+    val locationFixState = resolveLocationFixState()
+    val alignmentReady = resolveAlignmentReady(locationFixState)
+    val headingStatus = resolveHeadingStatus(locationFixState)
     val payload = Arguments.createMap()
     payload.putBoolean("sessionRunning", sessionRunning)
     payload.putString("status", status)
@@ -911,6 +914,9 @@ internal class TmzArTrajectoryView(context: Context, appContext: AppContext) : E
     payload.putString("motionPermission", motionPermission)
     payload.putString("locationPermission", locationPermission)
     payload.putString("locationAccuracy", locationAccuracy)
+    payload.putString("locationFixState", locationFixState)
+    payload.putBoolean("alignmentReady", alignmentReady)
+    payload.putString("headingStatus", headingStatus)
     payload.putString("headingSource", "unknown")
     payload.putString("poseSource", "deviceorientation")
     payload.putString("poseMode", "sensor_fused")
@@ -922,6 +928,33 @@ internal class TmzArTrajectoryView(context: Context, appContext: AppContext) : E
     }
     payload.putInt("retryCount", retryCount)
     return payload
+  }
+
+  private fun resolveLocationFixState(): String {
+    if (locationPermission != "granted") {
+      return "unavailable"
+    }
+    if (locationAccuracy == "reduced") {
+      return "coarse"
+    }
+    return "ready"
+  }
+
+  private fun resolveAlignmentReady(locationFixState: String): Boolean {
+    if (!sessionRunning || status != "running" || trackingState != "normal") {
+      return false
+    }
+    return locationFixState == "ready"
+  }
+
+  private fun resolveHeadingStatus(locationFixState: String): String {
+    if (locationPermission != "granted") {
+      return "unavailable"
+    }
+    if (locationFixState == "coarse") {
+      return "noisy"
+    }
+    return "unknown"
   }
 
   private fun dispatchEvent(eventName: String, payload: WritableMap) {

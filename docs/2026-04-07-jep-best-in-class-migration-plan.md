@@ -1,6 +1,6 @@
 # 2026-04-07 JEP Best-In-Class Migration Plan
 
-Last updated: 2026-04-07
+Last updated: 2026-04-08
 
 ## Platform Matrix
 
@@ -15,14 +15,14 @@ Last updated: 2026-04-07
 
 The external source stack in the reviewed JEP requirements document is viable, but the document assumes a more advanced baseline than the live repo actually has.
 
-The live repo is still running a `jep_v5` four-factor multiplicative watchability model:
+The live public-serving stack is still running a `jep_v5` four-factor multiplicative watchability model:
 
 - illumination
 - darkness
 - line of sight
 - weather
 
-It does not yet have:
+It does not yet have these capabilities in public production:
 
 - the weighted geometric mean and hard gating structure assumed by the spec
 - moon/background-light inputs
@@ -38,12 +38,62 @@ The right migration is therefore not "add a few missing data sources." The right
 3. introduce a shadow-scored `jep_v6` model additively
 4. cut over only after score diffs, data coverage, and calibration gates are met
 
+## 2026-04-08 Product Decision
+
+Public `jep_v6` v1 remains an observer-aware, US-first `watchability` model, but it no longer treats fine local obstruction as part of the release-critical path.
+
+Public v1 keeps:
+
+- sample-based sunlit plume geometry
+- observer-specific broad visibility geometry
+- Earth-curvature and distance sanity gating
+- trajectory elevation and line-of-sight gating
+- weather/cloud obstruction
+- moon and anthropogenic background-light effects
+- launch-family and vehicle-prior tuning
+
+Public v1 explicitly defers:
+
+- local terrain masks
+- local building masks
+- Copernicus DEM ingestion as a release blocker
+- Overture buildings ingestion as a release blocker
+- GHS-OBAT backfill as a release blocker
+
+This means the public product assumes a clean local viewing lane once the plume is broadly visible from the observer location. Broad observer geometry still blocks impossible cases such as `California` observers for `Florida` launches. Fine skyline-level obstruction does not.
+
+The short-form decision record for this re-scope lives in `docs/2026-04-08-jep-v1-scope-decision.md`.
+
+## Required Source Admission Gate
+
+Every new JEP data source, ingest, or factor family must pass this gate before it is allowed onto the implementation path.
+
+Required questions:
+
+1. Is the data current, available, and consistently provided?
+2. If so, can it be joined to our launch identity with stable keys or deterministic matching?
+3. If so, in samples of our future launch inventory, do we actually have the values we need and can use?
+
+Enforcement rule:
+
+- if the answer is `no` at any step, do not build the ingest into the active implementation plan
+- move it to `Optional / Deferred` or remove it entirely
+- keep the corresponding score family neutral rather than pretending we have usable data
+- passing the gate is necessary, but not sufficient; public-v1 product scope and rollout priority still decide whether a passing source is on the active build path
+
+This gate applies to:
+
+- new upstream APIs
+- new file-based ETL
+- new factor families in `jep_v6`
+- mission-specific overrides such as official visibility maps or special event priors
+
 ## What The Reviewed Document Gets Right
 
 - `JPL Horizons` is a strong primary source for observer-specific moon geometry.
 - `USNO` is a practical fallback and QA source for sun/moon timing.
 - `NASA Black Marble` monthly/yearly products are a good fit for stable anthropogenic background-light baselines.
-- `Copernicus DEM` plus `Overture Buildings` is the right horizon-mask combination.
+- `Copernicus DEM` plus `Overture Buildings` is the right future combination for a fine local-horizon system, but that system is no longer part of the public v1 critical path.
 - `LL2` should remain the launch identity and schedule feed, not the source of plume physics.
 - vehicle plume behavior should come from a local curated prior table keyed to official provider docs
 - upper-atmosphere/noctilucent context should remain advisory-only in v1
@@ -74,21 +124,30 @@ Required correction:
 
 - phase the rollout by launch families with usable trajectory products first
 - make trajectory coverage and freshness an explicit readiness gate for `jep_v6`
-- do not pretend moon/background/horizon work solves coverage where trajectory is still missing
+- do not pretend moon/background work solves coverage where trajectory is still missing
 
-### 3. The current observer bucketing is too coarse for building and horizon work
+### 3. Fine local-obstruction precision is no longer a v1 blocker
 
-`apps/web/lib/server/jepObserver.ts` currently snaps observers to `0.1` degrees. That is far too coarse for:
+`apps/web/lib/server/jepObserver.ts` currently snaps observers to `0.1` degrees. That is still too coarse for some future high-fidelity geospatial work, but local skyline precision is no longer required for public v1.
+
+What remains in scope for public v1:
+
+- exact observer-aware broad geometry checks
+- trajectory elevation and distance gating
+- cached moon/background features with a finer derived feature cell where useful
+
+What is now deferred:
 
 - local building obstruction within `3-5 km`
-- anthropogenic light differences across urban/coastal edges
-- personalized moon/horizon contrast near the local skyline
+- terrain ridgeline masking
+- personalized skyline-level horizon contrast
 
 Required correction:
 
 - keep the current `launch_jep_scores` observer hash for backward compatibility
-- introduce a finer derived-feature cell key for `jep_v6` horizon and background features
-- use exact observer coordinates for transient compute and a much tighter cache cell for persisted derived features
+- continue using exact observer coordinates for transient geometry compute
+- introduce a finer derived-feature cell key for `jep_v6` cached moon/background features where needed
+- do not make public v1 rollout depend on fine local-obstruction bucketing
 
 ### 4. The existing `jep_profiles` table is not the target data model
 
@@ -165,27 +224,36 @@ Inference from those sources:
 - the source stack is externally viable
 - the main risk is not source availability
 - the main risk is local architecture, feature caching, and rollout discipline
+- every source still needs to pass the required source-admission gate before it becomes implementation work
 
 ## Source Dependency Matrix
+
+Classification rule:
+
+- `Go` means the source already clears the required source-admission gate for public-v1 implementation
+- `Go With Account` means it clears the gate once account setup is complete
+- `Optional / Deferred` means it is externally real but does not yet clear the gate for active build-out
+- `Do Not Depend On` means it fails the gate for public-v1 dependency purposes
 
 ### Go
 
 - `LL2` for launch identity, launch windows, pad coordinates, and `rocket.configuration.id` joins
 - `JPL Horizons` for observer-specific moon geometry and ephemerides
 - `USNO` for sun/moon fallback and QA
-- `Overture Buildings` and `building_part` for current obstruction geometry
 - official provider documentation and public mission references for curated vehicle-prior authoring
 - current weather stack already in repo for observer/path cloud and obstruction inputs
 
 ### Go With Account
 
 - `NASA Black Marble` monthly and yearly products via Earthdata and LAADS tokenized download
-- `Copernicus DEM` via Copernicus Data Space account, OAuth, and S3/API access
 
-### Optional
+### Optional / Deferred
 
 - official visibility maps published by providers or agencies
+- `Copernicus DEM` for a future local terrain-masking track
+- `Overture Buildings` and `building_part` for a future local building-masking track
 - `GHS-OBAT` as missing-height backfill only
+- mission-specific special event priors such as relights, venting, or tracer-like releases unless a source proves current, joinable, and present at useful future-launch coverage
 - `VNP46A2` daily Black Marble product after the monthly/yearly path is stable
 - automated media and image evidence collection for later calibration
 - upper-atmosphere or noctilucent context as advisory enrichment only
@@ -198,7 +266,25 @@ Inference from those sources:
 - manual analyst import as a required steady-state operating model
 - official visibility maps as a guaranteed launch-by-launch feed
 - upper-atmosphere or space-weather products as a core v1 scoring dependency
+- local terrain/building obstruction as a core public-v1 scoring dependency
 - any public `probability` release before automated evidence volume exists
+
+## Current Source Admission Decisions
+
+| Source or factor family | Q1: current, available, consistent | Q2: joinable to our launch identity | Q3: usable values in future-launch samples | Outcome | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `LL2` launch identity fields | Yes | Yes | Yes | Pass now | Use for pad, windows, `rocket.configuration.id`, and soft orbit family |
+| `LL2 timeline`, `probability`, `weather_concerns` | No | Partly | No | Reject as core dependency | Sparse or absent in the US future-launch sample |
+| `JPL Horizons` moon ephemerides | Yes | Yes | Yes | Pass now | Primary moon source for observer-specific geometry |
+| `USNO` sun/moon QA | Yes | Yes | Yes | Pass now | Fallback and QA source, not the primary ephemeris engine |
+| current weather stack | Yes | Yes | Yes | Pass now | Already integrated and aligned with observer-aware scoring |
+| `NASA Black Marble` monthly/yearly | Yes with account | Yes | Yes | Pass with account | Good fit for stable background-light baselines |
+| curated vehicle priors from official provider docs | Yes for supported US families | Yes | Yes | Pass now | Curated authoring keyed to `LL2 rocket.configuration.id`, not a generic auto-ingest feed |
+| official visibility maps | No | Yes when present | No | Defer optional-only | Real but inconsistent and sparse across future launches |
+| mission-specific special-event priors | No | Sometimes | No | Defer and keep neutral | Interesting, but not consistently provided in usable future-launch coverage |
+| `Copernicus DEM` | Yes | Yes | Yes | Pass but deferred by scope | Technically viable, but not part of the public-v1 critical path |
+| `Overture Buildings` | Yes | Yes | Yes | Pass but deferred by scope | Technically viable, but intentionally deferred with local obstruction |
+| `GHS-OBAT` | Partly | Yes | Partly | Defer backfill-only | Open and usable as enrichment, but too stale to anchor production truth |
 
 ## LL2 Dependency Audit For US Launches
 
@@ -242,6 +328,7 @@ Operational conclusion:
 - `timeline`, `probability`, and `weather_concerns` should therefore be treated as opportunistic metadata only, not required model inputs.
 - `rocket.configuration.id` is the critical join key for structured vehicle priors and is present at the coverage level we need for a US-first rollout.
 - `mission.orbit` is good enough to use as a soft family feature, but not good enough to be the only mission classifier.
+- mission-specific special-event data does not currently clear the required source-admission gate for public-v1 build-out, because it is not consistently provided across the future US launch inventory.
 
 Repo alignment check:
 
@@ -256,19 +343,20 @@ Because we do not expect a meaningful labeled outcome set before the next few mo
 Required behavioral rules:
 
 - if the plume corridor never becomes sunlit above the Earth shadow, the score must stay low even if weather and darkness are favorable
-- if local terrain or buildings block the modeled corridor, the score must not remain high just because the pad is technically visible
-- worsening cloud obstruction, brighter moonlight, brighter anthropogenic background, or a worse local horizon must never increase the score
+- if the observer never gets a broadly visible plume corridor because of Earth-curvature, distance, or trajectory geometry, the score must stay low even if weather and darkness are favorable
+- worsening cloud obstruction, brighter moonlight, brighter anthropogenic background, or worse broad geometry must never increase the score
 - full moon and bright city glow should reduce visibility potential, but should not hard-zero an otherwise strong twilight geometry case
 - missing trajectory products must reduce eligibility or confidence; the model must not invent a detailed plume geometry from weak metadata
 - official visibility maps may reduce over-optimistic outputs when present, but may not override impossible geometry or become a required dependency
 - the public product should stay in `watchability` mode until we have real automated evidence volume; probability mode should not be a launch blocker for the physical upgrade
+- public v1 intentionally assumes a clean local viewing lane once the plume is broadly visible from the observer location
 
 Required scenario tests:
 
 - strong negative control: midday launch with no sunlit high-altitude plume should score near the floor
-- strong positive control: clear twilight launch with favorable sunlit plume geometry and open horizon should score near the top band
+- strong positive control: clear twilight launch with favorable sunlit plume geometry, good broad observer geometry, and good weather should score near the top band
 - moon/background penalty case: the same geometry under full moon and heavy urban glow should score materially lower, but not collapse to zero
-- obstruction penalty case: an observer moved behind local terrain or dense buildings should see a clear score drop
+- impossible-observer case: a `California` observer for a `Florida` launch should score near the floor because no broadly visible corridor exists
 - state realism case: similar solar geometry should not produce identical scores for Florida, Texas, and California if trajectory family, coastal horizon, and background-light conditions differ
 
 Human-sanity review rule:
@@ -299,7 +387,8 @@ Recommended raw-source buckets and registries:
 
 - `jep_source_versions`
 - `jep_source_fetch_runs`
-- object-storage prefixes for `horizons/`, `black-marble/`, `cop-dem/`, `overture/`, `visibility-maps/`
+- object-storage prefixes for `horizons/`, `black-marble/`, `visibility-maps/`
+- optional deferred prefixes for `cop-dem/` and `overture/` if the local-obstruction track is resumed later
 
 ### Derived feature tier
 
@@ -309,12 +398,18 @@ Recommended new derived tables:
 
 - `jep_moon_ephemerides`
 - `jep_background_light_cells`
-- `jep_horizon_masks`
 - `jep_vehicle_priors`
-- `jep_special_event_priors`
 - `jep_visibility_maps`
 - `jep_visibility_map_zones`
 - `jep_feature_snapshots`
+
+Deferred local-obstruction tables:
+
+- `jep_horizon_masks`
+
+Deferred only if the source-admission gate is later satisfied:
+
+- `jep_special_event_priors`
 
 ### Scoring tier
 
@@ -356,13 +451,15 @@ Deliverables:
 - freeze the `jep_v6` model contract in docs
 - define the first launch-family rollout set based on real trajectory availability
 - define the observer-resolution strategy for derived geospatial features
+- record the source-admission decision for every proposed new ingest or factor family
 - add explicit settings for `jep_v6_shadow_enabled`, `jep_v6_public_enabled`, and source-refresh toggles
 
 Acceptance criteria:
 
 - there is a written `jep_v6` factor map and gate definition
 - trajectory coverage thresholds are written down and tied to rollout eligibility
-- we have chosen the finer observer feature-cell scheme and documented why it replaces `0.1` degree bucketing for horizon/background work
+- we have chosen the observer feature-cell strategy for cached v6 features and documented why broad geometry does not require a local skyline system in public v1
+- every planned new ingest has an explicit `pass/defer/reject` decision against the required source-admission gate
 
 Rollback boundary:
 
@@ -380,7 +477,7 @@ Owners:
 Deliverables:
 
 - additive Supabase migrations for raw-source registries and derived feature tables
-- storage layout for raw HDF5, GeoParquet extracts, DEM tiles, and visibility assets
+- storage layout for raw HDF5, launch metadata, and visibility assets
 - `jep_source_versions` and `jep_feature_snapshots` model
 - ETL job skeletons with no public scoring cutover
 
@@ -390,6 +487,11 @@ Repo touch points:
 - new `supabase/functions/jep-*`
 - `apps/web/lib/server/jep.ts`
 - `supabase/functions/jep-score-refresh/index.ts`
+
+Implementation rules:
+
+- no new source or factor family enters this phase unless it passes the required source-admission gate
+- if a proposed source fails on current availability, launch joinability, or future-launch coverage, do not scaffold production ingest for it
 
 Acceptance criteria:
 
@@ -433,45 +535,7 @@ Rollback boundary:
 
 - moon and background features can be excluded from the shadow scorer without removing ETL assets
 
-### Phase 3: Ship the local horizon system
-
-Duration: `7-12 days`
-
-Owners:
-
-- backend
-- data engineering
-- modeling
-
-Deliverables:
-
-- Copernicus DEM ingestion path
-- Overture building and building-part extraction path
-- GHS-OBAT backfill join for missing building heights only
-- horizon-mask builder that stores 360 degree terrain/building masks by observer feature cell
-- scorer support for plume-corridor-vs-local-horizon clearance
-
-Implementation rules:
-
-- compute masks outside the request path
-- treat terrain and buildings as separate stored sub-factors
-- compare plume elevation against `mask_total(az corridor)` rather than the current fixed `5 deg` threshold alone
-
-Repo-specific requirement:
-
-- this phase must introduce a finer observer-derived feature key; the current `0.1` degree hash is not sufficient
-
-Acceptance criteria:
-
-- `jep_v6` shadow features can produce `terrain_mask_el_deg`, `building_mask_el_deg`, `total_mask_el_deg`, and corridor-based clearance
-- dense urban observers no longer share the same coarse bucket behavior as distant observers in the same `0.1` degree cell
-- mask recompute is driven by observer-cell or building-release changes, not by every score refresh
-
-Rollback boundary:
-
-- horizon features can be disabled in scoring while keeping the precomputed tables intact
-
-### Phase 4: Ship structured vehicle priors and the `jep_v6` shadow scorer
+### Phase 3: Ship structured vehicle priors and the `jep_v6` shadow scorer
 
 Duration: `5-8 days`
 
@@ -483,7 +547,6 @@ Owners:
 Deliverables:
 
 - structured `jep_vehicle_priors` tables keyed to `LL2 rocket.configuration.id`
-- event prior support for stage events or tracer releases
 - gated weighted geometric mean implementation in a new `jep_v6` scorer
 - side-by-side `jep_v5` versus `jep_v6_shadow` comparison outputs
 
@@ -492,6 +555,7 @@ Implementation rules:
 - do not reuse `jep_profiles` as the primary structured store
 - do not publish `jep_v6` publicly in this phase
 - keep launch-go probability out of scope unless separately approved
+- keep mission-specific special-event priors out of scope unless they later pass the required source-admission gate
 
 Acceptance criteria:
 
@@ -503,7 +567,7 @@ Rollback boundary:
 
 - shadow scorer can be turned off by setting without affecting public `jep_v5`
 
-### Phase 5: Add optional official visibility-map ingestion and analyst QA
+### Phase 4: Add optional official visibility-map ingestion and analyst QA
 
 Duration: `4-6 days`
 
@@ -536,7 +600,7 @@ Rollback boundary:
 
 - map modifier can be turned off without losing ingested assets
 
-### Phase 6: Roll out additive API and three-surface behavior
+### Phase 5: Roll out additive API and three-surface behavior
 
 Duration: `4-7 days`
 
@@ -569,7 +633,7 @@ Rollback boundary:
 
 - surfaces can continue serving `jep_v5` while the richer payload stays dark
 
-### Phase 7: Calibrate outcomes and decide public cutover
+### Phase 6: Calibrate outcomes and decide public cutover
 
 Duration: `2-4 weeks` initial calibration work, then ongoing
 
@@ -612,21 +676,159 @@ Rollback boundary:
 
 - public probability mode remains disabled until we explicitly flip it
 
+### Deferred Track: Local obstruction system after public v1
+
+This is no longer on the public v1 critical path.
+
+If the local-obstruction track returns later, it should use:
+
+- `Copernicus DEM` for terrain
+- `Overture buildings` and `building_part` for current built obstruction
+- `GHS-OBAT` only as a backfill for missing heights
+- precomputed masks outside the request path
+- the same required source-admission gate before any ingest is built out
+- a separate operator and product decision, not a silent extension of public v1
+
+## Current Repo Status On 2026-04-08
+
+Already implemented behind dark flags or additive tables:
+
+- `jep_source_versions`, `jep_source_fetch_runs`, and `jep_feature_snapshots`
+- `jep_moon_ephemerides` plus the Horizons and USNO-backed moon refresh path
+- `jep_background_light_cells` plus the Black Marble refresh path
+- `launch_jep_score_candidates` and the first shadow `jep_v6` candidate write path
+- moon/background feature snapshots and shadow-score persistence plumbing
+
+Implemented in repo but now deferred by public-v1 scope:
+
+- `jep_horizon_masks`
+- local-horizon feature snapshots
+- horizon-aware branches in the shadow scorer
+
+Not yet implemented for the active public-v1 path:
+
+- `jep_vehicle_priors`
+- vehicle-prior integration into the shadow scorer
+- additive `/api/v1` exposure of richer `jep_v6` payloads
+- public cutover logic
+- automated evidence intake and calibration reporting
+
+Practical reading of this status:
+
+- Phase 1 and Phase 2 are substantially underway in code, though still dark-gated
+- the local-obstruction prototype exists, but it is no longer a release blocker
+- the next active blocker is not another source ingest; it is model specificity through vehicle priors
+
+## Active Next Implementation Slice
+
+The next implementation slice should be the minimum work needed to make the shadow model materially smarter for US launches without reopening deferred scope.
+
+Build next:
+
+- `jep_vehicle_priors` keyed to `LL2 rocket.configuration.id`
+- initial curated rows for the US-first families:
+  - Florida Falcon 9
+  - California Falcon 9
+  - Falcon Heavy
+  - Starship / Starbase
+- shadow-scorer integration for the `mission_profile` family
+- analyst-readable score-diff review for Florida, California, and Texas launch families
+
+Do not build in this slice:
+
+- mission-specific special-event priors
+- Copernicus or Overture ingest expansion
+- public API read-path cutover
+- probability-mode work
+
+Expected outcome of this slice:
+
+- `jep_v6_shadow` stops behaving like a mostly generic geometry/weather model
+- Florida, California, and Texas launches can diverge for defensible family-level reasons
+- the next customer-facing step can be evaluated from real shadow diffs rather than speculation
+
+## Vehicle Priors Execution Checklist
+
+This is the concrete checklist for the next active implementation slice.
+
+### Scope lock
+
+- key all priors by `launches.ll2_rocket_config_id`
+- do not key the primary model by free-text vehicle names
+- keep the first shipping scope to the US-first launch families only
+
+### Initial family set
+
+- Florida Falcon 9
+- California Falcon 9
+- Falcon Heavy
+- Starship / Starbase
+
+### Required evidence standard for each prior row
+
+- one official provider or agency source URL
+- a human-readable rationale for why that family should differ materially in JEP watchability
+- an explicit confidence level
+- an active date range or revision marker
+
+### Minimum row shape to implement first
+
+- `ll2_rocket_config_id`
+- `family_key`
+- `family_label`
+- `source_url`
+- `source_title`
+- `source_revision`
+- `active_from`
+- `active_to`
+- `confidence`
+- `notes`
+- numeric priors needed by the shadow scorer for the first `mission_profile` pass
+
+### First-pass modeling rule
+
+- only encode broad family-level watchability differences that are stable enough to defend in plain English
+- do not try to smuggle mission-specific events into these rows
+- do not add factors that require a new ingest or unavailable telemetry
+
+### Join and coverage checks before coding
+
+- confirm the target US-first future launches have `ll2_rocket_config_id`
+- confirm the first family set covers a useful share of Florida, California, and Texas launches
+- if a family cannot be keyed cleanly by `ll2_rocket_config_id`, do not include it in the first pass
+
+### Explicit non-goals for this slice
+
+- no mission-specific special-event priors
+- no launch-go probability modeling
+- no local-obstruction weighting
+- no public read-path change
+- no automatic scraping pipeline for prior authoring
+
+### Exit gate for this slice
+
+- `jep_vehicle_priors` exists and is seeded for the first family set
+- the shadow scorer consumes the `mission_profile` family with non-neutral values where priors exist
+- score diffs are reviewable by launch family
+- launches with no prior row remain valid and neutral rather than failing closed
+
 ## Recommended Rollout Order
 
 1. Phase 0 and Phase 1 first.
-2. Phase 2 and Phase 3 next, because they materially improve physical visibility.
-3. Phase 4 only after the feature-store is stable.
-4. Phase 5 only after the core shadow scorer is already producing sane outputs.
-5. Phase 6 after backend shadow coverage is adequate.
-6. Phase 7 only after real labeled outcomes exist.
+2. Phase 2 and Phase 3 next, because they materially improve the physically grounded shadow model without expanding public scope.
+3. Phase 4 only after the core shadow scorer is already producing sane outputs.
+4. Phase 5 after backend shadow coverage is adequate.
+5. Phase 6 only after real automated evidence exists.
+6. Revisit the deferred local-obstruction track only after the public US-first `watchability` rollout is stable.
 
 ## Explicit Non-Goals For The First Cut
 
 - no direct launch-day upstream fetches in the customer request path
 - no attempt to make upper-atmosphere/noctilucent context a live weighted production factor
 - no silent promotion of heuristic probability to public-ready probability
-- no attempt to make `GHS-OBAT` the current building source of truth
+- no local terrain/building obstruction modeling in the public v1 score
+- no `Copernicus DEM`, `Overture`, or `GHS-OBAT` dependency on the public v1 critical path
+- no new ingest build-out for sources that fail the required source-admission gate
 - no one-step replacement of `jep_v5`
 
 ## Verification Plan
@@ -647,11 +849,12 @@ Required repo checks after implementation work:
 
 Required targeted JEP checks:
 
-- source-ingest replay tests for Horizons, Black Marble, Copernicus, Overture, LL2 joins, and visibility-map assets
+- source-ingest replay tests for Horizons, Black Marble, LL2 joins, and visibility-map assets
 - scorer golden tests comparing `jep_v5` and `jep_v6_shadow`
-- observer-resolution regression tests so coarse bucket collisions do not reappear in horizon-sensitive flows
+- observer-geometry regression tests so impossible observer/launch pairs remain blocked
 - mobile and web contract tests confirming additive `/api/v1` compatibility
 - calibration-readiness checks before any public probability cutover
+- local-obstruction ingest tests only if the deferred track is resumed
 
 ## Known Environment Blocker
 
@@ -675,12 +878,12 @@ That does not block this plan document, but it does block final implementation v
 - NASA Earthdata VNP46A2 product page: `https://www.earthdata.nasa.gov/es/data/catalog/laads-vnp46a2-2`
 - LAADS Earthdata token docs: `https://ladsweb.modaps.eosdis.nasa.gov/learn/download-files-using-edl-tokens/`
 - LAADS VNP46A4 archive root: `https://ladsweb.modaps.eosdis.nasa.gov/archive/allData/5200/VNP46A4/`
-- Copernicus DEM docs: `https://documentation.dataspace.copernicus.eu/APIs/SentinelHub/Data/DEM.html`
-- Copernicus auth docs: `https://documentation.dataspace.copernicus.eu/APIs/SentinelHub/Overview/Authentication.html`
-- Copernicus S3 access docs: `https://documentation.dataspace.copernicus.eu/APIs/S3.html`
-- Overture cloud sources docs: `https://docs.overturemaps.org/getting-data/cloud-sources/`
-- Overture buildings guide: `https://docs.overturemaps.org/guides/buildings/`
-- GHS-OBAT dataset page: `https://data.jrc.ec.europa.eu/dataset/f41a22f1-5741-4c41-86eb-6384654f6927`
+- Copernicus DEM docs for the deferred local-obstruction track: `https://documentation.dataspace.copernicus.eu/APIs/SentinelHub/Data/DEM.html`
+- Copernicus auth docs for the deferred local-obstruction track: `https://documentation.dataspace.copernicus.eu/APIs/SentinelHub/Overview/Authentication.html`
+- Copernicus S3 access docs for the deferred local-obstruction track: `https://documentation.dataspace.copernicus.eu/APIs/S3.html`
+- Overture cloud sources docs for the deferred local-obstruction track: `https://docs.overturemaps.org/getting-data/cloud-sources/`
+- Overture buildings guide for the deferred local-obstruction track: `https://docs.overturemaps.org/guides/buildings/`
+- GHS-OBAT dataset page for the deferred local-obstruction track: `https://data.jrc.ec.europa.eu/dataset/f41a22f1-5741-4c41-86eb-6384654f6927`
 - LL2 home page: `https://thespacedevs.com/llapi`
 - LL2 launches docs: `https://ll.thespacedevs.com/2.3.0/launches/?format=api`
 - Blue Origin NG-1 mission page: `https://www.blueorigin.com/missions/ng-1`

@@ -411,6 +411,7 @@ function buildTelemetryEvent({
       poseMode,
       overlayMode: buildOverlayMode(trajectory.qualityState),
       visionBackend,
+      modeEntered: 'ar',
       trackingState: nativeUpdate.trackingState,
       trackingReason: nativeUpdate.trackingReason ?? undefined,
       worldAlignment: nativeUpdate.worldAlignment,

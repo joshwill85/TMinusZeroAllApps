@@ -125,6 +125,26 @@ function formatValue(value: string | number | null | undefined) {
   return text.length > 0 ? text : '—';
 }
 
+function formatTelemetryRuntimeFamilyLabel(runtimeFamily: 'web' | 'ios_native' | 'android_native' | 'unknown') {
+  if (runtimeFamily === 'web') return 'Web';
+  if (runtimeFamily === 'ios_native') return 'iOS native';
+  if (runtimeFamily === 'android_native') return 'Android native';
+  return 'Unknown';
+}
+
+function findCompletenessField(
+  fields: Array<{
+    key: string;
+    label: string;
+    applicableSessions: number;
+    filledSessions: number;
+    fillRate: number | null;
+  }>,
+  key: string
+) {
+  return fields.find((field) => field.key === key) ?? null;
+}
+
 export default function AdminTrajectoryPage() {
   const { data: summary, status: summaryStatus, error: summaryError } = useAdminResource('/api/admin/summary', {
     initialData: FALLBACK_ADMIN_SUMMARY,
@@ -306,6 +326,43 @@ export default function AdminTrajectoryPage() {
               <div className="mt-3 text-xs text-text3">Checked: {new Date(summary.trajectoryPipeline.checkedAt).toLocaleString()}</div>
 
               <div className="mt-4 rounded-lg border border-stroke bg-[rgba(255,255,255,0.02)] p-3">
+                <div className="text-xs uppercase tracking-[0.08em] text-text3">Launch catalog family coverage</div>
+                <div className="mt-1 text-xs text-text3">
+                  Future launches: {summary.trajectoryPipeline.catalogCoverage.futureLaunches}
+                  {' • '}
+                  repairable means blank <span className="font-mono">rocket_family</span> with a usable{' '}
+                  <span className="font-mono">ll2_rocket_config_id</span> {'->'}{' '}
+                  <span className="font-mono">ll2_rocket_configs.family</span> join
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+                  <InfoCard label="Family filled" value={`${summary.trajectoryPipeline.catalogCoverage.rocketFamilyFilled}/${summary.trajectoryPipeline.catalogCoverage.futureLaunches}`} />
+                  <InfoCard label="Family fill rate" value={formatPct(summary.trajectoryPipeline.catalogCoverage.rocketFamilyFillRate)} />
+                  <InfoCard label="Config joinable" value={`${summary.trajectoryPipeline.catalogCoverage.ll2RocketConfigFilled}/${summary.trajectoryPipeline.catalogCoverage.futureLaunches}`} />
+                  <InfoCard label="Config family available" value={formatPct(summary.trajectoryPipeline.catalogCoverage.configFamilyAvailableRate)} />
+                  <InfoCard label="Repairable missing" value={summary.trajectoryPipeline.catalogCoverage.repairableMissingRocketFamily} />
+                  <InfoCard label="Repairable share" value={formatPct(summary.trajectoryPipeline.catalogCoverage.repairableMissingRocketFamilyRate)} />
+                  <InfoCard label="Unrepairable missing" value={summary.trajectoryPipeline.catalogCoverage.unrepairableMissingRocketFamily} />
+                  <InfoCard label="Unrepairable share" value={formatPct(summary.trajectoryPipeline.catalogCoverage.unrepairableMissingRocketFamilyRate)} />
+                </div>
+                {summary.trajectoryPipeline.catalogCoverage.sampleRepairableLaunchIds.length > 0 && (
+                  <div className="mt-2 break-words text-xs text-text3">
+                    Repairable sample:{' '}
+                    <span className="font-mono">
+                      {summary.trajectoryPipeline.catalogCoverage.sampleRepairableLaunchIds.join(', ')}
+                    </span>
+                  </div>
+                )}
+                {summary.trajectoryPipeline.catalogCoverage.sampleUnrepairableLaunchIds.length > 0 && (
+                  <div className="mt-2 break-words text-xs text-warning">
+                    Unrepairable sample:{' '}
+                    <span className="font-mono">
+                      {summary.trajectoryPipeline.catalogCoverage.sampleUnrepairableLaunchIds.join(', ')}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-4 rounded-lg border border-stroke bg-[rgba(255,255,255,0.02)] p-3">
                 <div className="text-xs uppercase tracking-[0.08em] text-text3">
                   Source freshness thresholds ({summary.trajectoryPipeline.sourceFreshness.alertsEnabled ? 'alerts enabled' : 'alerts disabled'})
                 </div>
@@ -412,6 +469,69 @@ export default function AdminTrajectoryPage() {
                   <InfoCard label="Trajectory coverage" value={formatPct(summary.trajectoryPipeline.accuracy.precision.trajectoryCoverageRate)} />
                   <InfoCard label="Contract A/B rate" value={formatPct(summary.trajectoryPipeline.accuracy.precision.contractTierABRate)} />
                   <InfoCard label="Avg lock loss count" value={formatNum(summary.trajectoryPipeline.accuracy.lock.avgLossCount)} />
+                </div>
+
+                <div className="mt-3 rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-xs">
+                  <div className="font-semibold text-text1">Telemetry completeness</div>
+                  <div className="mt-1 text-text3">
+                    Overall required-field fill: {formatPct(summary.trajectoryPipeline.accuracy.completeness.overallFillRate)}
+                    {' • '}
+                    {summary.trajectoryPipeline.accuracy.completeness.filledFieldValues}/
+                    {summary.trajectoryPipeline.accuracy.completeness.requiredFieldValues} required values present
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+                    <InfoCard
+                      label="Runtime family"
+                      value={formatPct(findCompletenessField(summary.trajectoryPipeline.accuracy.completeness.fields, 'runtime_family')?.fillRate)}
+                    />
+                    <InfoCard
+                      label="Release profile"
+                      value={formatPct(findCompletenessField(summary.trajectoryPipeline.accuracy.completeness.fields, 'release_profile')?.fillRate)}
+                    />
+                    <InfoCard
+                      label="Mode entered"
+                      value={formatPct(findCompletenessField(summary.trajectoryPipeline.accuracy.completeness.fields, 'mode_entered')?.fillRate)}
+                    />
+                    <InfoCard
+                      label="Time to usable"
+                      value={formatPct(findCompletenessField(summary.trajectoryPipeline.accuracy.completeness.fields, 'time_to_usable_ms')?.fillRate)}
+                    />
+                    <InfoCard
+                      label="Pose mode"
+                      value={formatPct(findCompletenessField(summary.trajectoryPipeline.accuracy.completeness.fields, 'pose_mode')?.fillRate)}
+                    />
+                    <InfoCard
+                      label="Vision backend"
+                      value={formatPct(findCompletenessField(summary.trajectoryPipeline.accuracy.completeness.fields, 'vision_backend')?.fillRate)}
+                    />
+                    <InfoCard
+                      label="Native location fix"
+                      value={formatPct(findCompletenessField(summary.trajectoryPipeline.accuracy.completeness.fields, 'location_fix_state')?.fillRate)}
+                    />
+                    <InfoCard
+                      label="Native alignment ready"
+                      value={formatPct(findCompletenessField(summary.trajectoryPipeline.accuracy.completeness.fields, 'alignment_ready')?.fillRate)}
+                    />
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    <div className="text-text3">
+                      {summary.trajectoryPipeline.accuracy.completeness.fields
+                        .map((field) => `${field.key}=${formatPct(field.fillRate)} (${field.filledSessions}/${field.applicableSessions})`)
+                        .join(' • ')}
+                    </div>
+                    {summary.trajectoryPipeline.accuracy.completeness.runtimeFamilies.map((runtimeFamily) => (
+                      <div key={runtimeFamily.runtimeFamily} className="rounded-lg border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-2">
+                        <div className="font-semibold text-text1">
+                          {formatTelemetryRuntimeFamilyLabel(runtimeFamily.runtimeFamily)} ({runtimeFamily.sessions} sessions)
+                        </div>
+                        <div className="mt-1 text-text3">
+                          {runtimeFamily.fields
+                            .map((field) => `${field.key}=${formatPct(field.fillRate)} (${field.filledSessions}/${field.applicableSessions})`)
+                            .join(' • ')}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="mt-3 grid gap-3 md:grid-cols-2">

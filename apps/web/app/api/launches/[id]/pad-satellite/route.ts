@@ -10,6 +10,23 @@ type PadCoordinateRow = {
   pad_longitude?: number | null;
 };
 
+function parseCoordinateParam(value: string | null) {
+  if (value == null) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function readPadCoordinatesFromRequest(request: Request): PadCoordinateRow | null {
+  const requestUrl = new URL(request.url);
+  const latitude = parseCoordinateParam(requestUrl.searchParams.get('latitude'));
+  const longitude = parseCoordinateParam(requestUrl.searchParams.get('longitude'));
+  if (latitude == null || longitude == null) return null;
+  return {
+    pad_latitude: latitude,
+    pad_longitude: longitude
+  };
+}
+
 async function loadPadCoordinates(id: string): Promise<PadCoordinateRow | null> {
   const supabase = createSupabaseServerClient();
   const { data: cachedRow } = await supabase
@@ -51,8 +68,12 @@ async function readUpstreamErrorDetail(response: Response) {
   }
 }
 
-export async function GET(_request: Request, { params }: { params: { id: string } }) {
-  if (!isSupabaseConfigured()) {
+export async function GET(request: Request, { params }: { params: { id: string } }) {
+  const googleMapsStaticApiKey = getGoogleMapsStaticApiKey();
+  if (!googleMapsStaticApiKey) return notFound();
+
+  const requestCoordinates = readPadCoordinatesFromRequest(request);
+  if (!requestCoordinates && !isSupabaseConfigured()) {
     return new Response(null, {
       status: 503,
       headers: {
@@ -61,10 +82,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     });
   }
 
-  const googleMapsStaticApiKey = getGoogleMapsStaticApiKey();
-  if (!googleMapsStaticApiKey) return notFound();
-
-  const pad = await loadPadCoordinates(params.id);
+  const pad = requestCoordinates ?? (await loadPadCoordinates(params.id));
   if (!pad) return notFound();
 
   const targetUrl = buildGoogleMapsStaticSatelliteUrl(

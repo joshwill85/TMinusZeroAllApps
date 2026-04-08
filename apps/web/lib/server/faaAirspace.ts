@@ -207,7 +207,7 @@ export async function fetchLaunchFaaAirspaceMap({
   const snapshot = await loadLaunchFaaAirspaceSnapshot({
     launchId,
     limit,
-    matchStatuses: ['matched', 'manual'],
+    matchStatuses: ['matched', 'ambiguous', 'manual'],
     includeShapeGeometry: true
   });
   if (!snapshot) return null;

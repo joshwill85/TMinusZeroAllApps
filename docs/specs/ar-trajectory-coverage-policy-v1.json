@@ -1,6 +1,6 @@
 {
-  "policyVersion": "ar_trajectory_coverage_policy_v1",
-  "updatedAt": "2026-02-10T00:00:00.000Z",
+  "policyVersion": "ar_trajectory_coverage_policy_v2",
+  "updatedAt": "2026-04-08T00:00:00.000Z",
   "windowDefaults": {
     "lookaheadLaunches": 8,
     "lookaheadDays": 50
@@ -11,6 +11,8 @@
     "maxDerivedOnlyOrbitCoverageRate": 0.5,
     "maxNoDirectionalConstraintRate": 0.4,
     "maxMissingOrStaleProductRate": 0.35,
-    "maxPadOnlyProductRate": 0
+    "maxPadOnlyProductRate": 0,
+    "minRocketFamilyFillRate": 1,
+    "maxRepairableMissingRocketFamilyRate": 0
   }
 }

@@ -332,9 +332,6 @@ export function LaunchFeed({
   const canUseBasicAlertRules = isAuthed && Boolean(viewerCapabilities?.canUseBasicAlertRules);
   const singleLaunchFollowLimit = Math.max(1, viewerEntitlementsQuery.data?.limits.singleLaunchFollowLimit ?? 1);
   const activeBasicLaunchFollow = basicFollowsQuery.data?.activeLaunchFollow ?? null;
-  const basicFollowCapacityLabel = !canUseSavedItems
-    ? `${activeBasicLaunchFollow ? 1 : 0}/${singleLaunchFollowLimit}`
-    : undefined;
   const mode = useMemo(() => modeOverride ?? tierToMode(viewerTier), [modeOverride, viewerTier]);
   const arEligibleLaunchIdsQuery = useArEligibleLaunchIdsQuery({
     initialData: initialArEligibleLaunchIds
@@ -501,6 +498,10 @@ export function LaunchFeed({
     setUpsellFeatureLabel(featureLabel);
     setUpsellOpen(true);
   }, []);
+  const openFollowUpgrade = useCallback(() => {
+    const returnTo = typeof window !== 'undefined' ? `${window.location.pathname}${window.location.search}` : '/';
+    router.push(buildUpgradeHref({ returnTo }));
+  }, [router]);
 
   const closeUpsell = useCallback(() => {
     setUpsellOpen(false);
@@ -1930,9 +1931,13 @@ export function LaunchFeed({
       const launchSiteRuleValue = buildLaunchSiteRuleValue(launch);
       const stateRuleValue = buildStateRuleValue(launch);
       const currentBasicLaunchActive = activeBasicLaunchFollow?.launchId === launch.id.toLowerCase();
+      const basicFollowCapacityLabel = !canUseSavedItems && isAuthed ? `${activeBasicLaunchFollow ? 1 : 0}/${singleLaunchFollowLimit}` : undefined;
       const basicLaunchDescription = currentBasicLaunchActive
         ? 'This launch is already tracked on your account. Manage it in the native iOS or Android app.'
         : 'Manage launch push reminders for this launch in the native iOS or Android app.';
+      const anonLaunchDescription = launch.name
+        ? `Premium unlocks launch reminders and follow tracking for ${launch.name}.`
+        : 'Premium unlocks launch reminders and follow tracking for this launch.';
       const providerLockedDescription = providerKey
         ? `All launches from ${providerKey}. Premium unlocks recurring provider follows.`
         : 'Provider follow unavailable for this card.';
@@ -1967,7 +1972,7 @@ export function LaunchFeed({
           active: false,
           disabled: !providerKey,
           locked: Boolean(providerKey),
-          onPress: () => openUpsell('Provider follows')
+          onPress: () => openFollowUpgrade()
         },
         {
           key: 'rocket',
@@ -1976,7 +1981,7 @@ export function LaunchFeed({
           active: false,
           disabled: !rocketRuleValue,
           locked: Boolean(rocketRuleValue),
-          onPress: () => openUpsell('Rocket follows')
+          onPress: () => openFollowUpgrade()
         },
         {
           key: 'pad',
@@ -1985,7 +1990,7 @@ export function LaunchFeed({
           active: false,
           disabled: !padRuleValue,
           locked: Boolean(padRuleValue),
-          onPress: () => openUpsell('Pad follows')
+          onPress: () => openFollowUpgrade()
         },
         {
           key: 'launch_site',
@@ -1994,7 +1999,7 @@ export function LaunchFeed({
           active: false,
           disabled: !launchSiteRuleValue,
           locked: Boolean(launchSiteRuleValue),
-          onPress: () => openUpsell('Launch-site follows')
+          onPress: () => openFollowUpgrade()
         },
         {
           key: 'state',
@@ -2003,7 +2008,63 @@ export function LaunchFeed({
           active: false,
           disabled: !stateRuleValue,
           locked: Boolean(stateRuleValue),
-          onPress: () => openUpsell('State follows')
+          onPress: () => openFollowUpgrade()
+        }
+      ];
+      const anonFollowOptions = [
+        {
+          key: 'launch',
+          label: 'This launch',
+          description: anonLaunchDescription,
+          active: false,
+          disabled: false,
+          locked: true,
+          onPress: () => openFollowUpgrade()
+        },
+        {
+          key: 'provider',
+          label: 'This provider',
+          description: providerLockedDescription,
+          active: false,
+          disabled: !providerKey,
+          locked: Boolean(providerKey),
+          onPress: () => openFollowUpgrade()
+        },
+        {
+          key: 'rocket',
+          label: 'This rocket',
+          description: rocketLockedDescription,
+          active: false,
+          disabled: !rocketRuleValue,
+          locked: Boolean(rocketRuleValue),
+          onPress: () => openFollowUpgrade()
+        },
+        {
+          key: 'pad',
+          label: 'This pad',
+          description: padLockedDescription,
+          active: false,
+          disabled: !padRuleValue,
+          locked: Boolean(padRuleValue),
+          onPress: () => openFollowUpgrade()
+        },
+        {
+          key: 'launch_site',
+          label: 'This launch site',
+          description: launchSiteLockedDescription,
+          active: false,
+          disabled: !launchSiteRuleValue,
+          locked: Boolean(launchSiteRuleValue),
+          onPress: () => openFollowUpgrade()
+        },
+        {
+          key: 'state',
+          label: 'This state',
+          description: stateLockedDescription,
+          active: false,
+          disabled: !stateRuleValue,
+          locked: Boolean(stateRuleValue),
+          onPress: () => openFollowUpgrade()
         }
       ];
       const premiumFollowOptions = [
@@ -2079,7 +2140,7 @@ export function LaunchFeed({
           }
         }
       ];
-      const followOptions = canUseSavedItems ? premiumFollowOptions : basicFollowOptions;
+      const followOptions = canUseSavedItems ? premiumFollowOptions : isAuthed ? basicFollowOptions : anonFollowOptions;
       const activeFollowCount = followOptions.filter((option) => option.active).length;
       return (
         <LaunchCard
@@ -2094,7 +2155,7 @@ export function LaunchFeed({
           blockThirdPartyEmbeds={blockThirdPartyEmbeds}
           initialNowMs={initialNowMs}
           followMenuLabel={activeFollowCount > 0 ? 'Following' : 'Follow'}
-          followMenuCapacityLabel={canUseSavedItems ? undefined : basicFollowCapacityLabel}
+          followMenuCapacityLabel={basicFollowCapacityLabel}
           followMenuOptions={followOptions}
         />
       );
@@ -2102,7 +2163,6 @@ export function LaunchFeed({
     [
       activeBasicLaunchFollow,
       arEligibleLaunchIdSet,
-      basicFollowCapacityLabel,
       blockThirdPartyEmbeds,
       canUseBasicAlertRules,
       canUseSavedItems,
@@ -2116,8 +2176,10 @@ export function LaunchFeed({
       myRocketRulesByValue,
       myStateRulesByValue,
       myWatchlistId,
+      openFollowUpgrade,
       openUpsell,
       showAlertsNudge,
+      singleLaunchFollowLimit,
       toggleBasicLaunchFollow,
       toggleFollowPad,
       toggleFollowProvider,

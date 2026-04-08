@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { buildCalendarEventLinks } from '@tminuszero/domain';
 import clsx from 'clsx';
 import { Launch } from '@/lib/types/launch';
@@ -44,11 +45,31 @@ export function AddToCalendarButton(props: AddToCalendarButtonProps) {
     () => buildCalendarLinks(launch, userTz),
     [launch, userTz]
   );
+  const dialogTitleId = `add-to-calendar-title-${launch.id}`;
 
   useEffect(() => {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (tz) setUserTz(tz);
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setOpen(false);
+    };
+
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
 
   if (requiresPremium && !isPremium) {
     return (
@@ -171,59 +192,75 @@ export function AddToCalendarButton(props: AddToCalendarButtonProps) {
         </button>
       )}
 
-      {open && (
-        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-[rgba(0,0,0,0.55)] p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-stroke bg-surface-1 p-4 shadow-glow">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-xs uppercase tracking-[0.1em] text-text3">Add to calendar</div>
-                <div className="text-base font-semibold text-text1">{launch.name}</div>
-              </div>
-              <button className="text-sm text-text3 hover:text-text1" onClick={() => setOpen(false)}>
-                Close
-              </button>
-            </div>
-
-            <div className="mt-3 space-y-2">
+      {open && typeof document !== 'undefined'
+        ? createPortal(
+            <div className="fixed inset-0 z-[95] flex items-end justify-center p-4 md:items-center">
               <button
                 type="button"
-                className="w-full rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-left text-sm text-text1 hover:border-primary"
-                onClick={() => {
-                  void handleAppleCalendar();
-                }}
-              >
-                Apple Calendar
-              </button>
-              <a
-                href={googleUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="block w-full rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-left text-sm text-text1 hover:border-primary"
+                className="absolute inset-0 bg-[rgba(0,0,0,0.55)] backdrop-blur-sm"
                 onClick={() => setOpen(false)}
+                aria-label="Close add to calendar"
+              />
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={dialogTitleId}
+                className="relative z-10 w-full max-w-md overflow-y-auto rounded-2xl border border-stroke bg-surface-1 p-4 shadow-glow max-h-[calc(100dvh-2rem)]"
               >
-                Google Calendar
-              </a>
-              <a
-                href={outlookUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="block w-full rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-left text-sm text-text1 hover:border-primary"
-                onClick={() => setOpen(false)}
-              >
-                Outlook Calendar
-              </a>
-            </div>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs uppercase tracking-[0.1em] text-text3">Add to calendar</div>
+                    <div id={dialogTitleId} className="text-base font-semibold text-text1">
+                      {launch.name}
+                    </div>
+                  </div>
+                  <button type="button" className="text-sm text-text3 hover:text-text1" onClick={() => setOpen(false)}>
+                    Close
+                  </button>
+                </div>
 
-            <a
-              href={detailUrl}
-              className="mt-3 block text-center text-xs text-text3 hover:text-text1"
-              onClick={() => setOpen(false)}
-            >
-              View launch details
-            </a>
-          </div>
-        </div>
-      )}
+                <div className="mt-3 space-y-2">
+                  <button
+                    type="button"
+                    className="w-full rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-left text-sm text-text1 hover:border-primary"
+                    onClick={() => {
+                      void handleAppleCalendar();
+                    }}
+                  >
+                    Apple Calendar
+                  </button>
+                  <a
+                    href={googleUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block w-full rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-left text-sm text-text1 hover:border-primary"
+                    onClick={() => setOpen(false)}
+                  >
+                    Google Calendar
+                  </a>
+                  <a
+                    href={outlookUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block w-full rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-left text-sm text-text1 hover:border-primary"
+                    onClick={() => setOpen(false)}
+                  >
+                    Outlook Calendar
+                  </a>
+                </div>
+
+                <a
+                  href={detailUrl}
+                  className="mt-3 block text-center text-xs text-text3 hover:text-text1"
+                  onClick={() => setOpen(false)}
+                >
+                  View launch details
+                </a>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
     </>
   );
 }

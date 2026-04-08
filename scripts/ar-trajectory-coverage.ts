@@ -92,6 +92,12 @@ type LaunchRow = {
   location_name: string | null;
 };
 
+type FutureCatalogRow = {
+  launch_id: string;
+  ll2_rocket_config_id: number | null;
+  rocket_family: string | null;
+};
+
 type ProductRow = {
   launch_id: string;
   version: string;
@@ -149,6 +155,114 @@ async function loadLatestRuns(supabase: ReturnType<typeof createSupabaseAdminCli
   return out;
 }
 
+function hasFilledText(value: string | null | undefined) {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function ratio(numerator: number, denominator: number) {
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) return null;
+  return numerator / denominator;
+}
+
+function fmtRate(value: number | null | undefined, digits = 1) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '-';
+  return `${(value * 100).toFixed(digits)}%`;
+}
+
+async function loadFutureCatalogCoverage(supabase: ReturnType<typeof createSupabaseAdminClient>, nowIso: string) {
+  const rows: FutureCatalogRow[] = [];
+  const pageSize = 1000;
+  let offset = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('launches_public_cache')
+      .select('launch_id, ll2_rocket_config_id, rocket_family')
+      .eq('hidden', false)
+      .gte('net', nowIso)
+      .order('net', { ascending: true })
+      .range(offset, offset + pageSize - 1);
+
+    if (error) throw error;
+    const chunk = Array.isArray(data) ? (data as FutureCatalogRow[]) : [];
+    rows.push(...chunk);
+    if (chunk.length < pageSize) break;
+    offset += chunk.length;
+  }
+
+  const configIds = Array.from(
+    new Set(
+      rows
+        .map((row) => (typeof row.ll2_rocket_config_id === 'number' ? row.ll2_rocket_config_id : null))
+        .filter((value): value is number => value != null)
+    )
+  );
+
+  const configFamilyById = new Map<number, string>();
+  for (let index = 0; index < configIds.length; index += 500) {
+    const chunk = configIds.slice(index, index + 500);
+    if (!chunk.length) continue;
+    const { data, error } = await supabase
+      .from('ll2_rocket_configs')
+      .select('ll2_config_id, family')
+      .in('ll2_config_id', chunk);
+    if (error) throw error;
+    for (const row of data || []) {
+      const configId = typeof row?.ll2_config_id === 'number' ? row.ll2_config_id : null;
+      const family = typeof row?.family === 'string' ? row.family.trim() : '';
+      if (configId != null && family) configFamilyById.set(configId, family);
+    }
+  }
+
+  let rocketFamilyFilled = 0;
+  let ll2RocketConfigFilled = 0;
+  let configFamilyAvailable = 0;
+  let repairableMissingRocketFamily = 0;
+  let unrepairableMissingRocketFamily = 0;
+  const sampleRepairableLaunchIds: string[] = [];
+  const sampleUnrepairableLaunchIds: string[] = [];
+
+  for (const row of rows) {
+    const hasRocketFamily = hasFilledText(row.rocket_family);
+    const configId = typeof row.ll2_rocket_config_id === 'number' ? row.ll2_rocket_config_id : null;
+    const hasConfig = configId != null;
+    const hasConfigFamily = configId != null && configFamilyById.has(configId);
+
+    if (hasRocketFamily) rocketFamilyFilled += 1;
+    if (hasConfig) ll2RocketConfigFilled += 1;
+    if (hasConfigFamily) configFamilyAvailable += 1;
+
+    if (!hasRocketFamily) {
+      if (hasConfigFamily) {
+        repairableMissingRocketFamily += 1;
+        if (sampleRepairableLaunchIds.length < 10) sampleRepairableLaunchIds.push(row.launch_id);
+      } else {
+        unrepairableMissingRocketFamily += 1;
+        if (sampleUnrepairableLaunchIds.length < 10) sampleUnrepairableLaunchIds.push(row.launch_id);
+      }
+    }
+  }
+
+  const futureLaunches = rows.length;
+  const blankFamilies = Math.max(0, futureLaunches - rocketFamilyFilled);
+
+  return {
+    futureLaunches,
+    rocketFamilyFilled,
+    rocketFamilyFillRate: ratio(rocketFamilyFilled, futureLaunches),
+    ll2RocketConfigFilled,
+    ll2RocketConfigFillRate: ratio(ll2RocketConfigFilled, futureLaunches),
+    configFamilyAvailable,
+    configFamilyAvailableRate: ratio(configFamilyAvailable, futureLaunches),
+    repairableMissingRocketFamily,
+    repairableMissingRocketFamilyRate: ratio(repairableMissingRocketFamily, blankFamilies),
+    unrepairableMissingRocketFamily,
+    unrepairableMissingRocketFamilyRate: ratio(unrepairableMissingRocketFamily, blankFamilies),
+    sampleRepairableLaunchIds,
+    sampleUnrepairableLaunchIds
+  };
+}
+
 async function main() {
   const args = parseArgs(process.argv);
   const supabase = createSupabaseAdminClient();
@@ -165,6 +279,7 @@ async function main() {
     'public_cache_refresh'
   ];
   const latestRuns = await loadLatestRuns(supabase, jobNames);
+  const catalogCoverage = await loadFutureCatalogCoverage(supabase, new Date(nowMs).toISOString());
 
   let eligible: LaunchRow[] = [];
   if (args.launchId) {
@@ -246,6 +361,26 @@ async function main() {
   console.log(`AR trajectory coverage (next ${eligible.length} launches)`);
   console.log(`As of: ${new Date(nowMs).toISOString()}`);
   console.log('');
+  console.log('Future launch catalog family coverage:');
+  console.log(`- Future launches: ${catalogCoverage.futureLaunches}`);
+  console.log(`- rocket_family filled: ${catalogCoverage.rocketFamilyFilled}/${catalogCoverage.futureLaunches} (${fmtRate(catalogCoverage.rocketFamilyFillRate)})`);
+  console.log(
+    `- ll2_rocket_config_id present: ${catalogCoverage.ll2RocketConfigFilled}/${catalogCoverage.futureLaunches} (${fmtRate(catalogCoverage.ll2RocketConfigFillRate)})`
+  );
+  console.log(`- config family available: ${catalogCoverage.configFamilyAvailable}/${catalogCoverage.futureLaunches} (${fmtRate(catalogCoverage.configFamilyAvailableRate)})`);
+  console.log(
+    `- repairable missing family: ${catalogCoverage.repairableMissingRocketFamily} (${fmtRate(catalogCoverage.repairableMissingRocketFamilyRate)} of blanks)`
+  );
+  console.log(
+    `- unrepairable missing family: ${catalogCoverage.unrepairableMissingRocketFamily} (${fmtRate(catalogCoverage.unrepairableMissingRocketFamilyRate)} of blanks)`
+  );
+  if (args.verbose && catalogCoverage.sampleRepairableLaunchIds.length > 0) {
+    console.log(`- repairable sample launch ids: ${catalogCoverage.sampleRepairableLaunchIds.join(', ')}`);
+  }
+  if (args.verbose && catalogCoverage.sampleUnrepairableLaunchIds.length > 0) {
+    console.log(`- unrepairable sample launch ids: ${catalogCoverage.sampleUnrepairableLaunchIds.join(', ')}`);
+  }
+  console.log('');
   console.log('Job freshness (latest ingestion_runs):');
   for (const name of jobNames) {
     const run = latestRuns.get(name) as any;
@@ -305,7 +440,7 @@ async function main() {
     );
     console.log(`   Location: ${launch.location_name || '-'}`);
 
-    if (missingProduct) {
+    if (missingProduct || !product) {
       console.log('   Product: MISSING');
     } else {
       console.log(

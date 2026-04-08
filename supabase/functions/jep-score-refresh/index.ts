@@ -2,7 +2,45 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createSupabaseAdminClient } from '../_shared/supabase.ts';
 import { requireJobAuth } from '../_shared/jobAuth.ts';
 import { getSettings, readBooleanSetting, readNumberSetting, readStringArraySetting, readStringSetting } from '../_shared/settings.ts';
-import { DEFAULT_JEP_V6_MODEL_VERSION, deriveJepV6ObserverFeatureCell } from '../../../apps/web/lib/jep/v6Foundation.ts';
+import {
+  DEFAULT_JEP_V6_MODEL_VERSION,
+  buildJepV6FeatureSnapshotInputHash,
+  deriveJepV6ObserverFeatureCell
+} from '../../../apps/web/lib/jep/v6Foundation.ts';
+import {
+  JEP_V6_BACKGROUND_FEATURE_FAMILY,
+  computeJepV6AnthropogenicFactor,
+  computeJepV6BackgroundFactor
+} from '../../../apps/web/lib/jep/v6Background.ts';
+import {
+  JEP_V6_SHADOW_SCORE_FAMILY,
+  computeJepV6ShadowScore,
+  type JepV6BackgroundInput,
+  type JepV6HorizonInput,
+  type JepV6RepresentativeCorridor
+} from '../../../apps/web/lib/jep/v6Score.ts';
+import {
+  DEFAULT_JEP_V6_HORIZON_CORRIDOR_HALF_WIDTH_DEG,
+  JEP_V6_HORIZON_FEATURE_FAMILY,
+  computeJepV6LocalHorizonFactor,
+  normalizeJepV6HorizonProfiles,
+  summarizeJepV6HorizonCorridor
+} from '../../../apps/web/lib/jep/v6Horizon.ts';
+import {
+  JEP_V6_MOON_FEATURE_FAMILY,
+  angularSeparationDeg,
+  circularMeanDeg,
+  computeJepV6MoonFactor
+} from '../../../apps/web/lib/jep/v6Moon.ts';
+import {
+  JEP_V6_VEHICLE_PRIOR_FEATURE_FAMILY,
+  JEP_V6_VEHICLE_PRIOR_SOURCE_KEY,
+  resolveJepV6VehiclePrior,
+  type JepV6MissionProfileInput,
+  type JepV6ResolvedVehiclePrior,
+  type JepV6VehiclePriorRow
+} from '../../../apps/web/lib/jep/v6VehiclePriors.ts';
+import { deriveBlackMarblePeriod } from '../_shared/jepBlackMarble.ts';
 import { computeJepScoreRecord, intervalMinutesForLaunch, type JepComputedScore } from '../../../apps/web/lib/jep/serverShared.ts';
 import {
   combineJepWeatherFactors,
@@ -24,6 +62,7 @@ const LOS_ELEVATION_THRESHOLD_DEG = 5;
 const SNAPSHOT_LOCK_LOOKBACK_HOURS = 24;
 const POST_LAUNCH_COMPUTE_GRACE_HOURS = 2;
 const NWS_POINTS_CACHE_HOURS = 24;
+const MOON_SAMPLE_MAX_DIFF_MS = 5 * 60 * 1000;
 
 const DEFAULTS = {
   enabled: true,
@@ -32,6 +71,12 @@ const DEFAULTS = {
   weatherCacheMinutes: 10,
   modelVersion: 'jep_v5',
   v6FeatureSnapshotsEnabled: false,
+  v6MoonFeatureSnapshotsEnabled: false,
+  v6BackgroundFeatureSnapshotsEnabled: false,
+  v6VehiclePriorFeatureSnapshotsEnabled: false,
+  v6HorizonFeatureSnapshotsEnabled: false,
+  v6HorizonEnabled: false,
+  horizonCorridorHalfWidthDeg: DEFAULT_JEP_V6_HORIZON_CORRIDOR_HALF_WIDTH_DEG,
   openMeteoUsModels: ['best_match', 'gfs_seamless'],
   observerLookbackDays: 14,
   observerRegistryLimit: 128,
@@ -46,6 +91,14 @@ const SETTINGS_KEYS = [
   'jep_score_weather_cache_minutes',
   'jep_score_model_version',
   'jep_v6_feature_snapshots_enabled',
+  'jep_v6_moon_feature_snapshots_enabled',
+  'jep_v6_background_feature_snapshots_enabled',
+  'jep_v6_vehicle_prior_feature_snapshots_enabled',
+  'jep_v6_horizon_feature_snapshots_enabled',
+  'jep_v6_shadow_enabled',
+  'jep_v6_horizon_enabled',
+  'jep_v6_model_version',
+  'jep_horizon_corridor_half_width_deg',
   'jep_score_open_meteo_us_models',
   'jep_score_observer_lookback_days',
   'jep_score_observer_registry_limit',
@@ -62,14 +115,28 @@ type LaunchRow = {
   pad_latitude: number | null;
   pad_longitude: number | null;
   pad_country_code: string | null;
+  pad_state: string | null;
   mission_orbit: string | null;
+  provider: string | null;
   vehicle: string | null;
+  rocket_full_name: string | null;
   rocket_family: string | null;
+  ll2_rocket_config_id: number | null;
 };
 
 type ScoreRow = {
   launch_id: string;
   observer_location_hash: string | null;
+  input_hash: string;
+  computed_at: string | null;
+  expires_at: string | null;
+  snapshot_at: string | null;
+};
+
+type CandidateScoreRow = {
+  launch_id: string;
+  observer_location_hash: string | null;
+  model_version: string;
   input_hash: string;
   computed_at: string | null;
   expires_at: string | null;
@@ -94,6 +161,75 @@ type FeatureSnapshotRow = {
   snapshot_at: string | null;
   updated_at: string;
 };
+
+type MoonEphemerisRow = {
+  launch_id: string;
+  observer_location_hash: string;
+  sample_at: string;
+  sample_offset_sec: number | null;
+  source_key: string | null;
+  source_version_id: number | null;
+  source_fetch_run_id: number | null;
+  qa_source_key: string | null;
+  qa_version_id: number | null;
+  qa_fetch_run_id: number | null;
+  moon_az_deg: number | null;
+  moon_el_deg: number | null;
+  moon_illum_frac: number | null;
+  moon_phase_name: string | null;
+  moon_phase_angle_deg: number | null;
+  moonrise_utc: string | null;
+  moonset_utc: string | null;
+  metadata: Record<string, unknown> | null;
+  confidence_payload: Record<string, unknown> | null;
+};
+
+type BackgroundLightRow = {
+  observer_feature_key: string;
+  source_key: string | null;
+  source_version_id: number | null;
+  source_fetch_run_id: number | null;
+  product_key: string | null;
+  period_start_date: string | null;
+  period_end_date: string | null;
+  radiance_dataset: string | null;
+  radiance_nw_cm2_sr: number | null;
+  radiance_log: number | null;
+  radiance_stddev_nw_cm2_sr: number | null;
+  radiance_observation_count: number | null;
+  quality_code: number | null;
+  land_water_code: number | null;
+  radiance_percentile: number | null;
+  s_anthro: number | null;
+  metadata: Record<string, unknown> | null;
+  confidence_payload: Record<string, unknown> | null;
+  updated_at: string | null;
+};
+
+type HorizonMaskRow = {
+  observer_feature_key: string;
+  observer_lat_bucket: number | null;
+  observer_lon_bucket: number | null;
+  observer_cell_deg: number | null;
+  azimuth_step_deg: number | null;
+  terrain_mask_profile: unknown;
+  building_mask_profile: unknown;
+  total_mask_profile: unknown;
+  dominant_source_profile: unknown;
+  dominant_distance_m_profile: unknown;
+  dem_source_key: string | null;
+  dem_source_version_id: number | null;
+  dem_release_id: string | null;
+  building_source_key: string | null;
+  building_source_version_id: number | null;
+  building_release_id: string | null;
+  metadata: Record<string, unknown> | null;
+  confidence_payload: Record<string, unknown> | null;
+  computed_at: string | null;
+  updated_at: string | null;
+};
+
+type VehiclePriorRow = JepV6VehiclePriorRow;
 
 type DueLaunch = {
   launch: LaunchRow;
@@ -253,6 +389,19 @@ type WeatherAssessment = {
 
 type JepCalibrationBand = 'VERY_LOW' | 'LOW' | 'MEDIUM' | 'HIGH' | 'VERY_HIGH' | 'UNKNOWN';
 
+type RepresentativePlumeCorridor = {
+  mode: 'visible_path' | 'sunlit_path';
+  representativeTPlusSec: number;
+  representativeAzimuthDeg: number;
+  representativeElevationDeg: number | null;
+  representativeAltitudeM: number | null;
+  representativeDownrangeKm: number | null;
+  sampleCount: number;
+  corridorStartTPlusSec: number;
+  corridorEndTPlusSec: number;
+  azimuthSpreadDeg: number | null;
+};
+
 type IlluminationMetrics = {
   factor: number;
   sunlitMarginKm: number | null;
@@ -265,6 +414,31 @@ type LosMetrics = {
   visibleFraction: number;
   visibleWeight: number;
   totalWeight: number;
+};
+
+type JepScoreCandidateUpsert = {
+  launch_id: string;
+  observer_location_hash: string;
+  observer_lat_bucket: number | null;
+  observer_lon_bucket: number | null;
+  score: number;
+  raw_score: number;
+  gate_open: boolean;
+  vismap_modifier: number;
+  baseline_model_version: string | null;
+  baseline_score: number | null;
+  score_delta: number | null;
+  feature_refs: Record<string, unknown>;
+  feature_availability: Record<string, unknown>;
+  factor_payload: Record<string, unknown>;
+  compatibility_payload: Record<string, unknown>;
+  explainability: Record<string, unknown>;
+  model_version: string;
+  input_hash: string;
+  computed_at: string;
+  expires_at: string | null;
+  snapshot_at: string | null;
+  updated_at: string;
 };
 
 serve(async (req) => {
@@ -315,7 +489,28 @@ serve(async (req) => {
     weatherSourceUpsertedMixed: 0,
     weatherSourceUpsertedNone: 0,
     featureSnapshotsEnabled: DEFAULTS.v6FeatureSnapshotsEnabled,
+    moonFeatureSnapshotsEnabled: DEFAULTS.v6MoonFeatureSnapshotsEnabled,
+    backgroundFeatureSnapshotsEnabled: DEFAULTS.v6BackgroundFeatureSnapshotsEnabled,
+    vehiclePriorFeatureSnapshotsEnabled: DEFAULTS.v6VehiclePriorFeatureSnapshotsEnabled,
+    horizonFeatureSnapshotsEnabled: DEFAULTS.v6HorizonFeatureSnapshotsEnabled,
+    v6ShadowEnabled: false,
+    v6HorizonEnabled: DEFAULTS.v6HorizonEnabled,
+    v6ModelVersion: DEFAULT_JEP_V6_MODEL_VERSION,
+    horizonCorridorHalfWidthDeg: DEFAULTS.horizonCorridorHalfWidthDeg,
     featureSnapshotsUpserted: 0,
+    moonFeatureSourceRowsLoaded: 0,
+    moonFeatureSnapshotsUpserted: 0,
+    backgroundLightSourceRowsLoaded: 0,
+    backgroundFeatureSnapshotsUpserted: 0,
+    vehiclePriorRowsLoaded: 0,
+    vehiclePriorFeatureSnapshotsUpserted: 0,
+    horizonMaskRowsLoaded: 0,
+    horizonFeatureSnapshotsUpserted: 0,
+    candidateRowsLoaded: 0,
+    candidateUpsertsRequested: 0,
+    candidateRowsUpserted: 0,
+    candidateUnchangedSkipped: 0,
+    candidateGateOpen: 0,
     errors: [] as Array<Record<string, unknown>>
   };
 
@@ -342,6 +537,30 @@ serve(async (req) => {
     const v6FeatureSnapshotsEnabled = readBooleanSetting(
       settings.jep_v6_feature_snapshots_enabled,
       DEFAULTS.v6FeatureSnapshotsEnabled
+    );
+    const v6VehiclePriorFeatureSnapshotsEnabled = readBooleanSetting(
+      settings.jep_v6_vehicle_prior_feature_snapshots_enabled,
+      DEFAULTS.v6VehiclePriorFeatureSnapshotsEnabled
+    );
+    const v6MoonFeatureSnapshotsEnabled = readBooleanSetting(
+      settings.jep_v6_moon_feature_snapshots_enabled,
+      DEFAULTS.v6MoonFeatureSnapshotsEnabled
+    );
+    const v6BackgroundFeatureSnapshotsEnabled = readBooleanSetting(
+      settings.jep_v6_background_feature_snapshots_enabled,
+      DEFAULTS.v6BackgroundFeatureSnapshotsEnabled
+    );
+    const v6HorizonFeatureSnapshotsEnabled = readBooleanSetting(
+      settings.jep_v6_horizon_feature_snapshots_enabled,
+      DEFAULTS.v6HorizonFeatureSnapshotsEnabled
+    );
+    const v6ShadowEnabled = readBooleanSetting(settings.jep_v6_shadow_enabled, false);
+    const v6HorizonEnabled = readBooleanSetting(settings.jep_v6_horizon_enabled, DEFAULTS.v6HorizonEnabled);
+    const v6ModelVersion = readStringSetting(settings.jep_v6_model_version, DEFAULT_JEP_V6_MODEL_VERSION).trim() || DEFAULT_JEP_V6_MODEL_VERSION;
+    const horizonCorridorHalfWidthDeg = clampNumber(
+      readNumberSetting(settings.jep_horizon_corridor_half_width_deg, DEFAULTS.horizonCorridorHalfWidthDeg),
+      0.5,
+      20
     );
     const openMeteoUsModels = normalizeModelList(
       readStringArraySetting(settings.jep_score_open_meteo_us_models, DEFAULTS.openMeteoUsModels),
@@ -373,6 +592,14 @@ serve(async (req) => {
     stats.weatherCacheMinutes = weatherCacheMinutes;
     stats.modelVersion = modelVersion;
     stats.featureSnapshotsEnabled = v6FeatureSnapshotsEnabled;
+    stats.vehiclePriorFeatureSnapshotsEnabled = v6VehiclePriorFeatureSnapshotsEnabled;
+    stats.moonFeatureSnapshotsEnabled = v6MoonFeatureSnapshotsEnabled;
+    stats.backgroundFeatureSnapshotsEnabled = v6BackgroundFeatureSnapshotsEnabled;
+    stats.horizonFeatureSnapshotsEnabled = v6HorizonFeatureSnapshotsEnabled;
+    stats.v6ShadowEnabled = v6ShadowEnabled;
+    stats.v6HorizonEnabled = v6HorizonEnabled;
+    stats.v6ModelVersion = v6ModelVersion;
+    stats.horizonCorridorHalfWidthDeg = horizonCorridorHalfWidthDeg;
     stats.openMeteoUsModels = openMeteoUsModels;
     stats.observerLookbackDays = observerLookbackDays;
     stats.observerRegistryLimit = observerRegistryLimit;
@@ -387,7 +614,7 @@ serve(async (req) => {
     const { data: launchesRaw, error: launchesError } = await supabase
       .from('launches_public_cache')
       .select(
-        'launch_id, net, net_precision, status_name, status_abbrev, pad_latitude, pad_longitude, pad_country_code, mission_orbit, vehicle, rocket_family'
+        'launch_id, net, net_precision, status_name, status_abbrev, pad_latitude, pad_longitude, pad_country_code, pad_state, mission_orbit, provider, vehicle, rocket_full_name, rocket_family, ll2_rocket_config_id'
       )
       .gte('net', fromIso)
       .lte('net', horizonIso)
@@ -414,6 +641,8 @@ serve(async (req) => {
 
     const launchIds = launches.map((row) => row.launch_id);
     const existingScores = await loadExistingScores(supabase, launchIds);
+    const existingCandidates = v6ShadowEnabled ? await loadExistingCandidateScores(supabase, launchIds, v6ModelVersion) : new Map<string, CandidateScoreRow>();
+    stats.candidateRowsLoaded = existingCandidates.size;
     const trajectoryFreshnessByLaunch = await loadTrajectoryFreshness(supabase, launchIds);
     const due: DueLaunch[] = [];
 
@@ -446,11 +675,52 @@ serve(async (req) => {
 
     const dueIds = due.map((item) => item.launch.launch_id);
     const trajectories = await loadTrajectories(supabase, dueIds);
+    const vehiclePriors =
+      (v6FeatureSnapshotsEnabled || v6ShadowEnabled) &&
+      (v6VehiclePriorFeatureSnapshotsEnabled || v6ShadowEnabled)
+        ? await loadVehiclePriors(supabase)
+        : [];
+    stats.vehiclePriorRowsLoaded = vehiclePriors.length;
+    const moonEphemeridesByLaunch =
+      (v6FeatureSnapshotsEnabled || v6ShadowEnabled) && (v6MoonFeatureSnapshotsEnabled || v6BackgroundFeatureSnapshotsEnabled || v6ShadowEnabled)
+        ? await loadMoonEphemerides(supabase, dueIds)
+        : new Map<string, MoonEphemerisRow[]>();
+    stats.moonFeatureSourceRowsLoaded = [...moonEphemeridesByLaunch.values()].reduce((sum, rows) => sum + rows.length, 0);
+    const padFeatureKeys =
+      (v6FeatureSnapshotsEnabled || v6ShadowEnabled) &&
+      (v6BackgroundFeatureSnapshotsEnabled || v6HorizonFeatureSnapshotsEnabled || v6ShadowEnabled)
+        ? [
+            ...new Set(
+              due
+                .flatMap((entry) =>
+                  entry.observers
+                    .filter((observer) => observer.hash === PAD_OBSERVER_HASH)
+                    .map((observer) => deriveJepV6ObserverFeatureCell(observer.latDeg, observer.lonDeg)?.key || null)
+                )
+                .filter((value): value is string => Boolean(value))
+            )
+          ]
+        : [];
+    const backgroundLightByFeatureKey =
+      (v6FeatureSnapshotsEnabled || v6ShadowEnabled) &&
+      (v6BackgroundFeatureSnapshotsEnabled || v6ShadowEnabled) &&
+      padFeatureKeys.length
+        ? await loadBackgroundLightCells(supabase, padFeatureKeys)
+        : new Map<string, BackgroundLightRow[]>();
+    stats.backgroundLightSourceRowsLoaded = [...backgroundLightByFeatureKey.values()].reduce((sum, rows) => sum + rows.length, 0);
+    const horizonMasksByFeatureKey =
+      (v6FeatureSnapshotsEnabled || v6ShadowEnabled) &&
+      (v6HorizonFeatureSnapshotsEnabled || v6HorizonEnabled) &&
+      padFeatureKeys.length
+        ? await loadHorizonMasks(supabase, padFeatureKeys)
+        : new Map<string, HorizonMaskRow>();
+    stats.horizonMaskRowsLoaded = horizonMasksByFeatureKey.size;
     const weatherCache = new Map<string, { atMs: number; forecast: OpenMeteoForecast | null }>();
     const nwsPointCache = new Map<string, NwsPointRow | null>();
     const nwsGridCache = new Map<string, NwsGridForecast | null>();
     const upserts: Record<string, unknown>[] = [];
     const featureSnapshotUpserts: FeatureSnapshotRow[] = [];
+    const candidateUpserts: JepScoreCandidateUpsert[] = [];
     const snapshotLocksByLaunch = new Map<string, Set<string>>();
 
     for (const entry of due) {
@@ -555,18 +825,68 @@ serve(async (req) => {
           incrementWeatherSourceStats(stats, weather.primarySource, 'resolved');
 
           const existing = existingScores.get(scoreKey(launch.launch_id, observer.hash));
-          if (
+          const skipPublicUpsert = Boolean(
             !launchPassedT0 &&
-            existing &&
-            existing.input_hash === computed.row.input_hash &&
-            existing.expires_at &&
-            Date.parse(existing.expires_at) > nowMs + intervalMinutes * 30 * 1000
-          ) {
+              existing &&
+              existing.input_hash === computed.row.input_hash &&
+              existing.expires_at &&
+              Date.parse(existing.expires_at) > nowMs + intervalMinutes * 30 * 1000
+          );
+          if (skipPublicUpsert) {
             stats.unchangedSkipped = Number(stats.unchangedSkipped || 0) + 1;
-            continue;
           }
 
-          upserts.push(computed.row);
+          if (!skipPublicUpsert) {
+            upserts.push(computed.row);
+            incrementWeatherSourceStats(stats, weather.primarySource, 'upserted');
+          }
+
+          const moonRows = moonEphemeridesByLaunch.get(launch.launch_id) ?? [];
+          const observerFeatureKey =
+            deriveJepV6ObserverFeatureCell(observer.latDeg, observer.lonDeg)?.key ?? computed.row.observer_location_hash;
+          const moonFeatureSnapshot =
+            v6MoonFeatureSnapshotsEnabled || v6ShadowEnabled
+              ? buildMoonFeatureSnapshot({
+                  launch,
+                  observer,
+                  trajectory,
+                  computed,
+                  moonRows
+                })
+              : null;
+          const vehiclePriorFeatureSnapshot =
+            v6VehiclePriorFeatureSnapshotsEnabled || v6ShadowEnabled
+              ? buildVehiclePriorFeatureSnapshot({
+                  launch,
+                  observer,
+                  trajectory,
+                  computed,
+                  vehiclePriors
+                })
+              : null;
+          const backgroundFeatureSnapshot =
+            v6BackgroundFeatureSnapshotsEnabled || v6ShadowEnabled
+              ? buildBackgroundFeatureSnapshot({
+                  launch,
+                  observer,
+                  trajectory,
+                  computed,
+                  moonRows,
+                  backgroundRows: backgroundLightByFeatureKey.get(observerFeatureKey) ?? []
+                })
+              : null;
+          const horizonFeatureSnapshot =
+            v6HorizonFeatureSnapshotsEnabled || v6HorizonEnabled
+              ? buildHorizonFeatureSnapshot({
+                  launch,
+                  observer,
+                  trajectory,
+                  computed,
+                  horizonMaskRow: horizonMasksByFeatureKey.get(observerFeatureKey) ?? null,
+                  corridorHalfWidthDeg: horizonCorridorHalfWidthDeg
+                })
+              : null;
+
           if (v6FeatureSnapshotsEnabled) {
             featureSnapshotUpserts.push(
               buildV5BaselineFeatureSnapshot({
@@ -576,8 +896,57 @@ serve(async (req) => {
                 computed
               })
             );
+            if (v6MoonFeatureSnapshotsEnabled && moonFeatureSnapshot) {
+              featureSnapshotUpserts.push(moonFeatureSnapshot);
+              stats.moonFeatureSnapshotsUpserted = Number(stats.moonFeatureSnapshotsUpserted || 0) + 1;
+            }
+            if (v6VehiclePriorFeatureSnapshotsEnabled && vehiclePriorFeatureSnapshot) {
+              featureSnapshotUpserts.push(vehiclePriorFeatureSnapshot);
+              stats.vehiclePriorFeatureSnapshotsUpserted = Number(stats.vehiclePriorFeatureSnapshotsUpserted || 0) + 1;
+            }
+            if (v6BackgroundFeatureSnapshotsEnabled && backgroundFeatureSnapshot) {
+              featureSnapshotUpserts.push(backgroundFeatureSnapshot);
+              stats.backgroundFeatureSnapshotsUpserted = Number(stats.backgroundFeatureSnapshotsUpserted || 0) + 1;
+            }
+            if (v6HorizonFeatureSnapshotsEnabled && horizonFeatureSnapshot) {
+              featureSnapshotUpserts.push(horizonFeatureSnapshot);
+              stats.horizonFeatureSnapshotsUpserted = Number(stats.horizonFeatureSnapshotsUpserted || 0) + 1;
+            }
           }
-          incrementWeatherSourceStats(stats, weather.primarySource, 'upserted');
+
+          if (v6ShadowEnabled) {
+            const candidateRow = buildShadowScoreCandidateRow({
+              launch,
+              observer,
+              computed,
+              vehiclePriorFeatureSnapshot,
+              moonFeatureSnapshot,
+              backgroundFeatureSnapshot,
+              horizonFeatureSnapshot: v6HorizonEnabled ? horizonFeatureSnapshot : null,
+              modelVersion: v6ModelVersion
+            });
+            if (candidateRow) {
+              stats.candidateUpsertsRequested = Number(stats.candidateUpsertsRequested || 0) + 1;
+              const existingCandidate = existingCandidates.get(
+                candidateScoreKey(candidateRow.launch_id, candidateRow.observer_location_hash, candidateRow.model_version)
+              );
+              const candidateUnchanged = Boolean(
+                !launchPassedT0 &&
+                  existingCandidate &&
+                  existingCandidate.input_hash === candidateRow.input_hash &&
+                  existingCandidate.expires_at &&
+                  Date.parse(existingCandidate.expires_at) > nowMs + intervalMinutes * 30 * 1000
+              );
+              if (candidateUnchanged) {
+                stats.candidateUnchangedSkipped = Number(stats.candidateUnchangedSkipped || 0) + 1;
+              } else {
+                candidateUpserts.push(candidateRow);
+                if (candidateRow.gate_open) {
+                  stats.candidateGateOpen = Number(stats.candidateGateOpen || 0) + 1;
+                }
+              }
+            }
+          }
 
           launchComputed = true;
           stats.observerVariantsComputed = Number(stats.observerVariantsComputed || 0) + 1;
@@ -633,6 +1002,14 @@ serve(async (req) => {
       stats.featureSnapshotsUpserted = featureSnapshotUpserts.length;
     }
 
+    if (v6ShadowEnabled && candidateUpserts.length) {
+      const { error: candidateUpsertError } = await supabase
+        .from('launch_jep_score_candidates')
+        .upsert(candidateUpserts, { onConflict: 'launch_id,observer_location_hash,model_version' });
+      if (candidateUpsertError) throw candidateUpsertError;
+      stats.candidateRowsUpserted = candidateUpserts.length;
+    }
+
     await finishIngestionRun(supabase, runId, true, stats);
     return jsonResponse({ ok: true, elapsedMs: Date.now() - startedAt, stats });
   } catch (err) {
@@ -658,6 +1035,33 @@ async function loadExistingScores(
     for (const row of (data || []) as ScoreRow[]) {
       const hash = (row.observer_location_hash || PAD_OBSERVER_HASH).trim() || PAD_OBSERVER_HASH;
       byKey.set(scoreKey(row.launch_id, hash), row);
+    }
+  }
+  return byKey;
+}
+
+async function loadExistingCandidateScores(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  launchIds: string[],
+  modelVersion: string
+) {
+  const byKey = new Map<string, CandidateScoreRow>();
+  const chunkSize = 200;
+  for (let i = 0; i < launchIds.length; i += chunkSize) {
+    const slice = launchIds.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from('launch_jep_score_candidates')
+      .select('launch_id, observer_location_hash, model_version, input_hash, computed_at, expires_at, snapshot_at')
+      .eq('model_version', modelVersion)
+      .in('launch_id', slice);
+    if (error) {
+      const text = `${error.message || ''}`.toLowerCase();
+      if (text.includes('launch_jep_score_candidates')) return byKey;
+      throw error;
+    }
+    for (const row of (data || []) as CandidateScoreRow[]) {
+      const hash = (row.observer_location_hash || PAD_OBSERVER_HASH).trim() || PAD_OBSERVER_HASH;
+      byKey.set(candidateScoreKey(row.launch_id, hash, row.model_version), row);
     }
   }
   return byKey;
@@ -788,6 +1192,10 @@ function scoreKey(launchId: string, observerHash: string) {
   return `${launchId}:${observerHash}`;
 }
 
+function candidateScoreKey(launchId: string, observerHash: string, modelVersion: string) {
+  return `${launchId}:${observerHash}:${modelVersion}`;
+}
+
 function buildV5BaselineFeatureSnapshot({
   launch,
   observer,
@@ -885,6 +1293,1251 @@ function buildV5BaselineFeatureSnapshot({
     snapshot_at: computed.row.snapshot_at,
     updated_at: computed.row.updated_at
   };
+}
+
+function buildVehiclePriorFeatureSnapshot({
+  launch,
+  observer,
+  trajectory,
+  computed,
+  vehiclePriors
+}: {
+  launch: LaunchRow;
+  observer: ObserverPoint;
+  trajectory: TrajectoryRow;
+  computed: JepComputedScore;
+  vehiclePriors: VehiclePriorRow[];
+}): FeatureSnapshotRow | null {
+  if (observer.hash !== PAD_OBSERVER_HASH) return null;
+
+  const featureCell = deriveJepV6ObserverFeatureCell(observer.latDeg, observer.lonDeg);
+  if (!featureCell) return null;
+
+  const resolvedPrior = resolveJepV6VehiclePrior(vehiclePriors, {
+    launchId: launch.launch_id,
+    net: launch.net,
+    provider: launch.provider,
+    padState: launch.pad_state,
+    vehicle: launch.vehicle,
+    rocketFamily: launch.rocket_family,
+    rocketFullName: launch.rocket_full_name,
+    ll2RocketConfigId: launch.ll2_rocket_config_id
+  });
+  const availability = resolvedPrior.availability ?? 'neutral_missing_vehicle_prior';
+  const inputHash = buildJepV6FeatureSnapshotInputHash({
+    launchId: launch.launch_id,
+    observerFeatureCellKey: featureCell.key,
+    featureFamily: JEP_V6_VEHICLE_PRIOR_FEATURE_FAMILY,
+    modelVersion: DEFAULT_JEP_V6_MODEL_VERSION,
+    inputs: {
+      baselineInputHash: computed.row.input_hash,
+      trajectoryConfidence: trajectory.confidence_tier ?? null,
+      availability,
+      launchClassifier: {
+        provider: launch.provider,
+        padState: launch.pad_state,
+        rocketFullName: launch.rocket_full_name,
+        rocketFamily: launch.rocket_family,
+        ll2RocketConfigId: launch.ll2_rocket_config_id
+      },
+      prior:
+        resolvedPrior.source === 'vehicle_prior'
+          ? {
+              familyKey: resolvedPrior.familyKey,
+              matchMode: resolvedPrior.matchMode,
+              missionProfileFactor: resolvedPrior.missionProfileFactor,
+              analystConfidence: resolvedPrior.analystConfidence,
+              sourceRevision: resolvedPrior.sourceRevision
+            }
+          : null
+    }
+  });
+
+  return {
+    launch_id: launch.launch_id,
+    observer_location_hash: computed.row.observer_location_hash,
+    observer_feature_key: featureCell.key,
+    observer_lat_bucket: featureCell.latCell,
+    observer_lon_bucket: featureCell.lonCell,
+    feature_family: JEP_V6_VEHICLE_PRIOR_FEATURE_FAMILY,
+    model_version: DEFAULT_JEP_V6_MODEL_VERSION,
+    input_hash: inputHash,
+    trajectory_input_hash: computed.row.input_hash,
+    source_refs: buildVehiclePriorSourceRefs(resolvedPrior),
+    feature_payload: {
+      availability,
+      observer: {
+        source: observer.source,
+        latDeg: observer.latDeg,
+        lonDeg: observer.lonDeg,
+        featureKey: featureCell.key,
+        featureCellDeg: featureCell.cellDeg
+      },
+      launch: {
+        net: launch.net,
+        provider: launch.provider,
+        padState: launch.pad_state,
+        missionOrbit: launch.mission_orbit,
+        vehicle: launch.vehicle,
+        rocketFullName: launch.rocket_full_name,
+        rocketFamily: launch.rocket_family,
+        ll2RocketConfigId: launch.ll2_rocket_config_id,
+        padCountryCode: launch.pad_country_code
+      },
+      prior:
+        resolvedPrior.source === 'vehicle_prior'
+          ? {
+              familyKey: resolvedPrior.familyKey,
+              familyLabel: resolvedPrior.familyLabel,
+              derivedFamilyKey: resolvedPrior.derivedFamilyKey,
+              matchMode: resolvedPrior.matchMode,
+              ll2RocketConfigId: resolvedPrior.ll2RocketConfigId,
+              analystConfidence: resolvedPrior.analystConfidence,
+              sourceUrl: resolvedPrior.sourceUrl,
+              sourceTitle: resolvedPrior.sourceTitle,
+              sourceRevision: resolvedPrior.sourceRevision,
+              rationale: resolvedPrior.rationale,
+              metadata: resolvedPrior.metadata ?? {}
+            }
+          : null,
+      derived: {
+        sMissionProfile: resolvedPrior.missionProfileFactor,
+        source: resolvedPrior.source,
+        derivedFamilyKey: resolvedPrior.derivedFamilyKey,
+        matchMode: resolvedPrior.matchMode
+      }
+    },
+    confidence_payload: {
+      availability,
+      trajectoryConfidence: computed.row.trajectory_confidence,
+      timeConfidence: computed.row.time_confidence,
+      priorMatched: resolvedPrior.source === 'vehicle_prior',
+      analystConfidence: resolvedPrior.analystConfidence,
+      factorAvailable: resolvedPrior.missionProfileFactor != null,
+      exactConfigJoinAvailable:
+        resolvedPrior.source === 'vehicle_prior' && resolvedPrior.matchMode === 'config_id'
+    },
+    computed_at: computed.row.computed_at,
+    expires_at: computed.row.expires_at,
+    snapshot_at: computed.row.snapshot_at,
+    updated_at: computed.row.updated_at
+  };
+}
+
+function buildVehiclePriorSourceRefs(resolvedPrior: JepV6ResolvedVehiclePrior) {
+  if (resolvedPrior.source !== 'vehicle_prior') return [] as Array<Record<string, unknown>>;
+  return [
+    {
+      sourceKey: JEP_V6_VEHICLE_PRIOR_SOURCE_KEY,
+      familyKey: resolvedPrior.familyKey,
+      sourceUrl: resolvedPrior.sourceUrl,
+      sourceTitle: resolvedPrior.sourceTitle,
+      sourceRevision: resolvedPrior.sourceRevision
+    }
+  ];
+}
+
+function buildMoonFeatureSnapshot({
+  launch,
+  observer,
+  trajectory,
+  computed,
+  moonRows
+}: {
+  launch: LaunchRow;
+  observer: ObserverPoint;
+  trajectory: TrajectoryRow;
+  computed: JepComputedScore;
+  moonRows: MoonEphemerisRow[];
+}): FeatureSnapshotRow | null {
+  if (observer.hash !== PAD_OBSERVER_HASH) return null;
+
+  const featureCell = deriveJepV6ObserverFeatureCell(observer.latDeg, observer.lonDeg);
+  const featureFamily = JEP_V6_MOON_FEATURE_FAMILY;
+  const representativeCorridor = deriveRepresentativePlumeCorridor({
+    samples: computed.samples,
+    solarDepressionDeg: computed.row.solar_depression_deg,
+    observerLatDeg: observer.latDeg,
+    observerLonDeg: observer.lonDeg
+  });
+
+  const targetSampleAtMs =
+    representativeCorridor && launch.net
+      ? Date.parse(launch.net) + representativeCorridor.representativeTPlusSec * 1000
+      : Number.NaN;
+  const nearestMoonRow =
+    representativeCorridor && Number.isFinite(targetSampleAtMs)
+      ? findNearestMoonSample(moonRows, targetSampleAtMs, MOON_SAMPLE_MAX_DIFF_MS)
+      : null;
+
+  const moonFactor = representativeCorridor
+    ? computeJepV6MoonFactor({
+        moonAzDeg: nearestMoonRow?.moon_az_deg ?? null,
+        moonElDeg: nearestMoonRow?.moon_el_deg ?? null,
+        moonIllumFrac: nearestMoonRow?.moon_illum_frac ?? null,
+        plumeAzimuthDeg: representativeCorridor.representativeAzimuthDeg
+      })
+    : {
+        factor: null,
+        azimuthSeparationDeg: null,
+        moonVisible: null,
+        illuminationTerm: null,
+        separationTerm: null,
+        penalty: null
+      };
+
+  const availability =
+    representativeCorridor == null
+      ? 'no_visible_or_sunlit_corridor'
+      : nearestMoonRow == null
+        ? 'missing_moon_ephemeris'
+        : moonFactor.factor == null
+          ? 'missing_moon_inputs'
+          : 'ok';
+
+  const inputHash = buildJepV6FeatureSnapshotInputHash({
+    launchId: launch.launch_id,
+    observerFeatureCellKey: featureCell?.key ?? computed.row.observer_location_hash,
+    featureFamily,
+    modelVersion: DEFAULT_JEP_V6_MODEL_VERSION,
+    inputs: {
+      baselineInputHash: computed.row.input_hash,
+      trajectoryConfidence: trajectory.confidence_tier ?? null,
+      availability,
+      representativeCorridor: representativeCorridor
+        ? {
+            mode: representativeCorridor.mode,
+            representativeTPlusSec: round(representativeCorridor.representativeTPlusSec, 3),
+            representativeAzimuthDeg: round(representativeCorridor.representativeAzimuthDeg, 3),
+            representativeDownrangeKm:
+              representativeCorridor.representativeDownrangeKm != null
+                ? round(representativeCorridor.representativeDownrangeKm, 3)
+                : null,
+            sampleCount: representativeCorridor.sampleCount,
+            corridorStartTPlusSec: representativeCorridor.corridorStartTPlusSec,
+            corridorEndTPlusSec: representativeCorridor.corridorEndTPlusSec,
+            azimuthSpreadDeg: representativeCorridor.azimuthSpreadDeg != null ? round(representativeCorridor.azimuthSpreadDeg, 3) : null
+          }
+        : null,
+      moonSample: nearestMoonRow
+        ? {
+            sampleAt: nearestMoonRow.sample_at,
+            moonAzDeg: nearestMoonRow.moon_az_deg,
+            moonElDeg: nearestMoonRow.moon_el_deg,
+            moonIllumFrac: nearestMoonRow.moon_illum_frac,
+            moonPhaseName: nearestMoonRow.moon_phase_name,
+            sourceVersionId: nearestMoonRow.source_version_id ?? null,
+            qaVersionId: nearestMoonRow.qa_version_id ?? null
+          }
+        : null
+    }
+  });
+
+  return {
+    launch_id: launch.launch_id,
+    observer_location_hash: computed.row.observer_location_hash,
+    observer_feature_key: featureCell?.key ?? computed.row.observer_location_hash,
+    observer_lat_bucket: featureCell?.latCell ?? computed.row.observer_lat_bucket ?? null,
+    observer_lon_bucket: featureCell?.lonCell ?? computed.row.observer_lon_bucket ?? null,
+    feature_family: featureFamily,
+    model_version: DEFAULT_JEP_V6_MODEL_VERSION,
+    input_hash: inputHash,
+    trajectory_input_hash: computed.row.input_hash,
+    source_refs: buildMoonFeatureSourceRefs(nearestMoonRow),
+    feature_payload: {
+      availability,
+      observer: {
+        source: observer.source,
+        latDeg: observer.latDeg,
+        lonDeg: observer.lonDeg,
+        featureKey: featureCell?.key ?? null,
+        featureCellDeg: featureCell?.cellDeg ?? null
+      },
+      launch: {
+        net: launch.net,
+        missionOrbit: launch.mission_orbit,
+        vehicle: launch.vehicle,
+        rocketFamily: launch.rocket_family,
+        padCountryCode: launch.pad_country_code
+      },
+      representativeCorridor,
+      moon: nearestMoonRow
+        ? {
+            sampleAt: nearestMoonRow.sample_at,
+            sampleOffsetSec: nearestMoonRow.sample_offset_sec,
+            azDeg: nearestMoonRow.moon_az_deg,
+            elDeg: nearestMoonRow.moon_el_deg,
+            illumFrac: nearestMoonRow.moon_illum_frac,
+            phaseName: nearestMoonRow.moon_phase_name,
+            phaseAngleDeg: nearestMoonRow.moon_phase_angle_deg,
+            riseUtc: nearestMoonRow.moonrise_utc,
+            setUtc: nearestMoonRow.moonset_utc
+          }
+        : null,
+      derived: {
+        sMoon: moonFactor.factor,
+        azimuthSeparationDeg: moonFactor.azimuthSeparationDeg,
+        moonVisible: moonFactor.moonVisible,
+        illuminationTerm: moonFactor.illuminationTerm,
+        separationTerm: moonFactor.separationTerm,
+        penalty: moonFactor.penalty
+      },
+      background: {
+        anthropogenicAvailable: false,
+        sAnthro: null,
+        sBackground: null,
+        note: 'Moon-only partial background feature; anthropogenic light is not loaded yet.'
+      }
+    },
+    confidence_payload: {
+      availability,
+      trajectoryConfidence: computed.row.trajectory_confidence,
+      timeConfidence: computed.row.time_confidence,
+      moonSourceAvailable: Boolean(nearestMoonRow),
+      moonQaAvailable: Boolean(nearestMoonRow?.qa_source_key),
+      sMoonAvailable: moonFactor.factor != null
+    },
+    computed_at: computed.row.computed_at,
+    expires_at: computed.row.expires_at,
+    snapshot_at: computed.row.snapshot_at,
+    updated_at: computed.row.updated_at
+  };
+}
+
+function buildMoonFeatureSourceRefs(row: MoonEphemerisRow | null) {
+  if (!row) return [] as Array<Record<string, unknown>>;
+  const refs: Array<Record<string, unknown>> = [];
+  if (row.source_key) {
+    refs.push({
+      sourceKey: row.source_key,
+      sourceVersionId: row.source_version_id ?? null,
+      sourceFetchRunId: row.source_fetch_run_id ?? null
+    });
+  }
+  if (row.qa_source_key) {
+    refs.push({
+      sourceKey: row.qa_source_key,
+      sourceVersionId: row.qa_version_id ?? null,
+      sourceFetchRunId: row.qa_fetch_run_id ?? null
+    });
+  }
+  return refs;
+}
+
+function buildBackgroundFeatureSnapshot({
+  launch,
+  observer,
+  trajectory,
+  computed,
+  moonRows,
+  backgroundRows
+}: {
+  launch: LaunchRow;
+  observer: ObserverPoint;
+  trajectory: TrajectoryRow;
+  computed: JepComputedScore;
+  moonRows: MoonEphemerisRow[];
+  backgroundRows: BackgroundLightRow[];
+}): FeatureSnapshotRow | null {
+  if (observer.hash !== PAD_OBSERVER_HASH) return null;
+  if (!launch.net) return null;
+
+  const featureCell = deriveJepV6ObserverFeatureCell(observer.latDeg, observer.lonDeg);
+  if (!featureCell) return null;
+
+  const representativeCorridor = deriveRepresentativePlumeCorridor({
+    samples: computed.samples,
+    solarDepressionDeg: computed.row.solar_depression_deg,
+    observerLatDeg: observer.latDeg,
+    observerLonDeg: observer.lonDeg
+  });
+  const targetSampleAtMs =
+    representativeCorridor && launch.net
+      ? Date.parse(launch.net) + representativeCorridor.representativeTPlusSec * 1000
+      : Number.NaN;
+  const nearestMoonRow =
+    representativeCorridor && Number.isFinite(targetSampleAtMs)
+      ? findNearestMoonSample(moonRows, targetSampleAtMs, MOON_SAMPLE_MAX_DIFF_MS)
+      : null;
+  const moonFactor = representativeCorridor
+    ? computeJepV6MoonFactor({
+        moonAzDeg: nearestMoonRow?.moon_az_deg ?? null,
+        moonElDeg: nearestMoonRow?.moon_el_deg ?? null,
+        moonIllumFrac: nearestMoonRow?.moon_illum_frac ?? null,
+        plumeAzimuthDeg: representativeCorridor.representativeAzimuthDeg
+      })
+    : {
+        factor: null,
+        azimuthSeparationDeg: null,
+        moonVisible: null,
+        illuminationTerm: null,
+        separationTerm: null,
+        penalty: null
+      };
+
+  const selectedBackground = selectBackgroundLightRow(backgroundRows, launch.net);
+  const anthroFactor = computeJepV6AnthropogenicFactor({
+    radiancePercentile: selectedBackground?.radiance_percentile ?? null
+  });
+  const backgroundAvailability = readBackgroundAvailability(selectedBackground) ?? 'unknown';
+  const sBackground = computeJepV6BackgroundFactor({
+    sMoon: moonFactor.factor,
+    sAnthro: anthroFactor.factor
+  });
+
+  const availability =
+    representativeCorridor == null
+      ? 'no_visible_or_sunlit_corridor'
+      : nearestMoonRow == null
+        ? 'missing_moon_ephemeris'
+        : moonFactor.factor == null
+          ? 'missing_moon_inputs'
+          : selectedBackground == null
+            ? 'missing_background_light'
+            : backgroundAvailability !== 'ok'
+              ? `background_${backgroundAvailability}`
+              : anthroFactor.factor == null
+                ? 'missing_background_percentile'
+                : sBackground == null
+                  ? 'missing_background_terms'
+                  : 'ok';
+
+  const inputHash = buildJepV6FeatureSnapshotInputHash({
+    launchId: launch.launch_id,
+    observerFeatureCellKey: featureCell.key,
+    featureFamily: JEP_V6_BACKGROUND_FEATURE_FAMILY,
+    modelVersion: DEFAULT_JEP_V6_MODEL_VERSION,
+    inputs: {
+      baselineInputHash: computed.row.input_hash,
+      trajectoryConfidence: trajectory.confidence_tier ?? null,
+      availability,
+      representativeCorridor: representativeCorridor
+        ? {
+            mode: representativeCorridor.mode,
+            representativeTPlusSec: round(representativeCorridor.representativeTPlusSec, 3),
+            representativeAzimuthDeg: round(representativeCorridor.representativeAzimuthDeg, 3),
+            representativeDownrangeKm:
+              representativeCorridor.representativeDownrangeKm != null
+                ? round(representativeCorridor.representativeDownrangeKm, 3)
+                : null,
+            sampleCount: representativeCorridor.sampleCount
+          }
+        : null,
+      moonSample: nearestMoonRow
+        ? {
+            sampleAt: nearestMoonRow.sample_at,
+            sourceVersionId: nearestMoonRow.source_version_id ?? null,
+            qaVersionId: nearestMoonRow.qa_version_id ?? null
+          }
+        : null,
+      backgroundCell: selectedBackground
+        ? {
+            sourceKey: selectedBackground.source_key,
+            sourceVersionId: selectedBackground.source_version_id ?? null,
+            periodStartDate: selectedBackground.period_start_date,
+            periodEndDate: selectedBackground.period_end_date,
+            percentile: selectedBackground.radiance_percentile,
+            dataset: selectedBackground.radiance_dataset
+          }
+        : null
+    }
+  });
+
+  return {
+    launch_id: launch.launch_id,
+    observer_location_hash: computed.row.observer_location_hash,
+    observer_feature_key: featureCell.key,
+    observer_lat_bucket: featureCell.latCell,
+    observer_lon_bucket: featureCell.lonCell,
+    feature_family: JEP_V6_BACKGROUND_FEATURE_FAMILY,
+    model_version: DEFAULT_JEP_V6_MODEL_VERSION,
+    input_hash: inputHash,
+    trajectory_input_hash: computed.row.input_hash,
+    source_refs: buildCombinedBackgroundSourceRefs(nearestMoonRow, selectedBackground),
+    feature_payload: {
+      availability,
+      observer: {
+        source: observer.source,
+        latDeg: observer.latDeg,
+        lonDeg: observer.lonDeg,
+        featureKey: featureCell.key,
+        featureCellDeg: featureCell.cellDeg
+      },
+      launch: {
+        net: launch.net,
+        missionOrbit: launch.mission_orbit,
+        vehicle: launch.vehicle,
+        rocketFamily: launch.rocket_family,
+        padCountryCode: launch.pad_country_code
+      },
+      representativeCorridor,
+      moon: nearestMoonRow
+        ? {
+            sampleAt: nearestMoonRow.sample_at,
+            sampleOffsetSec: nearestMoonRow.sample_offset_sec,
+            azDeg: nearestMoonRow.moon_az_deg,
+            elDeg: nearestMoonRow.moon_el_deg,
+            illumFrac: nearestMoonRow.moon_illum_frac,
+            phaseName: nearestMoonRow.moon_phase_name,
+            phaseAngleDeg: nearestMoonRow.moon_phase_angle_deg
+          }
+        : null,
+      backgroundLight: selectedBackground
+        ? {
+            sourceKey: selectedBackground.source_key,
+            productKey: selectedBackground.product_key,
+            periodStartDate: selectedBackground.period_start_date,
+            periodEndDate: selectedBackground.period_end_date,
+            dataset: selectedBackground.radiance_dataset,
+            radiance: selectedBackground.radiance_nw_cm2_sr,
+            radianceLog: selectedBackground.radiance_log,
+            radianceStddev: selectedBackground.radiance_stddev_nw_cm2_sr,
+            observationCount: selectedBackground.radiance_observation_count,
+            qualityCode: selectedBackground.quality_code,
+            landWaterCode: selectedBackground.land_water_code,
+            percentile: selectedBackground.radiance_percentile,
+            availability: backgroundAvailability
+          }
+        : null,
+      derived: {
+        sMoon: moonFactor.factor,
+        sAnthro: anthroFactor.factor,
+        sBackground,
+        azimuthSeparationDeg: moonFactor.azimuthSeparationDeg,
+        moonVisible: moonFactor.moonVisible,
+        illuminationTerm: moonFactor.illuminationTerm,
+        separationTerm: moonFactor.separationTerm,
+        moonPenalty: moonFactor.penalty
+      }
+    },
+    confidence_payload: {
+      availability,
+      trajectoryConfidence: computed.row.trajectory_confidence,
+      timeConfidence: computed.row.time_confidence,
+      moonSourceAvailable: Boolean(nearestMoonRow),
+      backgroundSourceAvailable: Boolean(selectedBackground),
+      backgroundAvailability,
+      backgroundFallbackUsed: selectedBackground?.product_key === 'VNP46A4',
+      sMoonAvailable: moonFactor.factor != null,
+      sAnthroAvailable: anthroFactor.factor != null,
+      sBackgroundAvailable: sBackground != null
+    },
+    computed_at: computed.row.computed_at,
+    expires_at: computed.row.expires_at,
+    snapshot_at: computed.row.snapshot_at,
+    updated_at: computed.row.updated_at
+  };
+}
+
+function buildCombinedBackgroundSourceRefs(moonRow: MoonEphemerisRow | null, backgroundRow: BackgroundLightRow | null) {
+  const refs = buildMoonFeatureSourceRefs(moonRow);
+  if (!backgroundRow?.source_key) return refs;
+  refs.push({
+    sourceKey: backgroundRow.source_key,
+    sourceVersionId: backgroundRow.source_version_id ?? null,
+    sourceFetchRunId: backgroundRow.source_fetch_run_id ?? null
+  });
+  return refs;
+}
+
+function buildHorizonFeatureSnapshot({
+  launch,
+  observer,
+  trajectory,
+  computed,
+  horizonMaskRow,
+  corridorHalfWidthDeg
+}: {
+  launch: LaunchRow;
+  observer: ObserverPoint;
+  trajectory: TrajectoryRow;
+  computed: JepComputedScore;
+  horizonMaskRow: HorizonMaskRow | null;
+  corridorHalfWidthDeg: number;
+}): FeatureSnapshotRow | null {
+  if (observer.hash !== PAD_OBSERVER_HASH) return null;
+
+  const featureCell = deriveJepV6ObserverFeatureCell(observer.latDeg, observer.lonDeg);
+  if (!featureCell) return null;
+
+  const representativeCorridor = deriveRepresentativePlumeCorridor({
+    samples: computed.samples,
+    solarDepressionDeg: computed.row.solar_depression_deg,
+    observerLatDeg: observer.latDeg,
+    observerLonDeg: observer.lonDeg
+  });
+  const normalizedProfiles = horizonMaskRow
+    ? normalizeJepV6HorizonProfiles({
+        azimuthStepDeg: horizonMaskRow.azimuth_step_deg,
+        terrainMaskProfile: horizonMaskRow.terrain_mask_profile,
+        buildingMaskProfile: horizonMaskRow.building_mask_profile,
+        totalMaskProfile: horizonMaskRow.total_mask_profile,
+        dominantSourceProfile: horizonMaskRow.dominant_source_profile,
+        dominantDistanceMProfile: horizonMaskRow.dominant_distance_m_profile
+      })
+    : null;
+  const corridorMask =
+    representativeCorridor && normalizedProfiles
+      ? summarizeJepV6HorizonCorridor({
+          representativeAzimuthDeg: representativeCorridor.representativeAzimuthDeg,
+          azimuthSpreadDeg: representativeCorridor.azimuthSpreadDeg,
+          corridorHalfWidthDeg,
+          profiles: normalizedProfiles
+        })
+      : null;
+  const representativeElevationDeg = representativeCorridor?.representativeElevationDeg ?? null;
+  const clearanceDeg =
+    representativeElevationDeg != null && corridorMask?.totalMaskElDeg != null
+      ? representativeElevationDeg - corridorMask.totalMaskElDeg
+      : null;
+  const localHorizonFactor = computeJepV6LocalHorizonFactor(clearanceDeg);
+  const maskAvailability = readHorizonMaskAvailability(horizonMaskRow) ?? 'ok';
+  const availability =
+    representativeCorridor == null
+      ? 'no_visible_or_sunlit_corridor'
+      : horizonMaskRow == null
+        ? 'missing_horizon_mask'
+        : maskAvailability !== 'ok'
+          ? `horizon_mask_${maskAvailability}`
+          : corridorMask == null
+            ? 'invalid_horizon_profile'
+            : representativeElevationDeg == null
+              ? 'missing_representative_elevation'
+              : corridorMask.totalMaskElDeg == null
+                ? 'missing_total_mask'
+                : clearanceDeg == null
+                  ? 'missing_clearance'
+                  : localHorizonFactor == null
+                    ? 'missing_clearance_factor'
+                    : 'ok';
+
+  const inputHash = buildJepV6FeatureSnapshotInputHash({
+    launchId: launch.launch_id,
+    observerFeatureCellKey: featureCell.key,
+    featureFamily: JEP_V6_HORIZON_FEATURE_FAMILY,
+    modelVersion: DEFAULT_JEP_V6_MODEL_VERSION,
+    inputs: {
+      baselineInputHash: computed.row.input_hash,
+      trajectoryConfidence: trajectory.confidence_tier ?? null,
+      availability,
+      representativeCorridor: representativeCorridor
+        ? {
+            mode: representativeCorridor.mode,
+            representativeTPlusSec: round(representativeCorridor.representativeTPlusSec, 3),
+            representativeAzimuthDeg: round(representativeCorridor.representativeAzimuthDeg, 3),
+            representativeElevationDeg:
+              representativeCorridor.representativeElevationDeg != null
+                ? round(representativeCorridor.representativeElevationDeg, 3)
+                : null,
+            representativeDownrangeKm:
+              representativeCorridor.representativeDownrangeKm != null
+                ? round(representativeCorridor.representativeDownrangeKm, 3)
+                : null,
+            sampleCount: representativeCorridor.sampleCount,
+            azimuthSpreadDeg: representativeCorridor.azimuthSpreadDeg != null ? round(representativeCorridor.azimuthSpreadDeg, 3) : null
+          }
+        : null,
+      horizonMask: horizonMaskRow
+        ? {
+            demSourceVersionId: horizonMaskRow.dem_source_version_id ?? null,
+            demReleaseId: horizonMaskRow.dem_release_id ?? null,
+            buildingSourceVersionId: horizonMaskRow.building_source_version_id ?? null,
+            buildingReleaseId: horizonMaskRow.building_release_id ?? null,
+            maskAvailability
+          }
+        : null,
+      corridorMask: corridorMask
+        ? {
+            totalMaskElDeg: corridorMask.totalMaskElDeg != null ? round(corridorMask.totalMaskElDeg, 3) : null,
+            corridorHalfWidthDeg: round(corridorMask.corridorHalfWidthDeg, 3),
+            dominantSource: corridorMask.dominantSource,
+            dominantDistanceM: corridorMask.dominantDistanceM != null ? round(corridorMask.dominantDistanceM, 1) : null
+          }
+        : null
+    }
+  });
+
+  return {
+    launch_id: launch.launch_id,
+    observer_location_hash: computed.row.observer_location_hash,
+    observer_feature_key: featureCell.key,
+    observer_lat_bucket: featureCell.latCell,
+    observer_lon_bucket: featureCell.lonCell,
+    feature_family: JEP_V6_HORIZON_FEATURE_FAMILY,
+    model_version: DEFAULT_JEP_V6_MODEL_VERSION,
+    input_hash: inputHash,
+    trajectory_input_hash: computed.row.input_hash,
+    source_refs: buildHorizonFeatureSourceRefs(horizonMaskRow),
+    feature_payload: {
+      availability,
+      observer: {
+        source: observer.source,
+        latDeg: observer.latDeg,
+        lonDeg: observer.lonDeg,
+        featureKey: featureCell.key,
+        featureCellDeg: featureCell.cellDeg
+      },
+      launch: {
+        net: launch.net,
+        missionOrbit: launch.mission_orbit,
+        vehicle: launch.vehicle,
+        rocketFamily: launch.rocket_family,
+        padCountryCode: launch.pad_country_code
+      },
+      representativeCorridor,
+      horizonMask: horizonMaskRow
+        ? {
+            availability: maskAvailability,
+            observerCellDeg: horizonMaskRow.observer_cell_deg,
+            azimuthStepDeg: horizonMaskRow.azimuth_step_deg,
+            demSourceKey: horizonMaskRow.dem_source_key,
+            demReleaseId: horizonMaskRow.dem_release_id,
+            buildingSourceKey: horizonMaskRow.building_source_key,
+            buildingReleaseId: horizonMaskRow.building_release_id,
+            metadata: horizonMaskRow.metadata ?? {}
+          }
+        : null,
+      derived: {
+        terrainMaskElDeg: corridorMask?.terrainMaskElDeg ?? null,
+        buildingMaskElDeg: corridorMask?.buildingMaskElDeg ?? null,
+        totalMaskElDeg: corridorMask?.totalMaskElDeg ?? null,
+        clearanceDeg,
+        sLocalHorizon: localHorizonFactor,
+        dominantSource: corridorMask?.dominantSource ?? null,
+        dominantDistanceM: corridorMask?.dominantDistanceM ?? null,
+        corridorHalfWidthDeg: corridorMask?.corridorHalfWidthDeg ?? corridorHalfWidthDeg,
+        corridorStartAzimuthDeg: corridorMask?.corridorStartAzimuthDeg ?? null,
+        corridorEndAzimuthDeg: corridorMask?.corridorEndAzimuthDeg ?? null,
+        samplesConsidered: corridorMask?.samplesConsidered ?? 0
+      }
+    },
+    confidence_payload: {
+      availability,
+      trajectoryConfidence: computed.row.trajectory_confidence,
+      timeConfidence: computed.row.time_confidence,
+      maskAvailability,
+      maskSourceAvailable: Boolean(horizonMaskRow),
+      maskProfileValid: Boolean(corridorMask),
+      clearanceAvailable: clearanceDeg != null,
+      localHorizonFactorAvailable: localHorizonFactor != null
+    },
+    computed_at: computed.row.computed_at,
+    expires_at: computed.row.expires_at,
+    snapshot_at: computed.row.snapshot_at,
+    updated_at: computed.row.updated_at
+  };
+}
+
+function buildHorizonFeatureSourceRefs(row: HorizonMaskRow | null) {
+  const refs: Array<Record<string, unknown>> = [];
+  if (!row) return refs;
+  if (row.dem_source_key) {
+    refs.push({
+      sourceKey: row.dem_source_key,
+      sourceVersionId: row.dem_source_version_id ?? null,
+      releaseId: row.dem_release_id ?? null
+    });
+  }
+  if (row.building_source_key) {
+    refs.push({
+      sourceKey: row.building_source_key,
+      sourceVersionId: row.building_source_version_id ?? null,
+      releaseId: row.building_release_id ?? null
+    });
+  }
+  return refs;
+}
+
+function buildShadowScoreCandidateRow({
+  launch,
+  observer,
+  computed,
+  vehiclePriorFeatureSnapshot,
+  moonFeatureSnapshot,
+  backgroundFeatureSnapshot,
+  horizonFeatureSnapshot,
+  modelVersion
+}: {
+  launch: LaunchRow;
+  observer: ObserverPoint;
+  computed: JepComputedScore;
+  vehiclePriorFeatureSnapshot: FeatureSnapshotRow | null;
+  moonFeatureSnapshot: FeatureSnapshotRow | null;
+  backgroundFeatureSnapshot: FeatureSnapshotRow | null;
+  horizonFeatureSnapshot: FeatureSnapshotRow | null;
+  modelVersion: string;
+}): JepScoreCandidateUpsert | null {
+  if (observer.hash !== PAD_OBSERVER_HASH) return null;
+
+  const featureCell = deriveJepV6ObserverFeatureCell(observer.latDeg, observer.lonDeg);
+  const representativeCorridor =
+    readRepresentativeCorridorFromFeatureSnapshot(backgroundFeatureSnapshot) ??
+    readRepresentativeCorridorFromFeatureSnapshot(moonFeatureSnapshot) ??
+    readRepresentativeCorridorFromFeatureSnapshot(horizonFeatureSnapshot);
+  const background = buildShadowBackgroundInput({
+    moonFeatureSnapshot,
+    backgroundFeatureSnapshot
+  });
+  const horizon = buildShadowHorizonInput(horizonFeatureSnapshot);
+  const missionProfile = buildShadowMissionProfileInput(vehiclePriorFeatureSnapshot);
+  const shadow = computeJepV6ShadowScore({
+    modelVersion,
+    baselineModelVersion: computed.row.model_version,
+    baselineScore: computed.row.score,
+    solarDepressionDeg: computed.row.solar_depression_deg,
+    illuminationFactor: computed.row.illumination_factor,
+    sunlitMarginKm: computed.row.sunlit_margin_km,
+    losVisibleFraction: computed.row.los_visible_fraction,
+    representativeCorridor,
+    background,
+    horizon,
+    missionProfile,
+    weather: {
+      cloudCoverLowPct: computed.row.cloud_cover_low_pct,
+      cloudCoverMidPct: computed.row.cloud_cover_mid_pct,
+      cloudCoverHighPct: computed.row.cloud_cover_high_pct,
+      obstructionFactor: computed.weather.obstructionFactor
+    }
+  });
+
+  const featureRefs = {
+    baselineInputHash: computed.row.input_hash,
+    vehiclePriorFeatureInputHash: vehiclePriorFeatureSnapshot?.input_hash ?? null,
+    moonFeatureInputHash: moonFeatureSnapshot?.input_hash ?? null,
+    backgroundFeatureInputHash: backgroundFeatureSnapshot?.input_hash ?? null,
+    horizonFeatureInputHash: horizonFeatureSnapshot?.input_hash ?? null,
+    representativeFeatureFamily: backgroundFeatureSnapshot
+      ? JEP_V6_BACKGROUND_FEATURE_FAMILY
+      : moonFeatureSnapshot
+        ? JEP_V6_MOON_FEATURE_FAMILY
+        : horizonFeatureSnapshot
+          ? JEP_V6_HORIZON_FEATURE_FAMILY
+          : null
+  };
+  const inputHash = buildJepV6FeatureSnapshotInputHash({
+    launchId: launch.launch_id,
+    observerFeatureCellKey: featureCell?.key ?? computed.row.observer_location_hash,
+    featureFamily: JEP_V6_SHADOW_SCORE_FAMILY,
+    modelVersion,
+    inputs: {
+      ...featureRefs,
+      availability: shadow.availability,
+      gateOpen: shadow.gateOpen,
+      factors: shadow.factors,
+      compatibility: shadow.compatibility
+    }
+  });
+
+  return {
+    launch_id: launch.launch_id,
+    observer_location_hash: computed.row.observer_location_hash,
+    observer_lat_bucket: featureCell?.latCell ?? computed.row.observer_lat_bucket ?? null,
+    observer_lon_bucket: featureCell?.lonCell ?? computed.row.observer_lon_bucket ?? null,
+    score: shadow.score,
+    raw_score: shadow.rawScore,
+    gate_open: shadow.gateOpen,
+    vismap_modifier: shadow.vismapModifier,
+    baseline_model_version: computed.row.model_version,
+    baseline_score: computed.row.score,
+    score_delta: shadow.score - computed.row.score,
+    feature_refs: featureRefs,
+    feature_availability: shadow.availability,
+    factor_payload: shadow.factors,
+    compatibility_payload: shadow.compatibility,
+    explainability: shadow.explainability,
+    model_version: modelVersion,
+    input_hash: inputHash,
+    computed_at: computed.row.computed_at,
+    expires_at: computed.row.expires_at,
+    snapshot_at: computed.row.snapshot_at,
+    updated_at: computed.row.updated_at
+  };
+}
+
+function buildShadowBackgroundInput({
+  moonFeatureSnapshot,
+  backgroundFeatureSnapshot
+}: {
+  moonFeatureSnapshot: FeatureSnapshotRow | null;
+  backgroundFeatureSnapshot: FeatureSnapshotRow | null;
+}): JepV6BackgroundInput {
+  const moonDerived = readSnapshotDerivedPayload(moonFeatureSnapshot);
+  const backgroundDerived = readSnapshotDerivedPayload(backgroundFeatureSnapshot);
+  const backgroundAvailability = readSnapshotAvailability(backgroundFeatureSnapshot);
+  if (backgroundFeatureSnapshot) {
+    return {
+      availability: backgroundAvailability,
+      source: 'combined',
+      sMoon: readNumberFromRecord(backgroundDerived, 'sMoon'),
+      sAnthro: readNumberFromRecord(backgroundDerived, 'sAnthro'),
+      sBackground: readNumberFromRecord(backgroundDerived, 'sBackground')
+    };
+  }
+
+  if (moonFeatureSnapshot) {
+    return {
+      availability: readSnapshotAvailability(moonFeatureSnapshot),
+      source: 'moon_only',
+      sMoon: readNumberFromRecord(moonDerived, 'sMoon'),
+      sAnthro: null,
+      sBackground: null
+    };
+  }
+
+  return {
+    availability: 'neutral_missing_background',
+    source: 'neutral',
+    sMoon: null,
+    sAnthro: null,
+    sBackground: null
+  };
+}
+
+function buildShadowMissionProfileInput(vehiclePriorFeatureSnapshot: FeatureSnapshotRow | null): JepV6MissionProfileInput {
+  const derived = readSnapshotDerivedPayload(vehiclePriorFeatureSnapshot);
+  const prior = vehiclePriorFeatureSnapshot?.feature_payload?.prior;
+  const priorRecord = prior && typeof prior === 'object' ? (prior as Record<string, unknown>) : {};
+
+  return {
+    availability: readSnapshotAvailability(vehiclePriorFeatureSnapshot) ?? 'neutral_missing_vehicle_prior',
+    source:
+      readStringFromRecord(derived, 'source') === 'vehicle_prior' && vehiclePriorFeatureSnapshot
+        ? 'vehicle_prior'
+        : 'neutral',
+    familyKey: readStringFromRecord(priorRecord, 'familyKey'),
+    familyLabel: readStringFromRecord(priorRecord, 'familyLabel'),
+    matchMode: readMissionProfileMatchMode(priorRecord),
+    missionProfileFactor: readNumberFromRecord(derived, 'sMissionProfile'),
+    analystConfidence: readStringFromRecord(priorRecord, 'analystConfidence'),
+    sourceUrl: readStringFromRecord(priorRecord, 'sourceUrl'),
+    sourceTitle: readStringFromRecord(priorRecord, 'sourceTitle'),
+    sourceRevision: readStringFromRecord(priorRecord, 'sourceRevision'),
+    rationale: readStringFromRecord(priorRecord, 'rationale')
+  };
+}
+
+function buildShadowHorizonInput(horizonFeatureSnapshot: FeatureSnapshotRow | null): JepV6HorizonInput {
+  const derived = readSnapshotDerivedPayload(horizonFeatureSnapshot);
+  return {
+    availability: readSnapshotAvailability(horizonFeatureSnapshot),
+    source: horizonFeatureSnapshot ? 'local_mask' : 'neutral',
+    terrainMaskElDeg: readNumberFromRecord(derived, 'terrainMaskElDeg'),
+    buildingMaskElDeg: readNumberFromRecord(derived, 'buildingMaskElDeg'),
+    totalMaskElDeg: readNumberFromRecord(derived, 'totalMaskElDeg'),
+    clearanceDeg: readNumberFromRecord(derived, 'clearanceDeg'),
+    factor: readNumberFromRecord(derived, 'sLocalHorizon'),
+    dominantSource: readStringFromRecord(derived, 'dominantSource'),
+    dominantDistanceM: readNumberFromRecord(derived, 'dominantDistanceM')
+  };
+}
+
+function readMissionProfileMatchMode(record: Record<string, unknown>): JepV6MissionProfileInput['matchMode'] {
+  const value = readStringFromRecord(record, 'matchMode');
+  return value === 'config_id' || value === 'family_key' || value === 'pattern' ? value : 'none';
+}
+
+function readRepresentativeCorridorFromFeatureSnapshot(snapshot: FeatureSnapshotRow | null): JepV6RepresentativeCorridor | null {
+  const raw = snapshot?.feature_payload?.representativeCorridor;
+  if (!raw || typeof raw !== 'object') return null;
+  const record = raw as Record<string, unknown>;
+  const mode = record.mode === 'visible_path' || record.mode === 'sunlit_path' ? record.mode : null;
+  if (!mode) return null;
+
+  const representativeTPlusSec = toFiniteNumber(record.representativeTPlusSec);
+  const representativeAzimuthDeg = toFiniteNumber(record.representativeAzimuthDeg);
+  if (representativeTPlusSec == null || representativeAzimuthDeg == null) return null;
+
+  return {
+    mode,
+    representativeTPlusSec,
+    representativeAzimuthDeg,
+    representativeElevationDeg: toFiniteNumber(record.representativeElevationDeg),
+    representativeAltitudeM: toFiniteNumber(record.representativeAltitudeM),
+    representativeDownrangeKm: toFiniteNumber(record.representativeDownrangeKm),
+    sampleCount: clampInt(toFiniteNumber(record.sampleCount) ?? 0, 0, 10000),
+    corridorStartTPlusSec: toFiniteNumber(record.corridorStartTPlusSec) ?? representativeTPlusSec,
+    corridorEndTPlusSec: toFiniteNumber(record.corridorEndTPlusSec) ?? representativeTPlusSec,
+    azimuthSpreadDeg: toFiniteNumber(record.azimuthSpreadDeg)
+  };
+}
+
+function readSnapshotAvailability(snapshot: FeatureSnapshotRow | null) {
+  const value = snapshot?.feature_payload?.availability;
+  return typeof value === 'string' ? value : null;
+}
+
+function readSnapshotDerivedPayload(snapshot: FeatureSnapshotRow | null) {
+  const derived = snapshot?.feature_payload?.derived;
+  return derived && typeof derived === 'object' ? (derived as Record<string, unknown>) : {};
+}
+
+function readNumberFromRecord(record: Record<string, unknown>, key: string) {
+  return toFiniteNumber(record[key]);
+}
+
+function readStringFromRecord(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function readHorizonMaskAvailability(row: HorizonMaskRow | null) {
+  const value = row?.confidence_payload?.availability;
+  return typeof value === 'string' ? value : null;
+}
+
+async function loadVehiclePriors(supabase: ReturnType<typeof createSupabaseAdminClient>) {
+  const { data, error } = await supabase
+    .from('jep_vehicle_priors')
+    .select(
+      'family_key, family_label, ll2_rocket_config_id, provider_key, pad_state, rocket_full_name_pattern, rocket_family_pattern, mission_profile_factor, analyst_confidence, source_url, source_title, source_revision, rationale, active_from_date, active_to_date, metadata'
+    );
+  if (error) {
+    const text = `${error.message || ''}`.toLowerCase();
+    if (text.includes('jep_vehicle_priors')) return [] as VehiclePriorRow[];
+    throw error;
+  }
+
+  return ((data || []) as Array<Record<string, unknown>>).map((row) => ({
+    familyKey: typeof row.family_key === 'string' ? row.family_key : '',
+    familyLabel: typeof row.family_label === 'string' ? row.family_label : null,
+    ll2RocketConfigId: toFiniteInteger(row.ll2_rocket_config_id),
+    providerKey: typeof row.provider_key === 'string' ? row.provider_key : null,
+    padState: typeof row.pad_state === 'string' ? row.pad_state : null,
+    rocketFullNamePattern: typeof row.rocket_full_name_pattern === 'string' ? row.rocket_full_name_pattern : null,
+    rocketFamilyPattern: typeof row.rocket_family_pattern === 'string' ? row.rocket_family_pattern : null,
+    missionProfileFactor: toFiniteNumber(row.mission_profile_factor),
+    analystConfidence: typeof row.analyst_confidence === 'string' ? row.analyst_confidence : null,
+    sourceUrl: typeof row.source_url === 'string' ? row.source_url : null,
+    sourceTitle: typeof row.source_title === 'string' ? row.source_title : null,
+    sourceRevision: typeof row.source_revision === 'string' ? row.source_revision : null,
+    rationale: typeof row.rationale === 'string' ? row.rationale : null,
+    activeFromDate: typeof row.active_from_date === 'string' ? row.active_from_date : null,
+    activeToDate: typeof row.active_to_date === 'string' ? row.active_to_date : null,
+    metadata: row.metadata && typeof row.metadata === 'object' ? (row.metadata as Record<string, unknown>) : null
+  }));
+}
+
+async function loadHorizonMasks(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  observerFeatureKeys: string[]
+) {
+  const byFeatureKey = new Map<string, HorizonMaskRow>();
+  const chunkSize = 200;
+  for (let i = 0; i < observerFeatureKeys.length; i += chunkSize) {
+    const slice = observerFeatureKeys.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from('jep_horizon_masks')
+      .select(
+        'observer_feature_key, observer_lat_bucket, observer_lon_bucket, observer_cell_deg, azimuth_step_deg, terrain_mask_profile, building_mask_profile, total_mask_profile, dominant_source_profile, dominant_distance_m_profile, dem_source_key, dem_source_version_id, dem_release_id, building_source_key, building_source_version_id, building_release_id, metadata, confidence_payload, computed_at, updated_at'
+      )
+      .in('observer_feature_key', slice);
+    if (error) {
+      const text = `${error.message || ''}`.toLowerCase();
+      if (text.includes('jep_horizon_masks')) return byFeatureKey;
+      throw error;
+    }
+    for (const row of (data || []) as HorizonMaskRow[]) {
+      byFeatureKey.set(row.observer_feature_key, row);
+    }
+  }
+  return byFeatureKey;
+}
+
+async function loadBackgroundLightCells(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  observerFeatureKeys: string[]
+) {
+  const byFeatureKey = new Map<string, BackgroundLightRow[]>();
+  const chunkSize = 200;
+  for (let i = 0; i < observerFeatureKeys.length; i += chunkSize) {
+    const slice = observerFeatureKeys.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from('jep_background_light_cells')
+      .select(
+        'observer_feature_key, source_key, source_version_id, source_fetch_run_id, product_key, period_start_date, period_end_date, radiance_dataset, radiance_nw_cm2_sr, radiance_log, radiance_stddev_nw_cm2_sr, radiance_observation_count, quality_code, land_water_code, radiance_percentile, s_anthro, metadata, confidence_payload, updated_at'
+      )
+      .in('observer_feature_key', slice)
+      .order('period_start_date', { ascending: false });
+    if (error) {
+      const text = `${error.message || ''}`.toLowerCase();
+      if (text.includes('jep_background_light_cells')) return byFeatureKey;
+      throw error;
+    }
+    for (const row of (data || []) as BackgroundLightRow[]) {
+      const list = byFeatureKey.get(row.observer_feature_key) ?? [];
+      list.push(row);
+      byFeatureKey.set(row.observer_feature_key, list);
+    }
+  }
+  return byFeatureKey;
+}
+
+function selectBackgroundLightRow(rows: BackgroundLightRow[], launchNetIso: string) {
+  const monthlyPeriod = deriveBlackMarblePeriod('VNP46A3', launchNetIso);
+  const yearlyPeriod = deriveBlackMarblePeriod('VNP46A4', launchNetIso);
+  const monthlyRow = monthlyPeriod
+    ? rows.find(
+        (row) =>
+          row.source_key === monthlyPeriod.sourceKey &&
+          row.period_start_date === monthlyPeriod.periodStartDate
+      ) || null
+    : null;
+  const yearlyRow = yearlyPeriod
+    ? rows.find(
+        (row) =>
+          row.source_key === yearlyPeriod.sourceKey &&
+          row.period_start_date === yearlyPeriod.periodStartDate
+      ) || null
+    : null;
+
+  if (readBackgroundAvailability(monthlyRow) === 'ok') return monthlyRow;
+  if (readBackgroundAvailability(yearlyRow) === 'ok') return yearlyRow;
+  return monthlyRow ?? yearlyRow ?? null;
+}
+
+function readBackgroundAvailability(row: BackgroundLightRow | null) {
+  const value = row?.confidence_payload?.availability;
+  return typeof value === 'string' ? value : null;
+}
+
+async function loadMoonEphemerides(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  launchIds: string[]
+) {
+  const byLaunch = new Map<string, MoonEphemerisRow[]>();
+  const chunkSize = 200;
+  for (let i = 0; i < launchIds.length; i += chunkSize) {
+    const slice = launchIds.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from('jep_moon_ephemerides')
+      .select(
+        'launch_id, observer_location_hash, sample_at, sample_offset_sec, source_key, source_version_id, source_fetch_run_id, qa_source_key, qa_version_id, qa_fetch_run_id, moon_az_deg, moon_el_deg, moon_illum_frac, moon_phase_name, moon_phase_angle_deg, moonrise_utc, moonset_utc, metadata, confidence_payload'
+      )
+      .eq('observer_location_hash', PAD_OBSERVER_HASH)
+      .in('launch_id', slice)
+      .order('sample_at', { ascending: true });
+    if (error) {
+      const text = `${error.message || ''}`.toLowerCase();
+      if (text.includes('jep_moon_ephemerides')) return byLaunch;
+      throw error;
+    }
+    for (const row of (data || []) as MoonEphemerisRow[]) {
+      const list = byLaunch.get(row.launch_id) ?? [];
+      list.push(row);
+      byLaunch.set(row.launch_id, list);
+    }
+  }
+  return byLaunch;
+}
+
+function deriveRepresentativePlumeCorridor({
+  samples,
+  solarDepressionDeg,
+  observerLatDeg,
+  observerLonDeg
+}: {
+  samples: Sample[];
+  solarDepressionDeg: number;
+  observerLatDeg: number;
+  observerLonDeg: number;
+}): RepresentativePlumeCorridor | null {
+  if (!samples.length) return null;
+  const sorted = [...samples].sort((a, b) => a.tPlusSec - b.tPlusSec);
+  const endT = resolveJellyfishEndSeconds(sorted, null);
+  const shadowKm = computeShadowHeightKm(solarDepressionDeg);
+
+  const scored = sorted
+    .filter((sample) => sample.tPlusSec >= 60 && sample.tPlusSec <= endT)
+    .map((sample) => {
+      const elevationDeg = elevationFromObserverDeg({
+        observerLatDeg,
+        observerLonDeg,
+        targetLatDeg: sample.latDeg,
+        targetLonDeg: sample.lonDeg,
+        targetAltM: sample.altM
+      });
+      const weight = sample.tPlusSec >= 150 && sample.tPlusSec <= 300 ? 2 : 1;
+      const sunlit = sample.altM / 1000 > shadowKm;
+      const visible = sunlit && Number.isFinite(elevationDeg) && elevationDeg >= LOS_ELEVATION_THRESHOLD_DEG;
+      return {
+        sample,
+        weight,
+        sunlit,
+        visible,
+        elevationDeg: Number.isFinite(elevationDeg) ? elevationDeg : null
+      };
+    });
+
+  const visible = scored.filter((entry) => entry.visible);
+  const sunlit = scored.filter((entry) => entry.sunlit);
+  const selected = visible.length ? visible : sunlit.length ? sunlit : [];
+  if (!selected.length) return null;
+
+  const mode = visible.length ? 'visible_path' : 'sunlit_path';
+  const totalWeight = selected.reduce((sum, entry) => sum + entry.weight, 0);
+  if (!totalWeight) return null;
+
+  const representativeTPlusSec =
+    selected.reduce((sum, entry) => sum + entry.sample.tPlusSec * entry.weight, 0) / totalWeight;
+  const representativeAzimuthDeg = circularMeanDeg(
+    selected.map((entry) => ({ deg: entry.sample.azimuthDeg, weight: entry.weight }))
+  );
+  if (representativeAzimuthDeg == null) return null;
+
+  const azimuthSpreadDeg = selected.reduce((maxDiff, entry) => {
+    const diff = angularSeparationDeg(entry.sample.azimuthDeg, representativeAzimuthDeg);
+    return Math.max(maxDiff, diff);
+  }, 0);
+  const representativeElevationDeg = weightedAverage(
+    selected.map((entry) => ({ value: entry.elevationDeg, weight: entry.weight }))
+  );
+  const representativeAltitudeM = weightedAverage(
+    selected.map((entry) => ({ value: entry.sample.altM, weight: entry.weight }))
+  );
+  const representativeDownrangeKm = weightedAverage(
+    selected.map((entry) => ({ value: entry.sample.downrangeM / 1000, weight: entry.weight }))
+  );
+
+  return {
+    mode,
+    representativeTPlusSec,
+    representativeAzimuthDeg,
+    representativeElevationDeg,
+    representativeAltitudeM,
+    representativeDownrangeKm,
+    sampleCount: selected.length,
+    corridorStartTPlusSec: selected[0]?.sample.tPlusSec ?? representativeTPlusSec,
+    corridorEndTPlusSec: selected[selected.length - 1]?.sample.tPlusSec ?? representativeTPlusSec,
+    azimuthSpreadDeg
+  };
+}
+
+function findNearestMoonSample(rows: MoonEphemerisRow[], targetMs: number, maxDiffMs: number) {
+  let best: MoonEphemerisRow | null = null;
+  let bestDiff = Number.POSITIVE_INFINITY;
+  for (const row of rows) {
+    const sampleMs = Date.parse(String(row.sample_at || ''));
+    if (!Number.isFinite(sampleMs)) continue;
+    const diff = Math.abs(sampleMs - targetMs);
+    if (diff < bestDiff) {
+      best = row;
+      bestDiff = diff;
+    }
+  }
+  if (!best || bestDiff > maxDiffMs) return null;
+  return best;
+}
+
+function weightedAverage(entries: Array<{ value: number | null; weight: number }>) {
+  let weightedSum = 0;
+  let totalWeight = 0;
+  for (const entry of entries) {
+    if (!Number.isFinite(entry.value) || !Number.isFinite(entry.weight) || entry.weight <= 0) continue;
+    weightedSum += Number(entry.value) * entry.weight;
+    totalWeight += entry.weight;
+  }
+  if (!totalWeight) return null;
+  return weightedSum / totalWeight;
 }
 
 function incrementWeatherSourceStats(
@@ -2384,9 +4037,19 @@ function toFiniteNumber(value: unknown) {
   return null;
 }
 
+function toFiniteInteger(value: unknown) {
+  const numberValue = toFiniteNumber(value);
+  return numberValue == null ? null : Math.trunc(numberValue);
+}
+
 function toInt(value: number | null) {
   if (value == null || !Number.isFinite(value)) return null;
   return clampInt(value, 0, 100);
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) return min;
+  return clamp(value, min, max);
 }
 
 function clamp(value: number, min: number, max: number) {

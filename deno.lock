@@ -1,16 +1,26 @@
 {
-  "version": "4",
+  "version": "5",
   "redirects": {
-    "https://esm.sh/@supabase/supabase-js@2": "https://esm.sh/@supabase/supabase-js@2.98.0"
+    "https://esm.sh/@supabase/supabase-js@2": "https://esm.sh/@supabase/supabase-js@2.98.0",
+    "https://esm.sh/parquet-wasm?bundle": "https://esm.sh/parquet-wasm@0.7.1?bundle"
   },
   "remote": {
+    "https://cdn.jsdelivr.net/npm/h5wasm@0.10.1/dist/esm/hdf5_hl.js": "0e5c045ed56d28720e4e664d1672d3704ff3aadd776004d365ef2b9b2e3738ae",
+    "https://cdn.jsdelivr.net/npm/h5wasm@0.10.1/dist/esm/hdf5_util.js": "acc4831bceac27c6d25c6ddf3083d03db457d061591111e07b51e99828c48277",
     "https://deno.land/std@0.224.0/async/delay.ts": "f90dd685b97c2f142b8069082993e437b1602b8e2561134827eeb7c12b95c499",
     "https://deno.land/std@0.224.0/http/server.ts": "f9313804bf6467a1704f45f76cb6cd0a3396a3b31c316035e6a4c2035d1ea514",
-    "https://esm.sh/@supabase/supabase-js@2.98.0": "7c91584aa8d7c3b272be04122a907e00a7028a20d0eaf5e40b2eb1eed10f06b3"
+    "https://esm.sh/@supabase/supabase-js@2.98.0": "7c91584aa8d7c3b272be04122a907e00a7028a20d0eaf5e40b2eb1eed10f06b3",
+    "https://esm.sh/hyparquet@1.10.4/denonext/hyparquet.bundle.mjs": "ca98cff71c3625e1d7cd69888eb2a4f28070cb1acc6ed80cf502f3f88f287473",
+    "https://esm.sh/hyparquet@1.10.4?bundle": "ebe0e159eae62c4e1a27d11ea0d0340a31c904a555fd0aea610a639c2ccfe6e7",
+    "https://esm.sh/parquet-wasm@0.7.1/denonext/parquet-wasm.bundle.mjs": "23ba46645df1cd420ec8c38fbb001a7c0954a09216e11e4dad98c6b0388c25e3",
+    "https://esm.sh/parquet-wasm@0.7.1?bundle": "2c71ac167592f3ca813e0c7daee6a11a537d296263b3dd21b507e62dcad63af1",
+    "https://esm.sh/pmtiles@3.2.0/denonext/pmtiles.bundle.mjs": "23213c1dfae6b870aa304cd38278eb4a4d73a9b1f4faf7d7265ab47ff54c208d",
+    "https://esm.sh/pmtiles@3.2.0?bundle": "2c2204416fa03ebd178b0034aed0d758da6e0acc2041a69f90dc2fb6576c5918"
   },
   "workspace": {
     "packageJson": {
       "dependencies": [
+        "npm:@apple/app-store-server-library@2",
         "npm:@react-three/drei@^9.122.0",
         "npm:@react-three/fiber@^8.18.0",
         "npm:@stripe/react-stripe-js@^2.9.0",
@@ -29,6 +39,7 @@
         "npm:eslint-config-next@14.2.35",
         "npm:eslint@8.57.1",
         "npm:framer-motion@^12.24.0",
+        "npm:google-auth-library@^10.6.1",
         "npm:next-safe-action@^5.0.2",
         "npm:next@^14.2.35",
         "npm:pdfjs-dist@^4.0.379",
@@ -44,9 +55,103 @@
         "npm:three@0.182",
         "npm:ts-node@^10.9.2",
         "npm:tsconfig-paths@^4.2.0",
+        "npm:turbo@2.8.14",
         "npm:typescript@5.9.3",
         "npm:zod@^3.22.4"
-      ]
+      ],
+      "overrides": {
+        "@next/eslint-plugin-next": {
+          "glob": "10.5.0"
+        }
+      }
+    },
+    "members": {
+      "apps/mobile": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@react-navigation/native@^7.1.28",
+            "npm:@tanstack/react-query@^5.90.21",
+            "npm:@tminuszero/api-client@0.0.0",
+            "npm:@tminuszero/contracts@0.0.0",
+            "npm:@tminuszero/design-tokens@0.0.0",
+            "npm:@tminuszero/domain@0.0.0",
+            "npm:@tminuszero/launch-animations@*",
+            "npm:@tminuszero/navigation@0.0.0",
+            "npm:@tminuszero/query@0.0.0",
+            "npm:@types/react@~19.2.2",
+            "npm:detox@^20.47.0",
+            "npm:expo-apple-authentication@~55.0.9",
+            "npm:expo-application@^55.0.8",
+            "npm:expo-build-properties@^55.0.9",
+            "npm:expo-constants@~55.0.7",
+            "npm:expo-crypto@~55.0.10",
+            "npm:expo-dev-client@^55.0.11",
+            "npm:expo-device@^55.0.9",
+            "npm:expo-iap@^3.4.9",
+            "npm:expo-linking@~55.0.7",
+            "npm:expo-notifications@^55.0.11",
+            "npm:expo-router@~55.0.4",
+            "npm:expo-secure-store@~55.0.8",
+            "npm:expo-splash-screen@~55.0.10",
+            "npm:expo-status-bar@~55.0.4",
+            "npm:expo-web-browser@~55.0.9",
+            "npm:expo@~55.0.5",
+            "npm:jest@^30.2.0",
+            "npm:react-dom@19.2.0",
+            "npm:react-native-reanimated@4.2.1",
+            "npm:react-native-safe-area-context@~5.6.2",
+            "npm:react-native-screens@4.23",
+            "npm:react-native-web@0.21",
+            "npm:react-native@0.83.2",
+            "npm:react@19.2.0",
+            "npm:typescript@5.9.3"
+          ]
+        }
+      },
+      "apps/web": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@tminuszero/launch-animations@*"
+          ]
+        }
+      },
+      "packages/api-client": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@tminuszero/contracts@0.0.0"
+          ]
+        }
+      },
+      "packages/contracts": {
+        "packageJson": {
+          "dependencies": [
+            "npm:zod@^3.22.4"
+          ]
+        }
+      },
+      "packages/domain": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@tminuszero/contracts@*"
+          ]
+        }
+      },
+      "packages/launch-detail-ui": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@tminuszero/contracts@*",
+            "npm:@tminuszero/design-tokens@*",
+            "npm:@tminuszero/domain@*"
+          ]
+        }
+      },
+      "packages/query": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@tanstack/react-query@^5.90.21"
+          ]
+        }
+      }
     }
   }
 }

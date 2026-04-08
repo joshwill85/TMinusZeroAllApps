@@ -2274,7 +2274,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
   const googleMapsPadHref = buildGoogleMapsSatelliteUrl(launch.pad, { zoom: 18 });
   const googleMapsPadPreviewUrl =
     googleMapsPadHref && hasGoogleMapsStaticApiKey
-      ? buildPadSatellitePreviewPath(launch.id)
+      ? buildPadSatellitePreviewPath(launch.id, launch.pad)
       : null;
   const externalLinksRaw = buildExternalLinks({
     watch: watchUrl,

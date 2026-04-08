@@ -429,14 +429,57 @@ export async function upsertLaunches(supabase: ReturnType<typeof createSupabaseA
     return { ...row, name: fallback };
   });
 
-  const { error } = await supabase.from('launches').upsert(sanitized, { onConflict: 'll2_launch_uuid' });
+  let hydrated = sanitized;
+  try {
+    hydrated = await fillMissingRocketFamiliesFromConfigs(supabase, sanitized);
+  } catch (err) {
+    console.warn('fillMissingRocketFamiliesFromConfigs failed', err instanceof Error ? err.message : String(err));
+  }
+
+  const { error } = await supabase.from('launches').upsert(hydrated, { onConflict: 'll2_launch_uuid' });
   if (error) throw error;
 
   try {
-    await bestEffortUpsertCelestrakIntdesDatasets(supabase, sanitized);
+    await bestEffortUpsertCelestrakIntdesDatasets(supabase, hydrated);
   } catch (err) {
     console.warn('bestEffortUpsertCelestrakIntdesDatasets failed', err instanceof Error ? err.message : String(err));
   }
+}
+
+async function fillMissingRocketFamiliesFromConfigs(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  rows: any[]
+) {
+  const configIds = Array.from(
+    new Set(
+      rows
+        .filter((row) => !normalizeNonEmptyString(row?.rocket_family))
+        .map((row) => parseInteger(row?.ll2_rocket_config_id))
+        .filter((value): value is number => value != null)
+    )
+  );
+
+  if (!configIds.length) return rows;
+
+  const { data, error } = await supabase.from('ll2_rocket_configs').select('ll2_config_id, family').in('ll2_config_id', configIds);
+  if (error) throw error;
+
+  const familyByConfigId = new Map<number, string>();
+  for (const row of data || []) {
+    const configId = parseInteger(row?.ll2_config_id);
+    const family = normalizeNonEmptyString(row?.family);
+    if (configId != null && family) familyByConfigId.set(configId, family);
+  }
+
+  if (!familyByConfigId.size) return rows;
+
+  return rows.map((row) => {
+    if (normalizeNonEmptyString(row?.rocket_family)) return row;
+    const configId = parseInteger(row?.ll2_rocket_config_id);
+    if (configId == null) return row;
+    const family = familyByConfigId.get(configId);
+    return family ? { ...row, rocket_family: family } : row;
+  });
 }
 
 export async function upsertLl2References(
@@ -526,7 +569,9 @@ export async function upsertLl2References(
     upsertReference(supabase, 'll2_agencies', [...agencies.values()], 'll2_agency_id', { insertOnly }),
     upsertReference(supabase, 'll2_locations', [...locations.values()], 'll2_location_id', { insertOnly }),
     upsertReference(supabase, 'll2_pads', [...pads.values()], 'll2_pad_id', { insertOnly }),
-    upsertReference(supabase, 'll2_rocket_configs', [...rockets.values()], 'll2_config_id', { insertOnly })
+    // Keep rocket config metadata current even during incremental runs so family-level joins
+    // can repair blank launch rows without waiting for a full reference backfill.
+    upsertReference(supabase, 'll2_rocket_configs', [...rockets.values()], 'll2_config_id')
   ]);
 }
 

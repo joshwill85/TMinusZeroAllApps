@@ -1,0 +1,152 @@
+{
+  "policyVersion": "ar_trajectory_ingest_admission_registry_v1",
+  "updatedAt": "2026-04-08T00:00:00.000Z",
+  "entries": [
+    {
+      "id": "ll2_identity",
+      "sourceFamily": "LL2 launch identity and rocket.configuration.id",
+      "intendedUse": [
+        "launch_identity",
+        "vehicle_family_segmentation"
+      ],
+      "decision": "pass",
+      "availability": "yes",
+      "joinability": "yes",
+      "usableCoverage": "yes",
+      "allowedScope": "keep using for identity, pad, and vehicle-family linkage",
+      "reviewDoc": null,
+      "notes": "Current repo already uses this source; Phase 2 work now backfills rocket_family from ll2_rocket_configs.family."
+    },
+    {
+      "id": "spacex_official_infographics",
+      "sourceFamily": "SpaceX official mission infographic assets",
+      "intendedUse": [
+        "recovery_authority",
+        "corroboration_only"
+      ],
+      "decision": "pass",
+      "availability": "yes",
+      "joinability": "yes",
+      "usableCoverage": "yes",
+      "allowedScope": "keep the existing SpaceX infographic adapter limited to infographic corroboration and landing hints",
+      "reviewDoc": "docs/2026-04-08-ar-trajectory-ingest-admission-spacex-official-infographics.md",
+      "notes": "Existing repo adapter already writes mission bundles and mission_infographic constraints. Do not promote this source into direct ascent-truth authority."
+    },
+    {
+      "id": "blue_origin_mission_pages",
+      "sourceFamily": "Blue Origin official mission pages",
+      "intendedUse": [
+        "corroboration_only"
+      ],
+      "decision": "defer",
+      "availability": "yes",
+      "joinability": "partial",
+      "usableCoverage": "no",
+      "allowedScope": "continue URL discovery and timeline context only",
+      "reviewDoc": "docs/2026-04-08-ar-trajectory-ingest-admission-blue-origin-mission-pages.md",
+      "notes": "Existing mission-page discovery stays allowed, but no trajectory-truth adapter should be built yet."
+    },
+    {
+      "id": "rocket_lab_mission_pages",
+      "sourceFamily": "Rocket Lab mission and updates pages",
+      "intendedUse": [
+        "direction_authority",
+        "milestone_authority",
+        "corroboration_only"
+      ],
+      "decision": "defer",
+      "availability": "partial",
+      "joinability": "partial",
+      "usableCoverage": "no",
+      "allowedScope": "source sample audit only",
+      "reviewDoc": "docs/2026-04-08-ar-trajectory-ingest-admission-rocket-lab-mission-pages.md",
+      "notes": "Derived seeds exist, but that is not enough to admit an ingest."
+    },
+    {
+      "id": "faa_navcen_hazard_geometry",
+      "sourceFamily": "FAA / NAVCEN hazard geometry",
+      "intendedUse": [
+        "corroboration_only",
+        "launch_window_ops_context"
+      ],
+      "decision": "pass",
+      "availability": "yes",
+      "joinability": "yes",
+      "usableCoverage": "yes",
+      "allowedScope": "corroboration, hazard context, schedule support",
+      "reviewDoc": null,
+      "notes": "Allowed only as corroboration and ops context. Not allowed as ascent-truth source."
+    },
+    {
+      "id": "public_faa_live_truth",
+      "sourceFamily": "public FAA live or geospatial surfaces as consumer ascent truth",
+      "intendedUse": [
+        "live_trajectory_truth"
+      ],
+      "decision": "reject",
+      "availability": "no",
+      "joinability": "no",
+      "usableCoverage": "no",
+      "allowedScope": "none",
+      "reviewDoc": null,
+      "notes": "Do not build product logic on the assumption that public FAA surfaces expose launch-ready live ascent trajectories for our launches."
+    },
+    {
+      "id": "official_visibility_maps",
+      "sourceFamily": "provider or agency visibility maps and interactive visibility assets",
+      "intendedUse": [
+        "visibility_authority"
+      ],
+      "decision": "defer",
+      "availability": "partial",
+      "joinability": "partial",
+      "usableCoverage": "partial",
+      "allowedScope": "targeted audits only",
+      "reviewDoc": null,
+      "notes": "Keep as opportunistic. Only promote to pass after per-source reviews show stable publication and useful future-launch coverage."
+    },
+    {
+      "id": "special_event_priors",
+      "sourceFamily": "mission-specific special-event priors such as relights, venting, tracer-style events",
+      "intendedUse": [
+        "event_specific_branch_or_visibility_enrichment"
+      ],
+      "decision": "defer",
+      "availability": "partial",
+      "joinability": "partial",
+      "usableCoverage": "no",
+      "allowedScope": "none beyond research notes",
+      "reviewDoc": null,
+      "notes": "Do not scaffold production ingest until coverage across real future launches becomes useful."
+    },
+    {
+      "id": "ocr_first_infographics",
+      "sourceFamily": "OCR-first infographic extraction without stronger source coverage",
+      "intendedUse": [
+        "direction_authority",
+        "milestone_authority"
+      ],
+      "decision": "defer",
+      "availability": "partial",
+      "joinability": "partial",
+      "usableCoverage": "partial",
+      "allowedScope": "only after official-doc path is healthy",
+      "reviewDoc": null,
+      "notes": "The roadmap explicitly avoids OCR-first investment before parser operations and official-doc coverage are strong."
+    },
+    {
+      "id": "partner_live_feeds",
+      "sourceFamily": "operator-provided or licensed partner live feeds",
+      "intendedUse": [
+        "live_mission_state"
+      ],
+      "decision": "defer",
+      "availability": "unknown",
+      "joinability": "unknown",
+      "usableCoverage": "unknown",
+      "allowedScope": "contract and integration design only",
+      "reviewDoc": null,
+      "notes": "If this becomes available later, it must stay a separately labeled partner_live path rather than silently replacing prediction."
+    }
+  ]
+}

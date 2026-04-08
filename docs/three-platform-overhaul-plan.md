@@ -1,10 +1,11 @@
 # Three-Platform Overhaul Plan
 
-Last updated: 2026-04-04
+Last updated: 2026-04-08
 
 This is the living master checklist for moving T-Minus Zero from a web-only product to a maintainable, high-performance web + iOS + Android product line.
 
 Related implementation plans:
+- `docs/2026-04-08-ar-trajectory-v3-data-and-roadmap-plan.md`
 - `docs/2026-04-03-apple-sign-in-linking-and-rollout-plan.md`
 - `docs/2026-04-04-anon-premium-model-enforcement-plan.md`
 - `docs/2026-03-20-anon-premium-cutover-plan.md`
@@ -76,6 +77,11 @@ Related implementation plans:
 
 ## Current Slice Tracker
 
+- 2026-04-08: AR trajectory `v3` data and product roadmap planning is in progress for `Web`, `iOS`, and `Android`.
+  - Source-of-truth plan: `docs/2026-04-08-ar-trajectory-v3-data-and-roadmap-plan.md`
+  - Scope: raise source authority, complete telemetry evidence, dual-write a richer mission package under current contracts, simplify the handheld sky-finder product, and add bounded actualization only after replay and field gates hold.
+  - Guardrails: no breaking `/api/v1` changes, no duplicate KPI authority, no false-precision sigma language, no public-FAA-live-state assumptions, and no CV-driven topology or milestone rewrites.
+  - Current implementation slice: telemetry completeness reporting, `rocket_family` repair instrumentation, coverage-policy enforcement for family readiness, a repo-level ingest admission template plus registry, and seeded provider-level admission reviews for SpaceX, Blue Origin, and Rocket Lab are now in place.
 - 2026-04-06: Launch live-refresh and inventory-availability alignment planning is in progress for `Web`, `iOS`, and `Android`.
   - Source-of-truth plan: `docs/2026-04-06-launch-live-refresh-and-inventory-availability-plan.md`
   - Scope: align the Premium LL2 backend cadence to the shared `120s/15s` launch hot-window contract, keep customer refresh gestures DB/cache-only, standardize refresh-toast outcomes, and hide future-launch inventory until real catalog data exists.

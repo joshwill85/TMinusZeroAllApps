@@ -115,7 +115,7 @@ export function LaunchFaaMapClient({ apiKey, data, padMapsHref }: Props) {
                 <div className="text-xs uppercase tracking-[0.08em] text-text3">Launch zone map</div>
                 <h3 className="mt-1 text-lg font-semibold text-text1">FAA advisory geometry</h3>
                 <p className="mt-1 text-sm text-text3">
-                  Only launch-day `matched` and `manual` advisory polygons are shown here.
+                  Launch-day advisory polygons are shown here whenever FAA geometry is available.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">

@@ -34,6 +34,8 @@ const JOBS = {
   trajectory_constraints_ingest: { slug: 'trajectory-constraints-ingest' },
   trajectory_products_generate: { slug: 'trajectory-products-generate' },
   jep_score_refresh: { slug: 'jep-score-refresh' },
+  jep_moon_ephemeris_refresh: { slug: 'jep-moon-ephemeris-refresh' },
+  jep_background_light_refresh: { slug: 'jep-background-light-refresh' },
   trajectory_templates_generate: { slug: 'trajectory-templates-generate' },
 
   artemis_bootstrap: { slug: 'artemis-bootstrap' },
@@ -82,6 +84,8 @@ const schema = z.object({
     'trajectory_constraints_ingest',
     'trajectory_products_generate',
     'jep_score_refresh',
+    'jep_moon_ephemeris_refresh',
+    'jep_background_light_refresh',
     'trajectory_templates_generate',
 
     'artemis_bootstrap',

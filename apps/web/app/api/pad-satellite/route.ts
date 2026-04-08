@@ -16,6 +16,11 @@ export async function GET(request: Request) {
   if (!launchId) return empty(400);
 
   const targetUrl = new URL(`/api/launches/${encodeURIComponent(launchId)}/pad-satellite`, requestUrl.origin);
+  const latitude = requestUrl.searchParams.get('latitude')?.trim();
+  const longitude = requestUrl.searchParams.get('longitude')?.trim();
+  if (latitude) targetUrl.searchParams.set('latitude', latitude);
+  if (longitude) targetUrl.searchParams.set('longitude', longitude);
+
   return new Response(null, {
     status: 307,
     headers: {

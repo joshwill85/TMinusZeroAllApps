@@ -71,6 +71,21 @@ type TrajectoryPipelineFreshness = {
   staleLaunchIds: string[];
   precisionStaleProductsCount: number;
   precisionStaleLaunchIds: string[];
+  catalogCoverage: {
+    futureLaunches: number;
+    rocketFamilyFilled: number;
+    rocketFamilyFillRate: number | null;
+    ll2RocketConfigFilled: number;
+    ll2RocketConfigFillRate: number | null;
+    configFamilyAvailable: number;
+    configFamilyAvailableRate: number | null;
+    repairableMissingRocketFamily: number;
+    repairableMissingRocketFamilyRate: number | null;
+    unrepairableMissingRocketFamily: number;
+    unrepairableMissingRocketFamilyRate: number | null;
+    sampleRepairableLaunchIds: string[];
+    sampleUnrepairableLaunchIds: string[];
+  };
   sourceFreshness: {
     alertsEnabled: boolean;
     orbit: {
@@ -155,6 +170,29 @@ type TrajectoryPipelineFreshness = {
         q2: number;
         q3: number;
       };
+    };
+    completeness: {
+      requiredFieldValues: number;
+      filledFieldValues: number;
+      overallFillRate: number | null;
+      fields: Array<{
+        key: string;
+        label: string;
+        applicableSessions: number;
+        filledSessions: number;
+        fillRate: number | null;
+      }>;
+      runtimeFamilies: Array<{
+        runtimeFamily: 'web' | 'ios_native' | 'android_native' | 'unknown';
+        sessions: number;
+        fields: Array<{
+          key: string;
+          label: string;
+          applicableSessions: number;
+          filledSessions: number;
+          fillRate: number | null;
+        }>;
+      }>;
     };
     trend: Array<{
       day: string;
@@ -743,6 +781,44 @@ const SERVER_JOB_DEFS: readonly JobDef[] = [
     }
   },
   {
+    id: 'jep_moon_ephemeris_refresh',
+    label: 'JEP moon ephemeris refresh',
+    schedule: 'Every 30 min (managed scheduler)',
+    cronJobName: 'jep_moon_ephemeris_refresh',
+    category: 'scheduled',
+    origin: 'server',
+    source: 'ingestion_runs',
+    thresholdMinutes: 90,
+    enabledKey: 'jep_moon_ephemeris_job_enabled',
+    newData: (stats) => {
+      const rowsUpserted = readNumber(stats, 'rowsUpserted') ?? 0;
+      const launchesComputed = readNumber(stats, 'launchesComputed') ?? 0;
+      return {
+        count: rowsUpserted,
+        detail: rowsUpserted || launchesComputed ? `rows=${rowsUpserted}, launches=${launchesComputed}` : null
+      };
+    }
+  },
+  {
+    id: 'jep_background_light_refresh',
+    label: 'JEP background light refresh',
+    schedule: 'Every 12 hours (managed scheduler)',
+    cronJobName: 'jep_background_light_refresh',
+    category: 'scheduled',
+    origin: 'server',
+    source: 'ingestion_runs',
+    thresholdMinutes: 1560,
+    enabledKey: 'jep_background_light_job_enabled',
+    newData: (stats) => {
+      const rowsUpserted = readNumber(stats, 'rowsUpserted') ?? 0;
+      const tilesMaterialized = readNumber(stats, 'tilesMaterialized') ?? 0;
+      return {
+        count: rowsUpserted,
+        detail: rowsUpserted || tilesMaterialized ? `rows=${rowsUpserted}, tiles=${tilesMaterialized}` : null
+      };
+    }
+  },
+  {
     id: 'trajectory_templates_generate',
     label: 'Trajectory templates generate',
     schedule: 'Daily (03:15 UTC)',
@@ -1115,9 +1191,14 @@ async function loadTrajectoryPipelineFreshness(settings: Record<string, unknown>
       .select(
         [
           'started_at',
+          'runtime_family',
           'client_profile',
           'client_env',
+          'release_profile',
           'screen_bucket',
+          'location_fix_state',
+          'alignment_ready',
+          'heading_status',
           'pose_mode',
           'xr_supported',
           'xr_used',
@@ -1136,7 +1217,8 @@ async function loadTrajectoryPipelineFreshness(settings: Record<string, unknown>
           'contract_tier',
           'trajectory_quality',
           'render_tier',
-          'dropped_frame_bucket'
+          'dropped_frame_bucket',
+          'time_to_usable_ms'
         ].join(', ')
       )
       .gte('started_at', accuracyWindowStartIso)
@@ -1154,9 +1236,14 @@ async function loadTrajectoryPipelineFreshness(settings: Record<string, unknown>
       ? []
       : (accuracySessionsRes.data as unknown as Array<{
           started_at: string | null;
+          runtime_family: string | null;
           client_profile: string | null;
           client_env: string | null;
+          release_profile: string | null;
           screen_bucket: string | null;
+          location_fix_state: string | null;
+          alignment_ready: boolean | null;
+          heading_status: string | null;
           pose_mode: string | null;
           xr_supported: boolean | null;
           xr_used: boolean | null;
@@ -1176,6 +1263,7 @@ async function loadTrajectoryPipelineFreshness(settings: Record<string, unknown>
           trajectory_quality: number | null;
           render_tier: string | null;
           dropped_frame_bucket: string | null;
+          time_to_usable_ms: number | null;
         }>);
   if (accuracySessionsRes.error) {
     console.warn('admin summary trajectory accuracy sessions failed', accuracySessionsRes.error.message);
@@ -1257,6 +1345,11 @@ async function loadTrajectoryPipelineFreshness(settings: Record<string, unknown>
     runs: coverageRuns
   });
 
+  const catalogCoverage = await summarizeTrajectoryCatalogCoverage({
+    supabase,
+    nowIso: checkedAt
+  });
+
   const accuracy = summarizeTrajectoryAccuracy({
     rows: accuracyRows,
     windowDays: accuracyWindowDays,
@@ -1274,6 +1367,7 @@ async function loadTrajectoryPipelineFreshness(settings: Record<string, unknown>
     staleLaunchIds,
     precisionStaleProductsCount: stalePrecisionLaunchIdSet.size,
     precisionStaleLaunchIds: Array.from(stalePrecisionLaunchIdSet.values()),
+    catalogCoverage,
     sourceFreshness,
     coverage,
     accuracy
@@ -1440,6 +1534,116 @@ function summarizeTrajectoryCoverage({
   };
 }
 
+async function summarizeTrajectoryCatalogCoverage({
+  supabase,
+  nowIso
+}: {
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  nowIso: string;
+}): Promise<TrajectoryPipelineFreshness['catalogCoverage']> {
+  const rows: Array<{
+    launch_id: string;
+    ll2_rocket_config_id: number | null;
+    rocket_family: string | null;
+  }> = [];
+  const pageSize = 1000;
+  let offset = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('launches_public_cache')
+      .select('launch_id, ll2_rocket_config_id, rocket_family')
+      .eq('hidden', false)
+      .gte('net', nowIso)
+      .order('net', { ascending: true })
+      .range(offset, offset + pageSize - 1);
+
+    if (error) throw error;
+    const chunk = Array.isArray(data)
+      ? (data as Array<{
+          launch_id: string;
+          ll2_rocket_config_id: number | null;
+          rocket_family: string | null;
+        }>)
+      : [];
+    rows.push(...chunk);
+    if (chunk.length < pageSize) break;
+    offset += chunk.length;
+  }
+
+  const rocketConfigIds = Array.from(
+    new Set(
+      rows
+        .map((row) => (typeof row.ll2_rocket_config_id === 'number' ? row.ll2_rocket_config_id : null))
+        .filter((value): value is number => value != null)
+    )
+  );
+
+  const configFamilyById = new Map<number, string>();
+  for (let index = 0; index < rocketConfigIds.length; index += 500) {
+    const chunk = rocketConfigIds.slice(index, index + 500);
+    if (!chunk.length) continue;
+    const { data, error } = await supabase
+      .from('ll2_rocket_configs')
+      .select('ll2_config_id, family')
+      .in('ll2_config_id', chunk);
+    if (error) throw error;
+    for (const row of data || []) {
+      const configId = typeof row?.ll2_config_id === 'number' ? row.ll2_config_id : null;
+      const family = typeof row?.family === 'string' ? row.family.trim() : '';
+      if (configId != null && family) configFamilyById.set(configId, family);
+    }
+  }
+
+  let rocketFamilyFilled = 0;
+  let ll2RocketConfigFilled = 0;
+  let configFamilyAvailable = 0;
+  let repairableMissingRocketFamily = 0;
+  let unrepairableMissingRocketFamily = 0;
+  const sampleRepairableLaunchIds: string[] = [];
+  const sampleUnrepairableLaunchIds: string[] = [];
+
+  for (const row of rows) {
+    const hasRocketFamily = hasFilledText(row.rocket_family);
+    const configId = typeof row.ll2_rocket_config_id === 'number' ? row.ll2_rocket_config_id : null;
+    const hasRocketConfig = configId != null;
+    const hasConfigFamily = configId != null && configFamilyById.has(configId);
+
+    if (hasRocketFamily) rocketFamilyFilled += 1;
+    if (hasRocketConfig) ll2RocketConfigFilled += 1;
+    if (hasConfigFamily) configFamilyAvailable += 1;
+
+    if (!hasRocketFamily) {
+      if (hasConfigFamily) {
+        repairableMissingRocketFamily += 1;
+        if (sampleRepairableLaunchIds.length < 10) sampleRepairableLaunchIds.push(row.launch_id);
+      } else {
+        unrepairableMissingRocketFamily += 1;
+        if (sampleUnrepairableLaunchIds.length < 10) sampleUnrepairableLaunchIds.push(row.launch_id);
+      }
+    }
+  }
+
+  const futureLaunches = rows.length;
+  const blankRocketFamilies = Math.max(0, futureLaunches - rocketFamilyFilled);
+
+  return {
+    futureLaunches,
+    rocketFamilyFilled,
+    rocketFamilyFillRate: ratio(rocketFamilyFilled, futureLaunches),
+    ll2RocketConfigFilled,
+    ll2RocketConfigFillRate: ratio(ll2RocketConfigFilled, futureLaunches),
+    configFamilyAvailable,
+    configFamilyAvailableRate: ratio(configFamilyAvailable, futureLaunches),
+    repairableMissingRocketFamily,
+    repairableMissingRocketFamilyRate: ratio(repairableMissingRocketFamily, blankRocketFamilies),
+    unrepairableMissingRocketFamily,
+    unrepairableMissingRocketFamilyRate: ratio(unrepairableMissingRocketFamily, blankRocketFamilies),
+    sampleRepairableLaunchIds,
+    sampleUnrepairableLaunchIds
+  };
+}
+
 function summarizeTrajectoryAccuracy({
   rows,
   windowDays,
@@ -1449,9 +1653,14 @@ function summarizeTrajectoryAccuracy({
 }: {
   rows: Array<{
     started_at: string | null;
+    runtime_family: string | null;
     client_profile: string | null;
     client_env: string | null;
+    release_profile: string | null;
     screen_bucket: string | null;
+    location_fix_state: string | null;
+    alignment_ready: boolean | null;
+    heading_status: string | null;
     pose_mode: string | null;
     xr_supported: boolean | null;
     xr_used: boolean | null;
@@ -1471,6 +1680,7 @@ function summarizeTrajectoryAccuracy({
     trajectory_quality: number | null;
     render_tier: string | null;
     dropped_frame_bucket: string | null;
+    time_to_usable_ms: number | null;
   }>;
   windowDays: number;
   windowStart: string;
@@ -1614,6 +1824,7 @@ function summarizeTrajectoryAccuracy({
 
   const sessions = rows.length;
   const runtimePolicies = summarizeArRuntimePolicies(rows, { sampleLimit });
+  const completeness = summarizeTrajectoryAccuracyCompleteness(rows);
   return {
     windowDays,
     windowStart,
@@ -1652,8 +1863,174 @@ function summarizeTrajectoryAccuracy({
         q3
       }
     },
+    completeness,
     trend,
     runtimePolicies
+  };
+}
+
+function hasFilledText(value: string | null | undefined) {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function hasFilledNumber(value: number | null | undefined) {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function ratio(numerator: number, denominator: number) {
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) return null;
+  return numerator / denominator;
+}
+
+function inferTelemetryRuntimeFamily(row: {
+  runtime_family: string | null;
+  release_profile: string | null;
+  client_profile: string | null;
+  client_env: string | null;
+  pose_mode: string | null;
+}) {
+  if (row.runtime_family === 'web' || row.runtime_family === 'ios_native' || row.runtime_family === 'android_native') {
+    return row.runtime_family;
+  }
+  if (hasFilledText(row.release_profile)) {
+    if (row.release_profile!.startsWith('ios_native_')) return 'ios_native' as const;
+    if (row.release_profile!.startsWith('android_native_')) return 'android_native' as const;
+    return 'web' as const;
+  }
+  if (hasFilledText(row.client_profile) || hasFilledText(row.client_env) || row.pose_mode === 'webxr') {
+    return 'web' as const;
+  }
+  return 'unknown' as const;
+}
+
+function summarizeTrajectoryAccuracyCompleteness(
+  rows: Array<{
+    runtime_family: string | null;
+    client_profile: string | null;
+    client_env: string | null;
+    release_profile: string | null;
+    location_fix_state: string | null;
+    alignment_ready: boolean | null;
+    heading_status: string | null;
+    pose_mode: string | null;
+    vision_backend: string | null;
+    mode_entered: string | null;
+    time_to_usable_ms: number | null;
+  }>
+): TrajectoryPipelineFreshness['accuracy']['completeness'] {
+  const fieldDefs = [
+    {
+      key: 'runtime_family',
+      label: 'Runtime family',
+      scope: 'all' as const,
+      isFilled: (row: (typeof rows)[number]) => hasFilledText(row.runtime_family)
+    },
+    {
+      key: 'release_profile',
+      label: 'Release profile',
+      scope: 'all' as const,
+      isFilled: (row: (typeof rows)[number]) => hasFilledText(row.release_profile)
+    },
+    {
+      key: 'mode_entered',
+      label: 'Mode entered',
+      scope: 'all' as const,
+      isFilled: (row: (typeof rows)[number]) => hasFilledText(row.mode_entered)
+    },
+    {
+      key: 'pose_mode',
+      label: 'Pose mode',
+      scope: 'all' as const,
+      isFilled: (row: (typeof rows)[number]) => hasFilledText(row.pose_mode)
+    },
+    {
+      key: 'vision_backend',
+      label: 'Vision backend',
+      scope: 'all' as const,
+      isFilled: (row: (typeof rows)[number]) => hasFilledText(row.vision_backend)
+    },
+    {
+      key: 'heading_status',
+      label: 'Heading status',
+      scope: 'all' as const,
+      isFilled: (row: (typeof rows)[number]) => hasFilledText(row.heading_status)
+    },
+    {
+      key: 'time_to_usable_ms',
+      label: 'Time to usable',
+      scope: 'all' as const,
+      isFilled: (row: (typeof rows)[number]) => hasFilledNumber(row.time_to_usable_ms)
+    },
+    {
+      key: 'client_profile',
+      label: 'Client profile',
+      scope: 'web' as const,
+      isFilled: (row: (typeof rows)[number]) => hasFilledText(row.client_profile)
+    },
+    {
+      key: 'location_fix_state',
+      label: 'Location fix state',
+      scope: 'native' as const,
+      isFilled: (row: (typeof rows)[number]) => hasFilledText(row.location_fix_state)
+    },
+    {
+      key: 'alignment_ready',
+      label: 'Alignment ready',
+      scope: 'native' as const,
+      isFilled: (row: (typeof rows)[number]) => typeof row.alignment_ready === 'boolean'
+    }
+  ];
+
+  const fieldAppliesToRuntime = (
+    scope: 'all' | 'web' | 'native',
+    runtimeFamily: 'web' | 'ios_native' | 'android_native' | 'unknown'
+  ) => {
+    if (scope === 'all') return true;
+    if (scope === 'web') return runtimeFamily === 'web';
+    return runtimeFamily === 'ios_native' || runtimeFamily === 'android_native';
+  };
+
+  const summarizeFields = (subset: typeof rows) =>
+    fieldDefs
+      .map((field) => {
+        let applicableSessions = 0;
+        let filledSessions = 0;
+        for (const row of subset) {
+          const runtimeFamily = inferTelemetryRuntimeFamily(row);
+          if (!fieldAppliesToRuntime(field.scope, runtimeFamily)) continue;
+          applicableSessions += 1;
+          if (field.isFilled(row)) filledSessions += 1;
+        }
+        return {
+          key: field.key,
+          label: field.label,
+          applicableSessions,
+          filledSessions,
+          fillRate: safeRate(filledSessions, applicableSessions)
+        };
+      })
+      .filter((field) => field.applicableSessions > 0);
+
+  const fields = summarizeFields(rows);
+  const requiredFieldValues = fields.reduce((sum, field) => sum + field.applicableSessions, 0);
+  const filledFieldValues = fields.reduce((sum, field) => sum + field.filledSessions, 0);
+  const runtimeFamilies = (['web', 'ios_native', 'android_native', 'unknown'] as const)
+    .map((runtimeFamily) => {
+      const familyRows = rows.filter((row) => inferTelemetryRuntimeFamily(row) === runtimeFamily);
+      return {
+        runtimeFamily,
+        sessions: familyRows.length,
+        fields: summarizeFields(familyRows)
+      };
+    })
+    .filter((runtimeFamily) => runtimeFamily.sessions > 0);
+
+  return {
+    requiredFieldValues,
+    filledFieldValues,
+    overallFillRate: safeRate(filledFieldValues, requiredFieldValues),
+    fields,
+    runtimeFamilies
   };
 }
 

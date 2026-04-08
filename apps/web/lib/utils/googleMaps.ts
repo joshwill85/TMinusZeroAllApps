@@ -68,13 +68,17 @@ export function buildGoogleMapsStaticSatelliteUrl(target: CoordinateTarget, apiK
   return url.toString();
 }
 
-export function buildPadSatellitePreviewPath(launchId: string) {
+export function buildPadSatellitePreviewPath(launchId: string, target?: CoordinateTarget) {
   const normalizedLaunchId = String(launchId || '').trim();
   if (!normalizedLaunchId) return null;
 
-  const params = new URLSearchParams({
-    launchId: normalizedLaunchId
-  });
+  const params = new URLSearchParams({ launchId: normalizedLaunchId });
+  const coordinates = target ? readCoordinates(target) : null;
+
+  if (coordinates) {
+    params.set('latitude', formatCoordinate(coordinates.latitude));
+    params.set('longitude', formatCoordinate(coordinates.longitude));
+  }
 
   return `/api/pad-satellite?${params.toString()}`;
 }
