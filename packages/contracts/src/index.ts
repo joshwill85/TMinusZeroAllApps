@@ -1413,9 +1413,30 @@ const launchWeatherMetricSchemaV1 = z.object({
   value: z.string()
 });
 
+const launchOperationalWeatherItemSchemaV1 = z.object({
+  id: z.string(),
+  label: z.string(),
+  value: z.string(),
+  detail: z.string().nullable().optional(),
+  tone: z.enum(['normal', 'watch', 'warning', 'critical']).default('normal')
+});
+
+const launchOperationalWeatherSchemaV1 = z.object({
+  source: z.literal('ws45_live'),
+  title: z.string(),
+  subtitle: z.string().nullable().optional(),
+  fetchedAt: z.string().nullable().optional(),
+  summary: z.string(),
+  tone: z.enum(['normal', 'watch', 'warning', 'critical']).default('normal'),
+  stale: z.boolean().default(false),
+  items: z.array(launchOperationalWeatherItemSchemaV1).default([]),
+  actionLabel: z.string().nullable().optional(),
+  actionUrl: z.string().nullable().optional()
+});
+
 const launchWeatherCardSchemaV1 = z.object({
   id: z.string(),
-  source: z.enum(['ws45', 'nws']),
+  source: z.enum(['ws45', 'nws', 'ws45_planning_24h', 'ws45_weekly']),
   title: z.string(),
   subtitle: z.string().nullable().optional(),
   issuedAt: z.string().nullable().optional(),
@@ -1432,6 +1453,7 @@ const launchWeatherCardSchemaV1 = z.object({
 const launchWeatherModuleSchemaV1 = z.object({
   summary: z.string().nullable().optional(),
   concerns: z.array(z.string()).default([]),
+  operational: launchOperationalWeatherSchemaV1.nullable().optional(),
   cards: z.array(launchWeatherCardSchemaV1).default([])
 });
 

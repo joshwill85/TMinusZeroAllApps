@@ -86,6 +86,48 @@ type TrajectoryPipelineFreshness = {
     sampleRepairableLaunchIds: string[];
     sampleUnrepairableLaunchIds: string[];
   };
+  providerAdapters: {
+    spacexInfographics: {
+      status: 'operational' | 'degraded' | 'down' | 'unknown';
+      lastRunAt: string | null;
+      lastEndedAt: string | null;
+      lastSuccessAt: string | null;
+      lastRunSuccess: boolean | null;
+      lastError: string | null;
+      consecutiveFailures: number | null;
+      latestRunStats: {
+        candidates: number;
+        considered: number;
+        matched: number;
+        missionsFetched: number;
+        skippedNoMatch: number;
+        skippedNoBundle: number;
+        bundleRowsInput: number;
+        bundleRowsInserted: number;
+        bundleRowsUpdated: number;
+        bundleRowsSkipped: number;
+        constraintRowsInput: number;
+        constraintRowsInserted: number;
+        constraintRowsUpdated: number;
+        constraintRowsSkipped: number;
+        errorCount: number;
+      } | null;
+      outputs: {
+        windowDays: number;
+        missionInfographicRows: number;
+        landingHintRows: number;
+        latestMissionInfographicAt: string | null;
+        latestLandingHintAt: string | null;
+        parserRules: Array<{
+          constraintType: string;
+          parseRuleId: string | null;
+          parserVersion: string | null;
+          rows: number;
+          latestFetchedAt: string | null;
+        }>;
+      };
+    };
+  };
   sourceFreshness: {
     alertsEnabled: boolean;
     orbit: {
@@ -604,8 +646,17 @@ const SERVER_JOB_DEFS: readonly JobDef[] = [
     thresholdMinutes: 1560,
     enabledKey: 'spacex_infographics_job_enabled',
     newData: (stats) => {
-      const upserted = readNumber(stats, 'upserted') ?? 0;
-      return { count: upserted, detail: upserted ? `upserted=${upserted}` : null };
+      const bundleInserted = readNumber(stats, 'bundleRowsInserted') ?? 0;
+      const bundleUpdated = readNumber(stats, 'bundleRowsUpdated') ?? 0;
+      const constraintInserted = readNumber(stats, 'constraintRowsInserted') ?? 0;
+      const constraintUpdated = readNumber(stats, 'constraintRowsUpdated') ?? 0;
+      const total = bundleInserted + bundleUpdated + constraintInserted + constraintUpdated;
+      return {
+        count: total,
+        detail: total
+          ? `bundle=${bundleInserted + bundleUpdated}, constraints=${constraintInserted + constraintUpdated}`
+          : null
+      };
     }
   },
   {
@@ -1226,6 +1277,25 @@ async function loadTrajectoryPipelineFreshness(settings: Record<string, unknown>
       .limit(accuracySampleLimit)
   ]);
 
+  const spacexAdapterWindowDays = 30;
+  const spacexAdapterWindowStartIso = new Date(Date.now() - spacexAdapterWindowDays * 24 * 60 * 60 * 1000).toISOString();
+  const [spacexRunsRes, spacexConstraintRowsRes] = await Promise.all([
+    supabase
+      .from('ingestion_runs')
+      .select('job_name, started_at, ended_at, success, error, stats')
+      .eq('job_name', 'spacex_infographics_ingest')
+      .order('started_at', { ascending: false })
+      .limit(10),
+    supabase
+      .from('launch_trajectory_constraints')
+      .select('constraint_type, fetched_at, parse_rule_id, parser_version')
+      .or('source.eq.spacex_website,source.eq.spacex_content')
+      .in('constraint_type', ['mission_infographic', 'landing_hint'])
+      .gte('fetched_at', spacexAdapterWindowStartIso)
+      .order('fetched_at', { ascending: false })
+      .limit(1000)
+  ]);
+
   const coverageRuns = coverageRunsRes.error || !Array.isArray(coverageRunsRes.data) ? [] : (coverageRunsRes.data as any[]);
   if (coverageRunsRes.error) {
     console.warn('admin summary trajectory coverage runs failed', coverageRunsRes.error.message);
@@ -1267,6 +1337,24 @@ async function loadTrajectoryPipelineFreshness(settings: Record<string, unknown>
         }>);
   if (accuracySessionsRes.error) {
     console.warn('admin summary trajectory accuracy sessions failed', accuracySessionsRes.error.message);
+  }
+
+  const spacexRuns = spacexRunsRes.error || !Array.isArray(spacexRunsRes.data) ? [] : (spacexRunsRes.data as IngestionRun[]);
+  if (spacexRunsRes.error) {
+    console.warn('admin summary spacex infographics runs failed', spacexRunsRes.error.message);
+  }
+
+  const spacexConstraintRows =
+    spacexConstraintRowsRes.error || !Array.isArray(spacexConstraintRowsRes.data)
+      ? []
+      : (spacexConstraintRowsRes.data as Array<{
+          constraint_type: string | null;
+          fetched_at: string | null;
+          parse_rule_id: string | null;
+          parser_version: string | null;
+        }>);
+  if (spacexConstraintRowsRes.error) {
+    console.warn('admin summary spacex infographics constraints failed', spacexConstraintRowsRes.error.message);
   }
 
   const productGeneratedAtByLaunch = new Map<string, number>();
@@ -1349,6 +1437,13 @@ async function loadTrajectoryPipelineFreshness(settings: Record<string, unknown>
     supabase,
     nowIso: checkedAt
   });
+  const providerAdapters = {
+    spacexInfographics: summarizeSpacexInfographicsAdapterHealth({
+      runs: spacexRuns,
+      constraintRows: spacexConstraintRows,
+      windowDays: spacexAdapterWindowDays
+    })
+  };
 
   const accuracy = summarizeTrajectoryAccuracy({
     rows: accuracyRows,
@@ -1368,9 +1463,129 @@ async function loadTrajectoryPipelineFreshness(settings: Record<string, unknown>
     precisionStaleProductsCount: stalePrecisionLaunchIdSet.size,
     precisionStaleLaunchIds: Array.from(stalePrecisionLaunchIdSet.values()),
     catalogCoverage,
+    providerAdapters,
     sourceFreshness,
     coverage,
     accuracy
+  };
+}
+
+function summarizeSpacexInfographicsAdapterHealth({
+  runs,
+  constraintRows,
+  windowDays
+}: {
+  runs: IngestionRun[];
+  constraintRows: Array<{
+    constraint_type: string | null;
+    fetched_at: string | null;
+    parse_rule_id: string | null;
+    parser_version: string | null;
+  }>;
+  windowDays: number;
+}): TrajectoryPipelineFreshness['providerAdapters']['spacexInfographics'] {
+  const latestRun = runs[0] ?? null;
+  const latestSuccessRun = runs.find((run) => run.success === true) ?? null;
+  const consecutiveFailures = computeConsecutiveFailures(runs);
+  const latestStats = latestRun?.stats && typeof latestRun.stats === 'object' ? latestRun.stats : null;
+  const rawErrors = Array.isArray((latestStats as any)?.errors) ? ((latestStats as any).errors as unknown[]) : [];
+  const latestRunStats = latestRun
+    ? {
+        candidates: Math.max(0, Math.round(readNumber(latestStats, 'candidates') ?? 0)),
+        considered: Math.max(0, Math.round(readNumber(latestStats, 'considered') ?? 0)),
+        matched: Math.max(0, Math.round(readNumber(latestStats, 'matched') ?? 0)),
+        missionsFetched: Math.max(0, Math.round(readNumber(latestStats, 'missionsFetched') ?? 0)),
+        skippedNoMatch: Math.max(0, Math.round(readNumber(latestStats, 'skippedNoMatch') ?? 0)),
+        skippedNoBundle: Math.max(0, Math.round(readNumber(latestStats, 'skippedNoBundle') ?? 0)),
+        bundleRowsInput: Math.max(0, Math.round(readNumber(latestStats, 'bundleRowsInput') ?? 0)),
+        bundleRowsInserted: Math.max(0, Math.round(readNumber(latestStats, 'bundleRowsInserted') ?? 0)),
+        bundleRowsUpdated: Math.max(0, Math.round(readNumber(latestStats, 'bundleRowsUpdated') ?? 0)),
+        bundleRowsSkipped: Math.max(0, Math.round(readNumber(latestStats, 'bundleRowsSkipped') ?? 0)),
+        constraintRowsInput: Math.max(0, Math.round(readNumber(latestStats, 'constraintRowsInput') ?? 0)),
+        constraintRowsInserted: Math.max(0, Math.round(readNumber(latestStats, 'constraintRowsInserted') ?? 0)),
+        constraintRowsUpdated: Math.max(0, Math.round(readNumber(latestStats, 'constraintRowsUpdated') ?? 0)),
+        constraintRowsSkipped: Math.max(0, Math.round(readNumber(latestStats, 'constraintRowsSkipped') ?? 0)),
+        errorCount: rawErrors.length
+      }
+    : null;
+
+  let missionInfographicRows = 0;
+  let landingHintRows = 0;
+  let latestMissionInfographicAt: string | null = null;
+  let latestLandingHintAt: string | null = null;
+  const parserRuleMap = new Map<
+    string,
+    {
+      constraintType: string;
+      parseRuleId: string | null;
+      parserVersion: string | null;
+      rows: number;
+      latestFetchedAt: string | null;
+    }
+  >();
+
+  for (const row of constraintRows) {
+    const constraintType = typeof row?.constraint_type === 'string' ? row.constraint_type : null;
+    const fetchedAt = typeof row?.fetched_at === 'string' ? row.fetched_at : null;
+    const parseRuleId = typeof row?.parse_rule_id === 'string' ? row.parse_rule_id : null;
+    const parserVersion = typeof row?.parser_version === 'string' ? row.parser_version : null;
+    if (!constraintType) continue;
+
+    if (constraintType === 'mission_infographic') {
+      missionInfographicRows += 1;
+      if (!latestMissionInfographicAt) latestMissionInfographicAt = fetchedAt;
+    } else if (constraintType === 'landing_hint') {
+      landingHintRows += 1;
+      if (!latestLandingHintAt) latestLandingHintAt = fetchedAt;
+    }
+
+    const key = `${constraintType}::${parseRuleId || 'unknown'}::${parserVersion || 'unknown'}`;
+    const current = parserRuleMap.get(key);
+    if (current) {
+      current.rows += 1;
+      if (!current.latestFetchedAt && fetchedAt) current.latestFetchedAt = fetchedAt;
+      continue;
+    }
+    parserRuleMap.set(key, {
+      constraintType,
+      parseRuleId,
+      parserVersion,
+      rows: 1,
+      latestFetchedAt: fetchedAt
+    });
+  }
+
+  let status: 'operational' | 'degraded' | 'down' | 'unknown' = 'unknown';
+  if (latestRun) {
+    if (latestRun.success === false) {
+      status = (consecutiveFailures ?? 0) >= 2 ? 'down' : 'degraded';
+    } else if (latestRun.success === true) {
+      status = latestRunStats && latestRunStats.errorCount > 0 ? 'degraded' : 'operational';
+    }
+  }
+
+  return {
+    status,
+    lastRunAt: latestRun?.started_at ?? null,
+    lastEndedAt: latestRun?.ended_at ?? null,
+    lastSuccessAt: latestSuccessRun?.ended_at ?? latestSuccessRun?.started_at ?? null,
+    lastRunSuccess: typeof latestRun?.success === 'boolean' ? latestRun.success : null,
+    lastError: latestRun?.error ?? null,
+    consecutiveFailures,
+    latestRunStats,
+    outputs: {
+      windowDays,
+      missionInfographicRows,
+      landingHintRows,
+      latestMissionInfographicAt,
+      latestLandingHintAt,
+      parserRules: Array.from(parserRuleMap.values()).sort((a, b) => {
+        const aTime = a.latestFetchedAt ? Date.parse(a.latestFetchedAt) : NaN;
+        const bTime = b.latestFetchedAt ? Date.parse(b.latestFetchedAt) : NaN;
+        if (Number.isFinite(aTime) && Number.isFinite(bTime) && bTime !== aTime) return bTime - aTime;
+        return a.constraintType.localeCompare(b.constraintType);
+      })
+    }
   };
 }
 

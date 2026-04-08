@@ -125,6 +125,20 @@ function formatValue(value: string | number | null | undefined) {
   return text.length > 0 ? text : '—';
 }
 
+function formatTimestamp(value: string | null | undefined) {
+  if (!value) return '—';
+  const ms = Date.parse(value);
+  if (!Number.isFinite(ms)) return value;
+  return new Date(ms).toLocaleString();
+}
+
+function adapterStatusClass(status: 'operational' | 'degraded' | 'down' | 'unknown') {
+  if (status === 'operational') return 'text-emerald-300';
+  if (status === 'degraded') return 'text-warning';
+  if (status === 'down') return 'text-danger';
+  return 'text-text3';
+}
+
 function formatTelemetryRuntimeFamilyLabel(runtimeFamily: 'web' | 'ios_native' | 'android_native' | 'unknown') {
   if (runtimeFamily === 'web') return 'Web';
   if (runtimeFamily === 'ios_native') return 'iOS native';
@@ -357,6 +371,93 @@ export default function AdminTrajectoryPage() {
                     Unrepairable sample:{' '}
                     <span className="font-mono">
                       {summary.trajectoryPipeline.catalogCoverage.sampleUnrepairableLaunchIds.join(', ')}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-4 rounded-lg border border-stroke bg-[rgba(255,255,255,0.02)] p-3">
+                <div className="text-xs uppercase tracking-[0.08em] text-text3">SpaceX adapter health</div>
+                <div className="mt-1 text-xs text-text3">
+                  Admitted scope: infographic corroboration and landing-hint extraction only.
+                </div>
+                <div className={`mt-2 text-sm font-semibold ${adapterStatusClass(summary.trajectoryPipeline.providerAdapters.spacexInfographics.status)}`}>
+                  {summary.trajectoryPipeline.providerAdapters.spacexInfographics.status}
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+                  <InfoCard label="Last run" value={formatTimestamp(summary.trajectoryPipeline.providerAdapters.spacexInfographics.lastRunAt)} />
+                  <InfoCard label="Last success" value={formatTimestamp(summary.trajectoryPipeline.providerAdapters.spacexInfographics.lastSuccessAt)} />
+                  <InfoCard label="Consecutive failures" value={summary.trajectoryPipeline.providerAdapters.spacexInfographics.consecutiveFailures ?? 0} />
+                  <InfoCard label="Last run success" value={formatBool(summary.trajectoryPipeline.providerAdapters.spacexInfographics.lastRunSuccess)} />
+                  <InfoCard
+                    label="Matched launches"
+                    value={summary.trajectoryPipeline.providerAdapters.spacexInfographics.latestRunStats?.matched ?? '—'}
+                  />
+                  <InfoCard
+                    label="Skipped no match"
+                    value={summary.trajectoryPipeline.providerAdapters.spacexInfographics.latestRunStats?.skippedNoMatch ?? '—'}
+                  />
+                  <InfoCard
+                    label="Constraint writes"
+                    value={
+                      summary.trajectoryPipeline.providerAdapters.spacexInfographics.latestRunStats
+                        ? summary.trajectoryPipeline.providerAdapters.spacexInfographics.latestRunStats.constraintRowsInserted +
+                          summary.trajectoryPipeline.providerAdapters.spacexInfographics.latestRunStats.constraintRowsUpdated
+                        : '—'
+                    }
+                  />
+                  <InfoCard
+                    label={`Infographics (${summary.trajectoryPipeline.providerAdapters.spacexInfographics.outputs.windowDays}d)`}
+                    value={summary.trajectoryPipeline.providerAdapters.spacexInfographics.outputs.missionInfographicRows}
+                  />
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+                  <InfoCard
+                    label={`Landing hints (${summary.trajectoryPipeline.providerAdapters.spacexInfographics.outputs.windowDays}d)`}
+                    value={summary.trajectoryPipeline.providerAdapters.spacexInfographics.outputs.landingHintRows}
+                  />
+                  <InfoCard
+                    label="Latest infographic"
+                    value={formatTimestamp(summary.trajectoryPipeline.providerAdapters.spacexInfographics.outputs.latestMissionInfographicAt)}
+                  />
+                  <InfoCard
+                    label="Latest landing hint"
+                    value={formatTimestamp(summary.trajectoryPipeline.providerAdapters.spacexInfographics.outputs.latestLandingHintAt)}
+                  />
+                  <InfoCard
+                    label="Run errors"
+                    value={summary.trajectoryPipeline.providerAdapters.spacexInfographics.latestRunStats?.errorCount ?? '—'}
+                  />
+                </div>
+                {summary.trajectoryPipeline.providerAdapters.spacexInfographics.lastError && (
+                  <div className="mt-2 break-words text-xs text-danger">
+                    Last error: <span className="font-mono">{summary.trajectoryPipeline.providerAdapters.spacexInfographics.lastError}</span>
+                  </div>
+                )}
+                {summary.trajectoryPipeline.providerAdapters.spacexInfographics.latestRunStats && (
+                  <div className="mt-2 break-words text-xs text-text3">
+                    Run detail:{' '}
+                    <span className="font-mono">
+                      candidates={summary.trajectoryPipeline.providerAdapters.spacexInfographics.latestRunStats.candidates}
+                      {' • '}considered={summary.trajectoryPipeline.providerAdapters.spacexInfographics.latestRunStats.considered}
+                      {' • '}missionsFetched={summary.trajectoryPipeline.providerAdapters.spacexInfographics.latestRunStats.missionsFetched}
+                      {' • '}skippedNoBundle={summary.trajectoryPipeline.providerAdapters.spacexInfographics.latestRunStats.skippedNoBundle}
+                      {' • '}bundleWrites=
+                      {summary.trajectoryPipeline.providerAdapters.spacexInfographics.latestRunStats.bundleRowsInserted +
+                        summary.trajectoryPipeline.providerAdapters.spacexInfographics.latestRunStats.bundleRowsUpdated}
+                    </span>
+                  </div>
+                )}
+                {summary.trajectoryPipeline.providerAdapters.spacexInfographics.outputs.parserRules.length > 0 && (
+                  <div className="mt-2 break-words text-xs text-text3">
+                    Parser rules:{' '}
+                    <span className="font-mono">
+                      {summary.trajectoryPipeline.providerAdapters.spacexInfographics.outputs.parserRules
+                        .map(
+                          (row) =>
+                            `${row.constraintType}:${row.parseRuleId || 'unknown'}@${row.parserVersion || 'unknown'} rows=${row.rows} latest=${formatValue(row.latestFetchedAt)}`
+                        )
+                        .join(' • ')}
                     </span>
                   </div>
                 )}

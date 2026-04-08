@@ -1,0 +1,110 @@
+{
+  "generatedAt": "2026-04-08T21:40:50.597Z",
+  "policyVersion": "ar_trajectory_ingest_admission_registry_v1",
+  "policyPath": "docs/specs/ar-trajectory-ingest-admission-registry-v1.json",
+  "pass": true,
+  "summary": {
+    "entries": 10,
+    "pass": 16,
+    "fail": 0,
+    "warn": 0
+  },
+  "checks": [
+    {
+      "id": "ll2_identity.decision",
+      "label": "Decision enum",
+      "status": "pass",
+      "details": "ll2_identity (LL2 launch identity and rocket.configuration.id) decision=pass"
+    },
+    {
+      "id": "ll2_identity.pass_gate",
+      "label": "Pass decision gate",
+      "status": "pass",
+      "details": "ll2_identity (LL2 launch identity and rocket.configuration.id) clears yes/yes/yes"
+    },
+    {
+      "id": "spacex_official_infographics.decision",
+      "label": "Decision enum",
+      "status": "pass",
+      "details": "spacex_official_infographics (SpaceX official mission infographic assets) decision=pass"
+    },
+    {
+      "id": "spacex_official_infographics.pass_gate",
+      "label": "Pass decision gate",
+      "status": "pass",
+      "details": "spacex_official_infographics (SpaceX official mission infographic assets) clears yes/yes/yes"
+    },
+    {
+      "id": "spacex_official_infographics.reviewDoc",
+      "label": "Review doc exists",
+      "status": "pass",
+      "details": "spacex_official_infographics (SpaceX official mission infographic assets) -> docs/2026-04-08-ar-trajectory-ingest-admission-spacex-official-infographics.md"
+    },
+    {
+      "id": "blue_origin_mission_pages.decision",
+      "label": "Decision enum",
+      "status": "pass",
+      "details": "blue_origin_mission_pages (Blue Origin official mission pages) decision=defer"
+    },
+    {
+      "id": "blue_origin_mission_pages.reviewDoc",
+      "label": "Review doc exists",
+      "status": "pass",
+      "details": "blue_origin_mission_pages (Blue Origin official mission pages) -> docs/2026-04-08-ar-trajectory-ingest-admission-blue-origin-mission-pages.md"
+    },
+    {
+      "id": "rocket_lab_mission_pages.decision",
+      "label": "Decision enum",
+      "status": "pass",
+      "details": "rocket_lab_mission_pages (Rocket Lab mission and updates pages) decision=defer"
+    },
+    {
+      "id": "rocket_lab_mission_pages.reviewDoc",
+      "label": "Review doc exists",
+      "status": "pass",
+      "details": "rocket_lab_mission_pages (Rocket Lab mission and updates pages) -> docs/2026-04-08-ar-trajectory-ingest-admission-rocket-lab-mission-pages.md"
+    },
+    {
+      "id": "faa_navcen_hazard_geometry.decision",
+      "label": "Decision enum",
+      "status": "pass",
+      "details": "faa_navcen_hazard_geometry (FAA / NAVCEN hazard geometry) decision=pass"
+    },
+    {
+      "id": "faa_navcen_hazard_geometry.pass_gate",
+      "label": "Pass decision gate",
+      "status": "pass",
+      "details": "faa_navcen_hazard_geometry (FAA / NAVCEN hazard geometry) clears yes/yes/yes"
+    },
+    {
+      "id": "public_faa_live_truth.decision",
+      "label": "Decision enum",
+      "status": "pass",
+      "details": "public_faa_live_truth (public FAA live or geospatial surfaces as consumer ascent truth) decision=reject"
+    },
+    {
+      "id": "official_visibility_maps.decision",
+      "label": "Decision enum",
+      "status": "pass",
+      "details": "official_visibility_maps (provider or agency visibility maps and interactive visibility assets) decision=defer"
+    },
+    {
+      "id": "special_event_priors.decision",
+      "label": "Decision enum",
+      "status": "pass",
+      "details": "special_event_priors (mission-specific special-event priors such as relights, venting, tracer-style events) decision=defer"
+    },
+    {
+      "id": "ocr_first_infographics.decision",
+      "label": "Decision enum",
+      "status": "pass",
+      "details": "ocr_first_infographics (OCR-first infographic extraction without stronger source coverage) decision=defer"
+    },
+    {
+      "id": "partner_live_feeds.decision",
+      "label": "Decision enum",
+      "status": "pass",
+      "details": "partner_live_feeds (operator-provided or licensed partner live feeds) decision=defer"
+    }
+  ]
+}

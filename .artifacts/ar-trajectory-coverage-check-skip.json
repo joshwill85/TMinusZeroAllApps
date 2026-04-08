@@ -1,0 +1,22 @@
+{
+  "generatedAt": "2026-04-08T21:26:21.629Z",
+  "policyVersion": "ar_trajectory_coverage_policy_v2",
+  "policyPath": "docs/specs/ar-trajectory-coverage-policy-v1.json",
+  "window": {
+    "lookaheadLaunches": 8,
+    "lookaheadDays": 50
+  },
+  "pass": true,
+  "checks": [
+    {
+      "id": "coverage.db",
+      "label": "Coverage DB checks",
+      "status": "skip",
+      "value": null,
+      "threshold": "n/a",
+      "details": "Skipped by --skip-db."
+    }
+  ],
+  "summary": null,
+  "launches": []
+}

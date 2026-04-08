@@ -71,6 +71,48 @@ export type TrajectoryPipelineFreshness = {
     sampleRepairableLaunchIds: string[];
     sampleUnrepairableLaunchIds: string[];
   };
+  providerAdapters: {
+    spacexInfographics: {
+      status: 'operational' | 'degraded' | 'down' | 'unknown';
+      lastRunAt: string | null;
+      lastEndedAt: string | null;
+      lastSuccessAt: string | null;
+      lastRunSuccess: boolean | null;
+      lastError: string | null;
+      consecutiveFailures: number | null;
+      latestRunStats: {
+        candidates: number;
+        considered: number;
+        matched: number;
+        missionsFetched: number;
+        skippedNoMatch: number;
+        skippedNoBundle: number;
+        bundleRowsInput: number;
+        bundleRowsInserted: number;
+        bundleRowsUpdated: number;
+        bundleRowsSkipped: number;
+        constraintRowsInput: number;
+        constraintRowsInserted: number;
+        constraintRowsUpdated: number;
+        constraintRowsSkipped: number;
+        errorCount: number;
+      } | null;
+      outputs: {
+        windowDays: number;
+        missionInfographicRows: number;
+        landingHintRows: number;
+        latestMissionInfographicAt: string | null;
+        latestLandingHintAt: string | null;
+        parserRules: Array<{
+          constraintType: string;
+          parseRuleId: string | null;
+          parserVersion: string | null;
+          rows: number;
+          latestFetchedAt: string | null;
+        }>;
+      };
+    };
+  };
   sourceFreshness: {
     alertsEnabled: boolean;
     orbit: {

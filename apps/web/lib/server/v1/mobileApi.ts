@@ -65,6 +65,13 @@ import { buildStatusFilterOrClause, parseLaunchStatusFilter } from '@/lib/server
 import { fetchLaunchDetailEnrichment } from '@/lib/server/launchDetailEnrichment';
 import { loadMobileHubRollout } from '@/lib/server/mobileHubRollout';
 import {
+  buildWs45OperationalWeather,
+  fetchWs45LiveWeatherSnapshotForLaunch,
+  fetchWs45PlanningForecastsForLaunch,
+  type Ws45OperationalWeather,
+  type Ws45PlanningForecast
+} from '@/lib/server/ws45RangeWeather';
+import {
   buildLaunchMissionTimeline,
   normalizeLaunchFilterValue,
   parseSiteSearchInput,
@@ -777,6 +784,20 @@ function buildWeatherSummary(launch: ReturnType<typeof mapPublicCacheRow>) {
   return launch.weatherConcerns.map((entry) => String(entry || '').trim()).filter(Boolean).join(' • ') || null;
 }
 
+function buildWs45LaunchContext(launch: ReturnType<typeof mapPublicCacheRow>) {
+  return {
+    launchName: launch.name,
+    missionName: launch.mission?.name ?? null,
+    net: launch.net,
+    windowStart: launch.windowStart ?? null,
+    windowEnd: launch.windowEnd ?? null,
+    padName: launch.pad?.name ?? null,
+    padShortCode: launch.pad?.shortCode ?? null,
+    padLocationName: launch.pad?.locationName ?? null,
+    padState: launch.pad?.state ?? null
+  };
+}
+
 function normalizeUrlString(value: unknown) {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
@@ -1085,14 +1106,17 @@ async function fetchNwsForecast(launchId: string, isUsPad: boolean, within14Days
 function buildWeatherModule(
   launch: ReturnType<typeof mapPublicCacheRow>,
   ws45Forecast: Ws45Forecast | null,
-  nwsForecast: NwsLaunchWeather | null
+  nwsForecast: NwsLaunchWeather | null,
+  operational: Ws45OperationalWeather | null,
+  planning24h: Ws45PlanningForecast | null,
+  weeklyPlanning: Ws45PlanningForecast | null
 ) {
   const concerns = Array.isArray(launch.weatherConcerns)
     ? launch.weatherConcerns.map((entry) => String(entry || '').trim()).filter(Boolean)
     : [];
   const cards: Array<{
     id: string;
-    source: 'ws45' | 'nws';
+    source: 'ws45' | 'nws' | 'ws45_planning_24h' | 'ws45_weekly';
     title: string;
     subtitle: string | null;
     issuedAt: string | null;
@@ -1159,6 +1183,53 @@ function buildWeatherModule(
     });
   }
 
+  if (planning24h) {
+    const badges = [
+      'Advanced weather',
+      '24-hour planning',
+      planning24h.document_family || null,
+      ...(planning24h.highlights || []).slice(0, 2).map((entry) => String(entry || '').trim())
+    ].filter(Boolean) as string[];
+    cards.push({
+      id: `ws45_planning_24h:${planning24h.id}`,
+      source: 'ws45_planning_24h',
+      title: '45 WS planning forecast',
+      subtitle: '24-hour range outlook',
+      issuedAt: planning24h.issued_at || null,
+      validStart: planning24h.valid_start || null,
+      validEnd: planning24h.valid_end || null,
+      headline: planning24h.headline || 'Day-of range trend',
+      detail: planning24h.summary || null,
+      badges,
+      metrics: [],
+      actionLabel: normalizeUrlString(planning24h.pdf_url) ? 'View PDF' : null,
+      actionUrl: normalizeUrlString(planning24h.pdf_url)
+    });
+  }
+
+  if (weeklyPlanning) {
+    const badges = [
+      'Advanced weather',
+      'Weekly planning',
+      ...(weeklyPlanning.highlights || []).slice(0, 2).map((entry) => String(entry || '').trim())
+    ].filter(Boolean) as string[];
+    cards.push({
+      id: `ws45_weekly:${weeklyPlanning.id}`,
+      source: 'ws45_weekly',
+      title: 'Cape weekly outlook',
+      subtitle: weeklyPlanning.source_label || '45 WS weekly planning forecast',
+      issuedAt: weeklyPlanning.issued_at || null,
+      validStart: weeklyPlanning.valid_start || null,
+      validEnd: weeklyPlanning.valid_end || null,
+      headline: weeklyPlanning.headline || 'Week-ahead Cape trend',
+      detail: weeklyPlanning.summary || null,
+      badges,
+      metrics: [],
+      actionLabel: normalizeUrlString(weeklyPlanning.pdf_url) ? 'View PDF' : null,
+      actionUrl: normalizeUrlString(weeklyPlanning.pdf_url)
+    });
+  }
+
   if (nwsForecast) {
     const period = nwsForecast.data?.period ?? null;
     const shortForecast =
@@ -1206,13 +1277,14 @@ function buildWeatherModule(
     });
   }
 
-  if (!cards.length && concerns.length === 0) {
+  if (!cards.length && concerns.length === 0 && !operational) {
     return null;
   }
 
   return {
     summary: buildWeatherSummary(launch),
     concerns,
+    operational,
     cards
   };
 }
@@ -3489,6 +3561,7 @@ export async function loadLaunchDetailPayload(id: string, session: ResolvedViewe
     Number.isFinite(netMs) &&
     netMs > nowMs &&
     netMs <= nowMs + 14 * 24 * 60 * 60 * 1000;
+  const ws45LaunchContext = buildWs45LaunchContext(launch);
   const blueOriginMissionKey = isBlueOriginProgramLaunch(launch) ? getBlueOriginMissionKeyFromLaunch(launch) || 'all' : null;
 
   const [
@@ -3500,6 +3573,8 @@ export async function loadLaunchDetailPayload(id: string, session: ResolvedViewe
     relatedNews,
     relatedEvents,
     ws45Forecast,
+    ws45LiveSnapshot,
+    ws45Planning,
     nwsForecast,
     payloadManifest,
     objectInventory,
@@ -3520,6 +3595,8 @@ export async function loadLaunchDetailPayload(id: string, session: ResolvedViewe
     loadRelatedNewsItems(launch.id),
     loadRelatedEventItems(launch.id),
     fetchWs45Forecast(launch.id, isEasternRange),
+    fetchWs45LiveWeatherSnapshotForLaunch(ws45LaunchContext, isEasternRange),
+    fetchWs45PlanningForecastsForLaunch(ws45LaunchContext, isEasternRange),
     fetchNwsForecast(launch.id, isUsPad, within14Days),
     fetchPayloadManifest(launch.ll2Id),
     fetchLaunchObjectInventory(launch.ll2Id),
@@ -3537,11 +3614,19 @@ export async function loadLaunchDetailPayload(id: string, session: ResolvedViewe
           graphics: []
         })
   ]);
+  const ws45Operational = buildWs45OperationalWeather(ws45LiveSnapshot, ws45LaunchContext);
   const mobileEnrichment = {
     ...enrichment,
     externalContent: selectPreferredResponsiveLaunchExternalContent(enrichment.externalContent, 'mobile')
   };
-  const weather = buildWeatherModule(launch, ws45Forecast, nwsForecast);
+  const weather = buildWeatherModule(
+    launch,
+    ws45Forecast,
+    nwsForecast,
+    ws45Operational,
+    ws45Planning.planning24h,
+    ws45Planning.weekly
+  );
   const resources = {
     watchLinks: buildWatchLinks(launch),
     externalLinks: buildExternalLinks(launch),

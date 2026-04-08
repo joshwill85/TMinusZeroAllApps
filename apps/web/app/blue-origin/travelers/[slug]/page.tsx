@@ -4,7 +4,7 @@ import { notFound, permanentRedirect } from 'next/navigation';
 import { JsonLd } from '@/components/JsonLd';
 import { ProgramHubBackLink } from '@/components/ProgramHubBackLink';
 import { BRAND_NAME } from '@/lib/brand';
-import { fetchBlueOriginTravelerDetailBySlug, fetchBlueOriginTravelerSlugs } from '@/lib/server/blueOriginTravelers';
+import { fetchBlueOriginTravelerDetailBySlug } from '@/lib/server/blueOriginTravelers';
 import { getSiteUrl } from '@/lib/server/env';
 import { buildSiteMeta, SITE_META } from '@/lib/server/siteMeta';
 import { parseBlueOriginTravelerSlug } from '@/lib/utils/blueOrigin';
@@ -19,8 +19,7 @@ type Params = {
 };
 
 export async function generateStaticParams(): Promise<Params[]> {
-  const slugs = await fetchBlueOriginTravelerSlugs();
-  return slugs.map((slug) => ({ slug }));
+  return [];
 }
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
