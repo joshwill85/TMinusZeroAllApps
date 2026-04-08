@@ -10,6 +10,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import type { LaunchDetailV1, LaunchFaaAirspaceMapV1 } from '@tminuszero/contracts';
 import type { LaunchTab } from '@tminuszero/launch-detail-ui';
 import {
   computeTabVisibility,
@@ -27,13 +28,20 @@ import { Countdown } from '@/components/Countdown';
 import { LaunchDetailHero } from '@/components/launch/LaunchDetailHero';
 import { LaunchDetailTabs, LaunchDetailTabPanel } from '@/components/launch/LaunchDetailTabs';
 import { LiveTab, MissionTab, OverviewTab, RelatedTab, VehicleTab } from '@/components/launch/tabs';
-import type { LaunchDetailV1 } from '@tminuszero/contracts';
 
 type LaunchDetailTabsPageProps = {
   detail: LaunchDetailV1;
+  faaAirspaceMap?: LaunchFaaAirspaceMapV1 | null;
+  googleMapsWebApiKey?: string | null;
+  googleMapsPadHref?: string | null;
 };
 
-export default function LaunchDetailTabsPage({ detail }: LaunchDetailTabsPageProps) {
+export default function LaunchDetailTabsPage({
+  detail,
+  faaAirspaceMap = null,
+  googleMapsWebApiKey = null,
+  googleMapsPadHref = null
+}: LaunchDetailTabsPageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const hero = getLaunchHeroModel(detail);
@@ -131,7 +139,12 @@ export default function LaunchDetailTabsPage({ detail }: LaunchDetailTabsPagePro
         {/* Live Tab */}
         <LaunchDetailTabPanel activeTab={activeTab} tabId="live">
           <Suspense fallback={<LoadingSkeleton />}>
-            <LiveTab data={liveData} />
+            <LiveTab
+              data={liveData}
+              faaMapData={faaAirspaceMap}
+              googleMapsWebApiKey={googleMapsWebApiKey}
+              googleMapsPadHref={googleMapsPadHref}
+            />
           </Suspense>
         </LaunchDetailTabPanel>
 

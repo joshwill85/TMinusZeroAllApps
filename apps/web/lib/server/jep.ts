@@ -96,6 +96,9 @@ type JepGateState = {
   publicVisible: boolean;
   readiness: LaunchJepScore['readiness'];
   transientPersonalizationEnabled: boolean;
+  v6ShadowEnabled: boolean;
+  v6PublicEnabled: boolean;
+  v6FeatureSnapshotsEnabled: boolean;
 };
 
 type JepLaunchContext = {
@@ -891,7 +894,10 @@ async function loadJepVisibilityGate(): Promise<JepGateState> {
       publicEnabled: true,
       publicVisible: forcePublicVisible ? true : readiness.publicVisible,
       readiness,
-      transientPersonalizationEnabled: false
+      transientPersonalizationEnabled: false,
+      v6ShadowEnabled: false,
+      v6PublicEnabled: false,
+      v6FeatureSnapshotsEnabled: false
     };
     gateCache = { value: fallback, expiresAtMs: nowMs + GATE_CACHE_TTL_MS };
     return fallback;
@@ -906,6 +912,9 @@ async function loadJepVisibilityGate(): Promise<JepGateState> {
       'jep_validation_ready',
       'jep_model_card_published',
       'jep_transient_personalization_enabled',
+      'jep_v6_shadow_enabled',
+      'jep_v6_public_enabled',
+      'jep_v6_feature_snapshots_enabled',
       'jep_probability_min_labeled_outcomes',
       'jep_probability_labeled_outcomes',
       'jep_probability_max_ece',
@@ -931,7 +940,10 @@ async function loadJepVisibilityGate(): Promise<JepGateState> {
       publicEnabled: forcePublicVisible ? true : false,
       publicVisible: forcePublicVisible ? true : readiness.publicVisible,
       readiness,
-      transientPersonalizationEnabled: false
+      transientPersonalizationEnabled: false,
+      v6ShadowEnabled: false,
+      v6PublicEnabled: false,
+      v6FeatureSnapshotsEnabled: false
     };
     gateCache = { value: fallback, expiresAtMs: nowMs + GATE_CACHE_TTL_MS };
     return fallback;
@@ -960,7 +972,10 @@ async function loadJepVisibilityGate(): Promise<JepGateState> {
     publicEnabled: forcePublicVisible ? true : publicEnabled,
     publicVisible: forcePublicVisible ? true : readiness.publicVisible,
     readiness,
-    transientPersonalizationEnabled: readBooleanSetting(map.jep_transient_personalization_enabled, false)
+    transientPersonalizationEnabled: readBooleanSetting(map.jep_transient_personalization_enabled, false),
+    v6ShadowEnabled: readBooleanSetting(map.jep_v6_shadow_enabled, false),
+    v6PublicEnabled: readBooleanSetting(map.jep_v6_public_enabled, false),
+    v6FeatureSnapshotsEnabled: readBooleanSetting(map.jep_v6_feature_snapshots_enabled, false)
   };
 
   gateCache = { value, expiresAtMs: nowMs + GATE_CACHE_TTL_MS };

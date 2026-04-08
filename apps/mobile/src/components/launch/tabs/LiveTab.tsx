@@ -1,20 +1,27 @@
 import React from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Href, useRouter } from 'expo-router';
+import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import type { LaunchFaaAirspaceMapV1 } from '@tminuszero/contracts';
 import type { MobileTheme } from '@tminuszero/design-tokens';
 import { buildLaunchVideoEmbed, type LiveTabData } from '@tminuszero/launch-detail-ui';
 import { ForecastAdvisoriesDisclosure } from '@/src/components/launch/ForecastAdvisoriesDisclosure';
 import { JepPanel } from '@/src/components/launch/JepPanel';
+import { LaunchFaaMapCard } from '@/src/components/launch/NativeLaunchMapCard';
 import { LaunchVideoInlineEmbed } from '@/src/components/launch/LaunchVideoInlineEmbed';
 import { XPostInlineEmbed } from '@/src/components/launch/XPostInlineEmbed';
 import { openExternalCustomerUrl } from '@/src/features/customerRoutes/shared';
 import { formatTimestamp } from '@/src/utils/format';
+import { buildPlatformPadMapUrl } from '@/src/utils/mapLinks';
 
 type LiveTabProps = {
   data: LiveTabData;
   theme: MobileTheme;
+  faaMapData?: LaunchFaaAirspaceMapV1 | null;
+  faaMapLoading?: boolean;
 };
 
-export function LiveTab({ data, theme }: LiveTabProps) {
+export function LiveTab({ data, theme, faaMapData = null, faaMapLoading = false }: LiveTabProps) {
+  const router = useRouter();
   const hasWeather = Boolean(data.weatherDetail?.summary || data.weatherDetail?.cards?.length || data.weatherDetail?.concerns?.length);
   const hasForecastOutlook = hasWeather || data.faaAdvisories.length > 0;
   const hasContent =
@@ -39,6 +46,14 @@ export function LiveTab({ data, theme }: LiveTabProps) {
 
   const primaryWatchLink = data.watchLinks[0] ?? null;
   const primaryWatchEmbed = primaryWatchLink ? buildLaunchVideoEmbed(primaryWatchLink.url) : null;
+  const padMapUrl = buildPlatformPadMapUrl(
+    {
+      latitude: faaMapData?.pad.latitude,
+      longitude: faaMapData?.pad.longitude,
+      label: faaMapData?.pad.shortCode || faaMapData?.pad.label || 'Launch pad'
+    },
+    Platform.OS
+  );
 
   return (
     <>
@@ -91,6 +106,53 @@ export function LiveTab({ data, theme }: LiveTabProps) {
                   }}
                 >
                   <ForecastAdvisoriesDisclosure count={data.faaAdvisories.length} theme={theme}>
+                    {faaMapLoading ? (
+                      <View
+                        style={{
+                          gap: 8,
+                          borderRadius: 18,
+                          borderWidth: 1,
+                          borderColor: theme.stroke,
+                          backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                          padding: 16
+                        }}
+                      >
+                        <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>Launch zone map</Text>
+                        <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>Loading launch-day FAA geometry…</Text>
+                      </View>
+                    ) : faaMapData?.advisoryCount ? (
+                      <LaunchFaaMapCard
+                        theme={theme}
+                        mapData={faaMapData}
+                        onOpenFullscreen={() => {
+                          router.push((`/launches/faa-map/${data.launchId}`) as Href);
+                        }}
+                        onOpenPadMap={() => {
+                          if (padMapUrl) {
+                            void openExternalCustomerUrl(padMapUrl);
+                            return;
+                          }
+                          router.push((`/launches/faa-map/${data.launchId}`) as Href);
+                        }}
+                      />
+                    ) : (
+                      <View
+                        style={{
+                          gap: 8,
+                          borderRadius: 18,
+                          borderWidth: 1,
+                          borderColor: theme.stroke,
+                          backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                          padding: 16
+                        }}
+                      >
+                        <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>Launch zone map</Text>
+                        <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
+                          FAA advisory geometry is not available for this launch yet.
+                        </Text>
+                      </View>
+                    )}
+
                     {data.faaAdvisories.map((advisory) => (
                       <View
                         key={advisory.matchId}

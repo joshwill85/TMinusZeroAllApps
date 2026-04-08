@@ -36,7 +36,7 @@ import {
   shouldShowLiveBadge
 } from '@tminuszero/launch-detail-ui';
 import { useApiClient } from '@/src/api/client';
-import { fetchLaunchDetailVersion, useLaunchDetailQuery, useViewerEntitlementsQuery } from '@/src/api/queries';
+import { fetchLaunchDetailVersion, useLaunchDetailQuery, useLaunchFaaAirspaceMapQuery, useViewerEntitlementsQuery } from '@/src/api/queries';
 import { AppScreen } from '@/src/components/AppScreen';
 import { ErrorStateCard, LoadingStateCard } from '@/src/components/SectionCard';
 import { LaunchDetailHero } from '@/src/components/launch/LaunchDetailHero';
@@ -74,6 +74,10 @@ export default function LaunchDetailTabsScreen() {
   // Data queries
   const launchDetailQuery = useLaunchDetailQuery(launchId);
   const detail = launchDetailQuery.data ?? null;
+  const launchFaaAirspaceMapQuery = useLaunchFaaAirspaceMapQuery(launchId, {
+    enabled: Boolean(launchId) && (detail?.enrichment?.faaAdvisoryCount ?? 0) > 0
+  });
+  const launchFaaAirspaceMap = launchFaaAirspaceMapQuery.data ?? null;
   const hero = detail ? getLaunchHeroModel(detail) : null;
   const detailVersionScope = entitlementsQuery.data?.mode === 'live' ? 'live' : 'public';
   const fallbackRefreshIntervalSeconds =
@@ -133,11 +137,14 @@ export default function LaunchDetailTabsScreen() {
   }, [fallbackRefreshIntervalSeconds]);
 
   const applyResolvedDetailRefresh = useCallback(async (nextVersion: string | null) => {
-    const detailResult = await launchDetailQuery.refetch();
+    const [detailResult] = await Promise.all([
+      launchDetailQuery.refetch(),
+      (detail?.enrichment?.faaAdvisoryCount ?? 0) > 0 ? launchFaaAirspaceMapQuery.refetch() : Promise.resolve(null)
+    ]);
     const refreshedUpdatedAt = getVisibleDetailUpdatedAt(detailResult.data?.launchData ?? detail?.launchData ?? null);
     lastSeenVersionRef.current = nextVersion ?? buildDetailVersionToken(launchId, detailVersionScope, refreshedUpdatedAt);
     setPendingDetailRefresh(null);
-  }, [detail?.launchData, detailVersionScope, launchDetailQuery, launchId]);
+  }, [detail?.enrichment?.faaAdvisoryCount, detail?.launchData, detailVersionScope, launchDetailQuery, launchFaaAirspaceMapQuery, launchId]);
 
   const refreshDetail = useCallback(async () => {
     if (!launchId || detailRefreshing) {
@@ -431,7 +438,12 @@ export default function LaunchDetailTabsScreen() {
 
           {/* Live Tab */}
           <LaunchDetailTabPanel isActive={activeTab === 'live'}>
-            <LiveTab data={liveData} theme={theme} />
+            <LiveTab
+              data={liveData}
+              theme={theme}
+              faaMapData={launchFaaAirspaceMap}
+              faaMapLoading={launchFaaAirspaceMapQuery.isPending}
+            />
           </LaunchDetailTabPanel>
 
           {/* Mission Tab */}

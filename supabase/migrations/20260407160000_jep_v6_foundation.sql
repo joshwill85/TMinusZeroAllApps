@@ -1,0 +1,6 @@
+-- Superseded draft placeholder.
+-- The executable Phase 0/1 JEP v6 foundation migration for this branch is:
+--   20260407170000_jep_v6_foundation_phase0_phase1.sql
+--
+-- This file is intentionally left as a no-op so the migration order remains stable
+-- while avoiding duplicate or conflicting JEP v6 foundation DDL in the same branch.

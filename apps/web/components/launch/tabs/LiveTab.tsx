@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import clsx from 'clsx';
+import type { LaunchFaaAirspaceMapV1 } from '@tminuszero/contracts';
 import { buildLaunchVideoEmbed, type LiveTabData } from '@tminuszero/launch-detail-ui';
+import { LaunchFaaMapClient } from '@/components/LaunchFaaMapClient';
 import { ForecastAdvisoriesDisclosure } from '@/components/launch/ForecastAdvisoriesDisclosure';
 import { JepScoreClient } from '@/components/JepScoreClient';
 import { ThirdPartyVideoEmbed } from '@/components/ThirdPartyVideoEmbed';
@@ -12,9 +14,18 @@ import type { LaunchJepScore } from '@/lib/types/jep';
 type LiveTabProps = {
   data: LiveTabData;
   className?: string;
+  faaMapData?: LaunchFaaAirspaceMapV1 | null;
+  googleMapsWebApiKey?: string | null;
+  googleMapsPadHref?: string | null;
 };
 
-export function LiveTab({ data, className }: LiveTabProps) {
+export function LiveTab({
+  data,
+  className,
+  faaMapData = null,
+  googleMapsWebApiKey = null,
+  googleMapsPadHref = null
+}: LiveTabProps) {
   const hasWeather = Boolean(data.weatherDetail?.summary || data.weatherDetail?.cards?.length || data.weatherDetail?.concerns?.length);
   const hasForecastOutlook = hasWeather || data.faaAdvisories.length > 0;
   const hasContent =
@@ -36,6 +47,8 @@ export function LiveTab({ data, className }: LiveTabProps) {
   const primaryWatchEmbed = primaryWatchLink ? buildLaunchVideoEmbed(primaryWatchLink.url) : null;
   const matchedPost = data.socialPosts.find((post) => post.kind === 'matched') ?? null;
   const providerPosts = data.socialPosts.filter((post) => post.kind !== 'matched');
+  const canRenderFaaMap = Boolean(googleMapsWebApiKey && faaMapData?.hasRenderableGeometry);
+  const hasFaaMapBlock = canRenderFaaMap || Boolean(faaMapData?.advisoryCount);
 
   return (
     <div className={clsx('space-y-8', className)}>
@@ -114,7 +127,20 @@ export function LiveTab({ data, className }: LiveTabProps) {
             {data.faaAdvisories.length > 0 ? (
               <div className={clsx(hasWeather ? 'mt-6 border-t border-stroke/50 pt-4' : '')}>
                 <ForecastAdvisoriesDisclosure count={data.faaAdvisories.length}>
-                  <div className="space-y-3">
+                  <>
+                    {canRenderFaaMap && faaMapData && googleMapsWebApiKey ? (
+                      <LaunchFaaMapClient apiKey={googleMapsWebApiKey} data={faaMapData} padMapsHref={googleMapsPadHref} />
+                    ) : faaMapData?.advisoryCount ? (
+                      <div className="rounded-xl border border-dashed border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-3 text-sm text-text3">
+                        FAA launch-day geometry is available for this launch, but the interactive map is not configured in this environment.
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-stroke bg-surface-0 px-3 py-3 text-sm text-text3">
+                        FAA advisory geometry is not available for this launch yet.
+                      </div>
+                    )}
+
+                    <div className={clsx('space-y-3', hasFaaMapBlock ? 'mt-4' : '')}>
                     {data.faaAdvisories.map((advisory) => (
                       <article
                         key={advisory.matchId}
@@ -192,7 +218,8 @@ export function LiveTab({ data, className }: LiveTabProps) {
                         ) : null}
                       </article>
                     ))}
-                  </div>
+                    </div>
+                  </>
                 </ForecastAdvisoriesDisclosure>
               </div>
             ) : null}

@@ -10,7 +10,8 @@ internal final class TmzLaunchMapView: ExpoView, MKMapViewDelegate {
 
   private let mapView = MKMapView(frame: .zero)
   private let decoder = JSONDecoder()
-  private let padPreviewDistanceMeters: CLLocationDistance = 600
+  // Keep the pad prominent in the non-interactive card preview without losing nearby context.
+  private let padPreviewDistanceMeters: CLLocationDistance = 300
   private let boundsEdgePadding = UIEdgeInsets(top: 28, left: 28, bottom: 28, right: 28)
   private var pendingBounds: BoundsPayload?
   private var pendingPad: PadPayload?

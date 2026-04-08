@@ -2,7 +2,8 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createSupabaseAdminClient } from '../_shared/supabase.ts';
 import { requireJobAuth } from '../_shared/jobAuth.ts';
 import { getSettings, readBooleanSetting, readNumberSetting, readStringArraySetting, readStringSetting } from '../_shared/settings.ts';
-import { computeJepScoreRecord, intervalMinutesForLaunch } from '../../../apps/web/lib/jep/serverShared.ts';
+import { DEFAULT_JEP_V6_MODEL_VERSION, deriveJepV6ObserverFeatureCell } from '../../../apps/web/lib/jep/v6Foundation.ts';
+import { computeJepScoreRecord, intervalMinutesForLaunch, type JepComputedScore } from '../../../apps/web/lib/jep/serverShared.ts';
 import {
   combineJepWeatherFactors,
   computeJepCloudObstructionFactor,
@@ -30,6 +31,7 @@ const DEFAULTS = {
   maxLaunchesPerRun: 120,
   weatherCacheMinutes: 10,
   modelVersion: 'jep_v5',
+  v6FeatureSnapshotsEnabled: false,
   openMeteoUsModels: ['best_match', 'gfs_seamless'],
   observerLookbackDays: 14,
   observerRegistryLimit: 128,
@@ -43,6 +45,7 @@ const SETTINGS_KEYS = [
   'jep_score_max_launches_per_run',
   'jep_score_weather_cache_minutes',
   'jep_score_model_version',
+  'jep_v6_feature_snapshots_enabled',
   'jep_score_open_meteo_us_models',
   'jep_score_observer_lookback_days',
   'jep_score_observer_registry_limit',
@@ -71,6 +74,25 @@ type ScoreRow = {
   computed_at: string | null;
   expires_at: string | null;
   snapshot_at: string | null;
+};
+
+type FeatureSnapshotRow = {
+  launch_id: string;
+  observer_location_hash: string;
+  observer_feature_key: string;
+  observer_lat_bucket: number | null;
+  observer_lon_bucket: number | null;
+  feature_family: string;
+  model_version: string;
+  input_hash: string;
+  trajectory_input_hash: string | null;
+  source_refs: Array<Record<string, unknown>>;
+  feature_payload: Record<string, unknown>;
+  confidence_payload: Record<string, unknown>;
+  computed_at: string;
+  expires_at: string | null;
+  snapshot_at: string | null;
+  updated_at: string;
 };
 
 type DueLaunch = {
@@ -292,6 +314,8 @@ serve(async (req) => {
     weatherSourceUpsertedNws: 0,
     weatherSourceUpsertedMixed: 0,
     weatherSourceUpsertedNone: 0,
+    featureSnapshotsEnabled: DEFAULTS.v6FeatureSnapshotsEnabled,
+    featureSnapshotsUpserted: 0,
     errors: [] as Array<Record<string, unknown>>
   };
 
@@ -315,6 +339,10 @@ serve(async (req) => {
       180
     );
     const modelVersion = readStringSetting(settings.jep_score_model_version, DEFAULTS.modelVersion).trim() || DEFAULTS.modelVersion;
+    const v6FeatureSnapshotsEnabled = readBooleanSetting(
+      settings.jep_v6_feature_snapshots_enabled,
+      DEFAULTS.v6FeatureSnapshotsEnabled
+    );
     const openMeteoUsModels = normalizeModelList(
       readStringArraySetting(settings.jep_score_open_meteo_us_models, DEFAULTS.openMeteoUsModels),
       DEFAULTS.openMeteoUsModels
@@ -344,6 +372,7 @@ serve(async (req) => {
     stats.maxLaunchesPerRun = maxLaunchesPerRun;
     stats.weatherCacheMinutes = weatherCacheMinutes;
     stats.modelVersion = modelVersion;
+    stats.featureSnapshotsEnabled = v6FeatureSnapshotsEnabled;
     stats.openMeteoUsModels = openMeteoUsModels;
     stats.observerLookbackDays = observerLookbackDays;
     stats.observerRegistryLimit = observerRegistryLimit;
@@ -421,6 +450,7 @@ serve(async (req) => {
     const nwsPointCache = new Map<string, NwsPointRow | null>();
     const nwsGridCache = new Map<string, NwsGridForecast | null>();
     const upserts: Record<string, unknown>[] = [];
+    const featureSnapshotUpserts: FeatureSnapshotRow[] = [];
     const snapshotLocksByLaunch = new Map<string, Set<string>>();
 
     for (const entry of due) {
@@ -537,6 +567,16 @@ serve(async (req) => {
           }
 
           upserts.push(computed.row);
+          if (v6FeatureSnapshotsEnabled) {
+            featureSnapshotUpserts.push(
+              buildV5BaselineFeatureSnapshot({
+                launch,
+                observer,
+                trajectory,
+                computed
+              })
+            );
+          }
           incrementWeatherSourceStats(stats, weather.primarySource, 'upserted');
 
           launchComputed = true;
@@ -584,6 +624,14 @@ serve(async (req) => {
     }
 
     stats.launchesUpserted = upserts.length;
+
+    if (v6FeatureSnapshotsEnabled && featureSnapshotUpserts.length) {
+      const { error: featureSnapshotError } = await supabase
+        .from('jep_feature_snapshots')
+        .upsert(featureSnapshotUpserts, { onConflict: 'launch_id,observer_location_hash,feature_family,input_hash' });
+      if (featureSnapshotError) throw featureSnapshotError;
+      stats.featureSnapshotsUpserted = featureSnapshotUpserts.length;
+    }
 
     await finishIngestionRun(supabase, runId, true, stats);
     return jsonResponse({ ok: true, elapsedMs: Date.now() - startedAt, stats });
@@ -738,6 +786,105 @@ function selectObserversForLaunch({
 
 function scoreKey(launchId: string, observerHash: string) {
   return `${launchId}:${observerHash}`;
+}
+
+function buildV5BaselineFeatureSnapshot({
+  launch,
+  observer,
+  trajectory,
+  computed
+}: {
+  launch: LaunchRow;
+  observer: ObserverPoint;
+  trajectory: TrajectoryRow;
+  computed: JepComputedScore;
+}): FeatureSnapshotRow {
+  const featureCell = deriveJepV6ObserverFeatureCell(observer.latDeg, observer.lonDeg);
+  return {
+    launch_id: launch.launch_id,
+    observer_location_hash: computed.row.observer_location_hash,
+    observer_feature_key: featureCell?.key ?? computed.row.observer_location_hash,
+    observer_lat_bucket: featureCell?.latCell ?? computed.row.observer_lat_bucket ?? null,
+    observer_lon_bucket: featureCell?.lonCell ?? computed.row.observer_lon_bucket ?? null,
+    feature_family: 'jep_v5_baseline',
+    model_version: DEFAULT_JEP_V6_MODEL_VERSION,
+    input_hash: computed.row.input_hash,
+    trajectory_input_hash: null,
+    source_refs: [
+      {
+        sourceKey: 'jep_v5_baseline',
+        modelVersion: computed.row.model_version
+      },
+      {
+        sourceKey: 'trajectory',
+        provider: 'launch_trajectory',
+        confidenceTier: trajectory.confidence_tier ?? null,
+        freshnessState: trajectory.freshness_state ?? null
+      },
+      {
+        sourceKey: 'weather',
+        provider: computed.weather.primarySource,
+        sourceUsed: computed.weather.sourceUsed,
+        samplingMode: computed.weather.samplingMode
+      }
+    ],
+    feature_payload: {
+      observer: {
+        source: observer.source,
+        latDeg: observer.latDeg,
+        lonDeg: observer.lonDeg,
+        featureKey: featureCell?.key ?? null,
+        featureCellDeg: featureCell?.cellDeg ?? null
+      },
+      launch: {
+        net: launch.net,
+        netPrecision: launch.net_precision,
+        missionOrbit: launch.mission_orbit,
+        vehicle: launch.vehicle,
+        rocketFamily: launch.rocket_family,
+        padCountryCode: launch.pad_country_code
+      },
+      baseline: {
+        sourceModelVersion: computed.row.model_version
+      },
+      trajectory: {
+        confidenceTier: trajectory.confidence_tier ?? null,
+        freshnessState: trajectory.freshness_state ?? null,
+        lineageComplete: trajectory.lineage_complete ?? null,
+        sampleCount: computed.samples.length
+      },
+      factors: {
+        score: computed.row.score,
+        illumination: computed.row.illumination_factor,
+        darkness: computed.row.darkness_factor,
+        lineOfSight: computed.row.los_factor,
+        weather: computed.row.weather_factor,
+        sunlitMarginKm: computed.row.sunlit_margin_km,
+        losVisibleFraction: computed.row.los_visible_fraction,
+        solarDepressionDeg: computed.row.solar_depression_deg,
+        weatherFreshnessMin: computed.row.weather_freshness_min,
+        geometryOnlyFallback: computed.row.geometry_only_fallback
+      },
+      weather: {
+        primarySource: computed.weather.primarySource,
+        sourceUsed: computed.weather.sourceUsed,
+        samplingMode: computed.weather.samplingMode,
+        contrastFactor: computed.weather.contrastFactor,
+        obstructionFactor: computed.weather.obstructionFactor,
+        mainBlocker: computed.weather.mainBlocker
+      },
+      explainability: computed.row.explainability
+    },
+    confidence_payload: {
+      timeConfidence: computed.row.time_confidence,
+      trajectoryConfidence: computed.row.trajectory_confidence,
+      weatherConfidence: computed.row.weather_confidence
+    },
+    computed_at: computed.row.computed_at,
+    expires_at: computed.row.expires_at,
+    snapshot_at: computed.row.snapshot_at,
+    updated_at: computed.row.updated_at
+  };
 }
 
 function incrementWeatherSourceStats(
