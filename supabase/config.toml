@@ -161,6 +161,12 @@ additional_redirect_urls = [
   "https://tminuszero.app/auth/callback",
   "https://tminuszero.app/auth/reset-password",
   "https://tminuszero.app/auth/verify",
+  "https://tminuszero-mobile-staging.vercel.app",
+  "https://tminuszero-mobile-staging.vercel.app/",
+  "https://tminuszero-mobile-staging.vercel.app/auth/callback",
+  "https://tminuszero-mobile-staging.vercel.app/auth/reset-password",
+  "https://tminuszero-mobile-staging.vercel.app/auth/sign-in",
+  "https://tminuszero-mobile-staging.vercel.app/auth/verify",
   "tminuszero://auth/callback",
   "tminuszero://auth/**",
 ]

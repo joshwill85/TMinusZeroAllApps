@@ -53,10 +53,23 @@ function readHashParams() {
   return new URLSearchParams(trimmed);
 }
 
+function readConfirmationUrlParams(value: string | null) {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return new URLSearchParams();
+
+  try {
+    const url = new URL(trimmed);
+    return url.searchParams;
+  } catch {
+    return new URLSearchParams();
+  }
+}
+
 function clearAuthParams() {
   if (typeof window === 'undefined') return;
   const url = new URL(window.location.href);
   url.searchParams.delete('code');
+  url.searchParams.delete('confirmation_url');
   url.searchParams.delete('token_hash');
   url.searchParams.delete('type');
   url.searchParams.delete('error');
@@ -307,6 +320,7 @@ export default function AuthCallbackClient() {
       }
 
       const params = new URLSearchParams(queryString);
+      const confirmationParams = readConfirmationUrlParams(params.get('confirmation_url'));
       const queryError = params.get('error');
       const queryErrorDescription = params.get('error_description');
       if (queryError) {
@@ -331,7 +345,7 @@ export default function AuthCallbackClient() {
       if (!cancelled) setPostAuthNextPath(redirectTo);
       const appleAction = readAppleAction(params);
 
-      const code = params.get('code');
+      const code = params.get('code') || confirmationParams.get('code');
       if (code) {
         const { data, error } = await supabase.auth.exchangeCodeForSession(code);
         if (cancelled) return;
@@ -388,8 +402,8 @@ export default function AuthCallbackClient() {
         return;
       }
 
-      const tokenHash = params.get('token_hash');
-      const type = params.get('type');
+      const tokenHash = params.get('token_hash') || confirmationParams.get('token_hash') || confirmationParams.get('token');
+      const type = params.get('type') || confirmationParams.get('type');
       if (tokenHash && type) {
         const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: type as EmailOtpType });
         if (cancelled) return;

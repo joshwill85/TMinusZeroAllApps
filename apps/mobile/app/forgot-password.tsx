@@ -13,7 +13,11 @@ export default function ForgotPasswordScreen() {
     text: ''
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const resetUrl = useMemo(() => `${getPublicSiteUrl()}/auth/reset-password`, []);
+  const resetUrl = useMemo(() => {
+    const url = new URL('/auth/reset-password', getPublicSiteUrl());
+    url.searchParams.set('recovery', '1');
+    return url.toString();
+  }, []);
 
   async function handleRequestReset() {
     const normalizedEmail = email.trim();

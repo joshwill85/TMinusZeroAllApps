@@ -13,7 +13,11 @@ import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 export function AccountPersonalScreen() {
   const router = useRouter();
   const { accessToken, theme } = useMobileBootstrap();
-  const callbackUrl = useMemo(() => `${getPublicSiteUrl()}/auth/callback`, []);
+  const callbackUrl = useMemo(() => {
+    const url = new URL('/auth/callback', getPublicSiteUrl());
+    url.searchParams.set('return_to', '/');
+    return url.toString();
+  }, []);
   const sessionQuery = useViewerSessionQuery();
   const profileQuery = useProfileQuery();
   const marketingEmailQuery = useMarketingEmailQuery();

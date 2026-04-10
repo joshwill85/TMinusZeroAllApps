@@ -19,9 +19,10 @@ export default function ForgotPasswordPage() {
     try {
       const supabase = getBrowserClient();
       if (!supabase) throw new Error('Supabase not available');
-      const baseUrl = window.location.origin.replace(/\/+$/, '');
+      const resetUrl = new URL('/auth/reset-password', window.location.origin);
+      resetUrl.searchParams.set('recovery', '1');
       const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: `${baseUrl}/auth/reset-password`
+        redirectTo: resetUrl.toString()
       });
 
       if (error) console.warn('password reset request warning', error.message);

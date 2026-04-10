@@ -18,10 +18,24 @@ function readHashParams() {
   return new URLSearchParams(trimmed);
 }
 
+function readConfirmationUrlParams(value: string | null) {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return new URLSearchParams();
+
+  try {
+    const url = new URL(trimmed);
+    return url.searchParams;
+  } catch {
+    return new URLSearchParams();
+  }
+}
+
 function clearRecoveryParams() {
   if (typeof window === 'undefined') return;
   const url = new URL(window.location.href);
   url.searchParams.delete('code');
+  url.searchParams.delete('confirmation_url');
+  url.searchParams.delete('recovery');
   url.searchParams.delete('token_hash');
   url.searchParams.delete('type');
   url.searchParams.delete('error');
@@ -62,6 +76,7 @@ export default function ResetPasswordClient() {
       }
 
       const queryParams = new URLSearchParams(searchParamString);
+      const confirmationParams = readConfirmationUrlParams(queryParams.get('confirmation_url'));
       const queryError = queryParams.get('error');
       const queryErrorDescription = queryParams.get('error_description');
       if (queryError) {
@@ -72,7 +87,7 @@ export default function ResetPasswordClient() {
         return;
       }
 
-      const code = queryParams.get('code');
+      const code = queryParams.get('code') || confirmationParams.get('code');
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
         if (!cancelled) {
@@ -99,8 +114,8 @@ export default function ResetPasswordClient() {
         return;
       }
 
-      const tokenHash = queryParams.get('token_hash');
-      const type = queryParams.get('type');
+      const tokenHash = queryParams.get('token_hash') || confirmationParams.get('token_hash') || confirmationParams.get('token');
+      const type = queryParams.get('type') || confirmationParams.get('type');
       if (tokenHash && type) {
         const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: type as EmailOtpType });
         if (!cancelled) {

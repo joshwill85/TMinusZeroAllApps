@@ -22,7 +22,7 @@ Subject: Confirm your email for T-minus Zero
 
         <div style="margin-top:18px;">
           <a
-            href="{{ .SiteURL }}/auth/verify?confirmation_url={{ .ConfirmationURL | urlquery }}"
+            href="{{ if .RedirectTo }}{{ .RedirectTo }}&confirmation_url={{ .ConfirmationURL | urlquery }}{{ else }}{{ .SiteURL }}/auth/verify?confirmation_url={{ .ConfirmationURL | urlquery }}{{ end }}"
             style="display:inline-block;background:#22d3ee;color:#001018;text-decoration:none;font-weight:700;padding:10px 14px;border-radius:10px;"
           >
             Verify Systems
@@ -31,7 +31,7 @@ Subject: Confirm your email for T-minus Zero
 
         <div style="margin-top:14px;font-size:12px;line-height:1.4;color:#94a3b8;">
           Or paste this link into your browser:<br />
-          <span style="word-break:break-all;">{{ .SiteURL }}/auth/verify?confirmation_url={{ .ConfirmationURL | urlquery }}</span>
+          <span style="word-break:break-all;">{{ if .RedirectTo }}{{ .RedirectTo }}&confirmation_url={{ .ConfirmationURL | urlquery }}{{ else }}{{ .SiteURL }}/auth/verify?confirmation_url={{ .ConfirmationURL | urlquery }}{{ end }}</span>
         </div>
       </div>
 
