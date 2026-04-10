@@ -1,118 +1,151 @@
 insert into public.system_settings (key, value)
 values
-  ('ws45_live_weather_job_enabled', 'false'::jsonb),
-  ('ws45_planning_forecast_job_enabled', 'false'::jsonb)
+  ('ws45_weather_retention_cleanup_enabled', 'true'::jsonb),
+  ('ws45_live_weather_retention_hours', '72'::jsonb),
+  ('ws45_planning_forecast_retention_days', '30'::jsonb),
+  ('ws45_weather_retention_cleanup_batch_limit', '5000'::jsonb)
 on conflict (key) do update
 set value = excluded.value,
     updated_at = now();
 
-create table if not exists public.ws45_live_weather_snapshots (
-  id uuid primary key default gen_random_uuid(),
-  source text not null default '5ws_live_board',
-  source_page_url text not null default 'https://45thweathersquadron.nebula.spaceforce.mil/pages/weatherSafety.html',
-  board_url text not null default 'https://nimboard.rad.spaceforce.mil/nimboard',
-  fetched_at timestamptz not null default now(),
-  agency_count int not null default 0 check (agency_count >= 0),
-  ring_count int not null default 0 check (ring_count >= 0),
-  active_phase_1_count int not null default 0 check (active_phase_1_count >= 0),
-  active_phase_2_count int not null default 0 check (active_phase_2_count >= 0),
-  active_wind_count int not null default 0 check (active_wind_count >= 0),
-  active_severe_count int not null default 0 check (active_severe_count >= 0),
-  summary text,
-  agencies jsonb not null default '[]'::jsonb,
-  lightning_rings jsonb not null default '[]'::jsonb,
-  raw jsonb not null default '{}'::jsonb,
-  created_at timestamptz not null default now()
-);
-
-create index if not exists ws45_live_weather_snapshots_fetched_at_idx
-  on public.ws45_live_weather_snapshots (fetched_at desc);
-
-alter table public.ws45_live_weather_snapshots enable row level security;
-
-do $$
+create or replace function public.prune_ws45_live_weather_snapshots(
+  retain_hours_in int default null,
+  batch_limit_in int default null
+)
+returns int
+language plpgsql
+security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  v_retain_hours int := 72;
+  v_batch_limit int := 5000;
+  v_deleted int := 0;
 begin
-  if not exists (
-    select 1
-    from pg_policies
-    where schemaname = 'public'
-      and tablename = 'ws45_live_weather_snapshots'
-      and policyname = 'paid read ws45 live weather snapshots'
-  ) then
-    create policy "paid read ws45 live weather snapshots"
-      on public.ws45_live_weather_snapshots
-      for select using (public.is_paid_user() or public.is_admin());
+  if retain_hours_in is null then
+    select
+      case
+        when jsonb_typeof(s.value) = 'number' then greatest(24, least((s.value::text)::int, 24 * 30))
+        when jsonb_typeof(s.value) = 'string'
+          and trim(both '"' from s.value::text) ~ '^-?\\d+$'
+          then greatest(24, least((trim(both '"' from s.value::text))::int, 24 * 30))
+        else null
+      end
+    into v_retain_hours
+    from public.system_settings s
+    where s.key = 'ws45_live_weather_retention_hours';
+  else
+    v_retain_hours := greatest(24, least(retain_hours_in, 24 * 30));
   end if;
-end $$;
 
-create table if not exists public.ws45_planning_forecasts (
-  id uuid primary key default gen_random_uuid(),
-  product_kind text not null
-    check (product_kind in ('planning_24h', 'weekly_planning')),
-  source text not null default '45ws_planning',
-  source_page_url text not null default 'https://45thweathersquadron.nebula.spaceforce.mil/pages/planningAndAviationForecastProducts.html',
-  source_label text,
-  pdf_url text not null,
-  pdf_etag text,
-  pdf_last_modified timestamptz,
-  pdf_sha256 text not null,
-  pdf_bytes int,
-  pdf_metadata jsonb,
-  fetched_at timestamptz not null default now(),
-  issued_at timestamptz,
-  valid_start timestamptz,
-  valid_end timestamptz,
-  valid_window tstzrange generated always as (
-    case
-      when valid_start is not null and valid_end is not null then tstzrange(valid_start, valid_end, '[)')
-      else null
-    end
-  ) stored,
-  headline text,
-  summary text,
-  highlights text[] not null default '{}',
-  raw_text text,
-  raw jsonb not null default '{}'::jsonb,
-  parse_version text not null default 'v1',
-  document_family text,
-  parse_status text not null default 'failed'
-    check (parse_status in ('parsed', 'partial', 'failed')),
-  parse_confidence int check (parse_confidence between 0 and 100),
-  publish_eligible boolean not null default false,
-  quarantine_reasons text[] not null default '{}',
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  unique (product_kind, pdf_url, pdf_sha256)
-);
+  if batch_limit_in is null then
+    select
+      case
+        when jsonb_typeof(s.value) = 'number' then greatest(100, least((s.value::text)::int, 50000))
+        when jsonb_typeof(s.value) = 'string'
+          and trim(both '"' from s.value::text) ~ '^-?\\d+$'
+          then greatest(100, least((trim(both '"' from s.value::text))::int, 50000))
+        else null
+      end
+    into v_batch_limit
+    from public.system_settings s
+    where s.key = 'ws45_weather_retention_cleanup_batch_limit';
+  else
+    v_batch_limit := greatest(100, least(batch_limit_in, 50000));
+  end if;
 
-create index if not exists ws45_planning_forecasts_product_fetched_idx
-  on public.ws45_planning_forecasts (product_kind, fetched_at desc);
+  with keep_row as (
+    select id
+    from public.ws45_live_weather_snapshots
+    order by fetched_at desc, created_at desc
+    limit 1
+  ), doomed as (
+    select ctid
+    from public.ws45_live_weather_snapshots
+    where fetched_at < now() - make_interval(hours => coalesce(v_retain_hours, 72))
+      and id not in (select id from keep_row)
+    order by fetched_at asc, created_at asc
+    limit coalesce(v_batch_limit, 5000)
+  ), deleted_rows as (
+    delete from public.ws45_live_weather_snapshots t
+    using doomed
+    where t.ctid = doomed.ctid
+    returning 1
+  )
+  select count(*)::int into v_deleted from deleted_rows;
 
-create index if not exists ws45_planning_forecasts_product_issued_idx
-  on public.ws45_planning_forecasts (product_kind, issued_at desc);
+  return coalesce(v_deleted, 0);
+end;
+$$;
 
-create index if not exists ws45_planning_forecasts_publish_idx
-  on public.ws45_planning_forecasts (publish_eligible, fetched_at desc);
-
-create index if not exists ws45_planning_forecasts_valid_window_gist
-  on public.ws45_planning_forecasts using gist (valid_window);
-
-alter table public.ws45_planning_forecasts enable row level security;
-
-do $$
+create or replace function public.prune_ws45_planning_forecasts(
+  retain_days_in int default null,
+  batch_limit_in int default null
+)
+returns int
+language plpgsql
+security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  v_retain_days int := 30;
+  v_batch_limit int := 5000;
+  v_deleted int := 0;
 begin
-  if not exists (
-    select 1
-    from pg_policies
-    where schemaname = 'public'
-      and tablename = 'ws45_planning_forecasts'
-      and policyname = 'paid read ws45 planning forecasts'
-  ) then
-    create policy "paid read ws45 planning forecasts"
-      on public.ws45_planning_forecasts
-      for select using (public.is_paid_user() or public.is_admin());
+  if retain_days_in is null then
+    select
+      case
+        when jsonb_typeof(s.value) = 'number' then greatest(7, least((s.value::text)::int, 365))
+        when jsonb_typeof(s.value) = 'string'
+          and trim(both '"' from s.value::text) ~ '^-?\\d+$'
+          then greatest(7, least((trim(both '"' from s.value::text))::int, 365))
+        else null
+      end
+    into v_retain_days
+    from public.system_settings s
+    where s.key = 'ws45_planning_forecast_retention_days';
+  else
+    v_retain_days := greatest(7, least(retain_days_in, 365));
   end if;
-end $$;
+
+  if batch_limit_in is null then
+    select
+      case
+        when jsonb_typeof(s.value) = 'number' then greatest(100, least((s.value::text)::int, 50000))
+        when jsonb_typeof(s.value) = 'string'
+          and trim(both '"' from s.value::text) ~ '^-?\\d+$'
+          then greatest(100, least((trim(both '"' from s.value::text))::int, 50000))
+        else null
+      end
+    into v_batch_limit
+    from public.system_settings s
+    where s.key = 'ws45_weather_retention_cleanup_batch_limit';
+  else
+    v_batch_limit := greatest(100, least(batch_limit_in, 50000));
+  end if;
+
+  with keep_rows as (
+    select distinct on (product_kind) id
+    from public.ws45_planning_forecasts
+    order by product_kind, fetched_at desc, updated_at desc, created_at desc
+  ), doomed as (
+    select ctid
+    from public.ws45_planning_forecasts
+    where fetched_at < now() - make_interval(days => coalesce(v_retain_days, 30))
+      and id not in (select id from keep_rows)
+    order by fetched_at asc, created_at asc
+    limit coalesce(v_batch_limit, 5000)
+  ), deleted_rows as (
+    delete from public.ws45_planning_forecasts t
+    using doomed
+    where t.ctid = doomed.ctid
+    returning 1
+  )
+  select count(*)::int into v_deleted from deleted_rows;
+
+  return coalesce(v_deleted, 0);
+end;
+$$;
 
 create or replace function public.invoke_edge_job(job_slug text)
 returns void
@@ -170,6 +203,7 @@ begin
     when 'faa-trajectory-hazard-ingest' then 'faa_trajectory_hazard_job_enabled'
     when 'ws45-live-weather-ingest' then 'ws45_live_weather_job_enabled'
     when 'ws45-planning-forecast-ingest' then 'ws45_planning_forecast_job_enabled'
+    when 'ws45-weather-retention-cleanup' then 'ws45_weather_retention_cleanup_enabled'
     else null
   end;
 
@@ -256,8 +290,7 @@ insert into public.managed_scheduler_jobs (
   next_run_at
 )
 values
-  ('ws45_live_weather_ingest', 'ws45-live-weather-ingest', 900, 780, false, 3, public.managed_scheduler_next_run(now(), 900, 780)),
-  ('ws45_planning_forecast_ingest', 'ws45-planning-forecast-ingest', 1800, 1560, false, 3, public.managed_scheduler_next_run(now(), 1800, 1560))
+  ('ws45_weather_retention_cleanup', 'ws45-weather-retention-cleanup', 86400, 2100, true, 3, public.managed_scheduler_next_run(now(), 86400, 2100))
 on conflict (cron_job_name) do update
 set edge_job_slug = excluded.edge_job_slug,
     interval_seconds = excluded.interval_seconds,
