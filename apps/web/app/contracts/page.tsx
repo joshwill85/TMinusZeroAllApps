@@ -4,18 +4,19 @@ import { JsonLd } from '@/components/JsonLd';
 import { BRAND_NAME } from '@/lib/brand';
 import { resolveContractsCanonicalFaq } from '@/lib/content/faq/resolvers';
 import {
-  buildCanonicalContractSearchText,
-  fetchCanonicalContractsIndex,
+  fetchCanonicalContractsPage,
   type CanonicalContractScope
 } from '@/lib/server/contracts';
 import { getSiteUrl } from '@/lib/server/env';
 import { buildSiteMeta, SITE_META } from '@/lib/server/siteMeta';
 
 export const revalidate = 60 * 10;
+const CONTRACTS_PAGE_LIMIT = 100;
 
 type SearchParams = {
   q?: string | string[];
   scope?: string | string[];
+  page?: string | string[];
 };
 
 export async function generateMetadata({
@@ -29,7 +30,8 @@ export async function generateMetadata({
   const pageUrl = `${siteUrl}${canonical}`;
   const query = normalizeQuery(getSingle(searchParams?.q));
   const scope = parseScope(getSingle(searchParams?.scope));
-  const hasFacet = Boolean(query) || (scope != null && scope !== 'all');
+  const page = parsePage(getSingle(searchParams?.page));
+  const hasFacet = Boolean(query) || (scope != null && scope !== 'all') || page > 1;
 
   const title = `US Government Contract Intelligence (USAspending + SAM.gov) | ${BRAND_NAME}`;
   const description =
@@ -70,31 +72,34 @@ export default async function ContractsIndexPage({
 }: {
   searchParams?: SearchParams;
 }) {
-  const allContracts = await fetchCanonicalContractsIndex();
   const query = normalizeQuery(getSingle(searchParams?.q));
   const scope = parseScope(getSingle(searchParams?.scope)) || 'all';
-
-  const filteredByScope =
-    scope === 'all'
-      ? allContracts
-      : allContracts.filter((contract) => contract.scope === scope);
-  const contracts = query
-    ? filteredByScope.filter((contract) =>
-        buildCanonicalContractSearchText(contract).includes(query)
-      )
-    : filteredByScope;
-
-  const totals = {
-    all: allContracts.length,
-    exact: allContracts.filter((row) => Boolean(row.story?.storyKey)).length,
-    pending: allContracts.filter((row) => !row.story?.storyKey).length,
-    spacex: allContracts.filter((row) => row.scope === 'spacex').length,
-    blueOrigin: allContracts.filter((row) => row.scope === 'blue-origin').length,
-    artemis: allContracts.filter((row) => row.scope === 'artemis').length
-  };
-
   const siteUrl = getSiteUrl().replace(/\/$/, '');
   const pageUrl = `${siteUrl}/contracts`;
+  const requestedPage = parsePage(getSingle(searchParams?.page));
+  let contractsPage = await fetchCanonicalContractsPage({
+    scope,
+    query,
+    limit: CONTRACTS_PAGE_LIMIT,
+    offset: (requestedPage - 1) * CONTRACTS_PAGE_LIMIT
+  });
+  let totalPages = Math.max(1, Math.ceil(Math.max(contractsPage.totalRows, 1) / contractsPage.limit));
+  if (requestedPage > totalPages && contractsPage.totalRows > 0) {
+    contractsPage = await fetchCanonicalContractsPage({
+      scope,
+      query,
+      limit: CONTRACTS_PAGE_LIMIT,
+      offset: (totalPages - 1) * CONTRACTS_PAGE_LIMIT
+    });
+    totalPages = Math.max(1, Math.ceil(Math.max(contractsPage.totalRows, 1) / contractsPage.limit));
+  }
+
+  const contracts = contractsPage.items;
+  const totals = contractsPage.totals;
+  const currentPage = Math.min(requestedPage, totalPages);
+  const rangeStart = contractsPage.totalRows > 0 ? contractsPage.offset + 1 : 0;
+  const rangeEnd = contractsPage.totalRows > 0 ? contractsPage.offset + contracts.length : 0;
+
   const breadcrumbJsonLd = {
     '@context': 'https://schema.org',
     '@type': 'BreadcrumbList',
@@ -112,7 +117,7 @@ export default async function ContractsIndexPage({
     numberOfItems: contracts.length,
     itemListElement: contracts.slice(0, 300).map((contract, index) => ({
       '@type': 'ListItem',
-      position: index + 1,
+      position: contractsPage.offset + index + 1,
       url: `${siteUrl}${contract.canonicalPath}`,
       name: contract.title
     }))
@@ -171,6 +176,9 @@ export default async function ContractsIndexPage({
               Query: {query}
             </span>
           ) : null}
+          <span className="rounded-full border border-stroke px-3 py-1">
+            Showing: {rangeStart}-{rangeEnd} of {contractsPage.totalRows}
+          </span>
         </div>
       </header>
 
@@ -224,84 +232,128 @@ export default async function ContractsIndexPage({
 
       <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
         {contracts.length ? (
-          <ul className="space-y-3">
-            {contracts.map((contract) => (
-              <li
-                key={contract.uid}
-                className="rounded-xl border border-stroke bg-surface-0 p-4"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    <Link
-                      href={contract.canonicalPath}
-                      className="text-base font-semibold text-text1 hover:text-primary"
-                    >
-                      {contract.title}
-                    </Link>
-                    <p className="text-sm text-text2">
-                      {contract.description || 'No description available.'}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {contract.story?.storyKey ? (
-                      <span className="rounded-full border border-success/30 bg-success/10 px-3 py-1 text-xs uppercase tracking-[0.08em] text-success">
-                        Exact story
-                      </span>
-                    ) : (
+          <div className="space-y-4">
+            <ul className="space-y-3">
+              {contracts.map((contract) => (
+                <li
+                  key={contract.uid}
+                  className="rounded-xl border border-stroke bg-surface-0 p-4"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <Link
+                        href={contract.canonicalPath}
+                        className="text-base font-semibold text-text1 hover:text-primary"
+                      >
+                        {contract.title}
+                      </Link>
+                      <p className="text-sm text-text2">
+                        {contract.description || 'No description available.'}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {contract.story?.storyKey ? (
+                        <span className="rounded-full border border-success/30 bg-success/10 px-3 py-1 text-xs uppercase tracking-[0.08em] text-success">
+                          Exact story
+                        </span>
+                      ) : (
+                        <span className="rounded-full border border-stroke px-3 py-1 text-xs uppercase tracking-[0.08em] text-text3">
+                          Story pending
+                        </span>
+                      )}
                       <span className="rounded-full border border-stroke px-3 py-1 text-xs uppercase tracking-[0.08em] text-text3">
-                        Story pending
+                        {contract.scope}
                       </span>
-                    )}
-                    <span className="rounded-full border border-stroke px-3 py-1 text-xs uppercase tracking-[0.08em] text-text3">
-                      {contract.scope}
-                    </span>
+                    </div>
                   </div>
-                </div>
 
-                <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-text3">
-                  <span>Contract key: {contract.contractKey}</span>
-                  {contract.usaspendingAwardId ? (
-                    <span>Award ID: {contract.usaspendingAwardId}</span>
-                  ) : null}
-                  {contract.piid ? <span>PIID: {contract.piid}</span> : null}
-                  <span>Mission: {contract.missionLabel}</span>
-                  <span>Awarded: {contract.awardedOn || 'n/a'}</span>
-                  {contract.amount != null ? (
-                    <span>Amount: {formatCurrency(contract.amount)}</span>
-                  ) : null}
-                  {contract.story?.storyKey ? (
-                    <>
-                      <span>
-                        {contract.story.actionCount} actions / {contract.story.noticeCount} notices / {contract.story.spendingPointCount} spending points
-                      </span>
-                      <span>{contract.story.bidderCount} bidders</span>
-                    </>
+                  <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-text3">
+                    <span>Contract key: {contract.contractKey}</span>
+                    {contract.usaspendingAwardId ? (
+                      <span>Award ID: {contract.usaspendingAwardId}</span>
+                    ) : null}
+                    {contract.piid ? <span>PIID: {contract.piid}</span> : null}
+                    <span>Mission: {contract.missionLabel}</span>
+                    <span>Awarded: {contract.awardedOn || 'n/a'}</span>
+                    {contract.amount != null ? (
+                      <span>Amount: {formatCurrency(contract.amount)}</span>
+                    ) : null}
+                    {contract.story?.storyKey ? (
+                      <>
+                        <span>
+                          {contract.story.actionCount} actions / {contract.story.noticeCount} notices / {contract.story.spendingPointCount} spending points
+                        </span>
+                        <span>{contract.story.bidderCount} bidders</span>
+                      </>
+                    ) : (
+                      <span>Story join pending</span>
+                    )}
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-text3">
+                    <Link href={contract.canonicalPath} className="text-primary hover:text-primary/80">
+                      Canonical detail
+                    </Link>
+                    <Link href={contract.programPath} className="text-primary hover:text-primary/80">
+                      Program detail
+                    </Link>
+                    {contract.sourceUrl ? (
+                      <a
+                        href={contract.sourceUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-primary hover:text-primary/80"
+                      >
+                        Source record
+                      </a>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            {totalPages > 1 ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-stroke pt-4 text-sm text-text2">
+                <div>
+                  Page {currentPage} of {totalPages}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {currentPage > 1 ? (
+                    <Link
+                      href={buildContractsIndexHref({
+                        query,
+                        scope,
+                        page: currentPage - 1
+                      })}
+                      className="rounded-lg border border-stroke px-4 py-2 hover:text-text1"
+                    >
+                      Previous
+                    </Link>
                   ) : (
-                    <span>Story join pending</span>
+                    <span className="rounded-lg border border-stroke px-4 py-2 text-text3">
+                      Previous
+                    </span>
+                  )}
+                  {contractsPage.hasMore ? (
+                    <Link
+                      href={buildContractsIndexHref({
+                        query,
+                        scope,
+                        page: currentPage + 1
+                      })}
+                      className="rounded-lg border border-stroke px-4 py-2 hover:text-text1"
+                    >
+                      Next
+                    </Link>
+                  ) : (
+                    <span className="rounded-lg border border-stroke px-4 py-2 text-text3">
+                      Next
+                    </span>
                   )}
                 </div>
-
-                <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-text3">
-                  <Link href={contract.canonicalPath} className="text-primary hover:text-primary/80">
-                    Canonical detail
-                  </Link>
-                  <Link href={contract.programPath} className="text-primary hover:text-primary/80">
-                    Program detail
-                  </Link>
-                  {contract.sourceUrl ? (
-                    <a
-                      href={contract.sourceUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-primary hover:text-primary/80"
-                    >
-                      Source record
-                    </a>
-                  ) : null}
-                </div>
-              </li>
-            ))}
-          </ul>
+              </div>
+            ) : null}
+          </div>
         ) : (
           <p className="text-sm text-text3">
             No contracts match this filter.
@@ -374,6 +426,25 @@ function normalizeQuery(value: string | null) {
   const normalized = value.trim().toLowerCase();
   if (!normalized) return null;
   return normalized.slice(0, 160);
+}
+
+function parsePage(value: string | null) {
+  const parsed = value == null ? Number.NaN : Number(value);
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.max(1, Math.trunc(parsed));
+}
+
+function buildContractsIndexHref(input: {
+  query: string | null;
+  scope: CanonicalContractScope | 'all';
+  page: number;
+}) {
+  const params = new URLSearchParams();
+  if (input.query) params.set('q', input.query);
+  if (input.scope !== 'all') params.set('scope', input.scope);
+  if (input.page > 1) params.set('page', String(input.page));
+  const query = params.toString();
+  return query ? `/contracts?${query}` : '/contracts';
 }
 
 function formatCurrency(value: number) {

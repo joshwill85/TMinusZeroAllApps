@@ -3,6 +3,7 @@ import {
   getLl2IncrementalHeartbeatThresholdMinutes,
   resolveLaunchRefreshCadence
 } from '../_shared/launchRefreshPolicy.ts';
+import { getLatestSuccessfulIngestionRuns } from '../_shared/ingestionRuns.ts';
 import { createSupabaseAdminClient } from '../_shared/supabase.ts';
 import { requireJobAuth } from '../_shared/jobAuth.ts';
 import { getSettings, readBooleanSetting, readNumberSetting, readStringArraySetting, readStringSetting } from '../_shared/settings.ts';
@@ -1149,21 +1150,12 @@ async function loadTrajectorySourcePollFreshness(supabase: ReturnType<typeof cre
     'faa_trajectory_hazard_ingest'
   ];
 
-  const { data, error } = await supabase
-    .from('ingestion_runs')
-    .select('job_name, started_at, ended_at, success')
-    .in('job_name', jobNames)
-    .eq('success', true)
-    .order('ended_at', { ascending: false })
-    .limit(200);
-
-  if (error) throw error;
-
   const newestByJob = new Map<string, number>();
-  for (const row of (data as any[] | null) || []) {
-    const jobName = typeof row?.job_name === 'string' ? row.job_name : null;
+  const rows = await getLatestSuccessfulIngestionRuns(supabase, jobNames);
+  for (const row of rows) {
+    const jobName = typeof row.jobName === 'string' ? row.jobName : null;
     if (!jobName || newestByJob.has(jobName)) continue;
-    const endedMs = Date.parse(String(row?.ended_at || row?.started_at || ''));
+    const endedMs = Date.parse(String(row.endedAt || row.startedAt || ''));
     if (!Number.isFinite(endedMs)) continue;
     newestByJob.set(jobName, endedMs);
   }

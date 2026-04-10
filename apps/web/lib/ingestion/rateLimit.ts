@@ -13,10 +13,11 @@ export async function tryConsumeProvider(provider: Provider) {
   const now = new Date();
   const windowStart = startOfHour(now).toISOString();
   const cfg = DEFAULTS[provider];
+  const settings = await readSettingsMap(supabase, ['ll2_rate_limit_per_hour', 'snapi_rate_limit_per_hour']);
   const limit =
     provider === 'll2'
-      ? await readRateLimitOrDefault(supabase, 'll2_rate_limit_per_hour', cfg.limit)
-      : await readRateLimitOrDefault(supabase, 'snapi_rate_limit_per_hour', cfg.limit);
+      ? readRateLimitValue(settings.ll2_rate_limit_per_hour, cfg.limit)
+      : readRateLimitValue(settings.snapi_rate_limit_per_hour, cfg.limit);
 
   const { data, error } = await supabase.rpc('try_increment_api_rate', {
     provider_name: provider,
@@ -38,19 +39,30 @@ export async function tryConsumeProvider(provider: Provider) {
   };
 }
 
-async function readRateLimitOrDefault(
-  supabase: ReturnType<typeof createSupabaseAdminClient>,
-  key: string,
-  fallback: number
-) {
-  const { data, error } = await supabase.from('system_settings').select('value').eq('key', key).maybeSingle();
-  if (error || data?.value == null) return fallback;
-
-  const v = data.value as unknown;
+function readRateLimitValue(value: unknown, fallback: number) {
+  const v = value as unknown;
   if (typeof v === 'number' && Number.isFinite(v)) return v;
   if (typeof v === 'string') {
     const n = Number(v);
     if (Number.isFinite(n)) return n;
   }
   return fallback;
+}
+
+async function readSettingsMap(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  keys: string[]
+) {
+  const normalizedKeys = [...new Set(keys.map((key) => key.trim()).filter(Boolean))];
+  if (!normalizedKeys.length) return {} as Record<string, unknown>;
+
+  const { data, error } = await supabase.from('system_settings').select('key, value').in('key', normalizedKeys);
+  if (error || !Array.isArray(data)) return {} as Record<string, unknown>;
+
+  const out: Record<string, unknown> = {};
+  for (const row of data) {
+    if (typeof row?.key !== 'string') continue;
+    out[row.key] = row.value;
+  }
+  return out;
 }

@@ -92,7 +92,7 @@ type LaunchFaaAirspaceSnapshot = {
   generatedAt: string;
   launchRow: LaunchWindowRow | null;
   launchTiming: LaunchTimingContext | null;
-  advisories: LaunchFaaAirspaceAdvisory[];
+  advisories: LaunchFaaAirspaceAdvisoryInternal[];
   shapesByRecordId: Map<string, ShapeGeometryRow[]>;
   shapeById: Map<string, ShapeGeometryRow>;
 };
@@ -124,6 +124,10 @@ export type LaunchFaaAirspaceAdvisory = {
   sourceRawUrl: string | null;
   sourceUrl: string | null;
   matchMeta: Record<string, unknown> | null;
+};
+
+type LaunchFaaAirspaceAdvisoryInternal = LaunchFaaAirspaceAdvisory & {
+  renderRecordIds: string[];
 };
 
 export type LaunchFaaAirspaceData = {
@@ -193,7 +197,7 @@ export async function fetchLaunchFaaAirspace({
     launchId: snapshot.launchId,
     generatedAt: snapshot.generatedAt,
     hasPotentialRestrictions: snapshot.advisories.some((entry) => entry.matchStatus === 'matched' || entry.matchStatus === 'ambiguous'),
-    advisories: snapshot.advisories
+    advisories: snapshot.advisories.map(toPublicAdvisory)
   };
 }
 
@@ -213,7 +217,7 @@ export async function fetchLaunchFaaAirspaceMap({
   if (!snapshot) return null;
 
   const advisories = snapshot.advisories.map((advisory) => ({
-    ...advisory,
+    ...toPublicAdvisory(advisory),
     polygons: buildMapPolygonsForAdvisory(advisory, snapshot.shapeById, snapshot.shapesByRecordId)
   }));
   const bounds = computeMapBounds(
@@ -363,7 +367,7 @@ async function loadLaunchFaaAirspaceSnapshot({
   const notamDetailsByNotamId = await loadNotamDetails((recordRows || []) as TfrRecordRow[]);
   const nowMs = Date.now();
 
-  const advisories = matches
+  const rawAdvisories = matches
     .map((match): LaunchFaaAirspaceAdvisory | null => {
       const record = recordById.get(match.faa_tfr_record_id);
       if (!record) return null;
@@ -409,20 +413,10 @@ async function loadLaunchFaaAirspaceSnapshot({
         matchMeta: isObject(match.match_meta) ? (match.match_meta as Record<string, unknown>) : null
       };
     })
-    .filter((entry): entry is LaunchFaaAirspaceAdvisory => entry != null)
-    .filter((entry) => advisoryAppliesToLaunchWindow(entry, launchTiming))
-    .sort((a, b) => {
-      if (a.isActiveNow !== b.isActiveNow) return a.isActiveNow ? -1 : 1;
-      const aMatchRank = advisoryMatchRank(a.matchStatus);
-      const bMatchRank = advisoryMatchRank(b.matchStatus);
-      if (aMatchRank !== bMatchRank) return aMatchRank - bMatchRank;
-      const aConfidence = typeof a.matchConfidence === 'number' ? a.matchConfidence : -1;
-      const bConfidence = typeof b.matchConfidence === 'number' ? b.matchConfidence : -1;
-      if (aConfidence !== bConfidence) return bConfidence - aConfidence;
-      const aMs = a.validStart ? Date.parse(a.validStart) : Number.POSITIVE_INFINITY;
-      const bMs = b.validStart ? Date.parse(b.validStart) : Number.POSITIVE_INFINITY;
-      return aMs - bMs;
-    })
+    .filter((entry): entry is LaunchFaaAirspaceAdvisory => entry != null);
+
+  const advisories = collapseDuplicateAdvisories(rawAdvisories, launchTiming)
+    .sort(sortAdvisoriesForDisplay)
     .slice(0, advisoryLimit);
 
   return {
@@ -437,7 +431,7 @@ async function loadLaunchFaaAirspaceSnapshot({
 }
 
 function buildMapPolygonsForAdvisory(
-  advisory: LaunchFaaAirspaceAdvisory,
+  advisory: LaunchFaaAirspaceAdvisoryInternal,
   shapeById: Map<string, ShapeGeometryRow>,
   shapesByRecordId: Map<string, ShapeGeometryRow[]>
 ) {
@@ -447,10 +441,92 @@ function buildMapPolygonsForAdvisory(
     if (matchedShape) selectedShapes.push(matchedShape);
   }
   if (!selectedShapes.length) {
-    selectedShapes.push(...(shapesByRecordId.get(advisory.tfrRecordId) || []));
+    const recordIds = advisory.renderRecordIds.length ? advisory.renderRecordIds : [advisory.tfrRecordId];
+    for (const recordId of recordIds) {
+      selectedShapes.push(...(shapesByRecordId.get(recordId) || []));
+    }
   }
 
   return selectedShapes.flatMap((shape) => geometryRowToMapPolygons(shape));
+}
+
+function toPublicAdvisory(advisory: LaunchFaaAirspaceAdvisoryInternal): LaunchFaaAirspaceAdvisory {
+  const { renderRecordIds: _renderRecordIds, ...publicAdvisory } = advisory;
+  return publicAdvisory;
+}
+
+function collapseDuplicateAdvisories(
+  advisories: LaunchFaaAirspaceAdvisory[],
+  launchTiming: LaunchTimingContext | null
+): LaunchFaaAirspaceAdvisoryInternal[] {
+  const grouped = new Map<string, LaunchFaaAirspaceAdvisory[]>();
+
+  for (const advisory of advisories) {
+    const key = buildAdvisoryDedupKey(advisory);
+    const bucket = grouped.get(key) || [];
+    bucket.push(advisory);
+    grouped.set(key, bucket);
+  }
+
+  return Array.from(grouped.values())
+    .map((group) => mergeAdvisoryGroup(group, launchTiming))
+    .filter((advisory): advisory is LaunchFaaAirspaceAdvisoryInternal => advisory != null);
+}
+
+function mergeAdvisoryGroup(
+  group: LaunchFaaAirspaceAdvisory[],
+  launchTiming: LaunchTimingContext | null
+): LaunchFaaAirspaceAdvisoryInternal | null {
+  const applicableGroup = group.filter((advisory) => advisoryAppliesToLaunchWindow(advisory, launchTiming));
+  if (!applicableGroup.length) return null;
+
+  const [representative] = [...applicableGroup].sort(compareAdvisoryRepresentativePriority);
+  if (!representative) return null;
+
+  const shapeCountByRecordId = new Map<string, number>();
+  for (const advisory of applicableGroup) {
+    const normalizedShapeCount = Math.max(0, advisory.shapeCount);
+    if (normalizedShapeCount <= 0) continue;
+
+    const existingCount = shapeCountByRecordId.get(advisory.tfrRecordId) || 0;
+    if (normalizedShapeCount > existingCount) {
+      shapeCountByRecordId.set(advisory.tfrRecordId, normalizedShapeCount);
+    }
+  }
+
+  const renderRecordIds = Array.from(shapeCountByRecordId.keys());
+  const totalShapeCount = Array.from(shapeCountByRecordId.values()).reduce((sum, count) => sum + count, 0);
+
+  return {
+    ...representative,
+    tfrShapeId: totalShapeCount === 1 && renderRecordIds.length === 1 ? representative.tfrShapeId : null,
+    hasShape: representative.hasShape || totalShapeCount > 0,
+    shapeCount: totalShapeCount || representative.shapeCount,
+    renderRecordIds: renderRecordIds.length ? renderRecordIds : [representative.tfrRecordId]
+  };
+}
+
+function buildAdvisoryDedupKey(advisory: LaunchFaaAirspaceAdvisory) {
+  if (advisory.notamId) {
+    return `notam:${advisory.notamId.toUpperCase()}`;
+  }
+
+  return [
+    advisory.title.trim().toLowerCase(),
+    advisory.validStart || '',
+    advisory.validEnd || '',
+    advisory.facility || '',
+    advisory.state || '',
+    advisory.type || ''
+  ].join('|');
+}
+
+function compareAdvisoryRepresentativePriority(a: LaunchFaaAirspaceAdvisory, b: LaunchFaaAirspaceAdvisory) {
+  const aHasGeometry = a.shapeCount > 0 || a.hasShape;
+  const bHasGeometry = b.shapeCount > 0 || b.hasShape;
+  if (aHasGeometry !== bHasGeometry) return aHasGeometry ? -1 : 1;
+  if (a.shapeCount !== b.shapeCount) return b.shapeCount - a.shapeCount;
+  return sortAdvisoriesForDisplay(a, b);
 }
 
 function geometryRowToMapPolygons(shape: ShapeGeometryRow): LaunchFaaAirspaceMapPolygon[] {
@@ -797,6 +873,19 @@ function isDateOnlyUtcWindow(validStart: string | null, validEnd: string | null)
     end.getUTCMilliseconds() === 0 &&
     (endMs - startMs) % DAY_MS === 0
   );
+}
+
+function sortAdvisoriesForDisplay(a: LaunchFaaAirspaceAdvisory, b: LaunchFaaAirspaceAdvisory) {
+  if (a.isActiveNow !== b.isActiveNow) return a.isActiveNow ? -1 : 1;
+  const aMatchRank = advisoryMatchRank(a.matchStatus);
+  const bMatchRank = advisoryMatchRank(b.matchStatus);
+  if (aMatchRank !== bMatchRank) return aMatchRank - bMatchRank;
+  const aConfidence = typeof a.matchConfidence === 'number' ? a.matchConfidence : -1;
+  const bConfidence = typeof b.matchConfidence === 'number' ? b.matchConfidence : -1;
+  if (aConfidence !== bConfidence) return bConfidence - aConfidence;
+  const aMs = a.validStart ? Date.parse(a.validStart) : Number.POSITIVE_INFINITY;
+  const bMs = b.validStart ? Date.parse(b.validStart) : Number.POSITIVE_INFINITY;
+  return aMs - bMs;
 }
 
 function advisoryMatchRank(status: LaunchFaaAirspaceAdvisory['matchStatus']) {

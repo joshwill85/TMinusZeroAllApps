@@ -9,8 +9,8 @@ This runbook defines a manual operator-driven QA process for Blue Origin data qu
 - Existing audit scripts are diagnostics only, not autonomous gatekeepers.
 
 ## Required Toolchain
-- Node `20.19.6`
-- npm `10.8.2`
+- Node `24.14.1`
+- npm `11.11.0`
 - Run in pinned Docker image when local shell differs.
 
 ## QA Scope (Every Pass)

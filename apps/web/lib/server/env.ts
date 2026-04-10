@@ -76,6 +76,18 @@ export function isInternalBlueOriginRevalidateTokenValid(value: string | null | 
   return expected.some((candidate) => candidate === provided);
 }
 
+export function getInternalContractsRevalidateTokens() {
+  return parseCsvSecretList(process.env.INTERNAL_REVALIDATE_CONTRACTS_TOKEN);
+}
+
+export function isInternalContractsRevalidateTokenValid(value: string | null | undefined) {
+  const provided = String(value || '').trim();
+  if (!provided) return false;
+  const expected = getInternalContractsRevalidateTokens();
+  if (!expected.length) return false;
+  return expected.some((candidate) => candidate === provided);
+}
+
 export function isSupabaseConfigured() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;

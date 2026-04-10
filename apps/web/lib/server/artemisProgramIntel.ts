@@ -14,7 +14,7 @@ import type {
   ContractStoryPresentation,
   ContractStorySummary
 } from '@/lib/types/contractsStory';
-import { classifyUsaspendingAwardForScope, normalizeProgramScope as normalizeHubAuditProgramScope } from '@/lib/usaspending/hubAudit';
+import { classifyUsaspendingAwardForScope } from '@/lib/usaspending/hubAudit';
 import { buildArtemisBudgetIdentityKey, buildArtemisProcurementIdentityKey } from '@/lib/utils/artemisDedupe';
 import { normalizeUsaspendingPublicUrl, resolveUsaspendingAwardSourceUrl } from '@/lib/utils/usaspending';
 
@@ -42,28 +42,6 @@ type ProcurementRow = {
   program_scope?: string | null;
   scope_tier?: string | null;
   metadata: Record<string, unknown> | null;
-  updated_at: string | null;
-};
-
-type ContractRow = {
-  id: string;
-  contract_key: string;
-  piid: string;
-  mission_key: string | null;
-  awardee_name: string | null;
-  description: string | null;
-  source_document_id: string | null;
-  metadata: Record<string, unknown> | null;
-  updated_at: string | null;
-};
-
-type ContractActionRow = {
-  contract_id: string;
-  action_date: string | null;
-  obligation_delta: number | null;
-  solicitation_id: string | null;
-  mod_number: string | null;
-  source_document_id: string | null;
   updated_at: string | null;
 };
 
@@ -128,9 +106,6 @@ export type ArtemisProgramIntel = {
 const MAX_BUDGET_LINES = 1000;
 const MAX_PROCUREMENT_AWARDS = 25_000;
 const PROCUREMENT_BATCH_SIZE = 1000;
-const CONTRACT_BATCH_SIZE = 1000;
-const CONTRACT_ACTION_BATCH_SIZE = 1000;
-const MAX_CONTRACT_ACTION_ROWS = 50_000;
 
 export const fetchArtemisProgramIntel = cache(async (): Promise<ArtemisProgramIntel> => {
   const generatedAt = new Date().toISOString();
@@ -146,7 +121,6 @@ export const fetchArtemisProgramIntel = cache(async (): Promise<ArtemisProgramIn
   }
 
   const supabase = createSupabasePublicClient();
-  const latestProcurementSourceDocumentId = await fetchLatestProcurementSourceDocumentId(supabase);
   const discoveryPagePromise = fetchProgramContractDiscoveryPage('artemis', { limit: 8 }).catch((error) => {
     console.error('artemis discovery query error', error);
     return {
@@ -158,7 +132,7 @@ export const fetchArtemisProgramIntel = cache(async (): Promise<ArtemisProgramIn
     };
   });
 
-  const [budgetRes, procurementLegacyRes, contractsRes, contractActionsRes, discoveryPage] = await Promise.all([
+  const [budgetRes, procurementCacheRes, discoveryPage] = await Promise.all([
     supabase
       .from('artemis_budget_lines')
       .select('fiscal_year,agency,program,line_item,amount_requested,amount_enacted,announced_time,source_document_id,metadata,updated_at')
@@ -166,19 +140,36 @@ export const fetchArtemisProgramIntel = cache(async (): Promise<ArtemisProgramIn
       .order('announced_time', { ascending: false, nullsFirst: false })
       .order('fiscal_year', { ascending: false, nullsFirst: false })
       .limit(1000),
-    fetchProcurementRows(supabase, {
-      latestSourceDocumentId: latestProcurementSourceDocumentId,
-      limit: MAX_PROCUREMENT_AWARDS
-    }),
-    fetchContractRows(supabase, MAX_PROCUREMENT_AWARDS),
-    fetchContractActionRows(supabase, MAX_CONTRACT_ACTION_ROWS),
+    fetchProcurementCacheRows(supabase, MAX_PROCUREMENT_AWARDS),
     discoveryPagePromise
   ]);
 
-  if (budgetRes.error || procurementLegacyRes.error) {
+  let procurementRowsRaw: ProcurementRow[] = [];
+  let procurementError = procurementCacheRes.error;
+
+  if (procurementCacheRes.error) {
+    console.error('artemis procurement cache query error', procurementCacheRes.error);
+  }
+
+  if (procurementCacheRes.data.length > 0) {
+    procurementRowsRaw = procurementCacheRes.data;
+    procurementError = null;
+  } else {
+    const latestProcurementSourceDocumentId = await fetchLatestProcurementSourceDocumentId(supabase);
+    const procurementLegacyRes = await fetchProcurementRows(supabase, {
+      latestSourceDocumentId: latestProcurementSourceDocumentId,
+      limit: MAX_PROCUREMENT_AWARDS
+    });
+    procurementError = procurementLegacyRes.error;
+    procurementRowsRaw = procurementLegacyRes.error
+      ? []
+      : procurementLegacyRes.data.filter((row) => isExactArtemisProcurementRow(row));
+  }
+
+  if (budgetRes.error || procurementError) {
     console.error('artemis program intel query error', {
       budget: budgetRes.error,
-      procurement: procurementLegacyRes.error
+      procurement: procurementError
     });
     return {
       generatedAt,
@@ -191,26 +182,6 @@ export const fetchArtemisProgramIntel = cache(async (): Promise<ArtemisProgramIn
   }
 
   const budgetRowsRaw = (budgetRes.data || []) as BudgetLineRow[];
-  const procurementLegacyRowsRaw = procurementLegacyRes.error ? [] : procurementLegacyRes.data;
-  const normalizedContracts = contractsRes.error ? [] : contractsRes.data;
-  const normalizedActions = contractActionsRes.error ? [] : contractActionsRes.data;
-  const procurementLegacyRowsScoped = procurementLegacyRowsRaw.filter((row) => isExactArtemisProcurementRow(row));
-  const normalizedContractsScoped = normalizedContracts.filter((row) => isArtemisProgramScope(row.metadata));
-  const normalizedProcurementRows =
-    normalizedContractsScoped.length > 0 && normalizedActions.length > 0
-      ? buildProcurementRowsFromNormalized(normalizedContractsScoped, normalizedActions)
-      : [];
-  const procurementRowsRaw = [
-    ...normalizedProcurementRows,
-    ...procurementLegacyRowsScoped
-  ];
-
-  if (contractsRes.error || contractActionsRes.error) {
-    console.error('artemis normalized procurement query error', {
-      contracts: contractsRes.error,
-      actions: contractActionsRes.error
-    });
-  }
 
   const budgetRows = dedupeByKey(
     budgetRowsRaw,
@@ -467,57 +438,26 @@ async function fetchProcurementRows(
   };
 }
 
-async function fetchContractRows(
+async function fetchProcurementCacheRows(
   supabase: ReturnType<typeof createSupabasePublicClient>,
   limit: number
-): Promise<PagedRowResult<ContractRow>> {
-  const rows: ContractRow[] = [];
+): Promise<PagedRowResult<ProcurementRow>> {
+  const rows: ProcurementRow[] = [];
   let from = 0;
 
   while (rows.length < limit) {
-    const batchSize = Math.min(CONTRACT_BATCH_SIZE, limit - rows.length);
+    const batchSize = Math.min(PROCUREMENT_BATCH_SIZE, limit - rows.length);
     const to = from + batchSize - 1;
     const { data, error } = await supabase
-      .from('artemis_contracts')
-      .select('id,contract_key,piid,mission_key,awardee_name,description,source_document_id,metadata,updated_at')
+      .from('artemis_program_procurement_cache')
+      .select('usaspending_award_id,award_title,recipient,obligated_amount,awarded_on,mission_key,source_document_id,metadata,updated_at')
       .order('updated_at', { ascending: false, nullsFirst: false })
-      .order('id', { ascending: false, nullsFirst: false })
+      .order('awarded_on', { ascending: false, nullsFirst: false })
+      .order('contract_key', { ascending: false, nullsFirst: false })
       .range(from, to);
 
     if (error) return { data: [], error };
-    const chunk = (data || []) as ContractRow[];
-    if (!chunk.length) break;
-    rows.push(...chunk);
-    if (chunk.length < batchSize) break;
-    from += batchSize;
-  }
-
-  return {
-    data: rows.slice(0, limit),
-    error: null
-  };
-}
-
-async function fetchContractActionRows(
-  supabase: ReturnType<typeof createSupabasePublicClient>,
-  limit: number
-): Promise<PagedRowResult<ContractActionRow>> {
-  const rows: ContractActionRow[] = [];
-  let from = 0;
-
-  while (rows.length < limit) {
-    const batchSize = Math.min(CONTRACT_ACTION_BATCH_SIZE, limit - rows.length);
-    const to = from + batchSize - 1;
-    const { data, error } = await supabase
-      .from('artemis_contract_actions')
-      .select('contract_id,action_date,obligation_delta,solicitation_id,mod_number,source_document_id,updated_at')
-      .order('updated_at', { ascending: false, nullsFirst: false })
-      .order('action_date', { ascending: false, nullsFirst: false })
-      .order('contract_id', { ascending: false, nullsFirst: false })
-      .range(from, to);
-
-    if (error) return { data: [], error };
-    const chunk = (data || []) as ContractActionRow[];
+    const chunk = (data || []) as ProcurementRow[];
     if (!chunk.length) break;
     rows.push(...chunk);
     if (chunk.length < batchSize) break;
@@ -547,18 +487,6 @@ function metadataStringArray(metadata: Record<string, unknown> | null | undefine
     .filter((entry): entry is string => entry.length > 0);
 }
 
-function isArtemisProgramScope(metadata: Record<string, unknown> | null | undefined) {
-  const directScope = normalizeProgramScope(metadataString(metadata, 'programScope') || metadataString(metadata, 'program_scope'));
-  if (directScope) return directScope === 'artemis';
-
-  const scopes = metadataStringArray(metadata, 'programScopes').concat(metadataStringArray(metadata, 'program_scopes'));
-  if (scopes.length === 0) return true;
-
-  const normalizedScopes = new Set(scopes.map((scope) => normalizeProgramScope(scope)).filter((scope): scope is ProgramScope => Boolean(scope)));
-  if (normalizedScopes.size === 0) return true;
-  return normalizedScopes.has('artemis');
-}
-
 function isExactArtemisProcurementRow(row: ProcurementRow) {
   const classification = classifyUsaspendingAwardForScope(
     {
@@ -571,12 +499,6 @@ function isExactArtemisProcurementRow(row: ProcurementRow) {
     'artemis'
   );
   return classification.tier === 'exact';
-}
-
-type ProgramScope = 'artemis' | 'blue-origin' | 'spacex';
-
-function normalizeProgramScope(value: string | null): ProgramScope | null {
-  return normalizeHubAuditProgramScope(value);
 }
 
 function resolveProcurementAwardFamily(metadata: Record<string, unknown> | null | undefined) {
@@ -706,91 +628,4 @@ async function fetchLatestProcurementSourceDocumentId(supabase: ReturnType<typeo
   }
 
   return typeof data?.source_document_id === 'string' && data.source_document_id.length > 0 ? data.source_document_id : null;
-}
-
-function buildProcurementRowsFromNormalized(contracts: ContractRow[], actions: ContractActionRow[]): ProcurementRow[] {
-  const contractById = new Map(contracts.map((row) => [row.id, row]));
-  const grouped = new Map<
-    string,
-    {
-      contract: ContractRow;
-      obligationTotal: number;
-      latestActionDate: string | null;
-      latestUpdatedAt: string | null;
-      solicitationId: string | null;
-      actionCount: number;
-      sourceDocumentId: string | null;
-      latestModNumber: string | null;
-    }
-  >();
-
-  for (const action of actions) {
-    const contract = contractById.get(action.contract_id);
-    if (!contract) continue;
-
-    const key = contract.id;
-    const existing = grouped.get(key) || {
-      contract,
-      obligationTotal: 0,
-      latestActionDate: null,
-      latestUpdatedAt: contract.updated_at,
-      solicitationId: null,
-      actionCount: 0,
-      sourceDocumentId: action.source_document_id || contract.source_document_id,
-      latestModNumber: null
-    };
-
-    existing.obligationTotal += coerceFiniteNumber(action.obligation_delta) || 0;
-    existing.actionCount += 1;
-
-    const actionDate = action.action_date;
-    if (isLaterIsoDate(actionDate, existing.latestActionDate)) {
-      existing.latestActionDate = actionDate;
-    }
-
-    if (isLaterIsoDate(action.updated_at, existing.latestUpdatedAt)) {
-      existing.latestUpdatedAt = action.updated_at;
-      existing.sourceDocumentId = action.source_document_id || existing.sourceDocumentId || contract.source_document_id;
-      existing.latestModNumber = action.mod_number || existing.latestModNumber;
-      existing.solicitationId = action.solicitation_id || existing.solicitationId;
-    }
-
-    if (!existing.solicitationId && action.solicitation_id) {
-      existing.solicitationId = action.solicitation_id;
-    }
-
-    grouped.set(key, existing);
-  }
-
-  const rows: ProcurementRow[] = [];
-  for (const aggregate of grouped.values()) {
-    rows.push({
-      usaspending_award_id: aggregate.contract.piid || null,
-      award_title: aggregate.contract.description || null,
-      recipient: aggregate.contract.awardee_name || null,
-      obligated_amount: aggregate.obligationTotal,
-      awarded_on: aggregate.latestActionDate,
-      mission_key: aggregate.contract.mission_key || 'program',
-      source_document_id: aggregate.sourceDocumentId,
-      metadata: {
-        contractKey: aggregate.contract.contract_key,
-        actionCount: aggregate.actionCount,
-        solicitationId: aggregate.solicitationId,
-        latestModNumber: aggregate.latestModNumber,
-        awardFamily: 'contracts',
-        sourceModel: 'normalized-contracts'
-      },
-      updated_at: aggregate.latestUpdatedAt || aggregate.contract.updated_at
-    });
-  }
-
-  return rows;
-}
-
-function isLaterIsoDate(nextValue: string | null | undefined, currentValue: string | null | undefined) {
-  const nextMs = Date.parse(nextValue || '');
-  const currentMs = Date.parse(currentValue || '');
-  const safeNext = Number.isFinite(nextMs) ? nextMs : 0;
-  const safeCurrent = Number.isFinite(currentMs) ? currentMs : 0;
-  return safeNext > safeCurrent;
 }

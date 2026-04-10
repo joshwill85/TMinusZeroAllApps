@@ -1,4 +1,10 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import {
+  getCachedSetting,
+  getCachedSettings,
+  primeCachedSettings,
+  readNumberSetting as parseNumberSetting
+} from './settings.ts';
 import { createSupabaseAdminClient } from './supabase.ts';
 
 export type ArtemisSourceType = 'nasa_primary' | 'oversight' | 'budget' | 'procurement' | 'technical' | 'media';
@@ -189,12 +195,11 @@ export async function setSystemSetting(supabase: SupabaseClient, key: string, va
     .from('system_settings')
     .upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
   if (error) throw error;
+  primeCachedSettings(supabase, { [key]: value });
 }
 
 export async function readSystemSetting(supabase: SupabaseClient, key: string) {
-  const { data, error } = await supabase.from('system_settings').select('value').eq('key', key).maybeSingle();
-  if (error) throw error;
-  return data?.value;
+  return getCachedSetting(supabase, key);
 }
 
 export async function readBooleanSetting(supabase: SupabaseClient, key: string, fallback: boolean) {
@@ -268,10 +273,11 @@ export type DailyQuotaClaim = {
 
 export async function readDailyQuotaWindow(supabase: SupabaseClient, options: DailyQuotaWindowOptions): Promise<DailyQuotaWindow> {
   const today = new Date().toISOString().slice(0, 10);
-  const limit = Math.max(0, Math.trunc(await readNumberSetting(supabase, options.limitKey, options.defaultLimit)));
-  const reserve = Math.max(0, Math.trunc(await readNumberSetting(supabase, options.reserveKey, options.defaultReserve)));
+  const settings = await getCachedSettings(supabase, [options.limitKey, options.reserveKey, options.stateKey]);
+  const limit = Math.max(0, Math.trunc(parseNumberSetting(settings[options.limitKey], options.defaultLimit)));
+  const reserve = Math.max(0, Math.trunc(parseNumberSetting(settings[options.reserveKey], options.defaultReserve)));
 
-  const rawState = await readSystemSetting(supabase, options.stateKey);
+  const rawState = settings[options.stateKey];
   const state = coerceQuotaState(rawState);
   const used = state.date === today ? state.used : 0;
   const maxUsable = Math.max(0, limit - reserve);
@@ -291,8 +297,9 @@ export async function readDailyQuotaWindow(supabase: SupabaseClient, options: Da
 
 export async function claimDailyQuota(supabase: SupabaseClient, options: DailyQuotaClaimOptions): Promise<DailyQuotaClaim> {
   const requested = Math.max(0, Math.trunc(options.requested ?? 1));
-  const limit = Math.max(0, Math.trunc(await readNumberSetting(supabase, options.limitKey, options.defaultLimit)));
-  const reserve = Math.max(0, Math.trunc(await readNumberSetting(supabase, options.reserveKey, options.defaultReserve)));
+  const settings = await getCachedSettings(supabase, [options.limitKey, options.reserveKey]);
+  const limit = Math.max(0, Math.trunc(parseNumberSetting(settings[options.limitKey], options.defaultLimit)));
+  const reserve = Math.max(0, Math.trunc(parseNumberSetting(settings[options.reserveKey], options.defaultReserve)));
 
   const rpcClaim = await claimDailyQuotaWithRpc(supabase, {
     stateKey: options.stateKey,

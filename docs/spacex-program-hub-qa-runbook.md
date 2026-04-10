@@ -4,22 +4,22 @@
 Validate `/spacex` after hub refactor + jump-rail rollout.
 
 ## Required Toolchain
-- Node `20.19.6`
-- npm `10.8.2`
+- Node `24.14.1`
+- npm `11.11.0`
 
-Run with pinned binaries:
+Run with the pinned shell toolchain:
 
 ```bash
-PATH="/opt/homebrew/opt/node@20/bin:$PATH" node -v && PATH="/opt/homebrew/opt/node@20/bin:$PATH" npm -v
-PATH="/opt/homebrew/opt/node@20/bin:$PATH" npm run doctor
+node -v && npm -v
+npm run doctor
 ```
 
 ## Automated Checks
 ```bash
-PATH="/opt/homebrew/opt/node@20/bin:$PATH" npm run type-check
-PATH="/opt/homebrew/opt/node@20/bin:$PATH" npm run lint
-PATH="/opt/homebrew/opt/node@20/bin:$PATH" npm run test:smoke
-PATH="/opt/homebrew/opt/node@20/bin:$PATH" npm run test:spacex-hub
+npm run type-check
+npm run lint
+npm run test:smoke
+npm run test:spacex-hub
 ```
 
 ## Manual Checklist

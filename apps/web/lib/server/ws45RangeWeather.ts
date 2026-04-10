@@ -56,6 +56,8 @@ type LaunchWeatherContext = Ws45LaunchBoardContext & {
   windowEnd?: string | null;
 };
 
+const WEEKLY_PLANNING_LOOKAHEAD_MS = 7 * 24 * 60 * 60 * 1000;
+
 function getWeatherClient() {
   return isSupabaseAdminConfigured() ? createSupabaseAdminClient() : createSupabaseServerClient();
 }
@@ -163,7 +165,9 @@ export async function fetchWs45PlanningForecastsForLaunch(
 
   const rows = (data as Ws45PlanningForecast[]).filter(Boolean);
   const planning24h = pickPlanning24hForecast(rows.filter((row) => row.product_kind === 'planning_24h'), launch);
-  const weekly = rows.find((row) => row.product_kind === 'weekly_planning') ?? null;
+  const weekly = shouldShowWeeklyPlanningForLaunch(launch)
+    ? rows.find((row) => row.product_kind === 'weekly_planning') ?? null
+    : null;
 
   return { planning24h, weekly };
 }
@@ -193,4 +197,12 @@ function pickPlanning24hForecast(rows: Ws45PlanningForecast[], launch: LaunchWea
   }
 
   return rows[0] ?? null;
+}
+
+function shouldShowWeeklyPlanningForLaunch(launch: LaunchWeatherContext) {
+  const launchStartMs = Date.parse(String(launch.windowStart || launch.net || ''));
+  if (!Number.isFinite(launchStartMs)) return false;
+
+  const nowMs = Date.now();
+  return launchStartMs >= nowMs && launchStartMs - nowMs <= WEEKLY_PLANNING_LOOKAHEAD_MS;
 }

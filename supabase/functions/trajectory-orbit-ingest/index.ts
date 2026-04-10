@@ -9,7 +9,7 @@ import {
   scoreSupgpOrbitRowMatch,
   type ParsedOrbitData,
   type SupgpRowMatch
-} from '../../../lib/trajectory/publicOrbitSignals.ts';
+} from '../../../apps/web/lib/trajectory/publicOrbitSignals.ts';
 
 type PdfJsModule = {
   getDocument?: (args: Record<string, unknown>) => { promise: Promise<any> };

@@ -185,7 +185,7 @@ export function LiveTab({ data, theme, faaMapData = null, faaMapLoading = false 
                         Advanced weather
                       </Text>
                       <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
-                        Planning products from 45 WS provide broader day-of and week-ahead Cape context.
+                        Planning products from 45 WS provide broader day-of and near-term week-ahead Cape context, with the weekly outlook limited to launches inside the next 7 days.
                       </Text>
                       <View style={{ gap: 12 }}>
                         {advancedWeatherCards.map((card) => (

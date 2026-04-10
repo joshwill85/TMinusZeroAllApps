@@ -10,6 +10,7 @@ import {
   startIngestionRun,
   stringifyError
 } from '../_shared/artemisIngest.ts';
+import { requestCanonicalContractsRevalidate } from '../_shared/contractsCacheRefresh.ts';
 
 type ProgramScope = 'artemis' | 'spacex' | 'blue-origin';
 type MatchStrategy =
@@ -379,8 +380,20 @@ serve(async (req) => {
         0
       ),
       totalStories: scopeResults.reduce((sum, row) => sum + row.storiesBuilt, 0),
+      contractsRevalidateRequested: true,
+      contractsRevalidateSucceeded: false,
+      contractsRevalidateHttpStatus: null as number | null,
+      contractsRevalidateError: null as string | null,
       elapsedMs: Date.now() - startedAt
     };
+
+    const revalidateResult = await requestCanonicalContractsRevalidate({
+      source: RUN_NAME,
+      reason: 'program-contract-story-links-updated'
+    });
+    stats.contractsRevalidateSucceeded = revalidateResult.ok;
+    stats.contractsRevalidateHttpStatus = revalidateResult.status;
+    stats.contractsRevalidateError = revalidateResult.error;
 
     await finishIngestionRun(supabase, runId, true, stats);
     return jsonResponse({ ok: true, ...stats });

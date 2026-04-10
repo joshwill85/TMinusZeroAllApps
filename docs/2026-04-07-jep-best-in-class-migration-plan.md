@@ -1,6 +1,6 @@
 # 2026-04-07 JEP Best-In-Class Migration Plan
 
-Last updated: 2026-04-08
+Last updated: 2026-04-09
 
 ## Platform Matrix
 
@@ -278,7 +278,7 @@ Classification rule:
 | `JPL Horizons` moon ephemerides | Yes | Yes | Yes | Pass now | Primary moon source for observer-specific geometry |
 | `USNO` sun/moon QA | Yes | Yes | Yes | Pass now | Fallback and QA source, not the primary ephemeris engine |
 | current weather stack | Yes | Yes | Yes | Pass now | Already integrated and aligned with observer-aware scoring |
-| `NASA Black Marble` monthly/yearly | Yes with account | Yes | Yes | Pass with account | Good fit for stable background-light baselines |
+| `NASA Black Marble` monthly/yearly | Yes with account | Yes | Yes | Pass with account, but current Edge ETL exceeds compute budget | Good fit for stable background-light baselines; auth is now validated, but Supabase Edge HDF processing is still too heavy |
 | curated vehicle priors from official provider docs | Yes for supported US families | Yes | Yes | Pass now | Curated authoring keyed to `LL2 rocket.configuration.id`, not a generic auto-ingest feed |
 | official visibility maps | No | Yes when present | No | Defer optional-only | Real but inconsistent and sparse across future launches |
 | mission-specific special-event priors | No | Sometimes | No | Defer and keep neutral | Interesting, but not consistently provided in usable future-launch coverage |
@@ -362,6 +362,66 @@ Required scenario tests:
 Human-sanity review rule:
 
 - for every rollout family we should be able to explain the score in plain English without using internal factor names alone; if the explanation does not sound credible to a knowledgeable launch watcher, the model is not ready
+
+## User-Facing Visibility Semantics
+
+The public product must not tell users that a jellyfish plume `will happen` as a hard promise.
+
+Public JEP v1 should always present three separate ideas:
+
+- `visibility call`: is a visible twilight plume physically on the table at all from this observer
+- `watchability score`: if it is physically on the table, how strong or obvious it is likely to be
+- `confidence`: how much we trust the call given data quality and source coverage
+
+Product rule:
+
+- `gate_open` answers whether a visible twilight plume is physically plausible from this observer
+- the score answers how strong the viewing experience is likely to be if that gate is open
+- confidence answers how much the user should trust the call
+
+That means:
+
+- moonlight and anthropogenic background light affect `watchability`
+- they do not, by themselves, determine whether the physical twilight-plume geometry exists
+
+### Recommended public thresholds for v1
+
+If `gate_open = false`:
+
+- label: `Not expected`
+- copy: `No visible jellyfish-style plume expected from your area.`
+
+If `gate_open = true` and score `0-34`:
+
+- label: `Possible`
+- copy: `A visible twilight plume is possible, but it would likely be faint or hard to notice.`
+
+If `gate_open = true` and score `35-64`:
+
+- label: `Possible`
+- copy: `A visible twilight plume is possible from your area if conditions hold.`
+
+If `gate_open = true` and score `65-84`:
+
+- label: `Favorable`
+- copy: `Conditions are favorable for a visible jellyfish-style plume.`
+
+If `gate_open = true` and score `85-100`:
+
+- label: `Highly favorable`
+- copy: `Conditions are highly favorable for a strong visible jellyfish-style plume.`
+
+### Confidence guidance
+
+- `High`: current trajectory products, current weather inputs, and no major release-critical factor is missing
+- `Medium`: core geometry and weather inputs are present, but one secondary watchability factor is missing or degraded
+- `Low`: the score depends on fallback logic, weak trajectory coverage, or missing source families that should materially improve the call later
+
+### Public wording rules
+
+- use `not expected`, `possible`, `favorable`, and `highly favorable`
+- do not use `guaranteed`, `certain`, or `will happen`
+- keep `watchability` and `occurrence` conceptually separate in copy and API semantics
 
 ## US-First Rollout Constraint
 
@@ -689,7 +749,7 @@ If the local-obstruction track returns later, it should use:
 - the same required source-admission gate before any ingest is built out
 - a separate operator and product decision, not a silent extension of public v1
 
-## Current Repo Status On 2026-04-08
+## Current Repo Status On 2026-04-09
 
 Already implemented behind dark flags or additive tables:
 
@@ -698,6 +758,8 @@ Already implemented behind dark flags or additive tables:
 - `jep_background_light_cells` plus the Black Marble refresh path
 - `launch_jep_score_candidates` and the first shadow `jep_v6` candidate write path
 - moon/background feature snapshots and shadow-score persistence plumbing
+- `jep_vehicle_priors` plus the exact `ll2_rocket_config_id` join path
+- the admin shadow review route and page for live FL / CA / TX comparison
 
 Implemented in repo but now deferred by public-v1 scope:
 
@@ -707,17 +769,43 @@ Implemented in repo but now deferred by public-v1 scope:
 
 Not yet implemented for the active public-v1 path:
 
-- `jep_vehicle_priors`
-- vehicle-prior integration into the shadow scorer
 - additive `/api/v1` exposure of richer `jep_v6` payloads
 - public cutover logic
 - automated evidence intake and calibration reporting
 
 Practical reading of this status:
 
-- Phase 1 and Phase 2 are substantially underway in code, though still dark-gated
+- Phase 1 through the first shadow-scoring slices are substantially underway in code
 - the local-obstruction prototype exists, but it is no longer a release blocker
-- the next active blocker is not another source ingest; it is model specificity through vehicle priors
+- the active remaining blocker is not moon ingest or shadow persistence; it is completing the watchability stack with background-light and then reviewing shadow diffs before any public cutover
+
+## Current Live Shadow State On 2026-04-09
+
+Live project state now confirms:
+
+- `jep_v6` shadow scoring is active
+- public `jep_v6` serving is still off
+- moon source ingestion is active
+- moon and vehicle-prior feature snapshots are active
+- background-light ingestion is still off
+- local-horizon ingestion and scoring are still off
+
+Operational reason the background-light path remains off:
+
+- `NASA Black Marble` binary downloads now work with the Earthdata token and LAADS authorization
+- the remaining blocker is compute: the HDF-processing step currently exceeds Supabase Edge worker limits even after reducing the batch size
+- the shadow scorer therefore currently degrades background availability rather than pretending the factor exists
+
+Current background-light operating model:
+
+1. keep Black Marble ETL out of Supabase Edge Functions and use the repo-owned manual batch path instead:
+   - workflow: `.github/workflows/jep-black-marble-batch.yml`
+   - runner: `scripts/jep-black-marble-batch.mts`
+2. keep `jep_background_light_job_enabled`, `jep_source_refresh_black_marble_enabled`, and the managed scheduler entry off
+3. populate `jep_background_light_cells` through the manual batch path
+4. keep `jep_v6_background_feature_snapshots_enabled` on once the table is populated
+5. use the internal `forceAll` job-auth override on `jep-score-refresh` to refresh current shadow candidates after a new batch lands
+6. review the live diffs in `/admin/ops/jep`
 
 ## Active Next Implementation Slice
 

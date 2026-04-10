@@ -5,7 +5,7 @@ import { ProgramHubBackLink } from '@/components/ProgramHubBackLink';
 import { BRAND_NAME } from '@/lib/brand';
 import {
   buildSpaceXContractSlug,
-  fetchSpaceXContracts
+  fetchSpaceXContractPage
 } from '@/lib/server/spacexProgram';
 import { getSiteUrl } from '@/lib/server/env';
 import { buildSiteMeta, SITE_META } from '@/lib/server/siteMeta';
@@ -61,11 +61,18 @@ export default async function SpaceXContractsPage({
 }: {
   searchParams?: SearchParams;
 }) {
-  const contracts = await fetchSpaceXContracts('all');
-  const visibleCount = resolveShowCount(searchParams?.show, contracts.items.length, SHOW_STEP);
-  const visibleContracts = contracts.items.slice(0, visibleCount);
-  const hasMore = visibleCount < contracts.items.length;
-  const nextVisibleCount = Math.min(contracts.items.length, visibleCount + SHOW_STEP);
+  const initialPage = await fetchSpaceXContractPage(SHOW_STEP, 0, 'all');
+  const visibleCount = resolveShowCount(searchParams?.show, initialPage.total, SHOW_STEP);
+  const shouldReuseInitialPage =
+    visibleCount <= initialPage.items.length &&
+    (!initialPage.hasMore || visibleCount === initialPage.limit);
+  const contractPage =
+    shouldReuseInitialPage
+      ? initialPage
+      : await fetchSpaceXContractPage(visibleCount, 0, 'all');
+  const visibleContracts = contractPage.items.slice(0, visibleCount);
+  const hasMore = visibleCount < contractPage.total;
+  const nextVisibleCount = Math.min(contractPage.total, visibleCount + SHOW_STEP);
   const siteUrl = getSiteUrl().replace(/\/$/, '');
   const pageUrl = `${siteUrl}/spacex/contracts`;
 
@@ -91,14 +98,14 @@ export default async function SpaceXContractsPage({
           Internal contract pages for SpaceX awards with linked source records and mission context.
         </p>
         <div className="flex flex-wrap items-center gap-2 text-xs text-text3">
-          <span className="rounded-full border border-stroke px-3 py-1">Contracts: {contracts.items.length}</span>
+          <span className="rounded-full border border-stroke px-3 py-1">Contracts: {contractPage.total}</span>
           <span className="rounded-full border border-stroke px-3 py-1">Showing: {visibleContracts.length}</span>
           <span className="rounded-full border border-stroke px-3 py-1">Source: internal pages + source records</span>
         </div>
       </header>
 
       <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
-        {contracts.items.length ? (
+        {contractPage.total ? (
           <>
             <ul className="space-y-3">
               {visibleContracts.map((contract) => (
@@ -138,11 +145,11 @@ export default async function SpaceXContractsPage({
               <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-text3">
                 {hasMore ? (
                   <Link href={`/spacex/contracts?show=${nextVisibleCount}`} className="rounded-full border border-stroke px-3 py-1 hover:text-text1">
-                    Show {Math.min(SHOW_STEP, contracts.items.length - visibleCount)} more
+                    Show {Math.min(SHOW_STEP, contractPage.total - visibleCount)} more
                   </Link>
                 ) : null}
                 {hasMore ? (
-                  <Link href={`/spacex/contracts?show=${contracts.items.length}`} className="rounded-full border border-stroke px-3 py-1 hover:text-text1">
+                  <Link href={`/spacex/contracts?show=${contractPage.total}`} className="rounded-full border border-stroke px-3 py-1 hover:text-text1">
                     Show all
                   </Link>
                 ) : null}

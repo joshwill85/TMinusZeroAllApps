@@ -1,4 +1,5 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getCachedSetting } from './settings.ts';
 
 export type BlueOriginSourceType =
   | 'blue-origin-official'
@@ -115,9 +116,7 @@ export async function updateCheckpoint(
 }
 
 export async function readSystemSetting(supabase: SupabaseClient, key: string) {
-  const { data, error } = await supabase.from('system_settings').select('value').eq('key', key).maybeSingle();
-  if (error) throw error;
-  return data?.value;
+  return getCachedSetting(supabase, key);
 }
 
 export async function readBooleanSetting(supabase: SupabaseClient, key: string, fallback: boolean) {

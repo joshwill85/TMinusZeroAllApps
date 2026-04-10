@@ -5,7 +5,6 @@ import {
   finishIngestionRun,
   insertSourceDocument,
   jsonResponse,
-  readBooleanSetting,
   startIngestionRun,
   stringifyError,
   toIsoOrNull,
@@ -14,6 +13,11 @@ import {
 } from '../_shared/artemisIngest.ts';
 import { reconcileStaleIngestionRuns, releaseJobLock, tryAcquireJobLock } from '../_shared/ingestionRuns.ts';
 import { ARTEMIS_SOURCE_URLS } from '../_shared/artemisSources.ts';
+import {
+  getSettings,
+  readBooleanSetting as parseBooleanSetting,
+  readNumberSetting as parseNumberSetting
+} from '../_shared/settings.ts';
 import {
   classifyUsaspendingAwardForScope,
   normalizeProgramScope as normalizeHubAuditProgramScope,
@@ -236,36 +240,42 @@ serve(async (req) => {
   };
 
   try {
-    const enabled = await readBooleanSetting(supabase, 'artemis_procurement_job_enabled', true);
+    const settings = await getSettings(supabase, [
+      'artemis_procurement_job_enabled',
+      'artemis_procurement_http_timeout_ms',
+      'artemis_procurement_run_deadline_ms',
+      'artemis_procurement_stale_run_timeout_ms',
+      'artemis_procurement_lock_ttl_seconds',
+      'artemis_procurement_relevance_filter_enabled',
+      'artemis_procurement_max_pages_per_query'
+    ]);
+
+    const enabled = parseBooleanSetting(settings.artemis_procurement_job_enabled, true);
     if (!enabled) {
       await finishIngestionRun(supabase, runId, true, { skipped: true, reason: 'disabled' });
       return jsonResponse({ ok: true, skipped: true, reason: 'disabled', elapsedMs: Date.now() - startedAt });
     }
 
-    const httpTimeoutMs = await readPositiveIntegerSetting(
-      supabase,
-      'artemis_procurement_http_timeout_ms',
+    const httpTimeoutMs = parsePositiveIntegerSetting(
+      settings.artemis_procurement_http_timeout_ms,
       DEFAULT_HTTP_TIMEOUT_MS,
       1000,
       120_000
     );
-    const runDeadlineMs = await readPositiveIntegerSetting(
-      supabase,
-      'artemis_procurement_run_deadline_ms',
+    const runDeadlineMs = parsePositiveIntegerSetting(
+      settings.artemis_procurement_run_deadline_ms,
       DEFAULT_RUN_DEADLINE_MS,
       30_000,
       60 * 60 * 1000
     );
-    const staleRunTimeoutMs = await readPositiveIntegerSetting(
-      supabase,
-      'artemis_procurement_stale_run_timeout_ms',
+    const staleRunTimeoutMs = parsePositiveIntegerSetting(
+      settings.artemis_procurement_stale_run_timeout_ms,
       DEFAULT_STALE_RUN_TIMEOUT_MS,
       60_000,
       7 * 24 * 60 * 60 * 1000
     );
-    const lockTtlSeconds = await readPositiveIntegerSetting(
-      supabase,
-      'artemis_procurement_lock_ttl_seconds',
+    const lockTtlSeconds = parsePositiveIntegerSetting(
+      settings.artemis_procurement_lock_ttl_seconds,
       DEFAULT_LOCK_TTL_SECONDS,
       60,
       6 * 60 * 60
@@ -304,14 +314,8 @@ serve(async (req) => {
       lastError: null
     });
 
-    const relevanceFilterEnabled = await readBooleanSetting(supabase, 'artemis_procurement_relevance_filter_enabled', true);
-    const maxPagesPerQuery = await readPositiveIntegerSetting(
-      supabase,
-      'artemis_procurement_max_pages_per_query',
-      MAX_PAGES_PER_QUERY,
-      1,
-      1000
-    );
+    const relevanceFilterEnabled = parseBooleanSetting(settings.artemis_procurement_relevance_filter_enabled, true);
+    const maxPagesPerQuery = parsePositiveIntegerSetting(settings.artemis_procurement_max_pages_per_query, MAX_PAGES_PER_QUERY, 1, 1000);
     stats.relevanceFilterEnabled = relevanceFilterEnabled;
     stats.maxPagesPerQuery = maxPagesPerQuery;
 
@@ -914,18 +918,14 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
   }
 }
 
-async function readPositiveIntegerSetting(
-  supabase: any,
-  key: string,
+function parsePositiveIntegerSetting(
+  value: unknown,
   fallback: number,
   min: number,
   max: number
 ) {
   try {
-    const { data, error } = await supabase.from('system_settings').select('value').eq('key', key).maybeSingle();
-    if (error) return fallback;
-    const value = data?.value;
-    const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN;
+    const parsed = parseNumberSetting(value, Number.NaN);
     if (!Number.isFinite(parsed)) return fallback;
     return Math.max(min, Math.min(max, Math.trunc(parsed)));
   } catch {

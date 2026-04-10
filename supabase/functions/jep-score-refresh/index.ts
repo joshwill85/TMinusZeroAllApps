@@ -453,9 +453,13 @@ serve(async (req) => {
   const authorized = await requireJobAuth(req, supabase);
   if (!authorized) return jsonResponse({ error: 'unauthorized' }, 401);
 
+  const body = await req.json().catch(() => ({} as Record<string, unknown>));
+  const forceAll = Boolean(body?.forceAll || body?.force_all);
+
   const { runId } = await startIngestionRun(supabase, 'jep_score_refresh');
 
   const stats: Record<string, unknown> = {
+    forceAll,
     horizonDays: DEFAULTS.horizonDays,
     maxLaunchesPerRun: DEFAULTS.maxLaunchesPerRun,
     weatherCacheMinutes: DEFAULTS.weatherCacheMinutes,
@@ -657,6 +661,10 @@ serve(async (req) => {
         maxObserversPerLaunch,
         maxObserverDistanceKm
       });
+      if (forceAll) {
+        due.push({ launch, observers });
+        continue;
+      }
       const launchDue = observers.some((observer) => {
         const key = scoreKey(launch.launch_id, observer.hash);
         return isDueObserver(launch, existingScores.get(key), nowMs, trajectoryFreshnessByLaunch.get(launch.launch_id) ?? null);
@@ -2375,24 +2383,25 @@ async function loadBackgroundLightCells(
 function selectBackgroundLightRow(rows: BackgroundLightRow[], launchNetIso: string) {
   const monthlyPeriod = deriveBlackMarblePeriod('VNP46A3', launchNetIso);
   const yearlyPeriod = deriveBlackMarblePeriod('VNP46A4', launchNetIso);
-  const monthlyRow = monthlyPeriod
-    ? rows.find(
-        (row) =>
-          row.source_key === monthlyPeriod.sourceKey &&
-          row.period_start_date === monthlyPeriod.periodStartDate
-      ) || null
-    : null;
-  const yearlyRow = yearlyPeriod
-    ? rows.find(
-        (row) =>
-          row.source_key === yearlyPeriod.sourceKey &&
-          row.period_start_date === yearlyPeriod.periodStartDate
-      ) || null
-    : null;
+  const monthlyRow = monthlyPeriod ? selectNearestBackgroundLightRow(rows, monthlyPeriod.sourceKey, monthlyPeriod.periodStartDate) : null;
+  const yearlyRow = yearlyPeriod ? selectNearestBackgroundLightRow(rows, yearlyPeriod.sourceKey, yearlyPeriod.periodStartDate) : null;
 
   if (readBackgroundAvailability(monthlyRow) === 'ok') return monthlyRow;
   if (readBackgroundAvailability(yearlyRow) === 'ok') return yearlyRow;
   return monthlyRow ?? yearlyRow ?? null;
+}
+
+function selectNearestBackgroundLightRow(rows: BackgroundLightRow[], sourceKey: string, desiredPeriodStartDate: string) {
+  const matchingRows = rows
+    .filter(
+      (row) =>
+        row.source_key === sourceKey &&
+        typeof row.period_start_date === 'string' &&
+        row.period_start_date <= desiredPeriodStartDate
+    )
+    .sort((left, right) => String(right.period_start_date || '').localeCompare(String(left.period_start_date || '')));
+  if (!matchingRows.length) return null;
+  return matchingRows.find((row) => readBackgroundAvailability(row) === 'ok') ?? matchingRows[0] ?? null;
 }
 
 function readBackgroundAvailability(row: BackgroundLightRow | null) {
@@ -2811,23 +2820,33 @@ async function resolvePointWeather({
   }
 
   if (isUsLocation) {
-    const nwsPoint = await resolveNwsPoint({
-      supabase,
-      lat,
-      lon,
-      ll2PadId: null,
-      nwsPointCache
-    });
-    nwsPointFetched = nwsPoint.pointFetched;
-    if (nwsPoint.row?.forecast_grid_data_url) {
-      const grid = await resolveNwsGridForecast(nwsPoint.row.forecast_grid_data_url, nwsGridCache);
-      nwsGridFetched = grid.gridFetched;
-      if (grid.forecast?.properties) {
-        const sample = sampleNwsGridForecast(grid.forecast.properties, targetMs);
-        skyCoverPct = sample.skyCoverPct;
-        ceilingFt = sample.ceilingFt;
-        fetchedAtCandidates.push(grid.forecast.updatedAtMs);
+    try {
+      const nwsPoint = await resolveNwsPoint({
+        supabase,
+        lat,
+        lon,
+        ll2PadId: null,
+        nwsPointCache
+      });
+      nwsPointFetched = nwsPoint.pointFetched;
+      if (nwsPoint.row?.forecast_grid_data_url) {
+        const grid = await resolveNwsGridForecast(nwsPoint.row.forecast_grid_data_url, nwsGridCache);
+        nwsGridFetched = grid.gridFetched;
+        if (grid.forecast?.properties) {
+          const sample = sampleNwsGridForecast(grid.forecast.properties, targetMs);
+          skyCoverPct = sample.skyCoverPct;
+          ceilingFt = sample.ceilingFt;
+          fetchedAtCandidates.push(grid.forecast.updatedAtMs);
+        }
       }
+    } catch (err) {
+      // NWS path sampling is additive. If it fails for a point, keep the Open-Meteo fallback
+      // rather than aborting the full launch score refresh.
+      console.warn('jep-score-refresh nws weather fallback warning', {
+        lat,
+        lon,
+        error: stringifyError(err)
+      });
     }
   }
 

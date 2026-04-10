@@ -1964,7 +1964,7 @@ export default function LaunchDetailScreen() {
                 >
                   <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>Advanced weather</Text>
                   <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
-                    Planning products from 45 WS provide broader launch-day and week-ahead Cape context.
+                    Planning products from 45 WS provide broader launch-day and near-term week-ahead Cape context, with the weekly outlook limited to launches inside the next 7 days.
                   </Text>
                   {advancedWeatherCards.map((card) => (
                     <View

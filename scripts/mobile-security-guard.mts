@@ -43,6 +43,7 @@ function main() {
   const authStorageContent = read('apps/mobile/src/auth/storage.ts');
   const mobileSupabaseAuthContent = read('apps/mobile/src/auth/supabaseAuth.ts');
   const authVerifyContent = read('apps/web/app/auth/verify/route.ts');
+  const mobileApiContent = read('apps/web/lib/server/v1/mobileApi.ts');
 
   assertExcludes(callbackContent, 'access_token', 'mobile auth callback rejects raw access_token params', checks);
   assertExcludes(callbackContent, 'refresh_token', 'mobile auth callback rejects raw refresh_token params', checks);
@@ -108,6 +109,42 @@ function main() {
     mobileSupabaseAuthContent,
     '/auth/v1/recover',
     'mobile password recovery no longer posts directly to Supabase from native clients',
+    checks
+  );
+  assertIncludes(
+    mobileApiContent,
+    'function requireNotificationAdminClient()',
+    'mobile API defines an explicit admin-only client helper for unified notification tables',
+    checks
+  );
+  assertExcludes(
+    mobileApiContent,
+    'upsertUnifiedRule(client, {',
+    'mobile API no longer writes unified notification rules through session-scoped clients',
+    checks
+  );
+  assertExcludes(
+    mobileApiContent,
+    'clearUnifiedFollowIntent(client,',
+    'mobile API no longer clears unified follow state through session-scoped clients',
+    checks
+  );
+  assertExcludes(
+    mobileApiContent,
+    'removeChannelsFromUnifiedRule(client,',
+    'mobile API no longer removes unified notification channels through session-scoped clients',
+    checks
+  );
+  assertExcludes(
+    mobileApiContent,
+    'upsertUnifiedPushDestination(\n    client,',
+    'mobile API no longer writes unified push destinations through session-scoped clients',
+    checks
+  );
+  assertExcludes(
+    mobileApiContent,
+    'deactivatePushDestinations(\n    client,',
+    'mobile API no longer deactivates unified push destinations through session-scoped clients',
     checks
   );
 

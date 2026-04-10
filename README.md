@@ -4,15 +4,15 @@ Mobile-first, dark-space launch schedule with LL2, free/public cache vs paid liv
 
 ## Quickstart
 1. Configure Supabase + Stripe + provider keys in your deployment environment (no local `.env` files).
-2. Ensure the pinned toolchain is installed: Node **20.19.6** + npm **10.8.2** (recommended: Volta; fallback: `nvm use`).
+2. Ensure the pinned toolchain is installed: Node **24.14.1** + npm **11.11.0** (recommended: Volta; fallback: `nvm use`).
 3. Install deps (deterministic): `npm ci` (installs will fail if your Node/npm versions don’t match).
 4. Run dev server: `npm run dev` (Next.js App Router) or `docker compose up web --build` (runs Next in Docker with the pinned Node image). For bind-mount live reload: `docker compose --profile dev up web-dev --build` (requires Docker Desktop file access to this folder on macOS).
 5. Supabase/Postgres: apply migrations in order (e.g. `psql -h localhost -p 54321 -U postgres -f supabase/migrations/0001_init.sql` then `psql -h localhost -p 54321 -U postgres -f supabase/migrations/0002_add_launch_pad_coords.sql`). Configure RLS + functions.
 6. Email: configure Supabase Auth email provider (Resend integration + templates in `supabase/templates/auth/`) for signup confirmation + password reset, and allow auth redirects to `/auth/callback` and `/auth/reset-password`. App emails (billing events) use `RESEND_API_KEY` + `BILLING_EMAIL_NOTIFICATIONS_ENABLED=true` + `BILLING_EMAIL_FROM`.
 
 ## Development environment
-- **Toolchain (pinned)**: Node **20.19.6** + npm **10.8.2**. Use Volta (recommended) or `.nvmrc` via `nvm use`.
-- **Vercel**: Vercel only allows selecting the Node **major** (20.x), so Vercel builds may use a newer Node 20 patch than local/CI/Docker.
+- **Toolchain (pinned)**: Node **24.14.1** + npm **11.11.0**. Use Volta (recommended) or `.nvmrc` via `nvm use`.
+- **Vercel**: Vercel allows selecting supported Node **majors**. As of 2026-02-27, the available majors are `24.x` (default), `22.x`, and `20.x`, while local/CI/Docker stay on the exact repo pins.
 - **Doctor**: Run `npm run doctor` to verify your toolchain and repo pins match.
 - **First-run expectations**: Lint and type-check commands may take 3-5 minutes on first run (macOS file system scanning overhead). Subsequent runs with caching should complete in 1-2 minutes.
 - **Type-check**: Run `npm run type-check` to check TypeScript without emitting files.

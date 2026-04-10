@@ -16,7 +16,7 @@ import { getSiteUrl } from '@/lib/server/env';
 import { fetchProgramContractDiscoveryPage } from '@/lib/server/programContractDiscovery';
 import { fetchSpaceXDroneShipsIndex } from '@/lib/server/spacexDroneShips';
 import {
-  fetchSpaceXContracts,
+  fetchSpaceXContractPreview,
   fetchSpaceXEngines,
   fetchSpaceXFinanceSignals,
   fetchSpaceXFlights,
@@ -83,14 +83,14 @@ export default async function SpaceXProgramPage() {
     };
   });
 
-  const [program, vehicles, engines, flights, trackedFlightsCount, contracts, passengers, payloads, finance, socialPosts, usaspendingAwardsPage, droneShips, discoveryPage] =
+  const [program, vehicles, engines, flights, trackedFlightsCount, contractPreview, passengers, payloads, finance, socialPosts, usaspendingAwardsPage, droneShips, discoveryPage] =
     await Promise.all([
       fetchSpaceXProgramSnapshot(),
       fetchSpaceXVehicles('all'),
       fetchSpaceXEngines('all'),
       fetchSpaceXFlights('all'),
       fetchSpaceXTrackedFlightCount(),
-      fetchSpaceXContracts('all'),
+      fetchSpaceXContractPreview(8),
       fetchSpaceXPassengers('all'),
       fetchSpaceXPayloads('all'),
       fetchSpaceXFinanceSignals(),
@@ -150,7 +150,7 @@ export default async function SpaceXProgramPage() {
     hardware: vehicles.items.length + engines.items.length,
     media: embeddedPostsWithFallback.length + videoArchive.length,
     flights: trackedFlightsCount,
-    contracts: contracts.items.length,
+    contracts: contractPreview.total,
     finance: finance.items.length,
     faq: program.faq.length
   };
@@ -173,7 +173,7 @@ export default async function SpaceXProgramPage() {
           enginesCount={engines.items.length}
           passengersCount={passengers.items.length}
           payloadsCount={payloads.items.length}
-          contractsCount={contracts.items.length}
+          contractsCount={contractPreview.total}
           droneShipCoveragePercent={droneShips.coverage.coveragePercent}
           usaspendingRows={usaspendingAwardsPage.total ?? usaspendingAwardsPage.items.length}
         />
@@ -185,7 +185,7 @@ export default async function SpaceXProgramPage() {
           recentCount={program.recent.length}
           passengersCount={passengers.items.length}
           payloadsCount={payloads.items.length}
-          contractsCount={contracts.items.length}
+          contractsCount={contractPreview.total}
         />
 
         <SpaceXRecoverySection droneShips={droneShips} />
@@ -196,7 +196,7 @@ export default async function SpaceXProgramPage() {
 
         <SpaceXFlightsSection flights={flights.items} upcoming={program.upcoming} recent={program.recent} />
 
-        <SpaceXContractsSection contracts={contracts.items} discoveryItems={discoveryPage.items} />
+        <SpaceXContractsSection contracts={contractPreview.items} discoveryItems={discoveryPage.items} />
 
         <SpaceXUsaspendingAwardsPanel
           initialItems={usaspendingAwardsPage.items}

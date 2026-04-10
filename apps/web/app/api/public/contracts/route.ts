@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import {
-  buildCanonicalContractSearchText,
-  fetchCanonicalContractsIndex,
+  fetchCanonicalContractsPage,
   type CanonicalContractScope
 } from '@/lib/server/contracts';
 
@@ -22,25 +21,23 @@ export async function GET(request: Request) {
   const offset = clampInt(searchParams.get('offset'), 0, 0, 1_000_000);
 
   try {
-    const rows = await fetchCanonicalContractsIndex();
-    const scoped = scope === 'all' ? rows : rows.filter((row) => row.scope === scope);
-    const filtered = query
-      ? scoped.filter((row) => buildCanonicalContractSearchText(row).includes(query))
-      : scoped;
-
-    const total = filtered.length;
-    const items = filtered.slice(offset, offset + limit);
+    const page = await fetchCanonicalContractsPage({
+      scope,
+      query,
+      limit,
+      offset
+    });
 
     return NextResponse.json(
       {
-        generatedAt: new Date().toISOString(),
-        scope,
-        q: query,
-        total,
-        offset,
-        limit,
-        hasMore: offset + items.length < total,
-        items
+        generatedAt: page.generatedAt,
+        scope: page.scope,
+        q: page.query,
+        total: page.totalRows,
+        offset: page.offset,
+        limit: page.limit,
+        hasMore: page.hasMore,
+        items: page.items
       },
       {
         headers: {

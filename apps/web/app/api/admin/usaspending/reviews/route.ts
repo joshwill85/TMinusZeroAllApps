@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAdminRequest } from '@/app/api/admin/_lib/auth';
+import { refreshCanonicalContractsCacheAndRevalidate } from '@/lib/server/contractsCacheRefresh';
 import {
   listAdminUsaspendingReviews,
   promoteAdminUsaspendingReview
@@ -74,8 +75,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'review_not_found' }, { status: 404 });
     }
 
+    let cacheRefresh:
+      | { ok: true; contractRows: number; revalidatedPaths: number; skippedDetailPaths: number }
+      | { ok: false; error: string } = { ok: false, error: 'not_attempted' };
+    try {
+      const summary = await refreshCanonicalContractsCacheAndRevalidate();
+      cacheRefresh = { ok: true, ...summary };
+    } catch (error) {
+      console.error('admin usaspending reviews canonical refresh error', error);
+      cacheRefresh = { ok: false, error: 'refresh_failed' };
+    }
+
     return NextResponse.json(
-      { ok: true, promoted },
+      { ok: true, promoted, cacheRefresh },
       { headers: { 'Cache-Control': 'private, no-store' } }
     );
   } catch (error) {

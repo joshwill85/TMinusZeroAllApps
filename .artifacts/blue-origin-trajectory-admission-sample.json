@@ -1,0 +1,38 @@
+{
+  "generatedAt": "2026-04-08T23:45:59.630Z",
+  "sourceAuditGeneratedAt": "2026-04-08T12:00:00.000Z",
+  "auditJsonPath": "scripts/fixtures/blue-origin/blue-origin-audit-sample.json",
+  "decision": "defer",
+  "availability": "yes",
+  "joinability": "partial",
+  "usableCoverage": "no",
+  "summary": {
+    "launchesScanned": 3,
+    "launchesWithOfficialSourcePages": 2,
+    "launchesWithHealthyOfficialSources": 1,
+    "launchesWithMissionSummary": 1,
+    "launchesWithFailureReason": 0,
+    "launchesWithBrokenOfficialSources": 1,
+    "launchesWithOfficialSourceErrors": 0,
+    "officialSourceCoverageRate": 0.6666666666666666,
+    "healthyOfficialSourceCoverageRate": 0.3333333333333333,
+    "missionSummaryCoverageRate": 0.3333333333333333,
+    "failureReasonCoverageRate": 0
+  },
+  "reasons": [
+    "Official source pages are present for 2/3 audited launches (66.7%).",
+    "Joinability is only partial because official source pages are missing or unhealthy for part of the audited launch set (1/3 healthy launches).",
+    "Usable coverage stays \"no\" for trajectory-truth admission because the current audit only proves source-page and mission-summary presence; it does not prove direction, milestone, recovery, or visibility fields at useful coverage.",
+    "Official source health is not clean yet: 1 launches show broken links and 0 launches show fetch/check errors."
+  ],
+  "topAnomalies": [
+    {
+      "key": "official_source_pages_include_broken_links",
+      "count": 1
+    },
+    {
+      "key": "official_sources_present_but_no_clickable_urls",
+      "count": 1
+    }
+  ]
+}

@@ -91,7 +91,6 @@ import {
   buildRuleLabel,
   clearUnifiedFollowIntent,
   deactivatePushDestinations,
-  deleteUnifiedRuleByScope,
   normalizeWatchScope,
   removeChannelsFromUnifiedRule,
   upsertUnifiedPushDestination,
@@ -118,6 +117,7 @@ type PrivilegedClient =
   | ReturnType<typeof createSupabaseAdminClient>
   | ReturnType<typeof createSupabaseServerClient>;
 type AdminSelfServiceClient = PrivilegedClient;
+type NotificationAdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
 type SearchRpcRow = {
   id?: unknown;
@@ -2990,6 +2990,22 @@ function getPrivilegedClient(session: ResolvedViewerSession): PrivilegedClient |
   return null;
 }
 
+function getNotificationAdminClient(): NotificationAdminClient | null {
+  if (!isSupabaseAdminConfigured()) {
+    return null;
+  }
+
+  return createSupabaseAdminClient();
+}
+
+function requireNotificationAdminClient(): NotificationAdminClient {
+  const client = getNotificationAdminClient();
+  if (!client) {
+    throw new MobileApiRouteError(501, 'notifications_not_configured');
+  }
+  return client;
+}
+
 function getAdminSelfServiceClient(session: ResolvedViewerSession): AdminSelfServiceClient | null {
   if (session.authMode === 'bearer' && session.accessToken) {
     return createSupabaseAccessTokenClient(session.accessToken);
@@ -3092,6 +3108,7 @@ async function pruneBasicLaunchNotificationPreferences(
   options: {
     preferredLaunchId?: string | null;
     nowMs?: number;
+    notificationAdmin?: NotificationAdminClient | null;
   } = {}
 ): Promise<{ activeLaunchFollow: BasicLaunchFollowSummary | null }> {
   const { data: prefRows, error: prefError } = await client
@@ -3163,20 +3180,23 @@ async function pruneBasicLaunchNotificationPreferences(
       throw deleteError;
     }
 
-    await Promise.all(
-      launchIdsToDelete.map((launchId) =>
-        removeChannelsFromUnifiedRule(
-          client,
-          { ownerKind: 'user', userId },
-          {
-            scopeKind: 'launch',
-            scopeKey: launchId.toLowerCase(),
-            launchId: launchId.toLowerCase()
-          },
-          ['push']
+    const notificationAdmin = options.notificationAdmin;
+    if (notificationAdmin) {
+      await Promise.all(
+        launchIdsToDelete.map((launchId) =>
+          removeChannelsFromUnifiedRule(
+            notificationAdmin,
+            { ownerKind: 'user', userId },
+            {
+              scopeKind: 'launch',
+              scopeKey: launchId.toLowerCase(),
+              launchId: launchId.toLowerCase()
+            },
+            ['push']
+          )
         )
-      )
-    );
+      );
+    }
   }
 
   if (!activeLaunch) {
@@ -4211,6 +4231,7 @@ export async function createWatchlistRulePayload(session: ResolvedViewerSession,
   if (!client) {
     return null;
   }
+  const notificationAdmin = getNotificationAdminClient();
 
   const entitlement = await requireSavedItemsAccess(session);
   const normalizedWatchlistId = parseUuidOrThrow(watchlistId, 'invalid_watchlist_id');
@@ -4248,8 +4269,8 @@ export async function createWatchlistRulePayload(session: ResolvedViewerSession,
 
   if (existing) {
     const scope = normalizeWatchScope(normalizedRule.rule_type as any, normalizedRule.rule_value);
-    if (scope) {
-      await upsertUnifiedRule(client, {
+    if (scope && notificationAdmin) {
+      await upsertUnifiedRule(notificationAdmin, {
         ownerKind: 'user',
         userId: session.userId,
         intent: 'follow',
@@ -4295,8 +4316,8 @@ export async function createWatchlistRulePayload(session: ResolvedViewerSession,
   }
 
   const scope = normalizeWatchScope(normalizedRule.rule_type as any, normalizedRule.rule_value);
-  if (scope) {
-    await upsertUnifiedRule(client, {
+  if (scope && notificationAdmin) {
+    await upsertUnifiedRule(notificationAdmin, {
       ownerKind: 'user',
       userId: session.userId,
       intent: 'follow',
@@ -4322,6 +4343,7 @@ export async function deleteWatchlistRulePayload(session: ResolvedViewerSession,
   if (!client) {
     return null;
   }
+  const notificationAdmin = getNotificationAdminClient();
 
   await requireSavedItemsAccess(session);
   const normalizedWatchlistId = parseUuidOrThrow(watchlistId, 'invalid_watchlist_id');
@@ -4345,8 +4367,8 @@ export async function deleteWatchlistRulePayload(session: ResolvedViewerSession,
     data.rule_type as z.infer<typeof watchlistRuleTypeSchemaV1>,
     String(data.rule_value || '')
   );
-  if (normalized) {
-    await clearUnifiedFollowIntent(client, { ownerKind: 'user', userId: session.userId }, normalized);
+  if (normalized && notificationAdmin) {
+    await clearUnifiedFollowIntent(notificationAdmin, { ownerKind: 'user', userId: session.userId }, normalized);
   }
 
   return successResponseSchemaV1.parse({ ok: true });
@@ -4622,10 +4644,11 @@ export async function loadBasicFollowsPayload(session: ResolvedViewerSession) {
   }
 
   const entitlement = await requireAuthedEntitlement(session);
+  const notificationAdmin = getNotificationAdminClient();
   const [launchSummary, allUsRuleRes] = await Promise.all([
     entitlement.tier === 'premium'
       ? Promise.resolve({ activeLaunchFollow: null as BasicLaunchFollowSummary | null })
-      : pruneBasicLaunchNotificationPreferences(client, session.userId),
+      : pruneBasicLaunchNotificationPreferences(client, session.userId, { notificationAdmin }),
     client
       .from('notification_alert_rules')
       .select('id')
@@ -4654,6 +4677,7 @@ export async function createAlertRulePayload(session: ResolvedViewerSession, req
   if (!client) {
     return null;
   }
+  const notificationAdmin = requireNotificationAdminClient();
 
   const entitlement = await requireAuthedEntitlement(session);
   const parsedBody = alertRuleCreateSchemaV1.parse(await request.json().catch(() => undefined));
@@ -4747,7 +4771,7 @@ export async function createAlertRulePayload(session: ResolvedViewerSession, req
     scope = normalizeWatchScope(payload.follow_rule_type as any, payload.follow_rule_value as string);
   }
   if (scope) {
-    await upsertUnifiedRule(client, {
+    await upsertUnifiedRule(notificationAdmin, {
       ownerKind: 'user',
       userId: session.userId,
       intent: 'notifications_only',
@@ -4774,6 +4798,7 @@ export async function deleteAlertRulePayload(session: ResolvedViewerSession, rul
   if (!client) {
     return null;
   }
+  const notificationAdmin = requireNotificationAdminClient();
 
   await requireAuthedEntitlement(session);
   const normalizedRuleId = parseUuidOrThrow(ruleId, 'invalid_rule_id');
@@ -4803,7 +4828,7 @@ export async function deleteAlertRulePayload(session: ResolvedViewerSession, rul
     scope = normalizeWatchScope(data.follow_rule_type as any, String(data.follow_rule_value));
   }
   if (scope) {
-    await removeChannelsFromUnifiedRule(client, { ownerKind: 'user', userId: session.userId }, scope, ['push']);
+    await removeChannelsFromUnifiedRule(notificationAdmin, { ownerKind: 'user', userId: session.userId }, scope, ['push']);
   }
 
   return successResponseSchemaV1.parse({ ok: true });
@@ -5500,10 +5525,7 @@ export async function registerPushDevicePayload(session: ResolvedViewerSession, 
     return null;
   }
 
-  const client = getPrivilegedClient(session);
-  if (!client) {
-    return null;
-  }
+  const notificationAdmin = requireNotificationAdminClient();
 
   const parsedBody = pushDeviceRegistrationSchemaV1.parse(await request.json().catch(() => undefined));
   if (parsedBody.platform === 'web') {
@@ -5513,7 +5535,7 @@ export async function registerPushDevicePayload(session: ResolvedViewerSession, 
   const pushProvider = 'expo';
 
   await upsertUnifiedPushDestination(
-    client,
+    notificationAdmin,
     { ownerKind: 'user', userId: session.userId, installationId: parsedBody.installationId },
     {
       platform: parsedBody.platform,
@@ -5542,10 +5564,7 @@ export async function removePushDevicePayload(session: ResolvedViewerSession, re
     return null;
   }
 
-  const client = getPrivilegedClient(session);
-  if (!client) {
-    return null;
-  }
+  const notificationAdmin = requireNotificationAdminClient();
 
   const parsedBody = pushDeviceRemovalInputSchema.parse(await request.json().catch(() => undefined));
   if (parsedBody.platform === 'web') {
@@ -5553,7 +5572,7 @@ export async function removePushDevicePayload(session: ResolvedViewerSession, re
   }
   const removedAt = new Date().toISOString();
   await deactivatePushDestinations(
-    client,
+    notificationAdmin,
     { ownerKind: 'user', userId: session.userId, installationId: parsedBody.installationId },
     {
       installationId: parsedBody.installationId,
@@ -5579,18 +5598,9 @@ export async function enqueuePushDeviceTestPayload(session: ResolvedViewerSessio
   if (!entitlement.capabilities.canUseBasicAlertRules) {
     throw new MobileApiRouteError(402, 'payment_required');
   }
-  if (!isSupabaseAdminConfigured()) {
-    throw new MobileApiRouteError(501, 'notifications_not_configured');
-  }
+  const notificationAdmin = requireNotificationAdminClient();
 
-  const client = getPrivilegedClient(session);
-  if (!client) {
-    return null;
-  }
-
-  const admin = createSupabaseAdminClient();
-
-  const deviceRes = await admin
+  const deviceRes = await notificationAdmin
     .from('notification_push_destinations_v3')
     .select('id')
     .eq('user_id', session.userId)
@@ -5606,7 +5616,7 @@ export async function enqueuePushDeviceTestPayload(session: ResolvedViewerSessio
   }
 
   const queuedAt = new Date().toISOString();
-  const { error } = await admin.from('mobile_push_outbox_v2').insert({
+  const { error } = await notificationAdmin.from('mobile_push_outbox_v2').insert({
     owner_kind: 'user',
     user_id: session.userId,
     installation_id: null,

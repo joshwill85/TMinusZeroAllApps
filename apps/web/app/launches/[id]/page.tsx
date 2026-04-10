@@ -4241,7 +4241,7 @@ function buildForecastOutlookDescription({
     showWs45 ? 'enhanced mission forecast insights' : null,
     showNws ? 'an NWS forecast for the pad location at T-0 (api.weather.gov)' : null,
     showPlanning24h ? 'the 45 WS 24-hour planning forecast' : null,
-    showWeekly ? 'a Cape weekly outlook' : null
+    showWeekly ? 'a Cape weekly outlook for near-term launches' : null
   ].filter(Boolean) as string[];
   const forecastDescription = parts.length ? joinWithAnd(parts) : null;
 

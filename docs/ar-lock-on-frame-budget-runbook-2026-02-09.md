@@ -64,9 +64,9 @@ from scoped;
 ## 3) Safe Toolchain Verification (Pinned)
 
 Pinned versions:
-- Node: `20.19.6`
-- npm: `10.8.2`
-- Docker base image: `node:20.19.6-alpine`
+- Node: `24.14.1`
+- npm: `11.11.0`
+- Docker base image: `node:24.14.1-alpine`
 
 Local verification checklist:
 1. `node -v && npm -v`
@@ -76,10 +76,10 @@ Local verification checklist:
 5. `npm run test:smoke`
 
 Docker verification checklist:
-1. `docker run --rm node:20.19.6-alpine node -v`
-2. `docker run --rm node:20.19.6-alpine npm -v`
+1. `docker run --rm node:24.14.1-alpine node -v`
+2. `docker run --rm node:24.14.1-alpine npm -v`
 3. `docker build -t tminuszero:toolchain-check .`
-4. `docker run --rm -t -v "$PWD":/workspace -w /workspace node:20.19.6-alpine sh -lc "npm ci && npm run type-check && npm run test:smoke"`
+4. `docker run --rm -t -v "$PWD":/workspace -w /workspace node:24.14.1-alpine sh -lc "npm ci && npm run type-check && npm run test:smoke"`
 
 ## 4) Safe Node/npm Upgrade Procedure (When Explicitly Requested)
 
@@ -87,5 +87,5 @@ Docker verification checklist:
 2. Do not split runtime and tooling upgrades across separate version lines.
 3. Re-run local verification checklist.
 4. Re-run Docker verification checklist.
-5. Confirm CI parity and Vercel major compatibility (`20.x` policy).
+5. Confirm CI parity and Vercel major compatibility (`24.x` target, with supported major fallback only if required).
 6. Roll back immediately by reverting those exact pinned-file edits if any gate fails.

@@ -6,7 +6,7 @@ import {
   emptyHazardScanState,
   mergeHazardScanState,
   shouldSuppressHazardConstraintFromScanState
-} from '../../../lib/trajectory/hazardFreshness.ts';
+} from '../../../apps/web/lib/trajectory/hazardFreshness.ts';
 import {
   applyTrajectoryMilestoneProjection,
   buildTrajectoryCompatibilityEvents,
@@ -14,7 +14,7 @@ import {
   resolveTrajectoryMilestones,
   type LaunchExternalResourceRowLike,
   type TrajectoryMilestoneDraft
-} from '../../../lib/trajectory/milestones.ts';
+} from '../../../apps/web/lib/trajectory/milestones.ts';
 
 const DEFAULTS = {
   enabled: true,

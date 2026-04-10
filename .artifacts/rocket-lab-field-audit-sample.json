@@ -1,0 +1,108 @@
+{
+  "generatedAt": "2026-04-09T03:20:26.017Z",
+  "mode": "fixture",
+  "fixtureJsonPath": "scripts/fixtures/rocket-lab/rocket-lab-field-audit-sample.json",
+  "joinAuditJsonPath": null,
+  "decision": "defer",
+  "availability": "yes",
+  "joinability": "partial",
+  "usableCoverage": "no",
+  "summary": {
+    "launchesEligibleFromJoinAudit": 2,
+    "launchesAudited": 2,
+    "launchesFetchedSuccessfully": 2,
+    "launchesWithInclination": 1,
+    "launchesWithFlightAzimuth": 0,
+    "launchesWithAltitude": 1,
+    "launchesWithApogee": 0,
+    "launchesWithPerigee": 0,
+    "launchesWithOrbitClass": 0,
+    "launchesWithAnyNumericOrbitField": 1,
+    "launchesWithMilestoneSignals": 2,
+    "launchesWithRecoverySignals": 0,
+    "launchesWithNumericOrbitSignals": 1,
+    "launchesWithAuthorityFieldBundle": 1
+  },
+  "reasons": [
+    "Field audit evaluated 2/2 deterministic-or-probable Rocket Lab joins from the join audit.",
+    "Numeric orbit-like values were present on 1/2 matched launches, orbit class on 0/2, milestone signals on 2/2, and recovery signals on 0/2.",
+    "Only 1/2 matched launches carried both a numeric orbit-like field and milestone signals, so usable coverage remains \"no\"."
+  ],
+  "launches": [
+    {
+      "launchId": "launch-1",
+      "name": "Electron | Eight Days A Week (StriX Launch 8)",
+      "missionName": "Eight Days A Week (StriX Launch 8)",
+      "net": "2026-03-20T18:10:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "go",
+      "matchStatus": "deterministic",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/eight-days-a-week",
+      "bestMatchScore": 120,
+      "matchedAlias": "eight days a week",
+      "pageFetched": true,
+      "fetchStatus": 200,
+      "fetchError": null,
+      "orbit": {
+        "inclinationDeg": 97.3,
+        "flightAzimuthDeg": null,
+        "altitudeKm": 500,
+        "apogeeKm": null,
+        "perigeeKm": null,
+        "orbitClass": null,
+        "anyNumericOrbitField": true
+      },
+      "signals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 2,
+        "milestoneSignalCount": 1,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 1,
+        "matchedKeywords": [
+          "inclination",
+          "orbit",
+          "payload deployment"
+        ]
+      },
+      "hasAuthorityFieldBundle": true
+    },
+    {
+      "launchId": "launch-2",
+      "name": "Electron | LOXSAT 1",
+      "missionName": "LOXSAT 1",
+      "net": "2026-06-25T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "probable",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/loxsat",
+      "bestMatchScore": 76,
+      "matchedAlias": "loxsat 1",
+      "pageFetched": true,
+      "fetchStatus": 200,
+      "fetchError": null,
+      "orbit": {
+        "inclinationDeg": null,
+        "flightAzimuthDeg": null,
+        "altitudeKm": null,
+        "apogeeKm": null,
+        "perigeeKm": null,
+        "orbitClass": null,
+        "anyNumericOrbitField": false
+      },
+      "signals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 0,
+        "milestoneSignalCount": 4,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 0,
+        "matchedKeywords": [
+          "liftoff",
+          "payload deployment",
+          "kick stage",
+          "fairing"
+        ]
+      },
+      "hasAuthorityFieldBundle": false
+    }
+  ]
+}

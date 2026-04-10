@@ -1,7 +1,12 @@
-import { canonicalContractDetailSchemaV1, canonicalContractsResponseSchemaV1 } from '@tminuszero/contracts';
+import {
+  canonicalContractDetailSchemaV1,
+  canonicalContractsPageSchemaV1,
+  canonicalContractsResponseSchemaV1
+} from '@tminuszero/contracts';
 import {
   buildCanonicalContractSearchText,
   fetchCanonicalContractDetailByUid,
+  fetchCanonicalContractsPage,
   fetchCanonicalContractsIndex,
   normalizeCanonicalContractUid,
   type CanonicalContractDetail,
@@ -148,6 +153,32 @@ export async function loadCanonicalContractsPayload(request: Request) {
   });
 }
 
+export async function loadCanonicalContractsPagePayload(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const query = normalizeQuery(searchParams.get('q')) || null;
+  const scope = parseScope(searchParams.get('scope'));
+  const limit = clampInt(searchParams.get('limit'), 100, 1, 500);
+  const offset = clampInt(searchParams.get('offset'), 0, 0, 1_000_000);
+  const page = await fetchCanonicalContractsPage({
+    scope,
+    query,
+    limit,
+    offset
+  });
+
+  return canonicalContractsPageSchemaV1.parse({
+    generatedAt: page.generatedAt,
+    query: page.query,
+    scope: page.scope,
+    totalRows: page.totalRows,
+    offset: page.offset,
+    limit: page.limit,
+    hasMore: page.hasMore,
+    totals: page.totals,
+    items: page.items.map(mapCanonicalSummary)
+  });
+}
+
 export async function loadCanonicalContractDetailPayload(contractUid: string) {
   const normalizedUid = normalizeCanonicalContractUid(contractUid);
   if (!normalizedUid) {
@@ -176,4 +207,10 @@ function formatCurrency(value: number) {
     currency: 'USD',
     maximumFractionDigits: 0
   }).format(value);
+}
+
+function clampInt(value: string | null, fallback: number, min: number, max: number) {
+  const parsed = value == null ? Number.NaN : Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, Math.trunc(parsed)));
 }

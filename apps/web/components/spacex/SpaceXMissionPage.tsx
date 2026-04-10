@@ -8,7 +8,7 @@ import { getSiteUrl } from '@/lib/server/env';
 import { fetchSpaceXDroneShipAssignmentsByLaunchIds, type SpaceXLaunchDroneShipAssignment } from '@/lib/server/spacexDroneShips';
 import {
   buildSpaceXContractSlug,
-  fetchSpaceXContracts,
+  fetchSpaceXContractPreview,
   fetchSpaceXMissionSnapshot,
   fetchSpaceXPassengers,
   fetchSpaceXPayloads
@@ -28,11 +28,11 @@ export async function SpaceXMissionPage({
   heading: string;
   summary: string;
 }) {
-  const [snapshot, passengers, payloads, contracts] = await Promise.all([
+  const [snapshot, passengers, payloads, contractPreview] = await Promise.all([
     fetchSpaceXMissionSnapshot(missionKey),
     fetchSpaceXPassengers(missionKey),
     fetchSpaceXPayloads(missionKey),
-    fetchSpaceXContracts(missionKey)
+    fetchSpaceXContractPreview(8, missionKey)
   ]);
   const droneShipAssignments = await fetchSpaceXDroneShipAssignmentsByLaunchIds(
     dedupeIds([...snapshot.upcoming, ...snapshot.recent].map((launch) => launch.id))
@@ -68,7 +68,7 @@ export async function SpaceXMissionPage({
           <span className="rounded-full border border-stroke px-3 py-1">Recent: {snapshot.recent.length}</span>
           <span className="rounded-full border border-stroke px-3 py-1">Passengers: {passengers.items.length}</span>
           <span className="rounded-full border border-stroke px-3 py-1">Payloads: {payloads.items.length}</span>
-          <span className="rounded-full border border-stroke px-3 py-1">Contracts: {contracts.items.length}</span>
+          <span className="rounded-full border border-stroke px-3 py-1">Contracts: {contractPreview.total}</span>
         </div>
       </header>
 
@@ -120,9 +120,9 @@ export async function SpaceXMissionPage({
 
         <div className="rounded-2xl border border-stroke bg-surface-1 p-4">
           <h2 className="text-xl font-semibold text-text1">Contracts and procurement</h2>
-          {contracts.items.length ? (
+          {contractPreview.total ? (
             <ul className="mt-3 space-y-2 text-sm text-text2">
-              {contracts.items.slice(0, 8).map((contract) => (
+              {contractPreview.items.map((contract) => (
                 <li key={contract.id} className="rounded-lg border border-stroke bg-surface-0 p-3">
                   <Link
                     href={`/spacex/contracts/${buildSpaceXContractSlug(contract.contractKey)}`}

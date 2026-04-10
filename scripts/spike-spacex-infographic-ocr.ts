@@ -337,7 +337,7 @@ async function main() {
   }
 
   if (!dockerAvailable) {
-    console.error('No OCR engine available. Install `tesseract.js` (Node 20/npm10) or run with Docker available.');
+    console.error('No OCR engine available. Install `tesseract.js` under the repo\'s pinned toolchain or run with Docker available.');
     process.exit(2);
   }
 

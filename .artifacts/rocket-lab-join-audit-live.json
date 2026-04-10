@@ -1,0 +1,759 @@
+{
+  "generatedAt": "2026-04-09T03:11:05.590Z",
+  "mode": "live",
+  "fixtureJsonPath": null,
+  "sourceAuditJsonPath": null,
+  "decision": "defer",
+  "availability": "yes",
+  "joinability": "partial",
+  "usableCoverage": "no",
+  "summary": {
+    "launchesScanned": 26,
+    "candidatePagesScanned": 114,
+    "launchesWithDeterministicMatch": 4,
+    "launchesWithProbableMatch": 9,
+    "launchesWithAmbiguousMatch": 1,
+    "launchesWithoutMatch": 12,
+    "launchesWithMatchedTrajectorySignals": 13,
+    "launchesWithMatchedOrbitSignals": 13,
+    "launchesWithMatchedMilestoneSignals": 4,
+    "launchesWithMatchedRecoverySignals": 0,
+    "launchesWithMatchedNumericOrbitSignals": 5
+  },
+  "reasons": [
+    "Candidate availability is yes: 114 Rocket Lab mission/update pages were available for join scoring against 26 bounded inventory launches.",
+    "Joinability is partial: 4/26 launches matched deterministically, 9/26 matched probably, 1/26 remained ambiguous, and 12/26 had no qualifying match.",
+    "Usable coverage stays \"no\" because this audit only proves candidate-page joins; it does not prove that enough matched launches expose direction, milestone, recovery, or visibility values at rollout-grade coverage.",
+    "Among launches with fetched matched pages, 13 showed trajectory-like language, 13 showed orbit signals, 4 showed milestone signals, 0 showed recovery signals, and 5 showed numeric orbit-like language."
+  ],
+  "launches": [
+    {
+      "launchId": "00c4c6fb-4cea-4437-8cca-dcb08cdbe303",
+      "name": "Electron | Eight Days A Week (StriX Launch 8)",
+      "missionName": "Eight Days A Week (StriX Launch 8)",
+      "net": "2026-03-20T18:10:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "go",
+      "matchStatus": "deterministic",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/eight-days-a-week",
+      "bestMatchScore": 120,
+      "matchedAlias": "eight days a week",
+      "aliases": [
+        "electron eight days a week (strix launch 8)",
+        "eight days a week (strix launch 8)",
+        "electron eight days a week",
+        "eight days a week"
+      ],
+      "reasons": [
+        "Exact slug-to-alias match on \"eight days a week\".",
+        "Exact slug match."
+      ],
+      "candidateUrls": [
+        "https://rocketlabcorp.com/missions/launches/eight-days-a-week"
+      ],
+      "matchedPageSignals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 3,
+        "milestoneSignalCount": 0,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 1,
+        "matchedKeywords": [
+          "inclination",
+          "orbit",
+          "sso"
+        ]
+      }
+    },
+    {
+      "launchId": "a33e2d51-905a-4288-bf68-c7d84d7a8fa7",
+      "name": "Electron | Daughter Of The Stars (LEO-PNT Pathfinder A)",
+      "missionName": "Daughter Of The Stars (LEO-PNT Pathfinder A)",
+      "net": "2026-03-28T09:14:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "go",
+      "matchStatus": "deterministic",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/daughter-of-the-stars",
+      "bestMatchScore": 120,
+      "matchedAlias": "daughter of the stars",
+      "aliases": [
+        "electron daughter of the stars (leo-pnt pathfinder a)",
+        "daughter of the stars (leo-pnt pathfinder a)",
+        "electron daughter of the stars",
+        "daughter of the stars"
+      ],
+      "reasons": [
+        "Exact slug-to-alias match on \"daughter of the stars\".",
+        "Exact slug match."
+      ],
+      "candidateUrls": [
+        "https://rocketlabcorp.com/missions/launches/daughter-of-the-stars"
+      ],
+      "matchedPageSignals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 3,
+        "milestoneSignalCount": 0,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 1,
+        "matchedKeywords": [
+          "orbit",
+          "low earth orbit",
+          "sso"
+        ]
+      }
+    },
+    {
+      "launchId": "bb1fa4d1-68fd-478b-b588-389bcf3bfaa5",
+      "name": "Electron | Kakushin Rising (JAXA Rideshare)",
+      "missionName": "Kakushin Rising (JAXA Rideshare)",
+      "net": "2026-04-23T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "tbd",
+      "matchStatus": "deterministic",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/kakushin-rising",
+      "bestMatchScore": 120,
+      "matchedAlias": "kakushin rising",
+      "aliases": [
+        "electron kakushin rising (jaxa rideshare)",
+        "kakushin rising (jaxa rideshare)",
+        "electron kakushin rising",
+        "kakushin rising"
+      ],
+      "reasons": [
+        "Exact slug-to-alias match on \"kakushin rising\".",
+        "Exact slug match."
+      ],
+      "candidateUrls": [
+        "https://rocketlabcorp.com/missions/launches/kakushin-rising"
+      ],
+      "matchedPageSignals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 1,
+        "milestoneSignalCount": 0,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 0,
+        "matchedKeywords": [
+          "sso"
+        ]
+      }
+    },
+    {
+      "launchId": "8b627474-2519-49f8-a09d-2432e5d9b97c",
+      "name": "Electron | StriX Launch 9",
+      "missionName": "StriX Launch 9",
+      "net": "2026-05-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "tbd",
+      "matchStatus": "none",
+      "bestMatchUrl": null,
+      "bestMatchScore": null,
+      "matchedAlias": null,
+      "aliases": [
+        "electron strix launch 9",
+        "strix launch 9"
+      ],
+      "reasons": [
+        "No candidate slug cleared the Rocket Lab join threshold for this launch."
+      ],
+      "candidateUrls": [],
+      "matchedPageSignals": null
+    },
+    {
+      "launchId": "67ff11c1-436e-4848-9ddb-cae56a165c8b",
+      "name": "Electron | LOXSAT 1",
+      "missionName": "LOXSAT 1",
+      "net": "2026-06-25T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "probable",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/loxsat",
+      "bestMatchScore": 76,
+      "matchedAlias": "loxsat 1",
+      "aliases": [
+        "electron loxsat 1",
+        "loxsat 1"
+      ],
+      "reasons": [
+        "A single candidate cleared the fuzzy Rocket Lab join threshold, but not as an exact slug match."
+      ],
+      "candidateUrls": [
+        "https://rocketlabcorp.com/missions/launches/loxsat"
+      ],
+      "matchedPageSignals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 3,
+        "milestoneSignalCount": 4,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 0,
+        "matchedKeywords": [
+          "orbit",
+          "low earth orbit",
+          "sso",
+          "liftoff",
+          "payload deployment",
+          "kick stage",
+          "fairing"
+        ]
+      }
+    },
+    {
+      "launchId": "5e260c89-8e26-4adb-a25b-89761c71f522",
+      "name": "Electron | VICTUS HAZE Puma",
+      "missionName": "VICTUS HAZE Puma",
+      "net": "2026-06-30T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "ambiguous",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/victus-haze",
+      "bestMatchScore": 76,
+      "matchedAlias": "victus haze puma",
+      "aliases": [
+        "electron victus haze puma",
+        "victus haze puma"
+      ],
+      "reasons": [
+        "Multiple candidate pages scored within five points of the best match for this launch."
+      ],
+      "candidateUrls": [
+        "https://rocketlabcorp.com/missions/launches/victus-haze",
+        "https://rocketlabcorp.com/missions/launches/victus-haze-2"
+      ],
+      "matchedPageSignals": null
+    },
+    {
+      "launchId": "aef696b4-875e-4fe5-be97-6d3a37c046b0",
+      "name": "Electron | StriX Launch 10",
+      "missionName": "StriX Launch 10",
+      "net": "2026-07-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "tbd",
+      "matchStatus": "none",
+      "bestMatchUrl": null,
+      "bestMatchScore": null,
+      "matchedAlias": null,
+      "aliases": [
+        "electron strix launch 10",
+        "strix launch 10"
+      ],
+      "reasons": [
+        "No candidate slug cleared the Rocket Lab join threshold for this launch."
+      ],
+      "candidateUrls": [],
+      "matchedPageSignals": null
+    },
+    {
+      "launchId": "ee7372ef-252b-462a-863d-c73e36363de7",
+      "name": "Electron | Aspera",
+      "missionName": "Aspera",
+      "net": "2026-08-15T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "deterministic",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/aspera",
+      "bestMatchScore": 120,
+      "matchedAlias": "aspera",
+      "aliases": [
+        "electron aspera",
+        "aspera"
+      ],
+      "reasons": [
+        "Exact slug-to-alias match on \"aspera\".",
+        "Exact slug match."
+      ],
+      "candidateUrls": [
+        "https://rocketlabcorp.com/missions/launches/aspera"
+      ],
+      "matchedPageSignals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 1,
+        "milestoneSignalCount": 0,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 0,
+        "matchedKeywords": [
+          "sso"
+        ]
+      }
+    },
+    {
+      "launchId": "e07c9ff7-3e57-4312-83cd-b797d9cdd32d",
+      "name": "Electron | StriX Launch 11",
+      "missionName": "StriX Launch 11",
+      "net": "2026-08-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "tbd",
+      "matchStatus": "none",
+      "bestMatchUrl": null,
+      "bestMatchScore": null,
+      "matchedAlias": null,
+      "aliases": [
+        "electron strix launch 11",
+        "strix launch 11"
+      ],
+      "reasons": [
+        "No candidate slug cleared the Rocket Lab join threshold for this launch."
+      ],
+      "candidateUrls": [],
+      "matchedPageSignals": null
+    },
+    {
+      "launchId": "e782fb8b-451a-4e7e-8094-7b6cb5855093",
+      "name": "Electron | StriX Launch 12",
+      "missionName": "StriX Launch 12",
+      "net": "2026-10-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "tbd",
+      "matchStatus": "none",
+      "bestMatchUrl": null,
+      "bestMatchScore": null,
+      "matchedAlias": null,
+      "aliases": [
+        "electron strix launch 12",
+        "strix launch 12"
+      ],
+      "reasons": [
+        "No candidate slug cleared the Rocket Lab join threshold for this launch."
+      ],
+      "candidateUrls": [],
+      "matchedPageSignals": null
+    },
+    {
+      "launchId": "f323adba-49f0-4978-bc80-e997a12484d2",
+      "name": "Electron | StriX Launch 13",
+      "missionName": "StriX Launch 13",
+      "net": "2026-12-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "tbd",
+      "matchStatus": "none",
+      "bestMatchUrl": null,
+      "bestMatchScore": null,
+      "matchedAlias": null,
+      "aliases": [
+        "electron strix launch 13",
+        "strix launch 13"
+      ],
+      "reasons": [
+        "No candidate slug cleared the Rocket Lab join threshold for this launch."
+      ],
+      "candidateUrls": [],
+      "matchedPageSignals": null
+    },
+    {
+      "launchId": "4db8b31a-8dd9-4b93-92d6-02429582320a",
+      "name": "Neutron | Maiden Flight",
+      "missionName": "Maiden Flight",
+      "net": "2026-12-31T00:00:00+00:00",
+      "vehicle": "Neutron",
+      "statusName": "unknown",
+      "matchStatus": "none",
+      "bestMatchUrl": null,
+      "bestMatchScore": null,
+      "matchedAlias": null,
+      "aliases": [
+        "neutron maiden flight",
+        "maiden flight"
+      ],
+      "reasons": [
+        "No candidate slug cleared the Rocket Lab join threshold for this launch."
+      ],
+      "candidateUrls": [],
+      "matchedPageSignals": null
+    },
+    {
+      "launchId": "441e3beb-72de-4a05-9be1-8a2f3f4e6453",
+      "name": "Electron | BlackSky Gen-3 6",
+      "missionName": "BlackSky Gen-3 6",
+      "net": "2026-12-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "none",
+      "bestMatchUrl": null,
+      "bestMatchScore": null,
+      "matchedAlias": null,
+      "aliases": [
+        "electron blacksky gen-3 6",
+        "blacksky gen-3 6"
+      ],
+      "reasons": [
+        "No candidate slug cleared the Rocket Lab join threshold for this launch."
+      ],
+      "candidateUrls": [],
+      "matchedPageSignals": null
+    },
+    {
+      "launchId": "4a5d679e-5e1c-4dd0-808f-e20ce109bf78",
+      "name": "Electron | BlackSky Gen-3 7",
+      "missionName": "BlackSky Gen-3 7",
+      "net": "2026-12-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "none",
+      "bestMatchUrl": null,
+      "bestMatchScore": null,
+      "matchedAlias": null,
+      "aliases": [
+        "electron blacksky gen-3 7",
+        "blacksky gen-3 7"
+      ],
+      "reasons": [
+        "No candidate slug cleared the Rocket Lab join threshold for this launch."
+      ],
+      "candidateUrls": [],
+      "matchedPageSignals": null
+    },
+    {
+      "launchId": "fc4af153-d03f-4ee8-943b-a89d43258ec1",
+      "name": "Electron | BlackSky Gen-3 8",
+      "missionName": "BlackSky Gen-3 8",
+      "net": "2026-12-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "none",
+      "bestMatchUrl": null,
+      "bestMatchScore": null,
+      "matchedAlias": null,
+      "aliases": [
+        "electron blacksky gen-3 8",
+        "blacksky gen-3 8"
+      ],
+      "reasons": [
+        "No candidate slug cleared the Rocket Lab join threshold for this launch."
+      ],
+      "candidateUrls": [],
+      "matchedPageSignals": null
+    },
+    {
+      "launchId": "39ae3ab2-ceae-4fc0-899b-b6f9e83e8207",
+      "name": "Electron | BlackSky Gen-3 9",
+      "missionName": "BlackSky Gen-3 9",
+      "net": "2026-12-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "none",
+      "bestMatchUrl": null,
+      "bestMatchScore": null,
+      "matchedAlias": null,
+      "aliases": [
+        "electron blacksky gen-3 9",
+        "blacksky gen-3 9"
+      ],
+      "reasons": [
+        "No candidate slug cleared the Rocket Lab join threshold for this launch."
+      ],
+      "candidateUrls": [],
+      "matchedPageSignals": null
+    },
+    {
+      "launchId": "14304b73-200d-4deb-897c-18d1c40bfd94",
+      "name": "Electron | iQPS Launch 7",
+      "missionName": "iQPS Launch 7",
+      "net": "2026-12-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "probable",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/iqps",
+      "bestMatchScore": 76,
+      "matchedAlias": "iqps launch 7",
+      "aliases": [
+        "electron iqps launch 7",
+        "iqps launch 7"
+      ],
+      "reasons": [
+        "A single candidate cleared the fuzzy Rocket Lab join threshold, but not as an exact slug match."
+      ],
+      "candidateUrls": [
+        "https://rocketlabcorp.com/missions/launches/iqps"
+      ],
+      "matchedPageSignals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 3,
+        "milestoneSignalCount": 0,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 0,
+        "matchedKeywords": [
+          "inclination",
+          "orbit",
+          "sso"
+        ]
+      }
+    },
+    {
+      "launchId": "08c45974-b5a3-42d7-bd5e-3178683cac10",
+      "name": "Electron | iQPS Launch 8",
+      "missionName": "iQPS Launch 8",
+      "net": "2026-12-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "probable",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/iqps",
+      "bestMatchScore": 76,
+      "matchedAlias": "iqps launch 8",
+      "aliases": [
+        "electron iqps launch 8",
+        "iqps launch 8"
+      ],
+      "reasons": [
+        "A single candidate cleared the fuzzy Rocket Lab join threshold, but not as an exact slug match."
+      ],
+      "candidateUrls": [
+        "https://rocketlabcorp.com/missions/launches/iqps"
+      ],
+      "matchedPageSignals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 3,
+        "milestoneSignalCount": 0,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 0,
+        "matchedKeywords": [
+          "inclination",
+          "orbit",
+          "sso"
+        ]
+      }
+    },
+    {
+      "launchId": "b452a0fa-ef7f-480d-907e-268851e31343",
+      "name": "Electron | iQPS Launch 9",
+      "missionName": "iQPS Launch 9",
+      "net": "2026-12-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "probable",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/iqps",
+      "bestMatchScore": 76,
+      "matchedAlias": "iqps launch 9",
+      "aliases": [
+        "electron iqps launch 9",
+        "iqps launch 9"
+      ],
+      "reasons": [
+        "A single candidate cleared the fuzzy Rocket Lab join threshold, but not as an exact slug match."
+      ],
+      "candidateUrls": [
+        "https://rocketlabcorp.com/missions/launches/iqps"
+      ],
+      "matchedPageSignals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 3,
+        "milestoneSignalCount": 0,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 0,
+        "matchedKeywords": [
+          "inclination",
+          "orbit",
+          "sso"
+        ]
+      }
+    },
+    {
+      "launchId": "243d80da-af63-4634-8919-3c891fc0ab6d",
+      "name": "Electron | iQPS Launch 10",
+      "missionName": "iQPS Launch 10",
+      "net": "2026-12-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "probable",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/iqps",
+      "bestMatchScore": 76,
+      "matchedAlias": "iqps launch 10",
+      "aliases": [
+        "electron iqps launch 10",
+        "iqps launch 10"
+      ],
+      "reasons": [
+        "A single candidate cleared the fuzzy Rocket Lab join threshold, but not as an exact slug match."
+      ],
+      "candidateUrls": [
+        "https://rocketlabcorp.com/missions/launches/iqps"
+      ],
+      "matchedPageSignals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 3,
+        "milestoneSignalCount": 0,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 0,
+        "matchedKeywords": [
+          "inclination",
+          "orbit",
+          "sso"
+        ]
+      }
+    },
+    {
+      "launchId": "12130188-2686-4d2f-945f-ca1325491482",
+      "name": "Electron | iQPS Launch 11",
+      "missionName": "iQPS Launch 11",
+      "net": "2026-12-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "probable",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/iqps",
+      "bestMatchScore": 76,
+      "matchedAlias": "iqps launch 11",
+      "aliases": [
+        "electron iqps launch 11",
+        "iqps launch 11"
+      ],
+      "reasons": [
+        "A single candidate cleared the fuzzy Rocket Lab join threshold, but not as an exact slug match."
+      ],
+      "candidateUrls": [
+        "https://rocketlabcorp.com/missions/launches/iqps"
+      ],
+      "matchedPageSignals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 3,
+        "milestoneSignalCount": 0,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 0,
+        "matchedKeywords": [
+          "inclination",
+          "orbit",
+          "sso"
+        ]
+      }
+    },
+    {
+      "launchId": "3eeeceeb-3206-4117-b537-7c6e9b912de0",
+      "name": "HASTE | Leidos-3",
+      "missionName": null,
+      "net": "2026-12-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "probable",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/haste",
+      "bestMatchScore": 76,
+      "matchedAlias": "haste leidos-3",
+      "aliases": [
+        "haste leidos-3"
+      ],
+      "reasons": [
+        "A single candidate cleared the fuzzy Rocket Lab join threshold, but not as an exact slug match."
+      ],
+      "candidateUrls": [
+        "https://rocketlabcorp.com/missions/launches/haste"
+      ],
+      "matchedPageSignals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 3,
+        "milestoneSignalCount": 1,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 1,
+        "matchedKeywords": [
+          "orbit",
+          "orbital",
+          "sso",
+          "kick stage"
+        ]
+      }
+    },
+    {
+      "launchId": "f4f3eee1-a1d1-4ddc-b797-5ec108e4ee3e",
+      "name": "HASTE | Leidos-4",
+      "missionName": null,
+      "net": "2026-12-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "probable",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/haste",
+      "bestMatchScore": 76,
+      "matchedAlias": "haste leidos-4",
+      "aliases": [
+        "haste leidos-4"
+      ],
+      "reasons": [
+        "A single candidate cleared the fuzzy Rocket Lab join threshold, but not as an exact slug match."
+      ],
+      "candidateUrls": [
+        "https://rocketlabcorp.com/missions/launches/haste"
+      ],
+      "matchedPageSignals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 3,
+        "milestoneSignalCount": 1,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 1,
+        "matchedKeywords": [
+          "orbit",
+          "orbital",
+          "sso",
+          "kick stage"
+        ]
+      }
+    },
+    {
+      "launchId": "2dff2e25-4942-48c2-a7c3-bfdbf55f4797",
+      "name": "HASTE | Leidos-5",
+      "missionName": null,
+      "net": "2026-12-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "probable",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/haste",
+      "bestMatchScore": 76,
+      "matchedAlias": "haste leidos-5",
+      "aliases": [
+        "haste leidos-5"
+      ],
+      "reasons": [
+        "A single candidate cleared the fuzzy Rocket Lab join threshold, but not as an exact slug match."
+      ],
+      "candidateUrls": [
+        "https://rocketlabcorp.com/missions/launches/haste"
+      ],
+      "matchedPageSignals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 3,
+        "milestoneSignalCount": 1,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 1,
+        "matchedKeywords": [
+          "orbit",
+          "orbital",
+          "sso",
+          "kick stage"
+        ]
+      }
+    },
+    {
+      "launchId": "b823e12b-f7e7-46e6-b069-53287b8ca4b3",
+      "name": "Electron | BlackSky Gen-3 5",
+      "missionName": "BlackSky Gen-3 5",
+      "net": "2026-12-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "none",
+      "bestMatchUrl": null,
+      "bestMatchScore": null,
+      "matchedAlias": null,
+      "aliases": [
+        "electron blacksky gen-3 5",
+        "blacksky gen-3 5"
+      ],
+      "reasons": [
+        "No candidate slug cleared the Rocket Lab join threshold for this launch."
+      ],
+      "candidateUrls": [],
+      "matchedPageSignals": null
+    },
+    {
+      "launchId": "a24bd7bd-5d48-44c6-b4eb-614c4ffb26c6",
+      "name": "Electron | 6x HawkEye 360",
+      "missionName": "6x HawkEye 360",
+      "net": "2026-12-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "none",
+      "bestMatchUrl": null,
+      "bestMatchScore": null,
+      "matchedAlias": null,
+      "aliases": [
+        "electron 6x hawkeye 360",
+        "6x hawkeye 360"
+      ],
+      "reasons": [
+        "No candidate slug cleared the Rocket Lab join threshold for this launch."
+      ],
+      "candidateUrls": [],
+      "matchedPageSignals": null
+    }
+  ]
+}

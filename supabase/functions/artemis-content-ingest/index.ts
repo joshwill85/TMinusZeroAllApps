@@ -5,7 +5,6 @@ import {
   classifyMission,
   finishIngestionRun,
   jsonResponse,
-  readBooleanSetting,
   setSystemSetting,
   startIngestionRun,
   stringifyError,
@@ -13,6 +12,11 @@ import {
   updateCheckpoint
 } from '../_shared/artemisIngest.ts';
 import { ARTEMIS_SOURCE_URLS, extractRssItems, fetchTextWithMeta, stripHtml } from '../_shared/artemisSources.ts';
+import {
+  getSettings,
+  readBooleanSetting as parseBooleanSetting,
+  readNumberSetting as parseNumberSetting
+} from '../_shared/settings.ts';
 
 type SourceType = 'nasa_primary' | 'oversight' | 'budget' | 'procurement' | 'technical' | 'media';
 type SourceClass = 'nasa_primary' | 'oversight' | 'budget' | 'procurement' | 'technical' | 'media' | 'll2-cache' | 'curated-fallback';
@@ -314,7 +318,14 @@ serve(async (req) => {
   };
 
   try {
-    const enabled = await readBooleanSetting(supabase, 'artemis_content_job_enabled', true);
+    const settings = await getSettings(supabase, [
+      'artemis_content_job_enabled',
+      BACKFILL_ONCE_KEY,
+      BACKFILL_PHOTO_DAYS_KEY,
+      BACKFILL_SOCIAL_DAYS_KEY
+    ]);
+
+    const enabled = parseBooleanSetting(settings.artemis_content_job_enabled, true);
     if (!enabled) {
       await finishIngestionRun(supabase, runId, true, { skipped: true, reason: 'disabled' });
       return jsonResponse({ ok: true, skipped: true, reason: 'disabled', elapsedMs: Date.now() - startedAtMs });
@@ -329,9 +340,9 @@ serve(async (req) => {
     const checkpointCursor = toIsoOrNull(asString(checkpointRes.data?.cursor));
     stats.cursor = checkpointCursor;
 
-    const backfillEnabled = await readBooleanSetting(supabase, BACKFILL_ONCE_KEY, false);
-    const photoBackfillDays = await readIntegerSetting(supabase, BACKFILL_PHOTO_DAYS_KEY, DEFAULT_BACKFILL_PHOTO_DAYS, 7, 3650);
-    const socialBackfillDays = await readIntegerSetting(supabase, BACKFILL_SOCIAL_DAYS_KEY, DEFAULT_BACKFILL_SOCIAL_DAYS, 7, 1095);
+    const backfillEnabled = parseBooleanSetting(settings[BACKFILL_ONCE_KEY], false);
+    const photoBackfillDays = parseIntegerSetting(settings[BACKFILL_PHOTO_DAYS_KEY], DEFAULT_BACKFILL_PHOTO_DAYS, 7, 3650);
+    const socialBackfillDays = parseIntegerSetting(settings[BACKFILL_SOCIAL_DAYS_KEY], DEFAULT_BACKFILL_SOCIAL_DAYS, 7, 1095);
     const photoSince = resolveSourceSince({
       cursor: checkpointCursor,
       runStartedAtIso,
@@ -2184,17 +2195,13 @@ async function consumeBackfillOnce(supabase: ReturnType<typeof createSupabaseAdm
   }
 }
 
-async function readIntegerSetting(
-  supabase: ReturnType<typeof createSupabaseAdminClient>,
-  key: string,
+function parseIntegerSetting(
+  value: unknown,
   fallback: number,
   min: number,
   max: number
 ) {
-  const { data, error } = await supabase.from('system_settings').select('value').eq('key', key).maybeSingle();
-  if (error) throw error;
-  const raw = data?.value;
-  const parsed = Number(typeof raw === 'string' ? raw : raw ?? Number.NaN);
+  const parsed = parseNumberSetting(value, Number.NaN);
   if (!Number.isFinite(parsed)) return fallback;
   return clampInt(Math.round(parsed), fallback, min, max);
 }

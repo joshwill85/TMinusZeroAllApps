@@ -16,6 +16,7 @@ import {
   updateCheckpoint,
   upsertTimelineEvent
 } from '../_shared/artemisIngest.ts';
+import { requestCanonicalContractsRevalidate } from '../_shared/contractsCacheRefresh.ts';
 
 type MissionKey = 'program' | 'artemis-i' | 'artemis-ii' | 'artemis-iii' | 'artemis-iv' | 'artemis-v' | 'artemis-vi' | 'artemis-vii';
 type ProgramScope = 'artemis' | 'blue-origin' | 'spacex' | 'other';
@@ -921,6 +922,11 @@ serve(async (req) => {
     mode: 'incremental',
     stage: 'all',
     procurementRowsRead: 0,
+    procurementCacheRowsRefreshed: 0,
+    contractsRevalidateRequested: false,
+    contractsRevalidateSucceeded: false,
+    contractsRevalidateHttpStatus: null as number | null,
+    contractsRevalidateError: null as string | null,
     normalizedContractsUpserted: 0,
     normalizedActionsUpserted: 0,
     budgetMappingsUpserted: 0,
@@ -2927,6 +2933,18 @@ serve(async (req) => {
         error: samRunFailureMessage
       });
     } else {
+      try {
+        const { data, error } = await supabase.rpc('refresh_artemis_program_procurement_cache');
+        if (error) throw error;
+        stats.procurementCacheRowsRefreshed =
+          typeof data === 'number' && Number.isFinite(data) ? data : Number(data || 0);
+      } catch (error) {
+        (stats.errors as Array<{ step: string; error: string }>).push({
+          step: 'procurement_cache_refresh',
+          error: stringifyError(error)
+        });
+      }
+
       const refreshDocId = await insertSourceDocument(supabase, {
         sourceKey: CHECKPOINT_NORMALIZED,
         sourceType: 'procurement',
@@ -2953,6 +2971,15 @@ serve(async (req) => {
         sourceUrl: 'https://api.sam.gov',
         tags: ['procurement', 'contract-story']
       });
+
+      stats.contractsRevalidateRequested = true;
+      const revalidateResult = await requestCanonicalContractsRevalidate({
+        source: RUN_NAME,
+        reason: 'artemis-contracts-updated'
+      });
+      stats.contractsRevalidateSucceeded = revalidateResult.ok;
+      stats.contractsRevalidateHttpStatus = revalidateResult.status;
+      stats.contractsRevalidateError = revalidateResult.error;
     }
     await endRunPhase('finalize_outputs', {
       sourceDocumentsInserted: Number(stats.sourceDocumentsInserted || 0),

@@ -11,7 +11,7 @@ import { getSiteUrl } from '@/lib/server/env';
 import { fetchLaunchBoosterStats } from '@/lib/server/launchBoosterStats';
 import {
   buildSpaceXContractSlug,
-  fetchSpaceXContracts,
+  fetchSpaceXContractPreview,
   fetchSpaceXFlightBySlug,
   fetchSpaceXPassengers,
   fetchSpaceXPayloads
@@ -64,10 +64,10 @@ export default async function SpaceXFlightPage({ params }: { params: Params }) {
   const flight = await fetchSpaceXFlightBySlug(parsed);
   if (!flight) notFound();
 
-  const [passengers, payloads, contracts, boosterStats] = await Promise.all([
+  const [passengers, payloads, contractPreview, boosterStats] = await Promise.all([
     fetchSpaceXPassengers(flight.missionKey),
     fetchSpaceXPayloads(flight.missionKey),
-    fetchSpaceXContracts(flight.missionKey),
+    fetchSpaceXContractPreview(8, flight.missionKey),
     fetchLaunchBoosterStats(flight.launch.id, flight.launch.ll2Id)
   ]);
 
@@ -243,9 +243,9 @@ export default async function SpaceXFlightPage({ params }: { params: Params }) {
 
       <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
         <h2 className="text-xl font-semibold text-text1">Related contracts</h2>
-        {contracts.items.length ? (
+        {contractPreview.total ? (
           <ul className="mt-3 space-y-2 text-sm text-text2">
-            {contracts.items.slice(0, 8).map((contract) => (
+            {contractPreview.items.map((contract) => (
               <li key={contract.id} className="rounded-lg border border-stroke bg-surface-0 p-3">
                 <Link
                   href={`/spacex/contracts/${buildSpaceXContractSlug(contract.contractKey)}`}

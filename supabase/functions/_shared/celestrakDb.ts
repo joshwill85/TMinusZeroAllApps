@@ -1,3 +1,4 @@
+import { getCachedSetting, primeCachedSettings } from './settings.ts';
 import { createSupabaseAdminClient } from './supabase.ts';
 
 type SupabaseAdminClient = ReturnType<typeof createSupabaseAdminClient>;
@@ -106,12 +107,12 @@ export async function upsertSetting(supabase: SupabaseAdminClient, key: string, 
     .from('system_settings')
     .upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
   if (error) throw error;
+  primeCachedSettings(supabase as unknown as Parameters<typeof primeCachedSettings>[0], { [key]: value });
 }
 
 export async function upsertSettingIfChanged(supabase: SupabaseAdminClient, key: string, value: unknown) {
-  const { data, error } = await supabase.from('system_settings').select('value').eq('key', key).maybeSingle();
-  if (error) throw error;
-  if (data && jsonValueKey(data.value) === jsonValueKey(value)) {
+  const existingValue = await getCachedSetting(supabase as unknown as Parameters<typeof getCachedSetting>[0], key);
+  if (existingValue !== undefined && jsonValueKey(existingValue) === jsonValueKey(value)) {
     return false;
   }
 

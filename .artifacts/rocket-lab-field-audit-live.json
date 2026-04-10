@@ -1,0 +1,517 @@
+{
+  "generatedAt": "2026-04-09T03:20:42.650Z",
+  "mode": "live",
+  "fixtureJsonPath": null,
+  "joinAuditJsonPath": ".artifacts/rocket-lab-join-audit-live.json",
+  "decision": "defer",
+  "availability": "yes",
+  "joinability": "partial",
+  "usableCoverage": "no",
+  "summary": {
+    "launchesEligibleFromJoinAudit": 13,
+    "launchesAudited": 13,
+    "launchesFetchedSuccessfully": 13,
+    "launchesWithInclination": 1,
+    "launchesWithFlightAzimuth": 0,
+    "launchesWithAltitude": 2,
+    "launchesWithApogee": 0,
+    "launchesWithPerigee": 0,
+    "launchesWithOrbitClass": 8,
+    "launchesWithAnyNumericOrbitField": 2,
+    "launchesWithMilestoneSignals": 4,
+    "launchesWithRecoverySignals": 0,
+    "launchesWithNumericOrbitSignals": 5,
+    "launchesWithAuthorityFieldBundle": 0
+  },
+  "reasons": [
+    "Field audit evaluated 13/13 deterministic-or-probable Rocket Lab joins from the join audit.",
+    "Numeric orbit-like values were present on 2/13 matched launches, orbit class on 8/13, milestone signals on 4/13, and recovery signals on 0/13.",
+    "Only 0/13 matched launches carried both a numeric orbit-like field and milestone signals, so usable coverage remains \"no\"."
+  ],
+  "launches": [
+    {
+      "launchId": "00c4c6fb-4cea-4437-8cca-dcb08cdbe303",
+      "name": "Electron | Eight Days A Week (StriX Launch 8)",
+      "missionName": "Eight Days A Week (StriX Launch 8)",
+      "net": "2026-03-20T18:10:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "go",
+      "matchStatus": "deterministic",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/eight-days-a-week",
+      "bestMatchScore": 120,
+      "matchedAlias": "eight days a week",
+      "pageFetched": true,
+      "fetchStatus": 200,
+      "fetchError": null,
+      "orbit": {
+        "inclinationDeg": 50.2,
+        "flightAzimuthDeg": null,
+        "altitudeKm": 573,
+        "apogeeKm": null,
+        "perigeeKm": null,
+        "orbitClass": "LEO",
+        "anyNumericOrbitField": true
+      },
+      "signals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 3,
+        "milestoneSignalCount": 0,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 1,
+        "matchedKeywords": [
+          "inclination",
+          "orbit",
+          "sso"
+        ]
+      },
+      "hasAuthorityFieldBundle": false
+    },
+    {
+      "launchId": "a33e2d51-905a-4288-bf68-c7d84d7a8fa7",
+      "name": "Electron | Daughter Of The Stars (LEO-PNT Pathfinder A)",
+      "missionName": "Daughter Of The Stars (LEO-PNT Pathfinder A)",
+      "net": "2026-03-28T09:14:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "go",
+      "matchStatus": "deterministic",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/daughter-of-the-stars",
+      "bestMatchScore": 120,
+      "matchedAlias": "daughter of the stars",
+      "pageFetched": true,
+      "fetchStatus": 200,
+      "fetchError": null,
+      "orbit": {
+        "inclinationDeg": null,
+        "flightAzimuthDeg": null,
+        "altitudeKm": 510,
+        "apogeeKm": null,
+        "perigeeKm": null,
+        "orbitClass": "LEO",
+        "anyNumericOrbitField": true
+      },
+      "signals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 3,
+        "milestoneSignalCount": 0,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 1,
+        "matchedKeywords": [
+          "orbit",
+          "low earth orbit",
+          "sso"
+        ]
+      },
+      "hasAuthorityFieldBundle": false
+    },
+    {
+      "launchId": "bb1fa4d1-68fd-478b-b588-389bcf3bfaa5",
+      "name": "Electron | Kakushin Rising (JAXA Rideshare)",
+      "missionName": "Kakushin Rising (JAXA Rideshare)",
+      "net": "2026-04-23T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "tbd",
+      "matchStatus": "deterministic",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/kakushin-rising",
+      "bestMatchScore": 120,
+      "matchedAlias": "kakushin rising",
+      "pageFetched": true,
+      "fetchStatus": 200,
+      "fetchError": null,
+      "orbit": {
+        "inclinationDeg": null,
+        "flightAzimuthDeg": null,
+        "altitudeKm": null,
+        "apogeeKm": null,
+        "perigeeKm": null,
+        "orbitClass": null,
+        "anyNumericOrbitField": false
+      },
+      "signals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 1,
+        "milestoneSignalCount": 0,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 0,
+        "matchedKeywords": [
+          "sso"
+        ]
+      },
+      "hasAuthorityFieldBundle": false
+    },
+    {
+      "launchId": "67ff11c1-436e-4848-9ddb-cae56a165c8b",
+      "name": "Electron | LOXSAT 1",
+      "missionName": "LOXSAT 1",
+      "net": "2026-06-25T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "probable",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/loxsat",
+      "bestMatchScore": 76,
+      "matchedAlias": "loxsat 1",
+      "pageFetched": true,
+      "fetchStatus": 200,
+      "fetchError": null,
+      "orbit": {
+        "inclinationDeg": null,
+        "flightAzimuthDeg": null,
+        "altitudeKm": null,
+        "apogeeKm": null,
+        "perigeeKm": null,
+        "orbitClass": "LEO",
+        "anyNumericOrbitField": false
+      },
+      "signals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 3,
+        "milestoneSignalCount": 4,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 0,
+        "matchedKeywords": [
+          "orbit",
+          "low earth orbit",
+          "sso",
+          "liftoff",
+          "payload deployment",
+          "kick stage",
+          "fairing"
+        ]
+      },
+      "hasAuthorityFieldBundle": false
+    },
+    {
+      "launchId": "ee7372ef-252b-462a-863d-c73e36363de7",
+      "name": "Electron | Aspera",
+      "missionName": "Aspera",
+      "net": "2026-08-15T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "deterministic",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/aspera",
+      "bestMatchScore": 120,
+      "matchedAlias": "aspera",
+      "pageFetched": true,
+      "fetchStatus": 200,
+      "fetchError": null,
+      "orbit": {
+        "inclinationDeg": null,
+        "flightAzimuthDeg": null,
+        "altitudeKm": null,
+        "apogeeKm": null,
+        "perigeeKm": null,
+        "orbitClass": null,
+        "anyNumericOrbitField": false
+      },
+      "signals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 1,
+        "milestoneSignalCount": 0,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 0,
+        "matchedKeywords": [
+          "sso"
+        ]
+      },
+      "hasAuthorityFieldBundle": false
+    },
+    {
+      "launchId": "14304b73-200d-4deb-897c-18d1c40bfd94",
+      "name": "Electron | iQPS Launch 7",
+      "missionName": "iQPS Launch 7",
+      "net": "2026-12-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "probable",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/iqps",
+      "bestMatchScore": 76,
+      "matchedAlias": "iqps launch 7",
+      "pageFetched": true,
+      "fetchStatus": 200,
+      "fetchError": null,
+      "orbit": {
+        "inclinationDeg": null,
+        "flightAzimuthDeg": null,
+        "altitudeKm": null,
+        "apogeeKm": null,
+        "perigeeKm": null,
+        "orbitClass": "LEO",
+        "anyNumericOrbitField": false
+      },
+      "signals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 3,
+        "milestoneSignalCount": 0,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 0,
+        "matchedKeywords": [
+          "inclination",
+          "orbit",
+          "sso"
+        ]
+      },
+      "hasAuthorityFieldBundle": false
+    },
+    {
+      "launchId": "08c45974-b5a3-42d7-bd5e-3178683cac10",
+      "name": "Electron | iQPS Launch 8",
+      "missionName": "iQPS Launch 8",
+      "net": "2026-12-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "probable",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/iqps",
+      "bestMatchScore": 76,
+      "matchedAlias": "iqps launch 8",
+      "pageFetched": true,
+      "fetchStatus": 200,
+      "fetchError": null,
+      "orbit": {
+        "inclinationDeg": null,
+        "flightAzimuthDeg": null,
+        "altitudeKm": null,
+        "apogeeKm": null,
+        "perigeeKm": null,
+        "orbitClass": "LEO",
+        "anyNumericOrbitField": false
+      },
+      "signals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 3,
+        "milestoneSignalCount": 0,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 0,
+        "matchedKeywords": [
+          "inclination",
+          "orbit",
+          "sso"
+        ]
+      },
+      "hasAuthorityFieldBundle": false
+    },
+    {
+      "launchId": "b452a0fa-ef7f-480d-907e-268851e31343",
+      "name": "Electron | iQPS Launch 9",
+      "missionName": "iQPS Launch 9",
+      "net": "2026-12-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "probable",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/iqps",
+      "bestMatchScore": 76,
+      "matchedAlias": "iqps launch 9",
+      "pageFetched": true,
+      "fetchStatus": 200,
+      "fetchError": null,
+      "orbit": {
+        "inclinationDeg": null,
+        "flightAzimuthDeg": null,
+        "altitudeKm": null,
+        "apogeeKm": null,
+        "perigeeKm": null,
+        "orbitClass": "LEO",
+        "anyNumericOrbitField": false
+      },
+      "signals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 3,
+        "milestoneSignalCount": 0,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 0,
+        "matchedKeywords": [
+          "inclination",
+          "orbit",
+          "sso"
+        ]
+      },
+      "hasAuthorityFieldBundle": false
+    },
+    {
+      "launchId": "243d80da-af63-4634-8919-3c891fc0ab6d",
+      "name": "Electron | iQPS Launch 10",
+      "missionName": "iQPS Launch 10",
+      "net": "2026-12-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "probable",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/iqps",
+      "bestMatchScore": 76,
+      "matchedAlias": "iqps launch 10",
+      "pageFetched": true,
+      "fetchStatus": 200,
+      "fetchError": null,
+      "orbit": {
+        "inclinationDeg": null,
+        "flightAzimuthDeg": null,
+        "altitudeKm": null,
+        "apogeeKm": null,
+        "perigeeKm": null,
+        "orbitClass": "LEO",
+        "anyNumericOrbitField": false
+      },
+      "signals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 3,
+        "milestoneSignalCount": 0,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 0,
+        "matchedKeywords": [
+          "inclination",
+          "orbit",
+          "sso"
+        ]
+      },
+      "hasAuthorityFieldBundle": false
+    },
+    {
+      "launchId": "12130188-2686-4d2f-945f-ca1325491482",
+      "name": "Electron | iQPS Launch 11",
+      "missionName": "iQPS Launch 11",
+      "net": "2026-12-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "probable",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/iqps",
+      "bestMatchScore": 76,
+      "matchedAlias": "iqps launch 11",
+      "pageFetched": true,
+      "fetchStatus": 200,
+      "fetchError": null,
+      "orbit": {
+        "inclinationDeg": null,
+        "flightAzimuthDeg": null,
+        "altitudeKm": null,
+        "apogeeKm": null,
+        "perigeeKm": null,
+        "orbitClass": "LEO",
+        "anyNumericOrbitField": false
+      },
+      "signals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 3,
+        "milestoneSignalCount": 0,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 0,
+        "matchedKeywords": [
+          "inclination",
+          "orbit",
+          "sso"
+        ]
+      },
+      "hasAuthorityFieldBundle": false
+    },
+    {
+      "launchId": "3eeeceeb-3206-4117-b537-7c6e9b912de0",
+      "name": "HASTE | Leidos-3",
+      "missionName": null,
+      "net": "2026-12-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "probable",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/haste",
+      "bestMatchScore": 76,
+      "matchedAlias": "haste leidos-3",
+      "pageFetched": true,
+      "fetchStatus": 200,
+      "fetchError": null,
+      "orbit": {
+        "inclinationDeg": null,
+        "flightAzimuthDeg": null,
+        "altitudeKm": null,
+        "apogeeKm": null,
+        "perigeeKm": null,
+        "orbitClass": null,
+        "anyNumericOrbitField": false
+      },
+      "signals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 3,
+        "milestoneSignalCount": 1,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 1,
+        "matchedKeywords": [
+          "orbit",
+          "orbital",
+          "sso",
+          "kick stage"
+        ]
+      },
+      "hasAuthorityFieldBundle": false
+    },
+    {
+      "launchId": "f4f3eee1-a1d1-4ddc-b797-5ec108e4ee3e",
+      "name": "HASTE | Leidos-4",
+      "missionName": null,
+      "net": "2026-12-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "probable",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/haste",
+      "bestMatchScore": 76,
+      "matchedAlias": "haste leidos-4",
+      "pageFetched": true,
+      "fetchStatus": 200,
+      "fetchError": null,
+      "orbit": {
+        "inclinationDeg": null,
+        "flightAzimuthDeg": null,
+        "altitudeKm": null,
+        "apogeeKm": null,
+        "perigeeKm": null,
+        "orbitClass": null,
+        "anyNumericOrbitField": false
+      },
+      "signals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 3,
+        "milestoneSignalCount": 1,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 1,
+        "matchedKeywords": [
+          "orbit",
+          "orbital",
+          "sso",
+          "kick stage"
+        ]
+      },
+      "hasAuthorityFieldBundle": false
+    },
+    {
+      "launchId": "2dff2e25-4942-48c2-a7c3-bfdbf55f4797",
+      "name": "HASTE | Leidos-5",
+      "missionName": null,
+      "net": "2026-12-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "probable",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/haste",
+      "bestMatchScore": 76,
+      "matchedAlias": "haste leidos-5",
+      "pageFetched": true,
+      "fetchStatus": 200,
+      "fetchError": null,
+      "orbit": {
+        "inclinationDeg": null,
+        "flightAzimuthDeg": null,
+        "altitudeKm": null,
+        "apogeeKm": null,
+        "perigeeKm": null,
+        "orbitClass": null,
+        "anyNumericOrbitField": false
+      },
+      "signals": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 3,
+        "milestoneSignalCount": 1,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 1,
+        "matchedKeywords": [
+          "orbit",
+          "orbital",
+          "sso",
+          "kick stage"
+        ]
+      },
+      "hasAuthorityFieldBundle": false
+    }
+  ]
+}

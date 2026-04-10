@@ -4,7 +4,7 @@ import {
   computeJepWeatherFactor,
   deriveJepCloudObstructionImpact,
   deriveJepWeatherContrastImpact
-} from './weather';
+} from './weather.ts';
 
 const OPEN_METEO_BASE = 'https://api.open-meteo.com/v1/forecast';
 const NWS_BASE = 'https://api.weather.gov';
@@ -664,24 +664,34 @@ async function resolvePointWeather({
   }
 
   if (isUsLocation) {
-    const nwsPoint = await resolveNwsPoint({
-      supabase,
-      lat,
-      lon,
-      ll2PadId: null,
-      nwsPointCache,
-      signal
-    });
-    nwsPointFetched = nwsPoint.pointFetched;
-    if (nwsPoint.row?.forecast_grid_data_url) {
-      const grid = await resolveNwsGridForecast(nwsPoint.row.forecast_grid_data_url, nwsGridCache, signal);
-      nwsGridFetched = grid.gridFetched;
-      if (grid.forecast?.properties) {
-        const sample = sampleNwsGridForecast(grid.forecast.properties, targetMs);
-        skyCoverPct = sample.skyCoverPct;
-        ceilingFt = sample.ceilingFt;
-        fetchedAtCandidates.push(grid.forecast.updatedAtMs);
+    try {
+      const nwsPoint = await resolveNwsPoint({
+        supabase,
+        lat,
+        lon,
+        ll2PadId: null,
+        nwsPointCache,
+        signal
+      });
+      nwsPointFetched = nwsPoint.pointFetched;
+      if (nwsPoint.row?.forecast_grid_data_url) {
+        const grid = await resolveNwsGridForecast(nwsPoint.row.forecast_grid_data_url, nwsGridCache, signal);
+        nwsGridFetched = grid.gridFetched;
+        if (grid.forecast?.properties) {
+          const sample = sampleNwsGridForecast(grid.forecast.properties, targetMs);
+          skyCoverPct = sample.skyCoverPct;
+          ceilingFt = sample.ceilingFt;
+          fetchedAtCandidates.push(grid.forecast.updatedAtMs);
+        }
       }
+    } catch (err) {
+      // NWS path sampling is additive. If it fails for a point, keep the Open-Meteo fallback
+      // rather than aborting the full launch score refresh.
+      console.warn('jep-score nws weather fallback warning', {
+        lat,
+        lon,
+        error: err instanceof Error ? err.message : String(err)
+      });
     }
   }
 

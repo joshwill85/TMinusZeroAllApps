@@ -1,5 +1,4 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
-import h5wasm from 'https://cdn.jsdelivr.net/npm/h5wasm@0.10.1/dist/esm/hdf5_hl.js';
 import { createSupabaseAdminClient } from '../_shared/supabase.ts';
 import { requireJobAuth } from '../_shared/jobAuth.ts';
 import {
@@ -15,6 +14,7 @@ import {
   upsertJepSourceVersion
 } from '../_shared/jepSource.ts';
 import {
+  BLACK_MARBLE_COLLECTION_ID,
   type ResolvedBlackMarbleFile,
   type BlackMarblePeriod,
   type BlackMarbleProductKey,
@@ -165,24 +165,51 @@ type H5Module = {
   };
 };
 
-serve(async (req) => {
+const blackMarbleYearsCache = new Map<BlackMarbleProductKey, Promise<number[]>>();
+const blackMarbleDirectoryDaysCache = new Map<string, Promise<number[]>>();
+
+type JepBackgroundLightSettingsOverrides = Partial<{
+  enabled: boolean;
+  sourceJobsEnabled: boolean;
+  usOnlyEnabled: boolean;
+  usLaunchStates: string[];
+  backgroundSourceEnabled: boolean;
+  horizonDays: number;
+  maxCellsPerRun: number;
+  normalizationScope: string;
+}>;
+
+export type RunJepBackgroundLightRefreshOptions = {
+  supabase?: ReturnType<typeof createSupabaseAdminClient>;
+  force?: boolean;
+  runner?: 'edge' | 'batch';
+  triggerMode?: 'scheduled' | 'manual' | 'backfill' | 'retry';
+  settingsOverrides?: JepBackgroundLightSettingsOverrides;
+};
+
+export type RunJepBackgroundLightRefreshResult = {
+  ok: boolean;
+  skipped?: boolean;
+  reason?: string;
+  error?: string;
+  elapsedMs: number;
+  stats: Record<string, unknown>;
+};
+
+export async function runJepBackgroundLightRefresh(
+  options: RunJepBackgroundLightRefreshOptions = {}
+): Promise<RunJepBackgroundLightRefreshResult> {
   const startedAt = Date.now();
-  let supabase: ReturnType<typeof createSupabaseAdminClient>;
-
-  try {
-    supabase = createSupabaseAdminClient();
-  } catch (err) {
-    return jsonResponse({ ok: false, stage: 'init', error: stringifyError(err) }, 500);
-  }
-
-  const authorized = await requireJobAuth(req, supabase);
-  if (!authorized) return jsonResponse({ error: 'unauthorized' }, 401);
-
-  const body = await req.json().catch(() => ({} as Record<string, unknown>));
-  const force = Boolean(body?.force);
+  const supabase = options.supabase ?? createSupabaseAdminClient();
+  const force = Boolean(options.force);
+  const runner = options.runner || 'edge';
+  const triggerMode = options.triggerMode || (runner === 'batch' ? 'manual' : 'scheduled');
+  const settingsOverrides = options.settingsOverrides || {};
   const { runId } = await startIngestionRun(supabase, 'jep_background_light_refresh');
 
   const stats: Record<string, unknown> = {
+    runner,
+    triggerMode,
     sourceJobsEnabled: DEFAULTS.sourceJobsEnabled,
     usOnlyEnabled: DEFAULTS.usOnlyEnabled,
     usLaunchStates: DEFAULTS.usLaunchStates,
@@ -210,28 +237,40 @@ serve(async (req) => {
 
   try {
     const settings = await getSettings(supabase, [...SETTINGS_KEYS]);
-    const enabled = readBooleanSetting(settings.jep_background_light_job_enabled, DEFAULTS.enabled);
-    const sourceJobsEnabled = readBooleanSetting(settings.jep_v6_source_jobs_enabled, DEFAULTS.sourceJobsEnabled);
-    const usOnlyEnabled = readBooleanSetting(settings.jep_v6_us_only_enabled, DEFAULTS.usOnlyEnabled);
+    const enabled =
+      typeof settingsOverrides.enabled === 'boolean'
+        ? settingsOverrides.enabled
+        : readBooleanSetting(settings.jep_background_light_job_enabled, DEFAULTS.enabled);
+    const sourceJobsEnabled =
+      typeof settingsOverrides.sourceJobsEnabled === 'boolean'
+        ? settingsOverrides.sourceJobsEnabled
+        : readBooleanSetting(settings.jep_v6_source_jobs_enabled, DEFAULTS.sourceJobsEnabled);
+    const usOnlyEnabled =
+      typeof settingsOverrides.usOnlyEnabled === 'boolean'
+        ? settingsOverrides.usOnlyEnabled
+        : readBooleanSetting(settings.jep_v6_us_only_enabled, DEFAULTS.usOnlyEnabled);
     const usLaunchStates = normalizeStates(
-      readStringArraySetting(settings.jep_v6_us_launch_states, [...DEFAULTS.usLaunchStates]),
+      settingsOverrides.usLaunchStates ?? readStringArraySetting(settings.jep_v6_us_launch_states, [...DEFAULTS.usLaunchStates]),
       [...DEFAULTS.usLaunchStates]
     );
     const backgroundSourceEnabled =
-      readBooleanSetting(settings.jep_source_refresh_black_marble_enabled, DEFAULTS.backgroundSourceEnabled) || force;
+      typeof settingsOverrides.backgroundSourceEnabled === 'boolean'
+        ? settingsOverrides.backgroundSourceEnabled
+        : readBooleanSetting(settings.jep_source_refresh_black_marble_enabled, DEFAULTS.backgroundSourceEnabled) || force;
     const horizonDays = clampInt(
-      readNumberSetting(settings.jep_background_light_horizon_days, DEFAULTS.horizonDays),
+      settingsOverrides.horizonDays ?? readNumberSetting(settings.jep_background_light_horizon_days, DEFAULTS.horizonDays),
       1,
       365
     );
     const maxCellsPerRun = clampInt(
-      readNumberSetting(settings.jep_background_light_max_cells_per_run, DEFAULTS.maxCellsPerRun),
+      settingsOverrides.maxCellsPerRun ?? readNumberSetting(settings.jep_background_light_max_cells_per_run, DEFAULTS.maxCellsPerRun),
       1,
       500
     );
     const normalizationScope =
-      readStringSetting(settings.jep_background_light_normalization_scope, DEFAULTS.normalizationScope).trim() ||
-      DEFAULTS.normalizationScope;
+      (settingsOverrides.normalizationScope ??
+        readStringSetting(settings.jep_background_light_normalization_scope, DEFAULTS.normalizationScope))
+        .trim() || DEFAULTS.normalizationScope;
 
     stats.sourceJobsEnabled = sourceJobsEnabled;
     stats.usOnlyEnabled = usOnlyEnabled;
@@ -243,19 +282,19 @@ serve(async (req) => {
 
     if (!enabled && !force) {
       await finishIngestionRun(supabase, runId, true, { ...stats, skipped: true, reason: 'disabled' });
-      return jsonResponse({ ok: true, skipped: true, reason: 'disabled', elapsedMs: Date.now() - startedAt });
+      return { ok: true, skipped: true, reason: 'disabled', elapsedMs: Date.now() - startedAt, stats };
     }
     if (!sourceJobsEnabled && !force) {
       await finishIngestionRun(supabase, runId, true, { ...stats, skipped: true, reason: 'source_jobs_disabled' });
-      return jsonResponse({ ok: true, skipped: true, reason: 'source_jobs_disabled', elapsedMs: Date.now() - startedAt });
+      return { ok: true, skipped: true, reason: 'source_jobs_disabled', elapsedMs: Date.now() - startedAt, stats };
     }
     if (!backgroundSourceEnabled) {
       await finishIngestionRun(supabase, runId, true, { ...stats, skipped: true, reason: 'black_marble_disabled' });
-      return jsonResponse({ ok: true, skipped: true, reason: 'black_marble_disabled', elapsedMs: Date.now() - startedAt });
+      return { ok: true, skipped: true, reason: 'black_marble_disabled', elapsedMs: Date.now() - startedAt, stats };
     }
     if (!BLACK_MARBLE_DOWNLOAD_TOKEN) {
       await finishIngestionRun(supabase, runId, true, { ...stats, skipped: true, reason: 'download_token_missing' });
-      return jsonResponse({ ok: true, skipped: true, reason: 'download_token_missing', elapsedMs: Date.now() - startedAt });
+      return { ok: true, skipped: true, reason: 'download_token_missing', elapsedMs: Date.now() - startedAt, stats };
     }
 
     const nowMs = Date.now();
@@ -280,7 +319,7 @@ serve(async (req) => {
 
     if (!launches.length) {
       await finishIngestionRun(supabase, runId, true, { ...stats, skipped: true, reason: 'no_candidates' });
-      return jsonResponse({ ok: true, skipped: true, reason: 'no_candidates', elapsedMs: Date.now() - startedAt });
+      return { ok: true, skipped: true, reason: 'no_candidates', elapsedMs: Date.now() - startedAt, stats };
     }
 
     const monthlyTargets = buildMonthlyTargets(launches, maxCellsPerRun);
@@ -288,14 +327,15 @@ serve(async (req) => {
 
     if (!monthlyTargets.length) {
       await finishIngestionRun(supabase, runId, true, { ...stats, skipped: true, reason: 'no_targets' });
-      return jsonResponse({ ok: true, skipped: true, reason: 'no_targets', elapsedMs: Date.now() - startedAt });
+      return { ok: true, skipped: true, reason: 'no_targets', elapsedMs: Date.now() - startedAt, stats };
     }
 
     const { availableTargetKeys: monthlyAvailable, rows: monthlyRows } = await materializeTargets({
       supabase,
       targets: monthlyTargets,
       normalizationScope,
-      stats
+      stats,
+      triggerMode
     });
 
     const yearlyTargets = buildYearlyFallbackTargets(monthlyTargets, monthlyAvailable, maxCellsPerRun);
@@ -307,7 +347,8 @@ serve(async (req) => {
           supabase,
           targets: yearlyTargets,
           normalizationScope,
-          stats
+          stats,
+          triggerMode
         })
       : { rows: [] as BackgroundCellUpsertRow[] };
 
@@ -321,24 +362,52 @@ serve(async (req) => {
 
     stats.rowsUpserted = upserts.length;
     await finishIngestionRun(supabase, runId, true, stats);
-    return jsonResponse({ ok: true, elapsedMs: Date.now() - startedAt, stats });
+    return { ok: true, elapsedMs: Date.now() - startedAt, stats };
   } catch (err) {
     const message = stringifyError(err);
     await finishIngestionRun(supabase, runId, false, stats, message);
-    return jsonResponse({ ok: false, error: message, elapsedMs: Date.now() - startedAt, stats }, 500);
+    return { ok: false, error: message, elapsedMs: Date.now() - startedAt, stats };
   }
-});
+}
+
+async function handleJepBackgroundLightRefreshRequest(req: Request) {
+  let supabase: ReturnType<typeof createSupabaseAdminClient>;
+
+  try {
+    supabase = createSupabaseAdminClient();
+  } catch (err) {
+    return jsonResponse({ ok: false, stage: 'init', error: stringifyError(err) }, 500);
+  }
+
+  const authorized = await requireJobAuth(req, supabase);
+  if (!authorized) return jsonResponse({ error: 'unauthorized' }, 401);
+
+  const body = await req.json().catch(() => ({} as Record<string, unknown>));
+  const result = await runJepBackgroundLightRefresh({
+    supabase,
+    force: Boolean(body?.force),
+    runner: 'edge',
+    triggerMode: 'scheduled'
+  });
+  return jsonResponse(result, result.ok ? 200 : 500);
+}
+
+if (import.meta.main) {
+  serve(handleJepBackgroundLightRefreshRequest);
+}
 
 async function materializeTargets({
   supabase,
   targets,
   normalizationScope,
-  stats
+  stats,
+  triggerMode
 }: {
   supabase: ReturnType<typeof createSupabaseAdminClient>;
   targets: CellTarget[];
   normalizationScope: string;
   stats: Record<string, unknown>;
+  triggerMode: 'scheduled' | 'manual' | 'backfill' | 'retry';
 }) {
   const rows: BackgroundCellUpsertRow[] = [];
   const availableTargetKeys = new Set<string>();
@@ -351,10 +420,20 @@ async function materializeTargets({
     let fetchRunId: number | null = null;
     let versionId: number | null = null;
     try {
-      const contentsHtml = await fetchText(resolveBlackMarbleContentsUrl(first.period), false);
+      const publishedPeriod = await resolvePublishedBlackMarblePeriod(first.period);
+      if (!publishedPeriod) {
+        if (first.period.productKey === 'VNP46A3') {
+          stats.monthlyMissing = Number(stats.monthlyMissing || 0) + group.length;
+        } else {
+          stats.yearlyMissing = Number(stats.yearlyMissing || 0) + group.length;
+        }
+        continue;
+      }
+
+      const contentsHtml = await fetchText(resolveBlackMarbleContentsUrl(publishedPeriod), true);
       const resolvedFile = resolveBlackMarbleFileFromContents({
         productKey: first.period.productKey,
-        period: first.period,
+        period: publishedPeriod,
         tileH: first.tile.tileH,
         tileV: first.tile.tileV,
         contentsHtml
@@ -399,7 +478,12 @@ async function materializeTargets({
       });
       stats.sourceVersionsResolved = Number(stats.sourceVersionsResolved || 0) + 1;
 
-      const existingByFeatureKey = await loadExistingRowsForTargets(supabase, group, resolvedFile.sourceKey, first.period.periodStartDate);
+      const existingByFeatureKey = await loadExistingRowsForTargets(
+        supabase,
+        group,
+        resolvedFile.sourceKey,
+        publishedPeriod.periodStartDate
+      );
       const pendingTargets: CellTarget[] = [];
       for (const target of group) {
         const existing = existingByFeatureKey.get(target.observerFeatureKey);
@@ -416,15 +500,26 @@ async function materializeTargets({
 
       if (!pendingTargets.length) continue;
 
+      const materializedTargets = pendingTargets.map((target) =>
+        target.period.periodStartDate === publishedPeriod.periodStartDate &&
+        target.period.productKey === publishedPeriod.productKey
+          ? target
+          : {
+              ...target,
+              period: publishedPeriod
+            }
+      );
+
       const sourceRun = await startJepSourceFetchRun(supabase, {
         sourceKey: resolvedFile.sourceKey,
+        triggerMode,
         requestRef: resolvedFile.archiveUrl,
         metadata: {
           productKey: resolvedFile.productKey,
-          periodStartDate: first.period.periodStartDate,
+          periodStartDate: publishedPeriod.periodStartDate,
           tileH: resolvedFile.tileH,
           tileV: resolvedFile.tileV,
-          targetCount: pendingTargets.length
+          targetCount: materializedTargets.length
         }
       });
       fetchRunId = sourceRun.runId;
@@ -433,7 +528,7 @@ async function materializeTargets({
       stats.sourceFetches = Number(stats.sourceFetches || 0) + 1;
 
       const materialized = await materializeTileRows({
-        targets: pendingTargets,
+        targets: materializedTargets,
         resolvedFile,
         sourceVersionId: versionId,
         sourceFetchRunId: fetchRunId,
@@ -456,7 +551,7 @@ async function materializeTargets({
           filename: resolvedFile.filename,
           tileH: resolvedFile.tileH,
           tileV: resolvedFile.tileV,
-          targetCount: pendingTargets.length
+          targetCount: materializedTargets.length
         }
       });
       fetchRunId = null;
@@ -501,7 +596,7 @@ async function materializeTileRows({
   normalizationScope: string;
   fileBytes: Uint8Array;
 }): Promise<TileMaterializationResult> {
-  const module = (h5wasm as unknown as H5Module);
+  const module = await loadH5Module();
   const ready = await module.ready;
   const filename = `black-marble-${crypto.randomUUID()}.h5`;
   ready.FS.writeFile(filename, fileBytes);
@@ -598,6 +693,17 @@ async function materializeTileRows({
       // Ignore cleanup failures in the ephemeral virtual filesystem.
     }
   }
+}
+
+let h5ModulePromise: Promise<H5Module> | null = null;
+
+function loadH5Module(): Promise<H5Module> {
+  if (!h5ModulePromise) {
+    h5ModulePromise = import('https://cdn.jsdelivr.net/npm/h5wasm@0.10.1/dist/esm/hdf5_hl.js').then(
+      (module) => (module.default as unknown as H5Module) ?? (module as unknown as H5Module)
+    );
+  }
+  return h5ModulePromise;
 }
 
 function evaluateTarget(target: CellTarget, bundles: TileDatasetBundle[], landMask: ArrayLike<number>): EvaluatedTarget {
@@ -796,7 +902,84 @@ function groupTargetsByTile(targets: CellTarget[]) {
 }
 
 function resolveBlackMarbleContentsUrl(period: BlackMarblePeriod) {
-  return `https://ladsweb.modaps.eosdis.nasa.gov/opendap/RemoteResources/laads/allData/5200/${period.productKey}/${period.directoryYear}/${String(period.directoryDoy).padStart(3, '0')}/contents.html`;
+  return `https://ladsweb.modaps.eosdis.nasa.gov/api/v2/content/archives/allData/${BLACK_MARBLE_COLLECTION_ID}/${period.productKey}/${period.directoryYear}/${String(period.directoryDoy).padStart(3, '0')}/`;
+}
+
+async function resolvePublishedBlackMarblePeriod(period: BlackMarblePeriod) {
+  if (period.productKey === 'VNP46A4') {
+    return await resolvePublishedYearlyBlackMarblePeriod(period);
+  }
+  return await resolvePublishedMonthlyBlackMarblePeriod(period);
+}
+
+async function resolvePublishedMonthlyBlackMarblePeriod(period: BlackMarblePeriod) {
+  const availableYears = await listBlackMarbleYears(period.productKey);
+  const candidateYears = [...availableYears]
+    .filter((year) => year <= period.directoryYear)
+    .sort((left, right) => right - left);
+
+  for (const year of candidateYears) {
+    const availableDays = await listBlackMarbleDirectoryDays(period.productKey, year);
+    const maxDesiredDay = year === period.directoryYear ? period.directoryDoy : 366;
+    const selectedDay = [...availableDays]
+      .filter((day) => day <= maxDesiredDay)
+      .sort((left, right) => right - left)[0];
+    if (!selectedDay) continue;
+    return buildBlackMarblePeriodFromDirectory(period.productKey, year, selectedDay);
+  }
+
+  return null;
+}
+
+async function resolvePublishedYearlyBlackMarblePeriod(period: BlackMarblePeriod) {
+  const availableYears = await listBlackMarbleYears(period.productKey);
+  const selectedYear = [...availableYears]
+    .filter((year) => year <= period.directoryYear)
+    .sort((left, right) => right - left)[0];
+  if (!selectedYear) return null;
+  return buildBlackMarblePeriodFromDirectory(period.productKey, selectedYear, 1);
+}
+
+function listBlackMarbleYears(productKey: BlackMarbleProductKey) {
+  const cached = blackMarbleYearsCache.get(productKey);
+  if (cached) return cached;
+
+  const promise = fetchText(
+    `https://ladsweb.modaps.eosdis.nasa.gov/api/v2/content/archives/allData/${BLACK_MARBLE_COLLECTION_ID}/${productKey}/`,
+    true
+  ).then((contentsHtml) => parseBlackMarbleDirectoryNumbers(contentsHtml, productKey, 4));
+
+  blackMarbleYearsCache.set(productKey, promise);
+  return promise;
+}
+
+function listBlackMarbleDirectoryDays(productKey: BlackMarbleProductKey, year: number) {
+  const cacheKey = `${productKey}|${year}`;
+  const cached = blackMarbleDirectoryDaysCache.get(cacheKey);
+  if (cached) return cached;
+
+  const promise = fetchText(
+    `https://ladsweb.modaps.eosdis.nasa.gov/api/v2/content/archives/allData/${BLACK_MARBLE_COLLECTION_ID}/${productKey}/${year}/`,
+    true
+  ).then((contentsHtml) => parseBlackMarbleDirectoryNumbers(contentsHtml, `${productKey}/${year}`, 3));
+
+  blackMarbleDirectoryDaysCache.set(cacheKey, promise);
+  return promise;
+}
+
+function parseBlackMarbleDirectoryNumbers(contentsHtml: string, pathToken: string, width: 3 | 4) {
+  const pattern = new RegExp(`${escapeRegExp(pathToken)}/(\\d{${width}})/`, 'g');
+  const values = new Set<number>();
+  for (const match of contentsHtml.matchAll(pattern)) {
+    const value = Number(match[1]);
+    if (Number.isFinite(value)) values.add(value);
+  }
+  return [...values].sort((left, right) => left - right);
+}
+
+function buildBlackMarblePeriodFromDirectory(productKey: BlackMarbleProductKey, year: number, dayOfYear: number) {
+  const date = new Date(Date.UTC(year, 0, dayOfYear));
+  return deriveBlackMarblePeriod(productKey, date.toISOString());
 }
 
 async function fetchText(url: string, authorized: boolean) {
@@ -864,9 +1047,12 @@ function isLaunchEligible(launch: LaunchRow) {
   return Number.isFinite(Number(launch.pad_latitude)) && Number.isFinite(Number(launch.pad_longitude));
 }
 
+const US_PAD_COUNTRY_CODES = new Set(['US', 'USA']);
+
 function isUsLaunch(launch: LaunchRow, states: string[]) {
-  if ((launch.pad_country_code || '').trim().toUpperCase() !== 'US') return false;
-  const state = (launch.pad_state || '').trim().toUpperCase();
+  const countryCode = String(launch.pad_country_code || '').trim().toUpperCase();
+  if (!US_PAD_COUNTRY_CODES.has(countryCode)) return false;
+  const state = String(launch.pad_state || '').trim().toUpperCase();
   return state ? states.includes(state) : false;
 }
 
@@ -879,33 +1065,37 @@ function dedupeLaunchIds(ids: string[]) {
   return [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 async function startIngestionRun(supabase: ReturnType<typeof createSupabaseAdminClient>, jobName: string) {
-  const { data, error } = await supabase
-    .from('ingestion_runs')
-    .insert({ job_name: jobName, status: 'running', started_at: new Date().toISOString() })
-    .select('id')
-    .single();
-  if (error) throw error;
+  const { data, error } = await supabase.from('ingestion_runs').insert({ job_name: jobName }).select('id').single();
+  if (error || !data) {
+    console.warn('Failed to start ingestion_runs record', { jobName, error: error?.message });
+    return { runId: null as number | null };
+  }
   return { runId: data.id as number };
 }
 
 async function finishIngestionRun(
   supabase: ReturnType<typeof createSupabaseAdminClient>,
-  runId: number,
+  runId: number | null,
   success: boolean,
   stats: Record<string, unknown>,
   errorMessage?: string
 ) {
-  const { error } = await supabase
-    .from('ingestion_runs')
-    .update({
-      status: success ? 'succeeded' : 'failed',
-      finished_at: new Date().toISOString(),
-      stats,
-      error_message: errorMessage || null
-    })
-    .eq('id', runId);
-  if (error) throw error;
+  if (!runId) return;
+  const update: Record<string, unknown> = {
+    success,
+    ended_at: new Date().toISOString(),
+    stats
+  };
+  if (errorMessage) update.error = errorMessage;
+  const { error } = await supabase.from('ingestion_runs').update(update).eq('id', runId);
+  if (error) {
+    console.warn('Failed to update ingestion_runs record', { runId, error: error.message });
+  }
 }
 
 function jsonResponse(payload: unknown, status = 200) {

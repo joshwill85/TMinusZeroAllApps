@@ -24,8 +24,10 @@ import {
 import {
   buildSpaceXContractSlug,
   fetchSpaceXContractDetailBySlug,
-  fetchSpaceXContracts
+  fetchSpaceXRawContracts
 } from '@/lib/server/spacexProgram';
+import { isSupabaseAdminConfigured } from '@/lib/server/env';
+import { createSupabaseAdminClient } from '@/lib/server/supabaseServer';
 import type { ArtemisMissionHubKey } from '@/lib/types/artemis';
 import { ARTEMIS_MISSION_HUB_KEYS } from '@/lib/types/artemis';
 import type { BlueOriginContractDetail } from '@/lib/types/blueOrigin';
@@ -37,6 +39,7 @@ import type { SpaceXContractDetail } from '@/lib/types/spacexProgram';
 import { getSpaceXMissionLabel } from '@/lib/utils/spacexProgram';
 
 export type CanonicalContractScope = 'spacex' | 'blue-origin' | 'artemis';
+export type CanonicalContractStoryStatus = 'exact' | 'pending';
 
 export type CanonicalContractStoryPreview = {
   storyKey: string;
@@ -92,11 +95,35 @@ export type CanonicalContractDetail = {
   biddersCount: number;
 };
 
+export type CanonicalContractTotals = {
+  all: number;
+  exact: number;
+  pending: number;
+  spacex: number;
+  blueOrigin: number;
+  artemis: number;
+};
+
+export type CanonicalContractsPage = {
+  generatedAt: string;
+  query: string | null;
+  scope: CanonicalContractScope | 'all';
+  totalRows: number;
+  offset: number;
+  limit: number;
+  hasMore: boolean;
+  totals: CanonicalContractTotals;
+  items: CanonicalContractSummary[];
+};
+
 const ARTEMIS_CONTRACT_LIMIT = 1200;
 const STORY_ACTION_LIMIT = 1400;
 const STORY_NOTICE_LIMIT = 1000;
 const STORY_SPENDING_LIMIT = 1400;
 const CANONICAL_CONTRACT_SNAPSHOT_TTL_MS = 90_000;
+const CANONICAL_CONTRACT_CACHE_QUERY_PAGE_SIZE = 1000;
+const DEFAULT_CANONICAL_CONTRACTS_PAGE_LIMIT = 100;
+const MAX_CANONICAL_CONTRACTS_PAGE_LIMIT = 500;
 
 type CanonicalContractsSnapshot = {
   builtAtMs: number;
@@ -104,8 +131,86 @@ type CanonicalContractsSnapshot = {
   byUid: Map<string, CanonicalContractSummary>;
 };
 
+type CanonicalContractsCacheRow = {
+  uid: string;
+  scope: CanonicalContractScope;
+  story_status: CanonicalContractStoryStatus;
+  story_key: string | null;
+  match_confidence: number | null;
+  has_full_story: boolean;
+  action_count: number;
+  notice_count: number;
+  spending_count: number;
+  bidder_count: number;
+  title: string;
+  description: string | null;
+  contract_key: string;
+  piid: string | null;
+  usaspending_award_id: string | null;
+  mission_key: string | null;
+  mission_label: string;
+  agency: string | null;
+  customer: string | null;
+  recipient: string | null;
+  amount: number | null;
+  awarded_on: string | null;
+  source_url: string | null;
+  source_label: string | null;
+  status: string | null;
+  updated_at: string | null;
+  canonical_path: string;
+  program_path: string;
+  keywords: string[] | null;
+  search_text: string | null;
+  sort_exact_rank: number;
+  sort_date: string | null;
+  cache_refreshed_at: string | null;
+};
+
+type CanonicalContractsCacheSnapshotData = {
+  items: CanonicalContractSummary[];
+  refreshedAtMs: number | null;
+};
+
 let canonicalContractsSnapshot: CanonicalContractsSnapshot | null = null;
 let canonicalContractsSnapshotPromise: Promise<CanonicalContractsSnapshot> | null = null;
+let canonicalContractsRefreshPromise: Promise<CanonicalContractSummary[]> | null = null;
+
+const CANONICAL_CONTRACTS_CACHE_SELECT = [
+  'uid',
+  'scope',
+  'story_status',
+  'story_key',
+  'match_confidence',
+  'has_full_story',
+  'action_count',
+  'notice_count',
+  'spending_count',
+  'bidder_count',
+  'title',
+  'description',
+  'contract_key',
+  'piid',
+  'usaspending_award_id',
+  'mission_key',
+  'mission_label',
+  'agency',
+  'customer',
+  'recipient',
+  'amount',
+  'awarded_on',
+  'source_url',
+  'source_label',
+  'status',
+  'updated_at',
+  'canonical_path',
+  'program_path',
+  'keywords',
+  'search_text',
+  'sort_exact_rank',
+  'sort_date',
+  'cache_refreshed_at'
+].join(',');
 
 const withCache =
   typeof cache === 'function'
@@ -150,14 +255,14 @@ export function buildCanonicalContractHrefForSeed(input: {
 
 async function buildCanonicalContractsIndex(): Promise<CanonicalContractSummary[]> {
   const [spaceXContracts, blueOriginContracts, artemisRows] = await Promise.all([
-    fetchSpaceXContracts('all'),
+    fetchSpaceXRawContracts('all'),
     fetchBlueOriginContracts('all'),
     fetchArtemisContracts({ limit: ARTEMIS_CONTRACT_LIMIT })
   ]);
 
   const artemisContracts = dedupeArtemisByPiid(artemisRows);
 
-  const spaceXSeeds = spaceXContracts.items.map((item) =>
+  const spaceXSeeds = spaceXContracts.map((item) =>
     buildSeed({
       contractKey: item.contractKey,
       sourceUrl: item.sourceUrl,
@@ -191,7 +296,7 @@ async function buildCanonicalContractsIndex(): Promise<CanonicalContractSummary[
     fetchContractStorySummariesByAwards('artemis', artemisSeeds)
   ]);
 
-  const mappedSpaceX = spaceXContracts.items.map((item, index) => {
+  const mappedSpaceX = spaceXContracts.map((item, index) => {
     const seed = spaceXSeeds[index];
     const story = getStoryForSeed(spaceXStories, seed);
     const awardId = normalizeText(seed.awardId) || normalizeText(story?.primaryUsaspendingAwardId);
@@ -337,6 +442,10 @@ async function buildCanonicalContractsIndex(): Promise<CanonicalContractSummary[
   return dedupeCanonicalContracts([...mappedSpaceX, ...mappedBlueOrigin, ...mappedArtemis]).sort(sortContracts);
 }
 
+async function buildCanonicalContractsIndexRowsFromSource() {
+  return buildContractsIndexRows(await buildCanonicalContractsIndex()).sort(sortContractsForIndex);
+}
+
 async function fetchCanonicalContractsSnapshot(): Promise<CanonicalContractsSnapshot> {
   const nowMs = Date.now();
   if (
@@ -348,9 +457,15 @@ async function fetchCanonicalContractsSnapshot(): Promise<CanonicalContractsSnap
 
   if (!canonicalContractsSnapshotPromise) {
     canonicalContractsSnapshotPromise = (async () => {
-      const items = await buildCanonicalContractsIndex();
-      const byUid = new Map(items.map((item) => [item.uid, item]));
-      const snapshot = { builtAtMs: Date.now(), items, byUid };
+      const cachedSnapshot = await readCanonicalContractsCacheSnapshotRows();
+      if (cachedSnapshot.items.length > 0) {
+        const snapshot = buildCanonicalContractsSnapshot(cachedSnapshot.items);
+        canonicalContractsSnapshot = snapshot;
+        return snapshot;
+      }
+
+      const refreshedRows = await refreshCanonicalContractsCache();
+      const snapshot = buildCanonicalContractsSnapshot(refreshedRows);
       canonicalContractsSnapshot = snapshot;
       return snapshot;
     })().finally(() => {
@@ -363,8 +478,64 @@ async function fetchCanonicalContractsSnapshot(): Promise<CanonicalContractsSnap
 
 export const fetchCanonicalContractsIndex = withCache(async (): Promise<CanonicalContractSummary[]> => {
   const snapshot = await fetchCanonicalContractsSnapshot();
-  return buildContractsIndexRows(snapshot.items).sort(sortContractsForIndex);
+  return snapshot.items;
 });
+
+export async function fetchCanonicalContractsPage(options: {
+  scope?: CanonicalContractScope | 'all';
+  query?: string | null;
+  limit?: number;
+  offset?: number;
+} = {}): Promise<CanonicalContractsPage> {
+  const scope = options.scope || 'all';
+  const query = normalizeCanonicalContractsQuery(options.query ?? null);
+  const limit = clampNumber(
+    options.limit ?? DEFAULT_CANONICAL_CONTRACTS_PAGE_LIMIT,
+    DEFAULT_CANONICAL_CONTRACTS_PAGE_LIMIT,
+    1,
+    MAX_CANONICAL_CONTRACTS_PAGE_LIMIT
+  );
+  const offset = clampNumber(options.offset ?? 0, 0, 0, 1_000_000);
+
+  const cachedRows = await queryCanonicalContractsCachePage({
+    scope,
+    query,
+    limit,
+    offset
+  });
+  if (cachedRows) {
+    const totals = await fetchCanonicalContractTotals();
+    return {
+      generatedAt: new Date().toISOString(),
+      query,
+      scope,
+      totalRows: cachedRows.totalRows,
+      offset,
+      limit,
+      hasMore: offset + cachedRows.items.length < cachedRows.totalRows,
+      totals,
+      items: cachedRows.items
+    };
+  }
+
+  const snapshot = await fetchCanonicalContractsSnapshot();
+  const scoped = scope === 'all' ? snapshot.items : snapshot.items.filter((row) => row.scope === scope);
+  const filtered = query
+    ? scoped.filter((row) => buildCanonicalContractSearchText(row).includes(query))
+    : scoped;
+  const items = filtered.slice(offset, offset + limit);
+  return {
+    generatedAt: new Date().toISOString(),
+    query,
+    scope,
+    totalRows: filtered.length,
+    offset,
+    limit,
+    hasMore: offset + items.length < filtered.length,
+    totals: buildCanonicalContractTotals(snapshot.items),
+    items
+  };
+}
 
 export const fetchCanonicalContractDetailByUid = withCache(async (uidInput: string): Promise<CanonicalContractDetail | null> => {
   const uid = normalizeCanonicalContractUid(uidInput);
@@ -524,6 +695,422 @@ export const fetchCanonicalContractDetailByUid = withCache(async (uidInput: stri
     biddersCount: story.bidders.length
   };
 });
+
+function buildCanonicalContractsSnapshot(items: CanonicalContractSummary[]): CanonicalContractsSnapshot {
+  return {
+    builtAtMs: Date.now(),
+    items,
+    byUid: new Map(items.map((item) => [item.uid, item]))
+  };
+}
+
+export function buildCanonicalContractTotals(contracts: CanonicalContractSummary[]): CanonicalContractTotals {
+  return {
+    all: contracts.length,
+    exact: contracts.filter((contract) => Boolean(contract.story?.storyKey)).length,
+    pending: contracts.filter((contract) => !contract.story?.storyKey).length,
+    spacex: contracts.filter((contract) => contract.scope === 'spacex').length,
+    blueOrigin: contracts.filter((contract) => contract.scope === 'blue-origin').length,
+    artemis: contracts.filter((contract) => contract.scope === 'artemis').length
+  };
+}
+
+async function fetchCanonicalContractTotals(): Promise<CanonicalContractTotals> {
+  if (isSupabaseAdminConfigured()) {
+    try {
+      const admin = createSupabaseAdminClient();
+      const { data, error } = await admin.rpc('get_canonical_contract_totals_v1');
+      if (!error) {
+        const record = asRecord(data);
+        return {
+          all: clampCount(record?.all),
+          exact: clampCount(record?.exact),
+          pending: clampCount(record?.pending),
+          spacex: clampCount(record?.spacex),
+          blueOrigin: clampCount(record?.blueOrigin ?? record?.blue_origin),
+          artemis: clampCount(record?.artemis)
+        };
+      }
+
+      if (!isMissingCanonicalContractsRpcError(error.message || '', 'get_canonical_contract_totals_v1')) {
+        console.error('canonical contracts totals rpc error', error);
+      }
+    } catch (error) {
+      console.error('canonical contracts totals read error', error);
+    }
+  }
+
+  const cachedSnapshot = await readCanonicalContractsCacheSnapshotRows();
+  if (cachedSnapshot.items.length > 0) {
+    return buildCanonicalContractTotals(cachedSnapshot.items);
+  }
+
+  const snapshot = await fetchCanonicalContractsSnapshot();
+  return buildCanonicalContractTotals(snapshot.items);
+}
+
+export async function refreshCanonicalContractsCache() {
+  if (!canonicalContractsRefreshPromise) {
+    canonicalContractsRefreshPromise = (async () => {
+      const rows = await buildCanonicalContractsIndexRowsFromSource();
+      await replaceCanonicalContractsCache(rows);
+      canonicalContractsSnapshot = buildCanonicalContractsSnapshot(rows);
+      return rows;
+    })().finally(() => {
+      canonicalContractsRefreshPromise = null;
+    });
+  }
+
+  return canonicalContractsRefreshPromise;
+}
+
+async function replaceCanonicalContractsCache(rows: CanonicalContractSummary[]) {
+  if (!isSupabaseAdminConfigured()) return;
+
+  try {
+    const admin = createSupabaseAdminClient();
+    const payload = rows.map(mapCanonicalContractToCacheRow);
+    const { error } = await admin.rpc('replace_canonical_contracts_cache_v1', {
+      rows_in: payload
+    });
+    if (error) {
+      if (!isMissingCanonicalContractsRpcError(error.message || '', 'replace_canonical_contracts_cache_v1')) {
+        console.error('canonical contracts cache replace rpc error', error);
+      }
+    }
+  } catch (error) {
+    console.error('canonical contracts cache replace error', error);
+  }
+}
+
+async function readCanonicalContractsCacheSnapshotRows() {
+  if (!isSupabaseAdminConfigured()) {
+    return { items: [], refreshedAtMs: null } satisfies CanonicalContractsCacheSnapshotData;
+  }
+
+  try {
+    const admin = createSupabaseAdminClient();
+    const rows: CanonicalContractSummary[] = [];
+    let refreshedAtMs: number | null = null;
+    let from = 0;
+
+    while (true) {
+      const to = from + CANONICAL_CONTRACT_CACHE_QUERY_PAGE_SIZE - 1;
+      const { data, error } = await admin
+        .from('canonical_contracts_cache')
+        .select(CANONICAL_CONTRACTS_CACHE_SELECT)
+        .order('sort_exact_rank', { ascending: true })
+        .order('sort_date', { ascending: false, nullsFirst: false })
+        .order('scope', { ascending: true })
+        .order('title', { ascending: true })
+        .order('uid', { ascending: true })
+        .range(from, to);
+
+      if (error) {
+        if (!isMissingCanonicalContractsCacheRelationError(error.message || '')) {
+          console.error('canonical contracts cache snapshot query error', error);
+        }
+        return { items: [], refreshedAtMs: null } satisfies CanonicalContractsCacheSnapshotData;
+      }
+
+      const rawRows = normalizeRecordArray(data);
+      const chunk = rawRows
+        .map((row) => mapCanonicalContractsCacheRow(row))
+        .filter((row): row is CanonicalContractSummary => row !== null);
+      if (refreshedAtMs == null) {
+        refreshedAtMs = readCanonicalContractsCacheRefreshedAtMs(rawRows);
+      }
+      rows.push(...chunk);
+
+      if (rawRows.length < CANONICAL_CONTRACT_CACHE_QUERY_PAGE_SIZE) {
+        break;
+      }
+
+      from += rawRows.length;
+    }
+
+    return { items: rows, refreshedAtMs } satisfies CanonicalContractsCacheSnapshotData;
+  } catch (error) {
+    console.error('canonical contracts cache snapshot read error', error);
+    return { items: [], refreshedAtMs: null } satisfies CanonicalContractsCacheSnapshotData;
+  }
+}
+
+async function queryCanonicalContractsCachePage(options: {
+  scope: CanonicalContractScope | 'all';
+  query: string | null;
+  limit: number;
+  offset: number;
+}) {
+  const cacheReady = await ensureCanonicalContractsCacheReady();
+  if (!cacheReady || !isSupabaseAdminConfigured()) {
+    return null;
+  }
+
+  try {
+    const admin = createSupabaseAdminClient();
+    const pattern = options.query ? buildCanonicalContractsSearchPattern(options.query) : null;
+
+    let countQuery = admin
+      .from('canonical_contracts_cache')
+      .select('uid', { count: 'exact', head: true });
+    if (options.scope !== 'all') {
+      countQuery = countQuery.eq('scope', options.scope);
+    }
+    if (pattern) {
+      countQuery = countQuery.ilike('search_text', pattern);
+    }
+
+    const { count, error: countError } = await countQuery;
+    if (countError) {
+      if (!isMissingCanonicalContractsCacheRelationError(countError.message || '')) {
+        console.error('canonical contracts cache count query error', countError);
+      }
+      return null;
+    }
+
+    if ((typeof count !== 'number' ? 0 : count) === 0 && !options.query && options.scope === 'all') {
+      return null;
+    }
+
+    let itemQuery = admin
+      .from('canonical_contracts_cache')
+      .select(CANONICAL_CONTRACTS_CACHE_SELECT)
+      .order('sort_exact_rank', { ascending: true })
+      .order('sort_date', { ascending: false, nullsFirst: false })
+      .order('scope', { ascending: true })
+      .order('title', { ascending: true })
+      .order('uid', { ascending: true })
+      .range(options.offset, options.offset + options.limit - 1);
+    if (options.scope !== 'all') {
+      itemQuery = itemQuery.eq('scope', options.scope);
+    }
+    if (pattern) {
+      itemQuery = itemQuery.ilike('search_text', pattern);
+    }
+
+    const { data, error } = await itemQuery;
+    if (error) {
+      if (!isMissingCanonicalContractsCacheRelationError(error.message || '')) {
+        console.error('canonical contracts cache page query error', error);
+      }
+      return null;
+    }
+
+    const rawRows = normalizeRecordArray(data);
+    return {
+      totalRows: typeof count === 'number' ? count : 0,
+      items: rawRows
+        .map((row) => mapCanonicalContractsCacheRow(row))
+        .filter((row): row is CanonicalContractSummary => row !== null)
+    };
+  } catch (error) {
+    console.error('canonical contracts cache page read error', error);
+    return null;
+  }
+}
+
+async function ensureCanonicalContractsCacheReady() {
+  if (!isSupabaseAdminConfigured()) return false;
+
+  try {
+    const admin = createSupabaseAdminClient();
+    const { count, error } = await admin
+      .from('canonical_contracts_cache')
+      .select('cache_refreshed_at', { count: 'exact' })
+      .order('cache_refreshed_at', { ascending: false, nullsFirst: false })
+      .limit(1);
+
+    if (error) {
+      if (!isMissingCanonicalContractsCacheRelationError(error.message || '')) {
+        console.error('canonical contracts cache status query error', error);
+      }
+      return false;
+    }
+
+    const totalRows = typeof count === 'number' ? count : 0;
+    if (totalRows > 0) {
+      return true;
+    }
+
+    await refreshCanonicalContractsCache();
+    return true;
+  } catch (error) {
+    console.error('canonical contracts cache readiness check error', error);
+    return false;
+  }
+}
+
+function mapCanonicalContractToCacheRow(contract: CanonicalContractSummary) {
+  return {
+    uid: contract.uid,
+    scope: contract.scope,
+    story_status: contract.story?.storyKey ? 'exact' : 'pending',
+    story_key: contract.story?.storyKey || null,
+    match_confidence: finiteNumberOrNull(contract.story?.matchConfidence),
+    has_full_story: Boolean(contract.story?.hasFullStory),
+    action_count: clampCount(contract.story?.actionCount),
+    notice_count: clampCount(contract.story?.noticeCount),
+    spending_count: clampCount(contract.story?.spendingPointCount),
+    bidder_count: clampCount(contract.story?.bidderCount),
+    title: contract.title,
+    description: contract.description,
+    contract_key: contract.contractKey,
+    piid: contract.piid,
+    usaspending_award_id: contract.usaspendingAwardId,
+    mission_key: contract.missionKey,
+    mission_label: contract.missionLabel,
+    agency: contract.agency,
+    customer: contract.customer,
+    recipient: contract.recipient,
+    amount: contract.amount,
+    awarded_on: contract.awardedOn,
+    source_url: contract.sourceUrl,
+    source_label: contract.sourceLabel,
+    status: contract.status,
+    updated_at: contract.updatedAt,
+    canonical_path: contract.canonicalPath,
+    program_path: contract.programPath,
+    keywords: contract.keywords,
+    search_text: buildCanonicalContractSearchText(contract),
+    sort_exact_rank: contract.story?.storyKey ? 0 : 1,
+    sort_date: buildCanonicalContractSortDate(contract)
+  };
+}
+
+function mapCanonicalContractsCacheRow(
+  row: CanonicalContractsCacheRow | Record<string, unknown>
+): CanonicalContractSummary | null {
+  const record = row as Record<string, unknown>;
+  const uid = normalizeText(record.uid);
+  const scope = normalizeCanonicalContractScope(record.scope);
+  const title = normalizeText(record.title);
+  const contractKey = normalizeText(record.contract_key);
+  const missionLabel = normalizeText(record.mission_label);
+  const canonicalPath = normalizeText(record.canonical_path);
+  const programPath = normalizeText(record.program_path);
+  if (!uid || !scope || !title || !contractKey || !missionLabel || !canonicalPath || !programPath) {
+    return null;
+  }
+
+  const storyKey = normalizeText(record.story_key);
+  const keywords = Array.isArray(record.keywords)
+    ? record.keywords
+        .map((value) => normalizeText(value))
+        .filter((value): value is string => Boolean(value))
+    : [];
+
+  return {
+    uid,
+    scope,
+    title,
+    description: normalizeText(record.description),
+    contractKey,
+    piid: normalizeText(record.piid),
+    usaspendingAwardId: normalizeText(record.usaspending_award_id),
+    missionKey: normalizeText(record.mission_key),
+    missionLabel,
+    agency: normalizeText(record.agency),
+    customer: normalizeText(record.customer),
+    recipient: normalizeText(record.recipient),
+    amount: finiteNumberOrNull(record.amount),
+    awardedOn: normalizeDate(record.awarded_on),
+    sourceUrl: normalizeText(record.source_url),
+    sourceLabel: normalizeText(record.source_label),
+    status: normalizeText(record.status),
+    updatedAt: normalizeDateTime(record.updated_at),
+    canonicalPath,
+    programPath,
+    keywords,
+    story: storyKey
+      ? {
+          storyKey,
+          programScope: scope,
+          matchConfidence: finiteNumberOrNull(record.match_confidence) ?? 0,
+          hasFullStory: Boolean(record.has_full_story),
+          actionCount: clampCount(record.action_count),
+          noticeCount: clampCount(record.notice_count),
+          spendingPointCount: clampCount(record.spending_count),
+          bidderCount: clampCount(record.bidder_count),
+          primaryPiid: normalizeText(record.piid),
+          primaryUsaspendingAwardId: normalizeText(record.usaspending_award_id)
+        }
+      : null
+  };
+}
+
+function readCanonicalContractsCacheRefreshedAtMs(rows: Array<Record<string, unknown>>) {
+  const first = rows[0] as { cache_refreshed_at?: string | null } | undefined;
+  const cacheRefreshedAt = normalizeText(first?.cache_refreshed_at);
+  if (!cacheRefreshedAt) return null;
+  const parsed = Date.parse(cacheRefreshedAt);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeRecordArray(value: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is Record<string, unknown> => {
+    return Boolean(item) && typeof item === 'object' && !Array.isArray(item);
+  });
+}
+
+function buildCanonicalContractsSearchPattern(query: string) {
+  return `%${escapeLikePattern(query)}%`;
+}
+
+function buildCanonicalContractSortDate(contract: CanonicalContractSummary) {
+  const sortMs = resolveSortDate(contract.awardedOn, contract.updatedAt);
+  if (!Number.isFinite(sortMs) || sortMs <= 0) return null;
+  return new Date(sortMs).toISOString();
+}
+
+function normalizeCanonicalContractScope(value: unknown): CanonicalContractScope | null {
+  const normalized = normalizeText(value);
+  if (normalized === 'spacex' || normalized === 'blue-origin' || normalized === 'artemis') {
+    return normalized;
+  }
+  return null;
+}
+
+function isMissingCanonicalContractsCacheRelationError(message: string) {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes('canonical_contracts_cache') &&
+    normalized.includes('relation') &&
+    normalized.includes('does not exist')
+  );
+}
+
+function isMissingCanonicalContractsRpcError(message: string, functionName: string) {
+  const normalized = message.toLowerCase();
+  const expected = functionName.toLowerCase();
+  return (
+    normalized.includes(expected) &&
+    (normalized.includes('does not exist') ||
+      normalized.includes('could not find the function') ||
+      normalized.includes('function'))
+  );
+}
+
+function escapeLikePattern(value: string) {
+  return value.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+}
+
+function normalizeCanonicalContractsQuery(value: string | null) {
+  const normalized = normalizeText(value)?.toLowerCase();
+  if (!normalized) return null;
+  return normalized.slice(0, 160);
+}
+
+function clampNumber(value: number, fallback: number, min: number, max: number) {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, Math.trunc(value)));
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
 
 export function buildCanonicalContractSearchText(contract: CanonicalContractSummary) {
   return [

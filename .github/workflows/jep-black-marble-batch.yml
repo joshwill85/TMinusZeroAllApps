@@ -1,0 +1,68 @@
+name: JEP Black Marble Batch
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_cells:
+        description: 'Max observer cells to materialize this run'
+        required: false
+        default: '24'
+      horizon_days:
+        description: 'How many future days of launches to consider'
+        required: false
+        default: '45'
+      states:
+        description: 'Comma-separated US launch states'
+        required: false
+        default: 'FL,CA,TX'
+      trigger_mode:
+        description: 'Manual provenance label'
+        required: false
+        default: 'backfill'
+
+permissions:
+  contents: read
+
+jobs:
+  black-marble-batch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CI: 'true'
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      JEP_BLACK_MARBLE_DOWNLOAD_TOKEN: ${{ secrets.JEP_BLACK_MARBLE_DOWNLOAD_TOKEN }}
+      JEP_BLACK_MARBLE_USER_AGENT: 'TMinusZero/0.1 (support@tminuszero.app)'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Verify required secrets
+        run: |
+          test -n "$SUPABASE_URL"
+          test -n "$SUPABASE_SERVICE_ROLE_KEY"
+          test -n "$JEP_BLACK_MARBLE_DOWNLOAD_TOKEN"
+
+      - name: Run Black Marble batch
+        run: |
+          mkdir -p .artifacts/jep-black-marble
+          deno run -A scripts/jep-black-marble-batch.mts \
+            --max-cells="${{ github.event.inputs.max_cells }}" \
+            --horizon-days="${{ github.event.inputs.horizon_days }}" \
+            --states="${{ github.event.inputs.states }}" \
+            --trigger-mode="${{ github.event.inputs.trigger_mode }}" \
+            > .artifacts/jep-black-marble/summary.json
+
+      - name: Upload batch summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jep-black-marble-summary
+          path: .artifacts/jep-black-marble
+          if-no-files-found: ignore

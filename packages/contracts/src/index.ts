@@ -671,6 +671,16 @@ export const spaceXContractsResponseSchemaV1 = z.object({
   items: z.array(spaceXContractSchemaV1)
 });
 
+export const spaceXContractsPageSchemaV1 = z.object({
+  generatedAt: z.string(),
+  mission: z.union([spaceXMissionKeySchemaV1, z.literal('all')]),
+  total: z.number().int().nonnegative(),
+  offset: z.number().int().nonnegative(),
+  limit: z.number().int().positive(),
+  hasMore: z.boolean(),
+  items: z.array(spaceXContractSchemaV1)
+});
+
 export const spaceXDroneShipListResponseSchemaV1 = z.object({
   generatedAt: z.string(),
   items: z.array(spaceXDroneShipSchemaV1),
@@ -1942,6 +1952,15 @@ const canonicalContractSummarySchemaV1 = z.object({
   bidderCount: z.number().int().nonnegative()
 });
 
+const canonicalContractTotalsSchemaV1 = z.object({
+  all: z.number().int().nonnegative(),
+  exact: z.number().int().nonnegative(),
+  pending: z.number().int().nonnegative(),
+  spacex: z.number().int().nonnegative(),
+  blueOrigin: z.number().int().nonnegative(),
+  artemis: z.number().int().nonnegative()
+});
+
 export const canonicalContractsResponseSchemaV1 = z.object({
   generatedAt: z.string(),
   title: z.string(),
@@ -1949,14 +1968,19 @@ export const canonicalContractsResponseSchemaV1 = z.object({
   query: z.string().nullable(),
   scope: canonicalContractScopeFilterSchemaV1,
   totalRows: z.number().int().nonnegative(),
-  totals: z.object({
-    all: z.number().int().nonnegative(),
-    exact: z.number().int().nonnegative(),
-    pending: z.number().int().nonnegative(),
-    spacex: z.number().int().nonnegative(),
-    blueOrigin: z.number().int().nonnegative(),
-    artemis: z.number().int().nonnegative()
-  }),
+  totals: canonicalContractTotalsSchemaV1,
+  items: z.array(canonicalContractSummarySchemaV1)
+});
+
+export const canonicalContractsPageSchemaV1 = z.object({
+  generatedAt: z.string(),
+  query: z.string().nullable(),
+  scope: canonicalContractScopeFilterSchemaV1,
+  totalRows: z.number().int().nonnegative(),
+  offset: z.number().int().nonnegative(),
+  limit: z.number().int().positive(),
+  hasMore: z.boolean(),
+  totals: canonicalContractTotalsSchemaV1,
   items: z.array(canonicalContractSummarySchemaV1)
 });
 
@@ -4072,6 +4096,7 @@ export type SpaceXFlightsResponseV1 = z.infer<typeof spaceXFlightsResponseSchema
 export type SpaceXVehiclesResponseV1 = z.infer<typeof spaceXVehiclesResponseSchemaV1>;
 export type SpaceXEnginesResponseV1 = z.infer<typeof spaceXEnginesResponseSchemaV1>;
 export type SpaceXContractsResponseV1 = z.infer<typeof spaceXContractsResponseSchemaV1>;
+export type SpaceXContractsPageV1 = z.infer<typeof spaceXContractsPageSchemaV1>;
 export type SpaceXDroneShipListResponseV1 = z.infer<typeof spaceXDroneShipListResponseSchemaV1>;
 export type SpaceXDroneShipDetailV1 = z.infer<typeof spaceXDroneShipDetailSchemaV1>;
 export type ArtemisMissionKeyV1 = z.infer<typeof artemisMissionKeySchemaV1>;
@@ -4107,6 +4132,7 @@ export type ArTelemetrySessionEventV1 = z.infer<typeof arTelemetrySessionEventSc
 export type SearchResponseV1 = z.infer<typeof searchResponseSchemaV1>;
 export type NewsStreamV1 = z.infer<typeof newsStreamSchemaV1>;
 export type CanonicalContractsResponseV1 = z.infer<typeof canonicalContractsResponseSchemaV1>;
+export type CanonicalContractsPageV1 = z.infer<typeof canonicalContractsPageSchemaV1>;
 export type CanonicalContractDetailV1 = z.infer<typeof canonicalContractDetailSchemaV1>;
 export type SatellitesResponseV1 = z.infer<typeof satellitesResponseSchemaV1>;
 export type SatelliteOwnersResponseV1 = z.infer<typeof satelliteOwnersResponseSchemaV1>;

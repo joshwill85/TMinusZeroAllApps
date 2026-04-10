@@ -1,0 +1,104 @@
+{
+  "generatedAt": "2026-04-08T23:45:59.684Z",
+  "mode": "fixture",
+  "fixtureJsonPath": "scripts/fixtures/rocket-lab/rocket-lab-source-audit-sample.json",
+  "decision": "defer",
+  "availability": "yes",
+  "joinability": "partial",
+  "usableCoverage": "no",
+  "summary": {
+    "seedPagesChecked": 2,
+    "seedPagesAvailable": 2,
+    "candidatePageCount": 2,
+    "candidatePdfCount": 2,
+    "sampledPagesChecked": 2,
+    "sampledPagesAvailable": 2,
+    "launchSpecificSlugCount": 2,
+    "pagesWithTrajectorySignals": 2,
+    "pagesWithOrbitSignals": 1,
+    "pagesWithMilestoneSignals": 1,
+    "pagesWithRecoverySignals": 1,
+    "pagesWithNumericOrbitSignals": 1
+  },
+  "reasons": [
+    "Availability is yes: 2/2 seed pages loaded and exposed 2 same-host page candidates plus 2 same-host PDF candidates.",
+    "Joinability is partial because the sampled docs expose stable first-party slugs, but there is still no deterministic proof that those docs map cleanly onto T-Minus Zero launch identity for the current launch inventory.",
+    "Usable coverage stays \"no\" because this source-sample audit does not yet prove direction, milestone, recovery, or visibility values across real T-Minus Zero launches.",
+    "Trajectory-related language appeared on 2/2 sampled pages, with orbit signals on 1, milestone signals on 1, recovery signals on 1, and numeric orbit-like language on 1."
+  ],
+  "seedPages": [
+    {
+      "url": "https://rocketlabcorp.com/missions/",
+      "ok": true,
+      "status": 200,
+      "contentType": "text/html; charset=utf-8",
+      "finalUrl": "https://rocketlabcorp.com/missions/",
+      "challenge": false,
+      "error": null,
+      "pageCandidates": 1,
+      "pdfCandidates": 1
+    },
+    {
+      "url": "https://rocketlabcorp.com/updates/",
+      "ok": true,
+      "status": 200,
+      "contentType": "text/html; charset=utf-8",
+      "finalUrl": "https://rocketlabcorp.com/updates/",
+      "challenge": false,
+      "error": null,
+      "pageCandidates": 1,
+      "pdfCandidates": 1
+    }
+  ],
+  "candidatePages": [
+    "https://rocketlabcorp.com/missions/the-moon-god-awakens",
+    "https://rocketlabcorp.com/updates/electron-recovery-update"
+  ],
+  "candidatePdfs": [
+    "https://rocketlabcorp.com/assets/Uploads/The-Moon-God-Awakens-Press-Kit.pdf",
+    "https://rocketlabcorp.com/assets/Uploads/Electron-Recovery-Update.pdf"
+  ],
+  "sampledPages": [
+    {
+      "url": "https://rocketlabcorp.com/missions/the-moon-god-awakens/",
+      "ok": true,
+      "status": 200,
+      "contentType": "text/html; charset=utf-8",
+      "finalUrl": "https://rocketlabcorp.com/missions/the-moon-god-awakens/",
+      "challenge": false,
+      "error": null,
+      "slug": "the-moon-god-awakens",
+      "hasTrajectorySignals": true,
+      "orbitSignalCount": 2,
+      "milestoneSignalCount": 2,
+      "recoverySignalCount": 0,
+      "numericOrbitSignalCount": 1,
+      "matchedKeywords": [
+        "orbit",
+        "low earth orbit",
+        "stage separation",
+        "payload deployment"
+      ]
+    },
+    {
+      "url": "https://rocketlabcorp.com/updates/electron-recovery-update/",
+      "ok": true,
+      "status": 200,
+      "contentType": "text/html; charset=utf-8",
+      "finalUrl": "https://rocketlabcorp.com/updates/electron-recovery-update/",
+      "challenge": false,
+      "error": null,
+      "slug": "electron-recovery-update",
+      "hasTrajectorySignals": true,
+      "orbitSignalCount": 0,
+      "milestoneSignalCount": 0,
+      "recoverySignalCount": 3,
+      "numericOrbitSignalCount": 0,
+      "matchedKeywords": [
+        "recovery",
+        "splashdown",
+        "parachute"
+      ]
+    }
+  ]
+}

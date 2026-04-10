@@ -78,8 +78,9 @@ function getNpmVersionFromUserAgent() {
 function fail(message) {
   let exactNode = '(unknown)';
   let exactNpm = '(unknown)';
+  let nodeMajor = '(unknown)';
   try {
-    ({ exactNode, exactNpm } = getRepoToolchain());
+    ({ exactNode, exactNpm, nodeMajor } = getRepoToolchain());
   } catch {
     // ignore; message will still provide guidance
   }
@@ -94,7 +95,7 @@ function fail(message) {
     '',
     'Fix options (choose one):',
     '  1) Volta (recommended): https://volta.sh  (pins are in package.json)',
-    '  2) macOS Homebrew: brew install node@20 && export PATH=\"/opt/homebrew/opt/node@20/bin:$PATH\"',
+    `  2) macOS Homebrew: brew install node@${nodeMajor} && export PATH=\"/opt/homebrew/opt/node@${nodeMajor}/bin:$PATH\"`,
     '  3) nvm: nvm install && nvm use  (uses .nvmrc)',
     '',
     `Override (local experiments only): ${OVERRIDE_ENV}=1 npm ci`,

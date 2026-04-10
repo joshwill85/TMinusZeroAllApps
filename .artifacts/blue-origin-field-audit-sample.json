@@ -1,0 +1,162 @@
+{
+  "generatedAt": "2026-04-09T03:29:18.494Z",
+  "mode": "fixture",
+  "fixtureJsonPath": "scripts/fixtures/blue-origin/blue-origin-field-audit-sample.json",
+  "auditJsonPath": "tmp/blue-origin-audit.json",
+  "decision": "defer",
+  "availability": "yes",
+  "joinability": "partial",
+  "usableCoverage": "no",
+  "summary": {
+    "launchesScanned": 3,
+    "launchesWithOfficialSourcePages": 2,
+    "launchesWithHealthyOfficialSources": 2,
+    "launchesAudited": 2,
+    "launchesFetchedSuccessfully": 2,
+    "launchesWithProfileSignals": 1,
+    "launchesWithTimelineSignals": 1,
+    "launchesWithRecoverySignals": 1,
+    "launchesWithVisibilitySignals": 0,
+    "launchesWithNumericMissionFacts": 1,
+    "launchesWithAnyNumericOrbitField": 1,
+    "launchesWithAuthorityFieldBundle": 1
+  },
+  "reasons": [
+    "Field audit evaluated 2/3 Blue Origin launches with official source pages from the existing audit snapshot.",
+    "Mission-profile signals were present on 1/2 audited launches, timeline signals on 1/2, recovery signals on 1/2, and numeric mission facts on 1/2.",
+    "Only 1/2 audited launches carried both a numeric mission fact or orbit-like value and mission-profile or timeline structure, so usable coverage remains \"no\"."
+  ],
+  "launches": [
+    {
+      "launchId": "launch-ns29",
+      "ll2LaunchUuid": "ll2-ns29",
+      "flightCode": "ns-29",
+      "name": "New Shepard | NS-29",
+      "missionName": "NS-29",
+      "net": "2025-01-28T16:00:00+00:00",
+      "missionSummary": "Blue Origin completed the NS-29 mission.",
+      "selectedSourceUrl": "https://web.archive.org/web/20251010064022/https://www.blueorigin.com/news/new-shepard-ns-29-mission",
+      "selectedSourceTitle": "Blue Origin Completes 29th New Shepard Mission",
+      "selectedSourceProvenance": "wayback",
+      "pageFetched": true,
+      "fetchStatus": 200,
+      "fetchError": null,
+      "orbit": {
+        "inclinationDeg": null,
+        "flightAzimuthDeg": null,
+        "altitudeKm": null,
+        "apogeeKm": 105,
+        "perigeeKm": null,
+        "orbitClass": null,
+        "anyNumericOrbitField": true
+      },
+      "signals": {
+        "profileSignalCount": 1,
+        "timelineSignalCount": 3,
+        "recoverySignalCount": 3,
+        "visibilitySignalCount": 0,
+        "numericMissionFactCount": 1,
+        "matchedKeywords": [
+          "mission profile",
+          "liftoff",
+          "booster landing",
+          "crew capsule landing time",
+          "booster landing",
+          "crew capsule landing",
+          "capsule landing"
+        ],
+        "numericFacts": {
+          "microgravityMinutes": null,
+          "lunarGravityMinutes": null,
+          "apogeeKm": 105,
+          "altitudeKm": null,
+          "maxVelocity": null,
+          "gForce": null
+        }
+      },
+      "hasAuthorityFieldBundle": true
+    },
+    {
+      "launchId": "launch-blue-moon",
+      "ll2LaunchUuid": "ll2-blue-moon",
+      "flightCode": null,
+      "name": "New Glenn | Blue Moon Pathfinder",
+      "missionName": "Blue Moon Pathfinder",
+      "net": "2027-01-01T00:00:00+00:00",
+      "missionSummary": "Blue Moon is a lunar lander program.",
+      "selectedSourceUrl": "https://web.archive.org/web/20190510001510id_/https://www.blueorigin.com/blue-moon",
+      "selectedSourceTitle": "Blue Origin | Blue Moon",
+      "selectedSourceProvenance": "wayback",
+      "pageFetched": true,
+      "fetchStatus": 200,
+      "fetchError": null,
+      "orbit": {
+        "inclinationDeg": null,
+        "flightAzimuthDeg": null,
+        "altitudeKm": null,
+        "apogeeKm": null,
+        "perigeeKm": null,
+        "orbitClass": null,
+        "anyNumericOrbitField": false
+      },
+      "signals": {
+        "profileSignalCount": 0,
+        "timelineSignalCount": 0,
+        "recoverySignalCount": 0,
+        "visibilitySignalCount": 0,
+        "numericMissionFactCount": 0,
+        "matchedKeywords": [],
+        "numericFacts": {
+          "microgravityMinutes": null,
+          "lunarGravityMinutes": null,
+          "apogeeKm": null,
+          "altitudeKm": null,
+          "maxVelocity": null,
+          "gForce": null
+        }
+      },
+      "hasAuthorityFieldBundle": false
+    },
+    {
+      "launchId": "launch-no-source",
+      "ll2LaunchUuid": "ll2-no-source",
+      "flightCode": null,
+      "name": "New Glenn | Commercial Payload",
+      "missionName": "Commercial Payload",
+      "net": "2028-01-01T00:00:00+00:00",
+      "missionSummary": "Launch with no official page in the sample.",
+      "selectedSourceUrl": null,
+      "selectedSourceTitle": null,
+      "selectedSourceProvenance": null,
+      "pageFetched": false,
+      "fetchStatus": null,
+      "fetchError": null,
+      "orbit": {
+        "inclinationDeg": null,
+        "flightAzimuthDeg": null,
+        "altitudeKm": null,
+        "apogeeKm": null,
+        "perigeeKm": null,
+        "orbitClass": null,
+        "anyNumericOrbitField": false
+      },
+      "signals": {
+        "profileSignalCount": 0,
+        "timelineSignalCount": 0,
+        "recoverySignalCount": 0,
+        "visibilitySignalCount": 0,
+        "numericMissionFactCount": 0,
+        "matchedKeywords": [],
+        "numericFacts": {
+          "microgravityMinutes": null,
+          "lunarGravityMinutes": null,
+          "apogeeKm": null,
+          "altitudeKm": null,
+          "maxVelocity": null,
+          "gForce": null
+        }
+      },
+      "hasAuthorityFieldBundle": false
+    }
+  ]
+}

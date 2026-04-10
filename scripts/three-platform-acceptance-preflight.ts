@@ -33,7 +33,9 @@ type AcceptancePreflightReport = {
 
 const ROOT = process.cwd();
 const DEFAULT_OUT_DIR = path.join(ROOT, '.artifacts', 'three-platform-acceptance');
-const PINNED_NPM_VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).volta?.npm || '10.8.2';
+const PKG = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+const PINNED_NPM_VERSION =
+  PKG.volta?.npm || String(PKG.packageManager || '').replace(/^npm@/, '') || '11.11.0';
 
 const { values } = parseArgs({
   options: {

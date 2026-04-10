@@ -39,6 +39,8 @@ function getRepoToolchain(repoRoot) {
   return {
     exactNode,
     exactNpm,
+    nodeMajor,
+    npmMajor,
     enginesNode,
     enginesNpm,
     expectedEnginesNode: `${nodeMajor}.x`,
@@ -72,6 +74,7 @@ const repoRoot = process.cwd();
 
 let exactNode;
 let exactNpm;
+let nodeMajor;
 let enginesNode;
 let enginesNpm;
 let expectedEnginesNode;
@@ -80,6 +83,7 @@ try {
   ({
     exactNode,
     exactNpm,
+    nodeMajor,
     enginesNode,
     enginesNpm,
     expectedEnginesNode,
@@ -179,7 +183,7 @@ die([
   'Fix options:',
   '  - Volta (recommended): https://volta.sh',
   '  - nvm: nvm install && nvm use',
-  '  - macOS Homebrew: brew install node@20 && export PATH=\"/opt/homebrew/opt/node@20/bin:$PATH\"',
+  `  - macOS Homebrew: brew install node@${nodeMajor} && export PATH=\"/opt/homebrew/opt/node@${nodeMajor}/bin:$PATH\"`,
   '',
   `Override (local only): ${OVERRIDE_ENV}=1 npm ci`,
 ]);

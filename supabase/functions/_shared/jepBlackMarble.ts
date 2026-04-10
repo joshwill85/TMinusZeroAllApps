@@ -132,7 +132,7 @@ export function resolveBlackMarbleFileFromContents({
 
   const dirPath = `${BLACK_MARBLE_COLLECTION_ID}/${productKey}/${period.directoryYear}/${formatDayOfYear(period.directoryDoy)}`;
   const baseOpens = `https://ladsweb.modaps.eosdis.nasa.gov/opendap/RemoteResources/laads/allData/${dirPath}`;
-  const baseArchive = `https://ladsweb.modaps.eosdis.nasa.gov/archive/allData/${dirPath}`;
+  const baseArchive = `https://ladsweb.modaps.eosdis.nasa.gov/api/v2/content/archives/allData/${dirPath}`;
 
   return {
     productKey,

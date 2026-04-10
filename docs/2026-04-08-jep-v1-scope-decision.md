@@ -1,6 +1,6 @@
 # 2026-04-08 JEP V1 Scope Decision
 
-Last updated: 2026-04-08
+Last updated: 2026-04-09
 
 ## Platform Matrix
 
@@ -64,6 +64,50 @@ In plain language:
 - `California versus Florida` is a geometry problem and must still score near zero
 - `downtown Miami rooftop versus open beach` is a local obstruction problem and is intentionally not modeled in public v1
 
+## User-Facing Visibility Rule
+
+The product must not tell users that a jellyfish plume `will happen` as a hard promise.
+
+Public semantics should separate three different things:
+
+- `visibility call`: is a visible twilight plume physically on the table at all from this observer
+- `watchability score`: if it is physically on the table, how strong or obvious it is likely to be
+- `confidence`: how much we trust the call given trajectory, weather, and additive source coverage
+
+Required decision rule:
+
+- if `gate_open = false`, the product should say `No visible jellyfish-style plume expected from your area`
+- if `gate_open = true`, the product may say `possible`, `favorable`, or `highly favorable`, but should not say `guaranteed`
+
+Recommended public bands for v1:
+
+- `gate_open = false`
+  - label: `Not expected`
+  - copy: `No visible jellyfish-style plume expected from your area.`
+- `gate_open = true` and score `0-34`
+  - label: `Possible`
+  - copy: `A visible twilight plume is possible, but it would likely be faint or hard to notice.`
+- `gate_open = true` and score `35-64`
+  - label: `Possible`
+  - copy: `A visible twilight plume is possible from your area if conditions hold.`
+- `gate_open = true` and score `65-84`
+  - label: `Favorable`
+  - copy: `Conditions are favorable for a visible jellyfish-style plume.`
+- `gate_open = true` and score `85-100`
+  - label: `Highly favorable`
+  - copy: `Conditions are highly favorable for a strong visible jellyfish-style plume.`
+
+Confidence guidance for the public surface:
+
+- `High` when the score is backed by current trajectory products, current weather inputs, and no major missing release-critical factors
+- `Medium` when the core geometry and weather inputs are present but one secondary watchability factor is missing or degraded
+- `Low` when the score depends on fallback logic, weak trajectory coverage, or missing source families that should materially improve the call later
+
+Practical implication:
+
+- moonlight and anthropogenic background light can lower the public `watchability` score because they affect how obvious the plume is to a human observer
+- they do not decide whether the physical twilight-plume geometry exists in the first place
+
 ## Source Admission Rule
 
 Every new JEP data source, ingest, or factor family must answer `yes` to all three questions before it is allowed onto the active implementation path:
@@ -94,6 +138,14 @@ What this means right now:
 - local-horizon code can stay in the repo, but it should not drive the next milestone
 - the next active build target is `jep_vehicle_priors` plus shadow-scorer integration for US-first launch families
 - those priors should be keyed by `ll2_rocket_config_id`, backed by official provider or agency sources, and kept strictly family-level rather than mission-specific
+
+Current live operating model:
+
+- keep scheduled Black Marble ETL out of Supabase Edge Functions
+- use the repo-owned manual batch runner at `.github/workflows/jep-black-marble-batch.yml` and `scripts/jep-black-marble-batch.mts`
+- keep the managed scheduler and source-job flags off; the batch path is now the supported ingestion path until or unless a better batch runtime replaces it
+- `jep_v6_background_feature_snapshots_enabled` can remain on once the batch runner has populated `jep_background_light_cells`
+- use the internal `forceAll` job-auth override on `jep-score-refresh` when a same-day shadow recompute is needed after a fresh Black Marble batch
 
 ## Re-entry Criteria For Local Obstruction
 

@@ -38,8 +38,13 @@ type AuditedAwardReviewRow = {
   signal_snapshot: Record<string, unknown> | null;
   live_source_snapshot: Record<string, unknown> | null;
   audit_version: string | null;
-  review_notes: string | null;
+  review_notes?: string | null;
   updated_at: string | null;
+};
+
+type ReviewNotesRow = {
+  award_identity_key: string | null;
+  review_notes: string | null;
 };
 
 type PromoteReviewRow = {
@@ -68,7 +73,6 @@ const LIST_SELECT = [
   'signal_snapshot',
   'live_source_snapshot',
   'audit_version',
-  'review_notes',
   'updated_at'
 ].join(',');
 
@@ -120,6 +124,14 @@ export async function listAdminUsaspendingReviews(
 
   if (error) throw error;
 
+  const rows = readAuditedAwardRows(data);
+  const reviewNotesByAwardIdentityKey = await fetchReviewNotes(admin, {
+    scope,
+    awardIdentityKeys: rows
+      .map((row) => asString(row.award_identity_key))
+      .filter((value): value is string => Boolean(value))
+  });
+
   return {
     scope,
     tier,
@@ -128,7 +140,12 @@ export async function listAdminUsaspendingReviews(
     limit,
     query,
     counts,
-    items: readAuditedAwardRows(data).map(mapAuditedAwardReviewRow)
+    items: rows.map((row) =>
+      mapAuditedAwardReviewRow({
+        ...row,
+        review_notes: reviewNotesByAwardIdentityKey.get(asString(row.award_identity_key) || '') ?? null
+      })
+    )
   };
 }
 
@@ -183,6 +200,36 @@ async function fetchAdminUsaspendingReviewCounts(admin: SupabaseAdminClient): Pr
 
   await Promise.all(queries);
   return counts;
+}
+
+async function fetchReviewNotes(
+  admin: SupabaseAdminClient,
+  {
+    scope,
+    awardIdentityKeys
+  }: {
+    scope: AdminUsaspendingScope;
+    awardIdentityKeys: string[];
+  }
+) {
+  const normalizedAwardIdentityKeys = Array.from(new Set(awardIdentityKeys.map((value) => value.trim()).filter(Boolean)));
+  if (!normalizedAwardIdentityKeys.length) {
+    return new Map<string, string | null>();
+  }
+
+  const { data, error } = await admin
+    .from('program_usaspending_scope_reviews')
+    .select('award_identity_key,review_notes')
+    .eq('program_scope', scope)
+    .in('award_identity_key', normalizedAwardIdentityKeys);
+
+  if (error) throw error;
+
+  return new Map(
+    ((Array.isArray(data) ? data : []) as ReviewNotesRow[])
+      .map((row) => [asString(row.award_identity_key) || '', asString(row.review_notes)] as const)
+      .filter(([awardIdentityKey]) => Boolean(awardIdentityKey))
+  );
 }
 
 function mapAuditedAwardReviewRow(row: AuditedAwardReviewRow): AdminUsaspendingReviewRow {

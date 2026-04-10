@@ -348,6 +348,16 @@ export type SpaceXLaunchBuckets = {
   recent: Launch[];
 };
 
+export type SpaceXContractPage = {
+  generatedAt: string;
+  mission: SpaceXMissionKey | 'all';
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+  items: SpaceXContract[];
+};
+
 export const fetchSpaceXLaunchBuckets = cache(async (): Promise<SpaceXLaunchBuckets> => {
   const generatedAt = new Date().toISOString();
   if (!isSupabaseConfigured()) return { generatedAt, upcoming: [], recent: [] };
@@ -701,24 +711,71 @@ export const fetchSpaceXPayloads = cache(async (mission: SpaceXMissionKey | 'all
 
 export const fetchSpaceXContracts = cache(async (mission: SpaceXMissionKey | 'all' = 'all'): Promise<SpaceXContractsResponse> => {
   const generatedAt = new Date().toISOString();
-  const derived = await fetchSpaceXContractsFromSource();
+  const derived = await fetchSpaceXRawContracts(mission);
+  const fallback = filterFallbackSpaceXContracts(mission);
   const records = await attachContractStoryPresentation(
-    derived.length > 0 ? derived : FALLBACK_CONTRACTS
+    derived.length > 0 ? derived : fallback
   );
 
   return {
     generatedAt,
     mission,
-    items: records.filter((item) => (mission === 'all' ? true : item.missionKey === mission))
+    items: records
   };
 });
+
+export const fetchSpaceXContractPage = cache(
+  async (
+    limit = 8,
+    offset = 0,
+    mission: SpaceXMissionKey | 'all' = 'all'
+  ): Promise<SpaceXContractPage> => {
+    const normalizedLimit = clampIntValue(limit, 8, 1, MAX_SPACEX_CONTRACT_ROWS);
+    const normalizedOffset = clampIntValue(offset, 0, 0, MAX_SPACEX_CONTRACT_ROWS);
+    const generatedAt = new Date().toISOString();
+    const [rows, total] = await Promise.all([
+      fetchSpaceXContractsFromSource({
+        mission,
+        limit: normalizedLimit,
+        offset: normalizedOffset
+      }),
+      resolveSpaceXContractTotal(mission)
+    ]);
+    const fallbackRows =
+      rows.length > 0 || normalizedOffset > 0
+        ? rows
+        : filterFallbackSpaceXContracts(mission).slice(0, normalizedLimit);
+    const items = await attachContractStoryPresentation(fallbackRows);
+    const resolvedTotal = Math.max(total, normalizedOffset + items.length);
+
+    return {
+      generatedAt,
+      mission,
+      total: resolvedTotal,
+      limit: normalizedLimit,
+      offset: normalizedOffset,
+      hasMore: normalizedOffset + items.length < resolvedTotal,
+      items
+    };
+  }
+);
+
+export const fetchSpaceXContractPreview = cache(
+  async (limit = 8, mission: SpaceXMissionKey | 'all' = 'all'): Promise<SpaceXContractPage> =>
+    fetchSpaceXContractPage(limit, 0, mission)
+);
 
 export const fetchSpaceXContractDetailBySlug = cache(async (slug: string): Promise<SpaceXContractDetail | null> => {
   const normalizedSlug = parseSpaceXContractSlug(slug);
   if (!normalizedSlug) return null;
 
-  const contracts = await fetchSpaceXContracts('all');
-  const contract = contracts.items.find((item) => buildSpaceXContractSlug(item.contractKey) === normalizedSlug) || null;
+  const contractFromRpc = await fetchSpaceXContractBySlugFromRpc(normalizedSlug);
+  const fallbackContract =
+    contractFromRpc ||
+    (await fetchSpaceXRawContracts('all')).find((item) => buildSpaceXContractSlug(item.contractKey) === normalizedSlug) ||
+    filterFallbackSpaceXContracts('all').find((item) => buildSpaceXContractSlug(item.contractKey) === normalizedSlug) ||
+    null;
+  const [contract] = fallbackContract ? await attachContractStoryPresentation([fallbackContract]) : [null];
   if (!contract) return null;
   const awardId = resolveArtemisAwardIdFromContractSeed({
     contractKey: contract.contractKey,
@@ -760,8 +817,8 @@ export const fetchSpaceXContractDetailBySlug = cache(async (slug: string): Promi
 
 export const fetchSpaceXFinanceSignals = cache(async (): Promise<SpaceXFinanceResponse> => {
   const generatedAt = new Date().toISOString();
-  const [contracts, launches] = await Promise.all([fetchSpaceXContracts('all'), fetchSpaceXLaunchBuckets()]);
-  const obligations = contracts.items.reduce((sum, item) => sum + (typeof item.amount === 'number' ? item.amount : 0), 0);
+  const [contractMetrics, launches] = await Promise.all([fetchSpaceXContractMetrics(), fetchSpaceXLaunchBuckets()]);
+  const obligations = contractMetrics.totalAmount;
   const trailing12MonthsLaunches = [...launches.upcoming, ...launches.recent].filter((launch) => {
     const netMs = Date.parse(launch.net);
     if (!Number.isFinite(netMs)) return false;
@@ -782,7 +839,7 @@ export const fetchSpaceXFinanceSignals = cache(async (): Promise<SpaceXFinanceRe
       sourceUrl: 'https://www.usaspending.gov/',
       confidence: obligations > 0 ? 'medium' : 'low',
       disclaimer: 'Proxy metric. SpaceX is private and does not publish public-company earnings in SEC filing format.',
-      metadata: { recordCount: contracts.items.length }
+      metadata: { recordCount: contractMetrics.totalContractCount }
     },
     {
       id: 'spacex:finance:launch-cadence',
@@ -834,6 +891,11 @@ export function parseSpaceXContractSlug(value: string | null | undefined) {
   return normalized || null;
 }
 
+export const fetchSpaceXRawContracts = cache(async (mission: SpaceXMissionKey | 'all' = 'all'): Promise<SpaceXContract[]> => {
+  const derived = await fetchSpaceXContractsFromSource({ mission });
+  return derived.length > 0 ? derived : filterFallbackSpaceXContracts(mission);
+});
+
 export function buildSpaceXFaq(scope: 'program' | 'mission', mission?: SpaceXMissionKey): SpaceXProgramFaqItem[] {
   if (scope === 'program') {
     return [
@@ -865,7 +927,95 @@ export function buildSpaceXFaq(scope: 'program' | 'mission', mission?: SpaceXMis
   ];
 }
 
-async function fetchSpaceXContractsFromProcurement() {
+type SpaceXContractQueryOptions = {
+  mission?: SpaceXMissionKey | 'all';
+  limit?: number;
+  offset?: number;
+};
+
+type SpaceXContractMetrics = {
+  totalContractCount: number;
+  totalAmount: number;
+};
+
+const fetchSpaceXContractMetrics = cache(async (): Promise<SpaceXContractMetrics> => {
+  if (!isSupabaseConfigured()) {
+    return summarizeSpaceXContracts(FALLBACK_CONTRACTS);
+  }
+
+  const supabase = createSupabasePublicClient();
+  const { data, error } = await supabase.rpc('get_spacex_contract_metrics_v1');
+  if (!error) {
+    const metrics = asRecord(data);
+    return {
+      totalContractCount: Math.max(
+        0,
+        Math.trunc(
+          finiteNumberOrNull(metrics?.total_contract_count ?? metrics?.totalContractCount) ?? 0
+        )
+      ),
+      totalAmount: finiteNumberOrNull(metrics?.total_amount ?? metrics?.totalAmount) ?? 0
+    };
+  }
+
+  if (!isMissingSpaceXRpcError(error.message || '', 'get_spacex_contract_metrics_v1')) {
+    console.error('spacex contract metrics rpc error', error);
+  }
+
+  const fallback = await fetchSpaceXContractsFromSource({ mission: 'all' });
+  return summarizeSpaceXContracts(fallback.length > 0 ? fallback : FALLBACK_CONTRACTS);
+});
+
+async function resolveSpaceXContractTotal(mission: SpaceXMissionKey | 'all' = 'all') {
+  if (mission === 'all') {
+    return (await fetchSpaceXContractMetrics()).totalContractCount;
+  }
+
+  const exactCount = await fetchSpaceXContractCountFromScopedTable(mission);
+  if (exactCount !== null) return exactCount;
+
+  const fallback = await fetchSpaceXContractsFromSource({ mission });
+  if (fallback.length > 0) return fallback.length;
+  return FALLBACK_CONTRACTS.filter((item) => item.missionKey === mission).length;
+}
+
+async function fetchSpaceXContractBySlugFromRpc(slug: string): Promise<SpaceXContract | null> {
+  if (!isSupabaseConfigured()) return null;
+
+  const supabase = createSupabasePublicClient();
+  const { data, error } = await supabase.rpc('get_spacex_contract_by_slug_v1', {
+    contract_slug_in: slug
+  });
+  if (error) {
+    if (!isMissingSpaceXRpcError(error.message || '', 'get_spacex_contract_by_slug_v1')) {
+      console.error('spacex contract by slug rpc error', error);
+    }
+    return null;
+  }
+
+  const row = asRecord(data);
+  return row ? mapSpacexContractsDbRow(row) : null;
+}
+
+async function fetchSpaceXContractCountFromScopedTable(mission: SpaceXMissionKey) {
+  if (!isSupabaseConfigured()) return null;
+
+  const supabase = createSupabasePublicClient();
+  const { count, error } = await supabase
+    .from('spacex_contracts')
+    .select('id', { count: 'exact', head: true })
+    .eq('mission_key', mission);
+
+  if (error) {
+    if (isMissingSpacexContractsRelationError(error.message || '')) return null;
+    console.error('spacex contracts count query error', error);
+    return null;
+  }
+
+  return typeof count === 'number' ? count : 0;
+}
+
+async function fetchSpaceXContractsFromProcurement(mission: SpaceXMissionKey | 'all' = 'all') {
   const awards = await fetchProgramUsaspendingAwards('spacex', 1200);
 
   return awards
@@ -904,7 +1054,12 @@ async function fetchSpaceXContractsFromProcurement() {
         updatedAt: award.updatedAt || null
       };
     })
-    .filter((entry): entry is SpaceXContract => entry !== null);
+    .filter((entry): entry is SpaceXContract => entry !== null)
+    .filter((entry) => (mission === 'all' ? true : entry.missionKey === mission));
+}
+
+function filterFallbackSpaceXContracts(mission: SpaceXMissionKey | 'all' = 'all') {
+  return FALLBACK_CONTRACTS.filter((item) => (mission === 'all' ? true : item.missionKey === mission));
 }
 
 function isSpaceXContractLikeAward(
@@ -932,16 +1087,20 @@ function isSpaceXContractLikeAward(
   return false;
 }
 
-async function fetchSpaceXContractsFromScopedTable() {
+async function fetchSpaceXContractsFromScopedTable(options: SpaceXContractQueryOptions = {}) {
   if (!isSupabaseConfigured()) return [] as SpaceXContract[];
 
+  const mission = options.mission || 'all';
+  const limit = clampIntValue(options.limit ?? MAX_SPACEX_CONTRACT_ROWS, MAX_SPACEX_CONTRACT_ROWS, 1, MAX_SPACEX_CONTRACT_ROWS);
+  const initialOffset = clampIntValue(options.offset ?? 0, 0, 0, MAX_SPACEX_CONTRACT_ROWS);
   const supabase = createSupabasePublicClient();
   const rows: SpaceXContractsDbRow[] = [];
-  let from = 0;
+  let from = initialOffset;
 
-  while (rows.length < MAX_SPACEX_CONTRACT_ROWS) {
-    const to = from + SPACEX_CONTRACTS_PAGE_SIZE - 1;
-    const { data, error } = await supabase
+  while (rows.length < limit) {
+    const batchSize = Math.min(SPACEX_CONTRACTS_PAGE_SIZE, limit - rows.length);
+    const to = from + batchSize - 1;
+    let query = supabase
       .from('spacex_contracts')
       .select(
         'id,contract_key,mission_key,title,agency,customer,amount,awarded_on,description,source_url,source_label,status,metadata,updated_at'
@@ -951,6 +1110,10 @@ async function fetchSpaceXContractsFromScopedTable() {
       .order('contract_key', { ascending: false, nullsFirst: false })
       .order('id', { ascending: false })
       .range(from, to);
+    if (mission !== 'all') {
+      query = query.eq('mission_key', mission);
+    }
+    const { data, error } = await query;
 
     if (error) {
       if (isMissingSpacexContractsRelationError(error.message || '')) return [];
@@ -962,32 +1125,35 @@ async function fetchSpaceXContractsFromScopedTable() {
     if (!chunk.length) break;
     rows.push(...chunk);
 
-    if (chunk.length < SPACEX_CONTRACTS_PAGE_SIZE) break;
+    if (chunk.length < batchSize) break;
     from += chunk.length;
   }
 
   return rows
-    .slice(0, MAX_SPACEX_CONTRACT_ROWS)
+    .slice(0, limit)
     .map(mapSpacexContractsDbRow)
     .filter((row): row is SpaceXContract => row !== null);
 }
 
-function mapSpacexContractsDbRow(row: SpaceXContractsDbRow): SpaceXContract | null {
-  const contractKey = row.contract_key;
+function mapSpacexContractsDbRow(row: SpaceXContractsDbRow | Record<string, unknown>): SpaceXContract | null {
+  const record = row as Record<string, unknown>;
+  const contractKey = typeof record.contract_key === 'string' ? record.contract_key : null;
   if (!contractKey) return null;
-  const metadata = row.metadata || {};
-  const title = (row.title || '').trim() || `USASpending award ${contractKey}`;
-  const missionFromRow = isSpaceXMissionKey(row.mission_key || '') ? (row.mission_key as SpaceXMissionKey) : null;
-  const missionKey = missionFromRow ?? classifyMissionFromContractText(`${title} ${row.description || ''} ${JSON.stringify(metadata)}`);
+  const metadata = asRecord(record.metadata) || {};
+  const title = (typeof record.title === 'string' ? record.title : '').trim() || `USASpending award ${contractKey}`;
+  const missionKeyRaw = typeof record.mission_key === 'string' ? record.mission_key : '';
+  const missionFromRow = isSpaceXMissionKey(missionKeyRaw) ? (missionKeyRaw as SpaceXMissionKey) : null;
+  const description = typeof record.description === 'string' ? record.description : null;
+  const missionKey = missionFromRow ?? classifyMissionFromContractText(`${title} ${description || ''} ${JSON.stringify(metadata)}`);
   const awardId = resolveArtemisAwardIdFromContractSeed({
     contractKey,
-    sourceUrl: row.source_url,
+    sourceUrl: typeof record.source_url === 'string' ? record.source_url : null,
     metadata
   });
   const sourceUrl =
     resolveUsaspendingAwardSourceUrl({
       awardId,
-      sourceUrl: row.source_url,
+      sourceUrl: typeof record.source_url === 'string' ? record.source_url : null,
       awardPageUrl: readMetadataUrl(metadata, ['awardPageUrl']),
       awardApiUrl: readMetadataUrl(metadata, ['awardApiUrl'])
     }) ||
@@ -995,27 +1161,30 @@ function mapSpacexContractsDbRow(row: SpaceXContractsDbRow): SpaceXContract | nu
     null;
 
   return {
-    id: row.id,
+    id: typeof record.id === 'string' ? record.id : `spacex-contract:${contractKey}`,
     contractKey,
     missionKey,
     title,
-    agency: row.agency,
-    customer: row.customer,
-    amount: finiteNumberOrNull(row.amount),
-    awardedOn: normalizeDate(row.awarded_on),
-    description: buildContractDescription(metadata, row.description || title),
+    agency: typeof record.agency === 'string' ? record.agency : null,
+    customer: typeof record.customer === 'string' ? record.customer : null,
+    amount: finiteNumberOrNull(record.amount),
+    awardedOn: normalizeDate(typeof record.awarded_on === 'string' ? record.awarded_on : null),
+    description: buildContractDescription(metadata, description || title),
     sourceUrl,
-    sourceLabel: row.source_label || 'USASpending award record',
-    status: row.status || 'awarded',
+    sourceLabel: typeof record.source_label === 'string' && record.source_label.trim() ? record.source_label : 'USASpending award record',
+    status: typeof record.status === 'string' && record.status.trim() ? record.status : 'awarded',
     metadata,
-    updatedAt: row.updated_at || null
+    updatedAt: typeof record.updated_at === 'string' ? record.updated_at : null
   };
 }
 
-async function fetchSpaceXContractsFromSource() {
-  const fromTable = await fetchSpaceXContractsFromScopedTable();
+async function fetchSpaceXContractsFromSource(options: SpaceXContractQueryOptions = {}) {
+  const mission = options.mission || 'all';
+  const limit = clampIntValue(options.limit ?? MAX_SPACEX_CONTRACT_ROWS, MAX_SPACEX_CONTRACT_ROWS, 1, MAX_SPACEX_CONTRACT_ROWS);
+  const offset = clampIntValue(options.offset ?? 0, 0, 0, MAX_SPACEX_CONTRACT_ROWS);
+  const fromTable = await fetchSpaceXContractsFromScopedTable({ mission, limit, offset });
   if (fromTable.length > 0) return fromTable;
-  return fetchSpaceXContractsFromProcurement();
+  return (await fetchSpaceXContractsFromProcurement(mission)).slice(offset, offset + limit);
 }
 
 async function attachContractStoryPresentation(rows: SpaceXContract[]) {
@@ -1063,9 +1232,32 @@ async function attachContractStoryPresentation(rows: SpaceXContract[]) {
   });
 }
 
+function summarizeSpaceXContracts(rows: SpaceXContract[]): SpaceXContractMetrics {
+  return {
+    totalContractCount: rows.length,
+    totalAmount: rows.reduce((sum, row) => sum + (typeof row.amount === 'number' ? row.amount : 0), 0)
+  };
+}
+
 function isMissingSpacexContractsRelationError(message: string) {
   const normalized = message.toLowerCase();
   return normalized.includes('relation') && normalized.includes('spacex_contracts') && normalized.includes('does not exist');
+}
+
+function isMissingSpaceXRpcError(message: string, functionName: string) {
+  const normalized = message.toLowerCase();
+  const expected = functionName.toLowerCase();
+  return (
+    normalized.includes(expected) &&
+    (normalized.includes('does not exist') ||
+      normalized.includes('could not find the function') ||
+      normalized.includes('function'))
+  );
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
 }
 
 function classifyMissionFromContractText(text: string): SpaceXMissionKey {

@@ -1,6 +1,6 @@
-import { computeJepV6BackgroundFactor } from './v6Background';
-import { computeJepV6LocalHorizonFactor } from './v6Horizon';
-import { type JepV6MissionProfileInput } from './v6VehiclePriors';
+import { computeJepV6BackgroundFactor } from './v6Background.ts';
+import { computeJepV6LocalHorizonFactor } from './v6Horizon.ts';
+import { type JepV6MissionProfileInput } from './v6VehiclePriors.ts';
 
 export const JEP_V6_SHADOW_SCORE_FAMILY = 'shadow_watchability_candidate';
 

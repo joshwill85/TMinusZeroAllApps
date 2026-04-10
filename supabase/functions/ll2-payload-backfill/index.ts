@@ -87,7 +87,7 @@ serve(async (req) => {
     const spacecraftOnly = readBooleanSetting(settings.ll2_payload_backfill_spacecraft_only, false);
 
     const locationFilterMode = readLocationFilterModeSetting(settings.ll2_location_filter_mode);
-    const locationIds = locationFilterMode === 'us' ? await ensureUsLocationIds(supabase) : [];
+    const locationIds = locationFilterMode === 'us' ? await ensureUsLocationIds(supabase, ll2RateLimit) : [];
     if (locationFilterMode === 'us' && !locationIds.length) {
       await touchSuccess();
       const result = { ok: true, skipped: true, reason: 'missing_location_filter', elapsedMs: Date.now() - startedAt };
@@ -346,7 +346,10 @@ function computeNextCursorState({
   return { cursor: lastUpdated, offset: tailCount };
 }
 
-async function ensureUsLocationIds(supabase: ReturnType<typeof createSupabaseAdminClient>) {
+async function ensureUsLocationIds(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  ll2RateLimit: number
+) {
   const { data } = await supabase
     .from('system_settings')
     .select('value, updated_at')
@@ -359,7 +362,7 @@ async function ensureUsLocationIds(supabase: ReturnType<typeof createSupabaseAdm
 
   if (existingIds.length && ageHours < DEFAULTS.usLocationMaxAgeHours) return existingIds;
 
-  const rate = await tryConsumeLl2(supabase, await readLl2RateLimit(supabase));
+  const rate = await tryConsumeLl2(supabase, ll2RateLimit);
   if (!rate.allowed) return existingIds;
 
   const url = `${LL2_BASE}/locations/?format=json&country_code=USA&limit=100`;
@@ -418,11 +421,6 @@ function buildLl2Headers() {
     headers.Authorization = `Token ${LL2_API_KEY}`;
   }
   return headers;
-}
-
-async function readLl2RateLimit(supabase: ReturnType<typeof createSupabaseAdminClient>) {
-  const { data } = await supabase.from('system_settings').select('value').eq('key', 'll2_rate_limit_per_hour').maybeSingle();
-  return readNumberSetting(data?.value, DEFAULTS.ll2RateLimitPerHour);
 }
 
 async function tryConsumeLl2Backfill(

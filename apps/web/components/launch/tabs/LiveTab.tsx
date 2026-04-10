@@ -182,7 +182,7 @@ export function LiveTab({
                   <div className="mt-6 rounded-xl border border-stroke/70 bg-[rgba(255,255,255,0.02)] p-4">
                     <div className="text-xs uppercase tracking-[0.08em] text-text3">Advanced weather</div>
                     <p className="mt-2 text-sm leading-relaxed text-text2">
-                      Planning products from 45 WS add broader prelaunch trend context beyond the mission forecast and pad forecast.
+                      Planning products from 45 WS add broader prelaunch trend context, with the Cape weekly outlook reserved for launches inside the next 7 days.
                     </p>
                     <div className="mt-4 grid gap-3 md:grid-cols-2">
                       {advancedWeatherCards.map((card) => (

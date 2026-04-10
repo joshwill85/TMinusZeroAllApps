@@ -1,5 +1,6 @@
 import {
   spaceXContractsResponseSchemaV1,
+  spaceXContractsPageSchemaV1,
   spaceXDroneShipDetailSchemaV1,
   spaceXDroneShipListResponseSchemaV1,
   spaceXEnginesResponseSchemaV1,
@@ -12,6 +13,8 @@ import {
   type SpaceXMissionKeyV1
 } from '@tminuszero/contracts';
 import {
+  fetchSpaceXContractPage,
+  fetchSpaceXContractPreview,
   fetchSpaceXContracts,
   fetchSpaceXEngines,
   fetchSpaceXFinanceSignals,
@@ -190,12 +193,12 @@ function mapStarshipTimelinePreview(event: {
 }
 
 export async function loadSpaceXOverviewPayload() {
-  const [snapshot, flights, vehicles, engines, contracts, passengers, payloads, droneShips, finance, discoveryPage, usaspendingPage] = await Promise.all([
+  const [snapshot, flights, vehicles, engines, contractPreview, passengers, payloads, droneShips, finance, discoveryPage, usaspendingPage] = await Promise.all([
     fetchSpaceXProgramSnapshot(),
     fetchSpaceXFlights('all'),
     fetchSpaceXVehicles('all'),
     fetchSpaceXEngines('all'),
-    fetchSpaceXContracts('all'),
+    fetchSpaceXContractPreview(8),
     fetchSpaceXPassengers('all'),
     fetchSpaceXPayloads('all'),
     fetchSpaceXDroneShipsIndex(),
@@ -224,7 +227,7 @@ export async function loadSpaceXOverviewPayload() {
       engines: engines.items.length,
       passengers: passengers.items.length,
       payloads: payloads.items.length,
-      contracts: contracts.items.length
+      contracts: contractPreview.total
     },
     missions: buildMissionCards(),
     flights: flights.items.slice(0, 12).map((flight) => ({
@@ -233,7 +236,7 @@ export async function loadSpaceXOverviewPayload() {
     })),
     vehicles: vehicles.items,
     engines: engines.items,
-    contracts: contracts.items.slice(0, 8),
+    contracts: contractPreview.items,
     droneShips: {
       items: droneShips.items,
       coverage: droneShips.coverage,
@@ -305,6 +308,26 @@ export async function loadSpaceXContractsPayload(mission: string | null) {
   return spaceXContractsResponseSchemaV1.parse(await fetchSpaceXContracts(parsedMission));
 }
 
+export async function loadSpaceXContractsPagePayload(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const parsedMission = parseSpaceXMissionFilter(searchParams.get('mission'));
+  if (!parsedMission) return null;
+
+  const limit = clampInt(searchParams.get('limit'), 100, 1, 500);
+  const offset = clampInt(searchParams.get('offset'), 0, 0, 1_000_000);
+  const page = await fetchSpaceXContractPage(limit, offset, parsedMission);
+
+  return spaceXContractsPageSchemaV1.parse({
+    generatedAt: new Date().toISOString(),
+    mission: parsedMission,
+    total: page.total,
+    offset: page.offset,
+    limit: page.limit,
+    hasMore: page.hasMore,
+    items: page.items
+  });
+}
+
 export async function loadSpaceXDroneShipsPayload() {
   return spaceXDroneShipListResponseSchemaV1.parse(await fetchSpaceXDroneShipsIndex());
 }
@@ -357,6 +380,12 @@ export async function loadStarshipOverviewPayload() {
     })),
     timeline: timeline.events.map(mapStarshipTimelinePreview)
   });
+}
+
+function clampInt(value: string | null, fallback: number, min: number, max: number) {
+  const parsed = value == null ? Number.NaN : Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, Math.trunc(parsed)));
 }
 
 export async function loadStarshipFlightOverviewPayload(slug: string | null | undefined) {

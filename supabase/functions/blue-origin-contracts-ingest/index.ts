@@ -22,7 +22,8 @@ import {
   classifyUsaspendingAwardForScope,
   normalizeProgramScope as normalizeHubAuditProgramScope,
   readProgramScopes as readHubAuditProgramScopes
-} from '../../../lib/usaspending/hubAudit.ts';
+} from '../../../apps/web/lib/usaspending/hubAudit.ts';
+import { requestCanonicalContractsRevalidate } from '../_shared/contractsCacheRefresh.ts';
 
 type ContractSeed = {
   contractKey: string;
@@ -72,6 +73,10 @@ serve(async (req) => {
     contractVehicleMapUpserted: 0,
     sourceFetchFailures: 0,
     challengeResponses: 0,
+    contractsRevalidateRequested: false,
+    contractsRevalidateSucceeded: false,
+    contractsRevalidateHttpStatus: null as number | null,
+    contractsRevalidateError: null as string | null,
     errors: [] as Array<{ step: string; error: string }>
   };
 
@@ -257,6 +262,15 @@ serve(async (req) => {
         Number(stats.timelineEventsUpserted || 0) + 1;
     }
 
+    stats.contractsRevalidateRequested = true;
+    const revalidateResult = await requestCanonicalContractsRevalidate({
+      source: 'blue-origin-contracts-ingest',
+      reason: 'blue-origin-contracts-updated'
+    });
+    stats.contractsRevalidateSucceeded = revalidateResult.ok;
+    stats.contractsRevalidateHttpStatus = revalidateResult.status;
+    stats.contractsRevalidateError = revalidateResult.error;
+
     await updateCheckpoint(supabase, 'blue_origin_contracts', {
       sourceType: 'government-record',
       status: 'complete',
@@ -275,7 +289,11 @@ serve(async (req) => {
         spendingRowsUpserted: stats.spendingRowsUpserted,
         contractVehicleMapUpserted: stats.contractVehicleMapUpserted,
         sourceFetchFailures: stats.sourceFetchFailures,
-        challengeResponses: stats.challengeResponses
+        challengeResponses: stats.challengeResponses,
+        contractsRevalidateRequested: stats.contractsRevalidateRequested,
+        contractsRevalidateSucceeded: stats.contractsRevalidateSucceeded,
+        contractsRevalidateHttpStatus: stats.contractsRevalidateHttpStatus,
+        contractsRevalidateError: stats.contractsRevalidateError
       }
     });
 

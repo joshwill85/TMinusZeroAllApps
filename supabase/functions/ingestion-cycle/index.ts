@@ -1,7 +1,8 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
+import { getLatestSuccessfulIngestionRuns } from '../_shared/ingestionRuns.ts';
 import { createSupabaseAdminClient } from '../_shared/supabase.ts';
 import { requireJobAuth } from '../_shared/jobAuth.ts';
-import { getSettings, readBooleanSetting, readNumberSetting, readStringSetting } from '../_shared/settings.ts';
+import { getCachedSetting, getSettings, readBooleanSetting, readNumberSetting, readStringSetting } from '../_shared/settings.ts';
 import { extractUrlFromValue, normalizeNetPrecision } from '../_shared/ll2.ts';
 import {
   mapLl2ToLaunchUpsert,
@@ -916,21 +917,16 @@ function isWithinWindow(net: string | null | undefined, fromIso: string | null, 
 }
 
 async function getLastSuccessfulRun(supabase: ReturnType<typeof createSupabaseAdminClient>, jobName: string) {
-  const { data, error } = await supabase
-    .from('ingestion_runs')
-    .select('ended_at')
-    .eq('job_name', jobName)
-    .eq('success', true)
-    .order('ended_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    console.warn('Failed to read last ingestion run', { jobName, error: error.message });
+  try {
+    const [latestRun] = await getLatestSuccessfulIngestionRuns(supabase, [jobName]);
+    return latestRun?.endedAt ?? null;
+  } catch (error) {
+    console.warn('Failed to read last ingestion run', {
+      jobName,
+      error: error instanceof Error ? error.message : String(error)
+    });
     return null;
   }
-
-  return data?.ended_at ?? null;
 }
 
 async function fetchLl2Launches({
@@ -1208,13 +1204,11 @@ async function tryConsumeProvider(
 }
 
 async function readLl2RateLimit(supabase: ReturnType<typeof createSupabaseAdminClient>) {
-  const { data } = await supabase.from('system_settings').select('value').eq('key', 'll2_rate_limit_per_hour').maybeSingle();
-  return readNumberSetting(data?.value, DEFAULTS.ll2RateLimit);
+  return readNumberSetting(await getCachedSetting(supabase, 'll2_rate_limit_per_hour'), DEFAULTS.ll2RateLimit);
 }
 
 async function readSnapiRateLimit(supabase: ReturnType<typeof createSupabaseAdminClient>) {
-  const { data } = await supabase.from('system_settings').select('value').eq('key', 'snapi_rate_limit_per_hour').maybeSingle();
-  return readNumberSetting(data?.value, DEFAULTS.snapiRateLimit);
+  return readNumberSetting(await getCachedSetting(supabase, 'snapi_rate_limit_per_hour'), DEFAULTS.snapiRateLimit);
 }
 
 function chunkArray<T>(items: T[], size: number) {

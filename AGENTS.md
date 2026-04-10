@@ -29,16 +29,19 @@
 
 ## Toolchain Standardization (non-negotiable)
 
+- **Source of truth**:
+  - Treat `package.json` (`volta`, `packageManager`, and `engines`), `.nvmrc`, `.node-version`, `Dockerfile`, and `package-lock.json` as the canonical toolchain/version source of truth.
+  - If docs disagree with those files, update the docs to match the repo instead of guessing.
 - **Pinned versions** (no deviation for verification/CI parity):
-  - Node: **20.19.6**
-  - npm: **10.8.2**
+  - Node: **24.14.1**
+  - npm: **11.11.0**
   - TypeScript: **5.9.3**
   - ESLint: **8.57.1** (and `eslint-config-next` **14.2.35**)
-  - Prettier: **3.1.1**
+  - Prettier: **3.7.4** currently resolved via `package-lock.json` (declared as `^3.1.1` in `package.json`)
 - **Enforcement**:
   - Installs are enforced via `engine-strict=true` and a `preinstall` toolchain check.
   - CI uses `.nvmrc`; Docker uses a pinned Node image tag.
-  - Vercel only allows selecting the **Node major** (20.x); the toolchain check is strict locally/CI/Docker but permits Node 20.x on Vercel builds.
+  - Vercel allows selecting supported **Node majors** only; the toolchain check is strict locally/CI/Docker and major-based on Vercel.
 - **Rules**:
   - Do not run `npm/next/tsc/eslint` under a different Node/npm when validating changes.
   - Do not change `.nvmrc`, `.node-version`, `Dockerfile` `FROM node:…`, `package.json` `volta/engines`, or lockfiles unless explicitly requested.
@@ -49,13 +52,13 @@
   - **Local shell must match pins before installs/checks**:
     - Run: `node -v && npm -v`
     - Run: `npm run doctor`
-    - If mismatch: switch to pinned toolchain first (prefer Volta: `volta install node@20.19.6 npm@10.8.2 && volta pin node@20.19.6 npm@10.8.2`).
+    - If mismatch: switch to pinned toolchain first (prefer Volta: `volta install node@24.14.1 npm@11.11.0 && volta pin node@24.14.1 npm@11.11.0`).
   - **Deterministic install + validation**:
     - Use `npm ci` (not `npm install`) for reproducibility.
     - Run only with pinned Node/npm: `npm run type-check`, `npm run lint`, relevant tests (for this repo, at minimum `npm run test:smoke` when touching AR trajectory logic).
   - **Docker parity check**:
-    - Quick check: `docker run --rm node:20.19.6-alpine node -v && docker run --rm node:20.19.6-alpine npm -v`
-    - Repo parity: `docker run --rm -v "$PWD":/workspace -w /workspace node:20.19.6-alpine sh -lc "npm run doctor"`
+    - Quick check: `docker run --rm node:24.14.1-alpine node -v && docker run --rm node:24.14.1-alpine npm -v`
+    - Repo parity: `docker run --rm -v "$PWD":/workspace -w /workspace node:24.14.1-alpine sh -lc "npm run doctor"`
   - **When upgrading Node/npm (only if explicitly requested)**:
     - Update all pins together in one change: `.nvmrc`, `.node-version`, `package.json` (`volta` + `engines`), Dockerfile `FROM node:...`.
     - Re-run local and Docker parity checks before considering the upgrade complete.
