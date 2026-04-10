@@ -290,7 +290,7 @@ async function loadBaselineRows(admin: any, launchIds: string[]) {
   return rows;
 }
 
-export function buildSummary(rows: ShadowReviewLaunch[]) {
+function buildSummary(rows: ShadowReviewLaunch[]) {
   const shadowRows = rows.filter((row) => row.shadowAvailable);
   const deltas = shadowRows.map((row) => row.scoreDelta).filter((value): value is number => typeof value === 'number');
   const byStateMap = new Map<string, { launches: number; withShadow: number; gateOpen: number; avgDeltaValues: number[] }>();
@@ -380,7 +380,7 @@ function parseSort(value: string | null) {
   return 'abs_delta' as const;
 }
 
-export function compareRows(
+function compareRows(
   left: ShadowReviewLaunch,
   right: ShadowReviewLaunch,
   sort: 'abs_delta' | 'delta_desc' | 'delta_asc' | 'net'
