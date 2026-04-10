@@ -1147,8 +1147,10 @@ serve(async (req) => {
 
     const configuredMode =
       readIngestMode(await readStringSetting(supabase, 'artemis_contracts_ingest_mode', 'incremental')) || 'incremental';
+    const configuredStage =
+      readIngestStage(await readStringSetting(supabase, 'artemis_contracts_ingest_stage', 'all')) || 'all';
     const mode: IngestMode = readIngestMode(stringOrNull(body.mode)) || configuredMode;
-    const stage = readIngestStage(stringOrNull(body.stage)) || 'all';
+    const stage = readIngestStage(stringOrNull(body.stage)) || configuredStage;
     const configuredSamMaxRequestsPerRun = Math.max(
       0,
       Math.trunc(await readNumberSetting(supabase, 'artemis_sam_max_requests_per_run', DEFAULT_SAM_MAX_REQUESTS_PER_RUN))
@@ -3588,8 +3590,11 @@ async function upsertContractActions(
 ) {
   if (actions.length === 0) return 0;
 
+  const dedupedActions = dedupeContractActions(actions);
+  stats.normalizedActionsDeduped = Math.max(0, actions.length - dedupedActions.length);
+
   let total = 0;
-  for (const chunk of chunkArray(actions, UPSERT_CHUNK_SIZE)) {
+  for (const chunk of chunkArray(dedupedActions, UPSERT_CHUNK_SIZE)) {
     const existingByActionKey = await fetchExistingActionLinkageByActionKeys(
       supabase,
       chunk
@@ -3618,6 +3623,44 @@ async function upsertContractActions(
 
   stats.normalizedActionsUpserted = total;
   return total;
+}
+
+function dedupeContractActions(actions: Array<Record<string, unknown>>) {
+  const byActionKey = new Map<string, Record<string, unknown>>();
+
+  for (const action of actions) {
+    const actionKey = stringOrNull(action.action_key);
+    if (!actionKey) continue;
+
+    const existing = byActionKey.get(actionKey);
+    if (!existing) {
+      byActionKey.set(actionKey, action);
+      continue;
+    }
+
+    const mergedMetadata = {
+      ...safeRecord(existing.metadata),
+      ...safeRecord(action.metadata)
+    };
+    const existingUpdatedAt = Date.parse(stringOrNull(existing.updated_at) || '');
+    const nextUpdatedAt = Date.parse(stringOrNull(action.updated_at) || '');
+    const preferIncoming =
+      Number.isFinite(nextUpdatedAt) &&
+      (!Number.isFinite(existingUpdatedAt) || nextUpdatedAt >= existingUpdatedAt);
+    const primary = preferIncoming ? action : existing;
+    const secondary = preferIncoming ? existing : action;
+
+    byActionKey.set(actionKey, {
+      ...secondary,
+      ...primary,
+      solicitation_id: stringOrNull(primary.solicitation_id) || stringOrNull(secondary.solicitation_id) || null,
+      sam_notice_id: stringOrNull(primary.sam_notice_id) || stringOrNull(secondary.sam_notice_id) || null,
+      source_document_id: stringOrNull(primary.source_document_id) || stringOrNull(secondary.source_document_id) || null,
+      metadata: mergedMetadata
+    });
+  }
+
+  return [...byActionKey.values()];
 }
 
 async function fetchExistingActionLinkageByActionKeys(

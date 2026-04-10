@@ -37,6 +37,7 @@ let pdfJsModulePromise: Promise<PdfJsModule | null> | null = null;
 serve(async (req) => {
   const startedAt = Date.now();
   const supabase = createSupabaseAdminClient();
+  let runId: number | null = null;
 
   const authorized = await requireJobAuth(req, supabase);
   if (!authorized) return jsonResponse({ error: 'unauthorized' }, 401);
@@ -54,12 +55,9 @@ serve(async (req) => {
     errors: [] as Array<{ step: string; error: string; context?: Record<string, unknown> }>
   };
 
-  const { runId } = await startIngestionRun(supabase, 'ws45_planning_forecast_ingest');
-
   try {
     const settings = await getSettings(supabase, ['ws45_planning_forecast_job_enabled']);
     if (!readBooleanSetting(settings.ws45_planning_forecast_job_enabled, true)) {
-      await finishIngestionRun(supabase, runId, true, { ...stats, skipped: true, reason: 'disabled' });
       return jsonResponse({ ok: true, skipped: true, reason: 'disabled', elapsedMs: Date.now() - startedAt, stats });
     }
 
@@ -71,9 +69,10 @@ serve(async (req) => {
     stats.dueReasonWeekly = dueState.weeklyReason;
 
     if (!dueState.planning24hDue && !dueState.weeklyDue) {
-      await finishIngestionRun(supabase, runId, true, { ...stats, skipped: true, reason: 'not_due' });
       return jsonResponse({ ok: true, skipped: true, reason: 'not_due', elapsedMs: Date.now() - startedAt, stats });
     }
+
+    runId = (await startIngestionRun(supabase, 'ws45_planning_forecast_ingest')).runId;
 
     const html = await fetchText(PLANNING_PAGE_URL);
     stats.pageFetched = true;
@@ -452,7 +451,8 @@ function isPdfBytes(bytes: Uint8Array) {
 }
 
 async function sha256Hex(bytes: Uint8Array) {
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  const digestInput = new Uint8Array(bytes);
+  const digest = await crypto.subtle.digest('SHA-256', digestInput);
   return Array.from(new Uint8Array(digest))
     .map((value) => value.toString(16).padStart(2, '0'))
     .join('');
@@ -488,7 +488,7 @@ async function loadPdfJsModule(): Promise<PdfJsModule | null> {
 
   pdfJsModulePromise = (async () => {
     const staticCandidate = pdfjsStatic as unknown as PdfJsModule;
-    if (staticCandidate && typeof staticCandidate.getDocument === 'function') {
+    if (staticCandidate && typeof staticCandidate === 'object' && typeof staticCandidate.getDocument === 'function') {
       return staticCandidate;
     }
 

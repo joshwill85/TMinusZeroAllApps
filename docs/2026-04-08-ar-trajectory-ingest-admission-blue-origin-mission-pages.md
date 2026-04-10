@@ -22,9 +22,9 @@ Last updated: 2026-04-08
 ## Admission Decision
 
 - Decision: `defer`
-- Decision summary: Blue Origin official pages are real and already useful for discovery and timeline context, but they are not yet admitted as trajectory-truth ingest because field-level usefulness is not proven.
-- Blocking reason if not `pass`: usable coverage for direction, milestone, recovery, and visibility values is not yet demonstrated
-- Next action: keep URL discovery and source-document capture, then run a provider-specific field audit before any trajectory-truth adapter is built
+- Decision summary: Blue Origin official pages are real and already useful for discovery and timeline context, but the bounded matched-page field audit still found no numeric mission facts or authority-grade trajectory bundles on the healthy joined pages, so they are not admitted as trajectory-truth ingest.
+- Blocking reason if not `pass`: usable coverage for direction, milestone, recovery, and visibility values is still not demonstrated on real joined launches
+- Next action: keep URL discovery and source-document capture, but do not build a trajectory-truth adapter unless Blue Origin starts publishing materially stronger mission-profile values
 - Registry entry to update: `docs/2026-04-08-ar-trajectory-ingest-admission-registry.md`
 
 ## Question 1: Availability
@@ -70,30 +70,38 @@ Question: if the data is available, can we reliably join it to T-Minus Zero laun
   - launch rows that have only generic provider branding
 - Manual fallback allowed: yes
 - Result: `partial`
-- Notes: Joinability is good enough for discovery and timeline context, but not yet strong enough to admit field-level truth extraction without a more explicit audit.
+- Notes:
+  - a live field audit on `2026-04-08` scanned `45` Blue Origin launches from `tmp/blue-origin-audit.json`
+  - `11` launches had healthy official source pages and all `11` fetched successfully through their stored Wayback or canonical URLs
+  - that is enough to prove page-level joinability for a bounded subset, but not enough to promote the source into trajectory truth
 
 ## Question 3: Usable Coverage
 
 Question: if we can join it, do enough of our real launches actually have the values we need?
 
 - Eligible launch window used for audit:
-  - current repo evidence only
+  - `45` Blue Origin launches from `tmp/blue-origin-audit.json`
 - Launches sampled:
-  - repo evidence only
+  - `11` launches with healthy official source pages
 - Launches with usable values:
-  - sufficient for mission-link indexing and timeline context
+  - `0 / 11` launches with an authority-grade field bundle
 - Coverage rate:
-  - unknown for direction, milestones, recovery, and visibility fields
+  - `0.0%` authority-bundle coverage on the matched-page field audit
 - Missing-pattern summary:
-  - the current adapter proves page discovery, not trajectory-value presence
-  - no repo evidence currently shows useful field coverage for a trajectory-truth adapter
+  - `2 / 11` launches showed mission-profile-style signals
+  - `8 / 11` launches showed timeline signals
+  - `8 / 11` launches showed recovery wording
+  - `6 / 11` launches showed visibility-style wording
+  - `0 / 11` launches showed numeric mission facts such as apogee, altitude, microgravity duration, or similar structured values
+  - `0 / 11` launches showed any numeric orbit-like value
 - Result: `no`
 - Notes: This is the stop condition for any new Blue Origin trajectory-truth ingest at the current stage.
 
 ## Operational Readiness
 
 - Parser fixture plan:
-  - add fixtures only after a field-level audit proves the target fields exist often enough to matter
+  - keep the new field-audit smoke fixture only for admission evidence
+  - do not build ingest fixtures until coverage changes enough to justify a new adapter
 - Freshness / SLA expectation:
   - moderate for mission-link indexing; unproven for launch-critical truth fields
 - Failure mode severity:
@@ -113,14 +121,16 @@ Question: if we can join it, do enough of our real launches actually have the va
   - continue official URL discovery
   - continue source-document capture
   - continue timeline-context events
-  - run a bounded provider-specific field audit
+  - run `npm run audit:blue-origin` to refresh the raw Blue Origin audit snapshot
+  - run `npm run audit:blue-origin:fields` against that snapshot to keep the defer decision evidence-backed
+  - optionally run `npm run audit:blue-origin:trajectory-admission` for the lighter page-presence summary
 - Exact scope not allowed:
   - do not build a Blue Origin direction-authority adapter yet
   - do not promote discovered mission pages into milestone, recovery, or visibility truth without a separate `pass`
 - Follow-up owner:
   - Backend/Data
 - Follow-up date:
-  - after a provider-specific field audit is completed
+  - only if Blue Origin source publication changes materially
 
 ## Evidence Links
 
@@ -133,3 +143,5 @@ Question: if we can join it, do enough of our real launches actually have the va
 - Related scripts or adapters:
   - `supabase/functions/blue-origin-missions-ingest/index.ts`
   - `supabase/functions/_shared/blueOriginSources.ts`
+  - `scripts/blue-origin-field-audit.ts`
+  - `scripts/blue-origin-field-audit-lib.ts`

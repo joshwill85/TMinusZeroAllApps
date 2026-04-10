@@ -2,6 +2,16 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createSupabaseAdminClient } from '../_shared/supabase.ts';
 import { requireJobAuth } from '../_shared/jobAuth.ts';
 import { getSettings, readBooleanSetting, readNumberSetting } from '../_shared/settings.ts';
+import {
+  buildLandingHintConstraintRow,
+  buildMissionInfographicConstraintRow,
+  buildSpaceXLaunchPageUrl,
+  normalizeCmsAsset,
+  normalizeOptionalString,
+  normalizeUrl,
+  sha256Hex,
+  type NormalizedCmsAsset
+} from '../_shared/spacexInfographicConstraints.ts';
 
 const SPACEX_CONTENT_BASE_URL = 'https://content.spacex.com/api/spacex-website';
 const USER_AGENT = 'TMinusZero/0.1 (+https://tminusnow.app)';
@@ -24,16 +34,6 @@ type LaunchCandidate = {
   pad_short_code?: string | null;
   launch_info_urls?: unknown;
   mission_info_urls?: unknown;
-};
-
-type NormalizedCmsAsset = {
-  url: string;
-  previewUrl?: string | null;
-  mime?: string | null;
-  width?: number | null;
-  height?: number | null;
-  hash?: string | null;
-  ext?: string | null;
 };
 
 type SpaceXLaunchTile = {
@@ -746,145 +746,6 @@ function buildCarouselResources(missionId: string, carousel: CarouselEntry[]) {
   return resources;
 }
 
-async function buildMissionInfographicConstraintRow({
-  launchId,
-  missionId,
-  missionTitle,
-  confidence,
-  launchPageUrl,
-  match,
-  infographicDesktop,
-  infographicMobile,
-  fetchedAt
-}: {
-  launchId: string;
-  missionId: string;
-  missionTitle: string | null;
-  confidence: number;
-  launchPageUrl: string | null;
-  match: Record<string, unknown> | null;
-  infographicDesktop: NormalizedCmsAsset | null;
-  infographicMobile: NormalizedCmsAsset | null;
-  fetchedAt: string;
-}) {
-  if (!infographicDesktop?.url && !infographicMobile?.url) return null;
-
-  const data = {
-    missionId,
-    missionTitle,
-    launchPageUrl,
-    match,
-    infographicDesktop,
-    infographicMobile
-  };
-
-  return {
-    launch_id: launchId,
-    source: 'spacex_website',
-    source_id: missionId,
-    constraint_type: 'mission_infographic',
-    confidence,
-    source_hash: await sha256Hex(JSON.stringify(data)),
-    extracted_field_map: {
-      infographicDesktop: Boolean(infographicDesktop?.url),
-      infographicMobile: Boolean(infographicMobile?.url),
-      launchPageUrl: Boolean(launchPageUrl)
-    },
-    parse_rule_id: 'spacex_content_mission_infographic_v2',
-    parser_version: 'v2',
-    license_class: 'public_web_api',
-    data,
-    fetched_at: fetchedAt,
-    updated_at: fetchedAt
-  };
-}
-
-async function buildLandingHintConstraintRow({
-  launchId,
-  missionId,
-  missionTitle,
-  confidence,
-  launchPageUrl,
-  match,
-  returnSite,
-  returnDateTime,
-  fetchedAt
-}: {
-  launchId: string;
-  missionId: string;
-  missionTitle: string | null;
-  confidence: number;
-  launchPageUrl: string | null;
-  match: Record<string, unknown> | null;
-  returnSite: string | null;
-  returnDateTime: string | null;
-  fetchedAt: string;
-}) {
-  if (!returnSite && !returnDateTime) return null;
-
-  const data = {
-    missionId,
-    missionTitle,
-    launchPageUrl,
-    returnSite,
-    returnDateTime,
-    match
-  };
-
-  return {
-    launch_id: launchId,
-    source: 'spacex_content',
-    source_id: missionId,
-    constraint_type: 'landing_hint',
-    confidence: Math.min(confidence, 0.72),
-    source_hash: await sha256Hex(JSON.stringify(data)),
-    extracted_field_map: {
-      returnSite: Boolean(returnSite),
-      returnDateTime: Boolean(returnDateTime),
-      launchPageUrl: Boolean(launchPageUrl)
-    },
-    parse_rule_id: 'spacex_content_landing_hint_v1',
-    parser_version: 'v1',
-    license_class: 'public_web_api',
-    data,
-    fetched_at: fetchedAt,
-    updated_at: fetchedAt
-  };
-}
-
-function normalizeCmsAsset(asset: unknown): NormalizedCmsAsset | null {
-  if (!asset || typeof asset !== 'object' || Array.isArray(asset)) return null;
-  const row = asset as Record<string, unknown>;
-  const url = normalizeUrl(row.url);
-  if (!url) return null;
-
-  return {
-    url,
-    previewUrl: pickPreviewUrl(row),
-    mime: normalizeOptionalString(row.mime),
-    width: toFiniteNumber(row.width),
-    height: toFiniteNumber(row.height),
-    hash: normalizeOptionalString(row.hash),
-    ext: normalizeOptionalString(row.ext)
-  };
-}
-
-function pickPreviewUrl(value: Record<string, unknown>) {
-  const direct = normalizeUrl(value.previewUrl);
-  if (direct) return direct;
-
-  const formats = value.formats;
-  if (!formats || typeof formats !== 'object' || Array.isArray(formats)) return null;
-  const record = formats as Record<string, unknown>;
-  for (const key of ['thumbnail', 'small', 'medium', 'large']) {
-    const candidate = record[key];
-    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
-    const url = normalizeUrl((candidate as Record<string, unknown>).url);
-    if (url) return url;
-  }
-
-  return null;
-}
 
 function normalizeTimelineEntries(value: unknown, phase: 'prelaunch' | 'postlaunch'): TimelineEvent[] {
   if (!Array.isArray(value)) return [];
@@ -902,7 +763,7 @@ function normalizeTimelineEntries(value: unknown, phase: 'prelaunch' | 'postlaun
         kind: phase
       };
     })
-    .filter((entry): entry is TimelineEvent => Boolean(entry));
+    .filter(isPresent);
 }
 
 function normalizeWebcasts(value: unknown): WebcastEntry[] {
@@ -928,7 +789,7 @@ function normalizeWebcasts(value: unknown): WebcastEntry[] {
         previewUrl: desktop?.previewUrl || mobile?.previewUrl || null
       };
     })
-    .filter((entry): entry is WebcastEntry => Boolean(entry));
+    .filter(isPresent);
 }
 
 function buildWebcastUrl(platform: string | null | undefined, videoId: string | null | undefined) {
@@ -957,7 +818,7 @@ function normalizeAstronauts(value: unknown): AstronautEntry[] {
         previewUrl: portrait?.previewUrl || null
       };
     })
-    .filter((entry): entry is AstronautEntry => Boolean(entry));
+    .filter(isPresent);
 }
 
 function normalizeParagraphs(value: unknown): ParagraphEntry[] {
@@ -974,7 +835,7 @@ function normalizeParagraphs(value: unknown): ParagraphEntry[] {
         text
       };
     })
-    .filter((entry): entry is ParagraphEntry => Boolean(entry));
+    .filter(isPresent);
 }
 
 function normalizeCarousel(value: unknown): CarouselEntry[] {
@@ -1002,24 +863,7 @@ function normalizeCarousel(value: unknown): CarouselEntry[] {
         video
       };
     })
-    .filter((entry): entry is CarouselEntry => Boolean(entry));
-}
-
-function normalizeOptionalString(value: unknown) {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed ? trimmed : null;
-}
-
-function normalizeUrl(value: unknown) {
-  const normalized = normalizeOptionalString(value);
-  if (!normalized) return null;
-  try {
-    const url = new URL(normalized);
-    return url.toString();
-  } catch {
-    return null;
-  }
+    .filter(isPresent);
 }
 
 function normalizeOptionalBoolean(value: unknown) {
@@ -1034,6 +878,10 @@ function toFiniteNumber(value: unknown) {
     if (Number.isFinite(parsed)) return parsed;
   }
   return null;
+}
+
+function isPresent<T>(value: T | null | undefined): value is T {
+  return value != null;
 }
 
 function asObject(value: unknown) {
@@ -1124,12 +972,6 @@ function truncateText(value: string, maxLength: number) {
   return `${normalized.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
 }
 
-async function sha256Hex(value: string) {
-  const encoded = new TextEncoder().encode(value);
-  const digest = await crypto.subtle.digest('SHA-256', encoded);
-  const bytes = new Uint8Array(digest);
-  return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-}
 
 function pushStatError(
   errors: Array<{ step: string; error: string; context?: Record<string, unknown> }>,
@@ -1223,11 +1065,6 @@ function readInt(value: unknown): number {
     if (Number.isFinite(parsed)) return Math.max(0, Math.trunc(parsed));
   }
   return 0;
-}
-
-function buildSpaceXLaunchPageUrl(missionId: string | null | undefined) {
-  const safe = normalizeOptionalString(missionId);
-  return safe ? `https://www.spacex.com/launches/${encodeURIComponent(safe)}` : null;
 }
 
 function jsonResponse(body: unknown, status = 200) {

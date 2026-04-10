@@ -1,0 +1,69 @@
+{
+  "generatedAt": "2026-04-08T12:00:00.000Z",
+  "launches": [
+    {
+      "launchId": "blue-origin-ng-1",
+      "enhancements": {
+        "missionSummary": "New Glenn demonstration mission carrying payloads for orbital validation.",
+        "failureReason": null,
+        "officialSourcePages": [
+          {
+            "canonicalUrl": "https://www.blueorigin.com/missions/ng-1",
+            "url": "https://www.blueorigin.com/missions/ng-1",
+            "provenance": "official",
+            "archiveSnapshotUrl": null,
+            "title": "NG-1 Mission",
+            "fetchedAt": "2026-04-08T10:00:00.000Z"
+          }
+        ]
+      },
+      "officialSourceHealth": {
+        "checked": 1,
+        "broken": 0,
+        "errors": 0
+      },
+      "anomalies": []
+    },
+    {
+      "launchId": "blue-origin-ns-31",
+      "enhancements": {
+        "missionSummary": null,
+        "failureReason": null,
+        "officialSourcePages": [
+          {
+            "canonicalUrl": "https://www.blueorigin.com/news/ns-31",
+            "url": "https://www.blueorigin.com/news/ns-31",
+            "provenance": "official",
+            "archiveSnapshotUrl": null,
+            "title": "NS-31 Update",
+            "fetchedAt": "2026-04-08T10:05:00.000Z"
+          }
+        ]
+      },
+      "officialSourceHealth": {
+        "checked": 1,
+        "broken": 1,
+        "errors": 0
+      },
+      "anomalies": [
+        "official_source_pages_include_broken_links"
+      ]
+    },
+    {
+      "launchId": "blue-origin-ns-32",
+      "enhancements": {
+        "missionSummary": null,
+        "failureReason": null,
+        "officialSourcePages": []
+      },
+      "officialSourceHealth": {
+        "checked": 0,
+        "broken": 0,
+        "errors": 0
+      },
+      "anomalies": [
+        "official_sources_present_but_no_clickable_urls"
+      ]
+    }
+  ]
+}

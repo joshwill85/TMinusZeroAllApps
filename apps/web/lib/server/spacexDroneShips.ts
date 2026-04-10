@@ -1,6 +1,6 @@
 import { cache } from 'react';
-import { isSupabaseConfigured } from '@/lib/server/env';
-import { createSupabasePublicClient } from '@/lib/server/supabaseServer';
+import { isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
+import { createSupabaseAdminClient, createSupabasePublicClient } from '@/lib/server/supabaseServer';
 import type {
   SpaceXDroneShip,
   SpaceXDroneShipAssignmentRecord,
@@ -145,6 +145,10 @@ type DroneShipDataset = {
   assignmentsByShip: Map<SpaceXDroneShipSlug, SpaceXDroneShipAssignmentRecord[]>;
   boostersByShip: Map<SpaceXDroneShipSlug, SpaceXDroneShipBoosterStat[]>;
   coverage: SpaceXDroneShipCoverage;
+};
+
+type SystemSettingRow = {
+  value: unknown;
 };
 
 type CanonicalShipRecord = Omit<SpaceXDroneShip, 'kpis'>;
@@ -333,7 +337,8 @@ const fetchDroneShipDataset = cache(async (): Promise<DroneShipDataset> => {
   }
 
   const supabase = createSupabasePublicClient();
-  const [shipRes, assignmentRes, totalCountRes] = await Promise.all([
+  const admin = isSupabaseAdminConfigured() ? createSupabaseAdminClient() : null;
+  const [shipRes, assignmentRes, totalCountRes, jobStateRes] = await Promise.all([
     supabase
       .from('spacex_drone_ships')
       .select(
@@ -345,7 +350,14 @@ const fetchDroneShipDataset = cache(async (): Promise<DroneShipDataset> => {
         'launch_id,launch_library_id,ship_slug,ship_name_raw,ship_abbrev_raw,landing_attempt,landing_success,landing_result,landing_time,source,source_landing_id,last_verified_at'
       )
       .not('ship_slug', 'is', null),
-    supabase.from('launches_public_cache').select('launch_id', { count: 'exact', head: true }).or(SPACEX_OR_FILTER)
+    supabase.from('launches_public_cache').select('launch_id', { count: 'exact', head: true }).or(SPACEX_OR_FILTER),
+    admin
+      ? admin
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'spacex_drone_ship_ingest_last_success_at')
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null })
   ]);
 
   if (assignmentRes.error && isMissingDroneShipRelationError(assignmentRes.error.message || '')) {
@@ -463,10 +475,13 @@ const fetchDroneShipDataset = cache(async (): Promise<DroneShipDataset> => {
       const netMs = Date.parse(entry.launchNet || '');
       return Number.isFinite(netMs) && netMs >= nowMs;
     }).length,
-    lastVerifiedAt: assignmentRows
-      .map((row) => normalizeIso(row.last_verified_at))
-      .filter((value): value is string => Boolean(value))
-      .sort((left, right) => Date.parse(right) - Date.parse(left))[0] || null
+    lastVerifiedAt:
+      normalizeSystemSettingIso((jobStateRes.data as SystemSettingRow | null)?.value) ||
+      assignmentRows
+        .map((row) => normalizeIso(row.last_verified_at))
+        .filter((value): value is string => Boolean(value))
+        .sort((left, right) => Date.parse(right) - Date.parse(left))[0] ||
+      null
   };
 
   return {
@@ -781,6 +796,12 @@ function normalizeIso(value: unknown) {
   const parsed = Date.parse(normalized);
   if (!Number.isFinite(parsed)) return null;
   return new Date(parsed).toISOString();
+}
+
+function normalizeSystemSettingIso(value: unknown) {
+  if (typeof value === 'string') return normalizeIso(value);
+  if (typeof value === 'number') return normalizeIso(String(value));
+  return null;
 }
 
 function parseNumberValue(value: unknown) {

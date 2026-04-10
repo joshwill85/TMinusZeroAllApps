@@ -5,8 +5,8 @@ import { getSettings, readBooleanSetting, readNumberSetting } from '../_shared/s
 
 const DEFAULTS = {
   retentionDays: 30,
-  batchSize: 50000,
-  maxBatches: 20
+  batchSize: 5000,
+  maxBatches: 8
 };
 
 serve(async (req) => {
@@ -21,35 +21,45 @@ serve(async (req) => {
     deleted: 0,
     batches: 0,
     cutoff: null as string | null,
-    batchSize: DEFAULTS.batchSize
+    batchSize: DEFAULTS.batchSize,
+    maxBatches: DEFAULTS.maxBatches
   };
 
   try {
-    const settings = await getSettings(supabase, ['celestrak_retention_cleanup_enabled', 'celestrak_orbit_elements_retention_days']);
-    const enabled = readBooleanSetting(settings.celestrak_retention_cleanup_enabled, true);
+    const settings = await getSettings(supabase, [
+      'celestrak_retention_cleanup_enabled',
+      'celestrak_orbit_elements_retention_days',
+      'celestrak_retention_cleanup_batch_size',
+      'celestrak_retention_cleanup_max_batches'
+    ]);
+    const enabled = readBooleanSetting(settings.celestrak_retention_cleanup_enabled, false);
     if (!enabled) {
       await finishIngestionRun(supabase, runId, true, { ...stats, skipped: true, reason: 'disabled' });
       return jsonResponse({ ok: true, skipped: true, reason: 'disabled' });
     }
 
     const retentionDays = clampInt(readNumberSetting(settings.celestrak_orbit_elements_retention_days, DEFAULTS.retentionDays), 1, 3650);
+    const batchSize = clampInt(readNumberSetting(settings.celestrak_retention_cleanup_batch_size, DEFAULTS.batchSize), 250, 20000);
+    const maxBatches = clampInt(readNumberSetting(settings.celestrak_retention_cleanup_max_batches, DEFAULTS.maxBatches), 1, 50);
     const cutoffIso = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
     stats.cutoff = cutoffIso;
+    stats.batchSize = batchSize;
+    stats.maxBatches = maxBatches;
 
     let totalDeleted = 0;
     let batches = 0;
 
-    while (batches < DEFAULTS.maxBatches) {
+    while (batches < maxBatches) {
       const { data, error } = await supabase.rpc('purge_orbit_elements_before', {
         cutoff_in: cutoffIso,
-        batch_size: DEFAULTS.batchSize
+        batch_size: batchSize
       });
       if (error) throw error;
 
       const deleted = Number(data || 0);
       totalDeleted += Number.isFinite(deleted) ? deleted : 0;
       batches += 1;
-      if (!Number.isFinite(deleted) || deleted < DEFAULTS.batchSize) break;
+      if (!Number.isFinite(deleted) || deleted < batchSize) break;
     }
 
     stats.deleted = totalDeleted;

@@ -67,6 +67,7 @@ import {
 import { buildSupgpSearchPlan, parsePublicOrbitData, scoreSupgpOrbitRowMatch } from '@/lib/trajectory/publicOrbitSignals';
 import { dedupeTrajectoryReasonLabels } from '@/lib/trajectory/trajectoryEvidencePresentation';
 import { normalizeImageUrl } from '@/lib/utils/imageUrl';
+import { ORBIT_OMM_DUPLICATED_KEYS, compactOrbitElementRawOmm } from '../supabase/functions/_shared/celestrak';
 
 const baseLaunch: Launch = {
   id: 'test-launch',
@@ -303,6 +304,27 @@ const starlinkSupgpPlan = buildSupgpSearchPlan({
 assert(starlinkSupgpPlan.queryTerms.includes('spacex'));
 assert(starlinkSupgpPlan.familyAliases.includes('starlink'));
 
+const compactedStarlinkRawOmm = compactOrbitElementRawOmm({
+  OBJECT_NAME: 'STARLINK G6-44',
+  OBJECT_ID: '2026-044A',
+  CLASSIFICATION_TYPE: 'U',
+  NORAD_CAT_ID: 99999,
+  EPOCH: '2026-02-13T00:00:00',
+  INCLINATION: 53.2,
+  RA_OF_ASC_NODE: 221.4,
+  ECCENTRICITY: 0.00012,
+  ARG_OF_PERICENTER: 14.8,
+  MEAN_ANOMALY: 45.1,
+  MEAN_MOTION: 15.23,
+  BSTAR: 0.000012
+});
+assert.equal(compactedStarlinkRawOmm.OBJECT_NAME, 'STARLINK G6-44');
+assert.equal(compactedStarlinkRawOmm.OBJECT_ID, '2026-044A');
+assert.equal(compactedStarlinkRawOmm.CLASSIFICATION_TYPE, 'U');
+for (const key of ORBIT_OMM_DUPLICATED_KEYS) {
+  assert.equal(Object.prototype.hasOwnProperty.call(compactedStarlinkRawOmm, key), false);
+}
+
 const starlinkSupgpMatch = scoreSupgpOrbitRowMatch(starlinkSupgpPlan, {
   group_or_source: 'SpaceX-E',
   raw_omm: {
@@ -312,6 +334,13 @@ const starlinkSupgpMatch = scoreSupgpOrbitRowMatch(starlinkSupgpPlan, {
 });
 assert(starlinkSupgpMatch != null);
 assert.equal(starlinkSupgpMatch?.quality, 'exact');
+
+const starlinkSupgpCompactedMatch = scoreSupgpOrbitRowMatch(starlinkSupgpPlan, {
+  group_or_source: 'SpaceX-E',
+  raw_omm: compactedStarlinkRawOmm
+});
+assert(starlinkSupgpCompactedMatch != null);
+assert.equal(starlinkSupgpCompactedMatch?.quality, 'exact');
 
 const starlinkSupgpFalsePositive = scoreSupgpOrbitRowMatch(starlinkSupgpPlan, {
   group_or_source: 'SpaceX-E',

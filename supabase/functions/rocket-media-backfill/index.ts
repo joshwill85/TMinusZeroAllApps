@@ -18,16 +18,15 @@ serve(async (req) => {
   }
 
   const startedAt = Date.now();
+  const settings = await getSettings(supabase, ['rocket_media_backfill_job_enabled']);
+  const enabled = readBooleanSetting(settings.rocket_media_backfill_job_enabled, true);
+  if (!enabled && !force) {
+    return jsonResponse({ ok: true, skipped: true, reason: 'disabled', elapsedMs: Date.now() - startedAt });
+  }
+
   const { runId } = await startIngestionRun(supabase, 'rocket_media_backfill');
 
   try {
-    const settings = await getSettings(supabase, ['rocket_media_backfill_job_enabled']);
-    const enabled = readBooleanSetting(settings.rocket_media_backfill_job_enabled, true);
-    if (!enabled && !force) {
-      await finishIngestionRun(supabase, runId, true, { skipped: true, reason: 'disabled' });
-      return jsonResponse({ ok: true, skipped: true, reason: 'disabled', elapsedMs: Date.now() - startedAt });
-    }
-
     const { data, error } = await supabase.rpc('backfill_rocket_media');
     if (error) throw error;
 

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createSupabaseAdminClient } from './supabase.ts';
 
 export type ArtemisSourceType = 'nasa_primary' | 'oversight' | 'budget' | 'procurement' | 'technical' | 'media';
 
@@ -105,15 +106,23 @@ export async function finishIngestionRun(
   stats?: Record<string, unknown>,
   errorMessage?: string
 ) {
-  await supabase
-    .from('ingestion_runs')
-    .update({
-      success,
-      ended_at: new Date().toISOString(),
-      stats: stats || null,
-      error: errorMessage || null
-    })
-    .eq('id', runId);
+  const payload = {
+    success,
+    ended_at: new Date().toISOString(),
+    stats: stats || null,
+    error: errorMessage || null
+  };
+
+  let lastError: string | null = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const client = attempt === 0 ? supabase : createSupabaseAdminClient();
+    const { error } = await client.from('ingestion_runs').update(payload).eq('id', runId);
+    if (!error) return;
+    lastError = error.message;
+    await waitForMs(150 * (attempt + 1));
+  }
+
+  console.warn('Failed to update ingestion_runs record', { runId, error: lastError });
 }
 
 export async function updateCheckpoint(
@@ -159,6 +168,10 @@ export async function loadCheckpoints(supabase: SupabaseClient) {
     .order('source_key', { ascending: true });
   if (error) throw error;
   return data || [];
+}
+
+function waitForMs(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function isBootstrapComplete(supabase: SupabaseClient) {

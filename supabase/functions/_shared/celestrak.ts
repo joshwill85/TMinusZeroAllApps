@@ -8,6 +8,18 @@ export const CELESTRAK_SATCAT_ENDPOINT = `${CELESTRAK_BASE}/satcat/records.php`;
 
 export const DEFAULT_CELESTRAK_USER_AGENT = 'TMinusZero/0.1 (support@tminuszero.app)';
 
+export const ORBIT_OMM_DUPLICATED_KEYS = [
+  'NORAD_CAT_ID',
+  'EPOCH',
+  'INCLINATION',
+  'RA_OF_ASC_NODE',
+  'ECCENTRICITY',
+  'ARG_OF_PERICENTER',
+  'MEAN_ANOMALY',
+  'MEAN_MOTION',
+  'BSTAR'
+] as const;
+
 export function buildUrl(base: string, params: Record<string, unknown>) {
   const url = new URL(base);
   for (const [rawKey, value] of Object.entries(params)) {
@@ -28,6 +40,18 @@ export function normalizeEpochForPg(raw: unknown): string | null {
   if (!epoch) return null;
   if (/[zZ]$/.test(epoch) || /[+-]\\d{2}:?\\d{2}$/.test(epoch)) return epoch;
   return `${epoch}Z`;
+}
+
+export function compactOrbitElementRawOmm(raw: unknown) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+
+  const compacted: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (value === undefined) continue;
+    if ((ORBIT_OMM_DUPLICATED_KEYS as readonly string[]).includes(key)) continue;
+    compacted[key] = value;
+  }
+  return compacted;
 }
 
 export async function sleep(ms: number) {

@@ -1,0 +1,69 @@
+{
+  "seed": "2026-04-08",
+  "notes": "Deterministic Rocket Lab source-audit fixture for candidate discovery and trajectory-signal scoring.",
+  "indexCases": [
+    {
+      "id": "missions_index",
+      "sourceUrl": "https://rocketlabcorp.com/missions/",
+      "html": "<html><body><a href=\"/missions/the-moon-god-awakens/\">Mission page</a><a href=\"/assets/Uploads/The-Moon-God-Awakens-Press-Kit.pdf\">Press kit</a><a href=\"https://rocketlabcorp.com/missions/\">Index</a><a href=\"/missions/launches/apple_touchicon.png\">Asset</a></body></html>",
+      "expected": {
+        "pageUrls": [
+          "https://rocketlabcorp.com/missions/the-moon-god-awakens"
+        ],
+        "pdfUrls": [
+          "https://rocketlabcorp.com/assets/Uploads/The-Moon-God-Awakens-Press-Kit.pdf"
+        ]
+      }
+    },
+    {
+      "id": "updates_index",
+      "sourceUrl": "https://rocketlabcorp.com/updates/",
+      "html": "<html><body><a href=\"/updates/electron-recovery-update/\">Update page</a><a href=\"/assets/Uploads/Electron-Recovery-Update.pdf\">Update PDF</a><a href=\"/updates/&\">Bad slug</a></body></html>",
+      "expected": {
+        "pageUrls": [
+          "https://rocketlabcorp.com/updates/electron-recovery-update"
+        ],
+        "pdfUrls": [
+          "https://rocketlabcorp.com/assets/Uploads/Electron-Recovery-Update.pdf"
+        ]
+      }
+    }
+  ],
+  "pageCases": [
+    {
+      "id": "mission_page_signals",
+      "url": "https://rocketlabcorp.com/missions/the-moon-god-awakens/",
+      "html": "<html><body><h1>The Moon God Awakens</h1><p>Electron will deploy the payload into low Earth orbit at 500 km after stage separation and payload deployment.</p></body></html>",
+      "expected": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 2,
+        "milestoneSignalCount": 2,
+        "recoverySignalCount": 0,
+        "numericOrbitSignalCount": 1,
+        "matchedKeywords": [
+          "orbit",
+          "low earth orbit",
+          "stage separation",
+          "payload deployment"
+        ]
+      }
+    },
+    {
+      "id": "update_page_signals",
+      "url": "https://rocketlabcorp.com/updates/electron-recovery-update/",
+      "html": "<html><body><p>The recovery team completed splashdown operations and parachute retrieval after the mission.</p></body></html>",
+      "expected": {
+        "hasTrajectorySignals": true,
+        "orbitSignalCount": 0,
+        "milestoneSignalCount": 0,
+        "recoverySignalCount": 3,
+        "numericOrbitSignalCount": 0,
+        "matchedKeywords": [
+          "recovery",
+          "splashdown",
+          "parachute"
+        ]
+      }
+    }
+  ]
+}

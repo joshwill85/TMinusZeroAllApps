@@ -12,13 +12,14 @@ import {
   updateCheckpoint,
   upsertTimelineEvent
 } from '../_shared/artemisIngest.ts';
+import { reconcileStaleIngestionRuns, releaseJobLock, tryAcquireJobLock } from '../_shared/ingestionRuns.ts';
 import { ARTEMIS_SOURCE_URLS } from '../_shared/artemisSources.ts';
 import {
   classifyUsaspendingAwardForScope,
   normalizeProgramScope as normalizeHubAuditProgramScope,
   readProgramScopes as readHubAuditProgramScopes,
   type UsaSpendingAwardAuditInput
-} from '../../../lib/usaspending/hubAudit.ts';
+} from '../../../apps/web/lib/usaspending/hubAudit.ts';
 
 type MissionKey =
   | 'program'
@@ -105,6 +106,11 @@ const DEFAULT_MIN_HEALTHY_AWARD_COUNT = 5;
 const UPSERT_BATCH_SIZE = 300;
 const HTTP_RETRY_ATTEMPTS = 4;
 const HTTP_RETRY_BASE_DELAY_MS = 400;
+const DEFAULT_HTTP_TIMEOUT_MS = 12_000;
+const DEFAULT_RUN_DEADLINE_MS = 8 * 60 * 1000;
+const DEFAULT_STALE_RUN_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+const DEFAULT_LOCK_TTL_SECONDS = 1800;
+const JOB_NAME = 'artemis_procurement_ingest';
 
 const QUERY_GROUPS: UsaSpendingQueryGroup[] = [
   { name: 'contracts', awardTypeCodes: ['A', 'B', 'C', 'D'], sortField: 'Award Amount' },
@@ -217,12 +223,14 @@ serve(async (req) => {
 
   const startedAt = Date.now();
   const { runId } = await startIngestionRun(supabase, 'artemis_procurement_ingest');
+  let lockId: string | null = null;
   const stats: Record<string, unknown> = {
     sourceDocumentsInserted: 0,
     awardsInserted: 0,
     timelineEventsUpserted: 0,
     queriesAttempted: 0,
     queriesSucceeded: 0,
+    staleIngestionRunsClosed: 0,
     scopeStats: [] as ScopeRunStats[],
     errors: [] as Array<{ step: string; error: string }>
   };
@@ -232,6 +240,61 @@ serve(async (req) => {
     if (!enabled) {
       await finishIngestionRun(supabase, runId, true, { skipped: true, reason: 'disabled' });
       return jsonResponse({ ok: true, skipped: true, reason: 'disabled', elapsedMs: Date.now() - startedAt });
+    }
+
+    const httpTimeoutMs = await readPositiveIntegerSetting(
+      supabase,
+      'artemis_procurement_http_timeout_ms',
+      DEFAULT_HTTP_TIMEOUT_MS,
+      1000,
+      120_000
+    );
+    const runDeadlineMs = await readPositiveIntegerSetting(
+      supabase,
+      'artemis_procurement_run_deadline_ms',
+      DEFAULT_RUN_DEADLINE_MS,
+      30_000,
+      60 * 60 * 1000
+    );
+    const staleRunTimeoutMs = await readPositiveIntegerSetting(
+      supabase,
+      'artemis_procurement_stale_run_timeout_ms',
+      DEFAULT_STALE_RUN_TIMEOUT_MS,
+      60_000,
+      7 * 24 * 60 * 60 * 1000
+    );
+    const lockTtlSeconds = await readPositiveIntegerSetting(
+      supabase,
+      'artemis_procurement_lock_ttl_seconds',
+      DEFAULT_LOCK_TTL_SECONDS,
+      60,
+      6 * 60 * 60
+    );
+    const deadlineAtMs = Date.now() + runDeadlineMs;
+
+    stats.httpTimeoutMs = httpTimeoutMs;
+    stats.runDeadlineMs = runDeadlineMs;
+    stats.lockTtlSeconds = lockTtlSeconds;
+    stats.staleRunTimeoutMs = staleRunTimeoutMs;
+    stats.staleIngestionRunsClosed = await reconcileStaleIngestionRuns(supabase, {
+      jobName: JOB_NAME,
+      currentRunId: runId,
+      staleBeforeIso: new Date(Date.now() - staleRunTimeoutMs).toISOString()
+    });
+
+    lockId = crypto.randomUUID();
+    const lockAcquired = await tryAcquireJobLock(supabase, {
+      lockName: JOB_NAME,
+      ttlSeconds: lockTtlSeconds,
+      lockId
+    });
+    if (!lockAcquired) {
+      await finishIngestionRun(supabase, runId, true, {
+        ...stats,
+        skipped: true,
+        reason: 'locked'
+      });
+      return jsonResponse({ ok: true, skipped: true, reason: 'locked', elapsedMs: Date.now() - startedAt, stats });
     }
 
     await updateCheckpoint(supabase, 'usaspending_awards', {
@@ -267,7 +330,9 @@ serve(async (req) => {
           recipientSearchText: null,
           querySummaries,
           dedupedAwards: scopeDeduped,
-          maxPagesPerQuery
+          maxPagesPerQuery,
+          timeoutMs: httpTimeoutMs,
+          deadlineAtMs
         });
         queryInputsProcessed += 1;
       }
@@ -280,7 +345,9 @@ serve(async (req) => {
             recipientSearchText,
             querySummaries,
             dedupedAwards: scopeDeduped,
-            maxPagesPerQuery
+            maxPagesPerQuery,
+            timeoutMs: httpTimeoutMs,
+            deadlineAtMs
           });
           queryInputsProcessed += 1;
         }
@@ -369,7 +436,7 @@ serve(async (req) => {
       title: 'USASpending procurement refresh (Artemis, Blue Origin, SpaceX)',
       summary: `Resolved ${awards.length} procurement rows across Artemis/Blue Origin/SpaceX from ${String(stats.queriesSucceeded)}/${querySummaries.length} successful USASpending queries.`,
       announcedTime: new Date().toISOString(),
-      httpStatus: highestStatus(querySummaries),
+      httpStatus: highestStatus(querySummaries) ?? undefined,
       contentType: 'application/json',
       raw: {
         fields: USASPENDING_AWARD_FIELDS,
@@ -503,6 +570,10 @@ serve(async (req) => {
 
     await finishIngestionRun(supabase, runId, false, stats, message);
     return jsonResponse({ ok: false, error: message, elapsedMs: Date.now() - startedAt, stats }, 500);
+  } finally {
+    if (lockId) {
+      await releaseJobLock(supabase, { lockName: JOB_NAME, lockId }).catch(() => undefined);
+    }
   }
 });
 
@@ -513,7 +584,9 @@ async function runAwardQueryRound({
   recipientSearchText,
   querySummaries,
   dedupedAwards,
-  maxPagesPerQuery
+  maxPagesPerQuery,
+  timeoutMs,
+  deadlineAtMs
 }: {
   scope: ProgramScope;
   agencies: UsaSpendingAgencyFilter[] | null;
@@ -522,8 +595,11 @@ async function runAwardQueryRound({
   querySummaries: QuerySummary[];
   dedupedAwards: Map<string, AwardRecord>;
   maxPagesPerQuery: number;
+  timeoutMs: number;
+  deadlineAtMs: number;
 }) {
   for (const group of QUERY_GROUPS) {
+    throwIfPastDeadline(deadlineAtMs);
     let lastStatus = 0;
     let hadSuccessfulPage = false;
     let lastError: string | null = null;
@@ -531,7 +607,16 @@ async function runAwardQueryRound({
     let resultCount = 0;
 
     for (let page = 1; page <= maxPagesPerQuery; page += 1) {
-      const response = await searchUsaSpendingAwards({ group, keyword, agencies, page, recipientSearchText });
+      throwIfPastDeadline(deadlineAtMs);
+      const response = await searchUsaSpendingAwards({
+        group,
+        keyword,
+        agencies,
+        page,
+        recipientSearchText,
+        timeoutMs,
+        deadlineAtMs
+      });
       pagesFetched += 1;
       lastStatus = response.status;
       if (response.ok) hadSuccessfulPage = true;
@@ -584,13 +669,17 @@ async function searchUsaSpendingAwards({
   keyword,
   agencies,
   page,
-  recipientSearchText
+  recipientSearchText,
+  timeoutMs,
+  deadlineAtMs
 }: {
   group: UsaSpendingQueryGroup;
   keyword: string;
   agencies: UsaSpendingAgencyFilter[] | null;
   page: number;
   recipientSearchText: string | null;
+  timeoutMs: number;
+  deadlineAtMs: number;
 }): Promise<UsaSpendingSearchMeta> {
   const filters: Record<string, unknown> = {
     award_type_codes: group.awardTypeCodes,
@@ -605,8 +694,12 @@ async function searchUsaSpendingAwards({
   }
 
   for (let attempt = 1; attempt <= HTTP_RETRY_ATTEMPTS; attempt += 1) {
+    throwIfPastDeadline(deadlineAtMs);
     try {
-      const response = await fetch(ARTEMIS_SOURCE_URLS.usaspendingAwardSearch, {
+      const remainingMs = Math.max(1_000, deadlineAtMs - Date.now());
+      const response = await fetchWithTimeout(
+        ARTEMIS_SOURCE_URLS.usaspendingAwardSearch,
+        {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -619,7 +712,9 @@ async function searchUsaSpendingAwards({
           sort: group.sortField,
           order: 'desc'
         })
-      });
+        },
+        Math.min(timeoutMs, remainingMs)
+      );
 
       const text = await response.text();
       let json: unknown = null;
@@ -631,6 +726,7 @@ async function searchUsaSpendingAwards({
 
       // Retry transient upstream errors to avoid aborting whole runs.
       if (response.status >= 500 && attempt < HTTP_RETRY_ATTEMPTS) {
+        throwIfPastDeadline(deadlineAtMs);
         await waitForMs(HTTP_RETRY_BASE_DELAY_MS * attempt);
         continue;
       }
@@ -646,7 +742,11 @@ async function searchUsaSpendingAwards({
       };
     } catch (error) {
       const message = stringifyError(error);
+      if (isAbortLikeError(error) && Date.now() >= deadlineAtMs) {
+        throw new Error('usaspending_run_deadline_exceeded');
+      }
       if (attempt < HTTP_RETRY_ATTEMPTS) {
+        throwIfPastDeadline(deadlineAtMs);
         await waitForMs(HTTP_RETRY_BASE_DELAY_MS * attempt);
         continue;
       }
@@ -791,6 +891,27 @@ async function waitForMs(ms: number) {
   const duration = Number.isFinite(ms) ? Math.max(0, Math.trunc(ms)) : 0;
   if (duration <= 0) return;
   await new Promise((resolve) => setTimeout(resolve, duration));
+}
+
+function throwIfPastDeadline(deadlineAtMs: number) {
+  if (Date.now() > deadlineAtMs) {
+    throw new Error('usaspending_run_deadline_exceeded');
+  }
+}
+
+function isAbortLikeError(error: unknown) {
+  const message = stringifyError(error).toLowerCase();
+  return message.includes('abort') || message.includes('timed out') || message.includes('timeout');
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function readPositiveIntegerSetting(

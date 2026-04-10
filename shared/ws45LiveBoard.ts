@@ -353,10 +353,12 @@ function buildAlertLabel(weatherType: string | null, status: string | null, phas
 }
 
 function buildTimeWindow(startTime: string | null, endTime: string | null, isOpenEnded: boolean) {
+  const startLabel = formatBoardTime(startTime);
+  const endLabel = formatBoardTime(endTime);
   if (!startTime && !endTime) return isOpenEnded ? 'Until further notice' : '';
-  if (isOpenEnded && startTime) return `Started ${startTime}`;
-  if (endTime) return `Until ${endTime}`;
-  return startTime ? `Started ${startTime}` : '';
+  if (isOpenEnded && startLabel) return `Started ${startLabel}`;
+  if (endLabel) return `Until ${endLabel}`;
+  return startLabel ? `Started ${startLabel}` : '';
 }
 
 function detectLightningPhase(weatherType: string | null, status: string | null, subtext: string | null) {
@@ -422,6 +424,20 @@ function normalizeId(value: unknown) {
   if (typeof value === 'number' && Number.isFinite(value)) return String(Math.trunc(value));
   if (typeof value === 'string' && value.trim()) return value.trim();
   return '';
+}
+
+function formatBoardTime(value: string | null | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: '2-digit',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'America/New_York',
+    timeZoneName: 'short'
+  }).format(date);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

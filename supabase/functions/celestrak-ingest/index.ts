@@ -7,6 +7,7 @@ import {
   CELESTRAK_GP_ENDPOINT,
   CELESTRAK_SATCAT_ENDPOINT,
   CELESTRAK_SUPGP_ENDPOINT,
+  compactOrbitElementRawOmm,
   DEFAULT_CELESTRAK_USER_AGENT,
   fetchJsonWithRetries,
   normalizeEpochForPg
@@ -303,7 +304,7 @@ async function ingestGpGroup({
         mean_anomaly_deg: parseFiniteNumber(item?.MEAN_ANOMALY),
         mean_motion_rev_per_day: parseFiniteNumber(item?.MEAN_MOTION),
         bstar: parseFiniteNumber(item?.BSTAR),
-        raw_omm: item,
+        raw_omm: compactOrbitElementRawOmm(item),
         fetched_at: fetchedAt,
         hash: null
       });
@@ -384,7 +385,7 @@ async function ingestSupgpDataset({
         mean_anomaly_deg: parseFiniteNumber(item?.MEAN_ANOMALY),
         mean_motion_rev_per_day: parseFiniteNumber(item?.MEAN_MOTION),
         bstar: parseFiniteNumber(item?.BSTAR),
-        raw_omm: item,
+        raw_omm: compactOrbitElementRawOmm(item),
         fetched_at: fetchedAt,
         hash: null
       });

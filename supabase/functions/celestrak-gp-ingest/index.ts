@@ -2,7 +2,14 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createSupabaseAdminClient } from '../_shared/supabase.ts';
 import { requireJobAuth } from '../_shared/jobAuth.ts';
 import { getSettings, readBooleanSetting, readNumberSetting } from '../_shared/settings.ts';
-import { buildUrl, CELESTRAK_GP_ENDPOINT, DEFAULT_CELESTRAK_USER_AGENT, fetchJsonWithRetries, normalizeEpochForPg } from '../_shared/celestrak.ts';
+import {
+  buildUrl,
+  CELESTRAK_GP_ENDPOINT,
+  compactOrbitElementRawOmm,
+  DEFAULT_CELESTRAK_USER_AGENT,
+  fetchJsonWithRetries,
+  normalizeEpochForPg
+} from '../_shared/celestrak.ts';
 
 const USER_AGENT = Deno.env.get('CELESTRAK_USER_AGENT') || DEFAULT_CELESTRAK_USER_AGENT;
 
@@ -151,7 +158,7 @@ async function ingestGpGroup({
         mean_anomaly_deg: parseFiniteNumber(item?.MEAN_ANOMALY),
         mean_motion_rev_per_day: parseFiniteNumber(item?.MEAN_MOTION),
         bstar: parseFiniteNumber(item?.BSTAR),
-        raw_omm: item,
+        raw_omm: compactOrbitElementRawOmm(item),
         fetched_at: fetchedAt,
         hash: null
       });

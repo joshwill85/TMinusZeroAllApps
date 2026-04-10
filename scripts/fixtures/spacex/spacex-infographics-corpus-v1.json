@@ -1,0 +1,126 @@
+{
+  "seed": "spacex-infographics-corpus-v1",
+  "notes": "Deterministic fixture corpus for the admitted SpaceX infographic and landing-hint constraint builders.",
+  "cases": [
+    {
+      "id": "starlink-desktop-infographic-and-landing",
+      "input": {
+        "launchId": "launch-starlink-12-7",
+        "missionId": "starlink-12-7",
+        "missionTitle": "Starlink 12-7",
+        "confidence": 0.91,
+        "fetchedAt": "2026-04-08T12:00:00.000Z",
+        "match": {
+          "strategy": "launch_info_url",
+          "confidence": 0.99,
+          "launchPad": "SLC-40"
+        },
+        "infographicDesktopRaw": {
+          "url": "https://images.spacex.com/media/starlink-12-7/infographic-desktop.jpg",
+          "previewUrl": "https://images.spacex.com/media/starlink-12-7/infographic-desktop-preview.jpg",
+          "mime": "image/jpeg",
+          "width": "1920",
+          "height": 1080
+        },
+        "infographicMobileRaw": null,
+        "returnSite": "A Shortfall of Gravitas",
+        "returnDateTime": "2026-04-09T00:14:00.000Z"
+      },
+      "expected": {
+        "missionInfographic": {
+          "exists": true,
+          "source": "spacex_website",
+          "constraintType": "mission_infographic",
+          "parseRuleId": "spacex_content_mission_infographic_v2",
+          "parserVersion": "v2",
+          "confidence": 0.91,
+          "launchPageUrl": "https://www.spacex.com/launches/starlink-12-7",
+          "infographicDesktop": true,
+          "infographicMobile": false,
+          "desktopUrl": "https://images.spacex.com/media/starlink-12-7/infographic-desktop.jpg",
+          "desktopPreviewUrl": "https://images.spacex.com/media/starlink-12-7/infographic-desktop-preview.jpg"
+        },
+        "landingHint": {
+          "exists": true,
+          "source": "spacex_content",
+          "constraintType": "landing_hint",
+          "parseRuleId": "spacex_content_landing_hint_v1",
+          "parserVersion": "v1",
+          "confidence": 0.72,
+          "launchPageUrl": "https://www.spacex.com/launches/starlink-12-7",
+          "returnSite": "A Shortfall of Gravitas",
+          "returnDateTime": "2026-04-09T00:14:00.000Z"
+        }
+      }
+    },
+    {
+      "id": "dragon-mobile-infographic-only",
+      "input": {
+        "launchId": "launch-crew-12",
+        "missionId": "crew-12",
+        "missionTitle": "Crew-12",
+        "confidence": 0.63,
+        "fetchedAt": "2026-04-08T13:15:00.000Z",
+        "match": {
+          "strategy": "tile_match",
+          "score": 0.63
+        },
+        "infographicDesktopRaw": null,
+        "infographicMobileRaw": {
+          "url": "https://images.spacex.com/media/crew-12/infographic-mobile.png",
+          "mime": "image/png",
+          "width": 960,
+          "height": "1706",
+          "formats": {
+            "thumbnail": {
+              "url": "https://images.spacex.com/media/crew-12/infographic-mobile-thumb.png"
+            }
+          }
+        },
+        "returnSite": null,
+        "returnDateTime": null
+      },
+      "expected": {
+        "missionInfographic": {
+          "exists": true,
+          "source": "spacex_website",
+          "constraintType": "mission_infographic",
+          "parseRuleId": "spacex_content_mission_infographic_v2",
+          "parserVersion": "v2",
+          "confidence": 0.63,
+          "launchPageUrl": "https://www.spacex.com/launches/crew-12",
+          "infographicDesktop": false,
+          "infographicMobile": true,
+          "mobileUrl": "https://images.spacex.com/media/crew-12/infographic-mobile.png",
+          "mobilePreviewUrl": "https://images.spacex.com/media/crew-12/infographic-mobile-thumb.png"
+        },
+        "landingHint": {
+          "exists": false
+        }
+      }
+    },
+    {
+      "id": "no-infographic-no-landing-hint",
+      "input": {
+        "launchId": "launch-bandwagon-3",
+        "missionId": "bandwagon-3",
+        "missionTitle": "Bandwagon-3",
+        "confidence": 0.58,
+        "fetchedAt": "2026-04-08T14:30:00.000Z",
+        "match": null,
+        "infographicDesktopRaw": null,
+        "infographicMobileRaw": null,
+        "returnSite": null,
+        "returnDateTime": null
+      },
+      "expected": {
+        "missionInfographic": {
+          "exists": false
+        },
+        "landingHint": {
+          "exists": false
+        }
+      }
+    }
+  ]
+}

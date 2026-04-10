@@ -8,6 +8,7 @@ import { buildSiteMeta, SITE_META } from '@/lib/server/siteMeta';
 import { fetchBlueOriginTravelerIndex } from '@/lib/server/blueOriginTravelers';
 import { BlueOriginRouteTraceLink } from '@/app/blue-origin/_components/BlueOriginRouteTransitionTracker';
 
+export const dynamic = 'force-dynamic';
 export const revalidate = 60 * 10;
 
 export async function generateMetadata(): Promise<Metadata> {

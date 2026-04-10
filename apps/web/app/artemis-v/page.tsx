@@ -4,6 +4,7 @@ import { BRAND_NAME } from '@/lib/brand';
 import { getSiteUrl } from '@/lib/server/env';
 import { buildSiteMeta, SITE_META } from '@/lib/server/siteMeta';
 
+export const dynamic = 'force-dynamic';
 export const revalidate = 60 * 5; // 5 minutes
 
 export async function generateMetadata(): Promise<Metadata> {

@@ -6,6 +6,7 @@ import {
 import { createSupabaseAdminClient } from '../_shared/supabase.ts';
 import { requireJobAuth } from '../_shared/jobAuth.ts';
 import { getSettings, readBooleanSetting, readNumberSetting, readStringArraySetting, readStringSetting } from '../_shared/settings.ts';
+import { getWs45LiveCadenceMinutes } from '../../../shared/ws45LiveBoard.ts';
 
 const JOB_THRESHOLDS_MINUTES: Record<string, number> = {
   nws_refresh: 60,
@@ -13,7 +14,10 @@ const JOB_THRESHOLDS_MINUTES: Record<string, number> = {
   ll2_catalog: 240,
   ll2_catalog_agencies: 96 * 60,
   ll2_future_launch_sync: 1440,
-  ws45_forecasts_ingest: 180,
+  ws45_forecasts_ingest: 600,
+  ws45_live_weather_ingest: 90,
+  ws45_planning_forecast_ingest: 360,
+  ws45_weather_retention_cleanup: 2160,
   notifications_dispatch: 10,
   notifications_send: 5,
   social_posts_dispatch: 90,
@@ -39,6 +43,9 @@ const JOB_ENABLED_SETTING_KEYS: Record<string, string> = {
   ll2_catalog: 'll2_catalog_job_enabled',
   ll2_catalog_agencies: 'll2_catalog_agencies_job_enabled',
   ll2_future_launch_sync: 'll2_future_launch_sync_job_enabled',
+  ws45_live_weather_ingest: 'ws45_live_weather_job_enabled',
+  ws45_planning_forecast_ingest: 'ws45_planning_forecast_job_enabled',
+  ws45_weather_retention_cleanup: 'ws45_weather_retention_cleanup_enabled',
   navcen_bnm_ingest: 'navcen_bnm_job_enabled',
   faa_trajectory_hazard_ingest: 'faa_trajectory_hazard_job_enabled',
   spacex_infographics_ingest: 'spacex_infographics_job_enabled',
@@ -188,6 +195,16 @@ serve(async (req) => {
       return jsonResponse({ ok: true, ignored: [...ignoredJobs] });
     }
 
+    let ws45LiveWindow: Ws45LiveWindowContext | null = null;
+    if (jobNames.includes('ws45_live_weather_ingest')) {
+      try {
+        ws45LiveWindow = await loadWs45LiveWindowContext(supabase);
+        stats.ws45LiveWindow = ws45LiveWindow;
+      } catch (err) {
+        stats.ws45LiveWindowError = stringifyError(err);
+      }
+    }
+
     const lastByJob: Record<string, any> = {};
     for (const job of jobNames) {
       const { data: last, error: lastError } = await supabase
@@ -206,7 +223,18 @@ serve(async (req) => {
 
     for (const job of jobNames) {
       const last = lastByJob[job];
-      const threshold = JOB_THRESHOLDS_MINUTES[job] ?? 60;
+      let threshold = JOB_THRESHOLDS_MINUTES[job] ?? 60;
+
+      if (job === 'ws45_live_weather_ingest') {
+        const activeLiveWindow = ws45LiveWindow;
+        if (activeLiveWindow && !activeLiveWindow.active) {
+          await resolveJobAlerts(supabase, [job]);
+          continue;
+        }
+        if (activeLiveWindow?.cadenceMinutes != null) {
+          threshold = Math.max(threshold, activeLiveWindow.cadenceMinutes * 2);
+        }
+      }
 
       if (!last) {
         const enabledAgeMinutes = Number.isFinite(jobsEnabledUpdatedAtMs) ? (now - jobsEnabledUpdatedAtMs) / (1000 * 60) : Infinity;
@@ -610,6 +638,8 @@ async function checkWs45ForecastJoins(supabase: ReturnType<typeof createSupabase
     latestRunErrors.some((entry) => /ws45_(?:waf|html|pdf)/i.test(String(entry?.error || ''))) ||
     /ws45_(?:waf|html|pdf)/i.test(String(latestRun?.error || ''));
   const pdfsFound = Number(latestRun?.stats?.pdfsFound || 0);
+  const forecastPdfsFound = Number(latestRun?.stats?.forecastPdfsFound ?? pdfsFound);
+  const faqPdfsFound = Number(latestRun?.stats?.faqPdfsFound || 0);
 
   if (hasWs45FetchError) {
     await upsertAlert(supabase, {
@@ -627,15 +657,17 @@ async function checkWs45ForecastJoins(supabase: ReturnType<typeof createSupabase
     await resolveAlert(supabase, 'ws45_source_fetch_failed');
   }
 
-  if (!hasWs45FetchError && pdfsFound === 0) {
+  if (!hasWs45FetchError && forecastPdfsFound === 0) {
     await upsertAlert(supabase, {
       key: 'ws45_source_empty',
       severity: 'warning',
-      message: '45 WS source page returned no forecast PDFs.',
+      message: '45 WS source page returned no launch forecast PDFs.',
       details: {
         started_at: latestRun?.started_at ?? null,
         ended_at: latestRun?.ended_at ?? null,
-        pdfsFound
+        pdfsFound,
+        forecastPdfsFound,
+        faqPdfsFound
       }
     });
   } else {
@@ -723,6 +755,11 @@ async function checkWs45ForecastJoins(supabase: ReturnType<typeof createSupabase
     publishEligibleCount,
     parseCompleteRate,
     publishEligibleRate,
+    sourcePdfCount: pdfsFound,
+    sourceForecastPdfCount: forecastPdfsFound,
+    sourceFaqPdfCount: faqPdfsFound,
+    sourceFetchError: hasWs45FetchError,
+    sourceEmptyTriggered: !hasWs45FetchError && forecastPdfsFound === 0,
     missingIssuedCount: missingIssued.length,
     missingValidWindowCount: missingValidWindow.length,
     unknownShapeCount: unknownShape.length,
@@ -1247,6 +1284,82 @@ function jsonResponse(body: unknown, status = 200) {
     status,
     headers: { 'Content-Type': 'application/json' }
   });
+}
+
+type Ws45LiveWindowContext = {
+  active: boolean;
+  reason: 'active' | 'no_launch_within_24h' | 'launch_outside_cadence_window';
+  cadenceMinutes: number | null;
+  launchId: string | null;
+  launchName: string | null;
+  launchAt: string | null;
+};
+
+async function loadWs45LiveWindowContext(supabase: ReturnType<typeof createSupabaseAdminClient>): Promise<Ws45LiveWindowContext> {
+  const nowIso = new Date().toISOString();
+  const horizonIso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from('launches_public_cache')
+    .select('launch_id, name, mission_name, net, window_start')
+    .eq('pad_state', 'FL')
+    .gte('net', nowIso)
+    .lte('net', horizonIso)
+    .order('net', { ascending: true })
+    .limit(8);
+
+  if (error) throw error;
+
+  const launches = (Array.isArray(data) ? data : [])
+    .map((row) => ({
+      launchId: typeof row?.launch_id === 'string' ? row.launch_id : null,
+      launchName:
+        (typeof row?.name === 'string' && row.name.trim()) ||
+        (typeof row?.mission_name === 'string' && row.mission_name.trim()) ||
+        null,
+      launchAt:
+        (typeof row?.window_start === 'string' && row.window_start) ||
+        (typeof row?.net === 'string' && row.net) ||
+        null
+    }))
+    .filter((row) => row.launchAt)
+    .sort((left, right) => {
+      const leftMs = Date.parse(String(left.launchAt || ''));
+      const rightMs = Date.parse(String(right.launchAt || ''));
+      return (Number.isFinite(leftMs) ? leftMs : Number.MAX_SAFE_INTEGER) - (Number.isFinite(rightMs) ? rightMs : Number.MAX_SAFE_INTEGER);
+    });
+
+  const nextLaunch = launches[0] ?? null;
+  if (!nextLaunch) {
+    return {
+      active: false,
+      reason: 'no_launch_within_24h',
+      cadenceMinutes: null,
+      launchId: null,
+      launchName: null,
+      launchAt: null
+    };
+  }
+
+  const cadenceMinutes = getWs45LiveCadenceMinutes(nextLaunch.launchAt);
+  if (cadenceMinutes == null) {
+    return {
+      active: false,
+      reason: 'launch_outside_cadence_window',
+      cadenceMinutes: null,
+      launchId: nextLaunch.launchId,
+      launchName: nextLaunch.launchName,
+      launchAt: nextLaunch.launchAt
+    };
+  }
+
+  return {
+    active: true,
+    reason: 'active',
+    cadenceMinutes,
+    launchId: nextLaunch.launchId,
+    launchName: nextLaunch.launchName,
+    launchAt: nextLaunch.launchAt
+  };
 }
 
 function stringifyError(err: unknown) {

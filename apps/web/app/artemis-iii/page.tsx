@@ -14,6 +14,7 @@ import { buildSiteMeta, SITE_META } from '@/lib/server/siteMeta';
 import type { Launch } from '@/lib/types/launch';
 import { buildLaunchHref } from '@/lib/utils/launchLinks';
 
+export const dynamic = 'force-dynamic';
 export const revalidate = 60 * 5; // 5 minutes
 
 const ARTEMIS_III_FAQ = resolveArtemisMissionPageFaq('artemis-iii');

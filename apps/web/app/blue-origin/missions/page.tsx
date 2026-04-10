@@ -6,6 +6,7 @@ import { getSiteUrl } from '@/lib/server/env';
 import { buildSiteMeta, SITE_META } from '@/lib/server/siteMeta';
 import { BlueOriginRouteTraceLink } from '@/app/blue-origin/_components/BlueOriginRouteTransitionTracker';
 
+export const dynamic = 'force-dynamic';
 export const revalidate = 60 * 10;
 
 const MISSION_ITEMS = [

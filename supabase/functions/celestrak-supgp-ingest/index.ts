@@ -2,14 +2,23 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createSupabaseAdminClient } from '../_shared/supabase.ts';
 import { requireJobAuth } from '../_shared/jobAuth.ts';
 import { getSettings, readBooleanSetting, readNumberSetting } from '../_shared/settings.ts';
-import { upsertSatelliteIdentitiesIfChangedInChunks } from '../_shared/celestrakDb.ts';
+import {
+  upsertSatelliteIdentitiesIfChangedInChunks,
+  upsertSetting,
+  upsertSettingIfChanged
+} from '../_shared/celestrakDb.ts';
 import {
   buildUrl,
   CELESTRAK_SUPGP_ENDPOINT,
+  compactOrbitElementRawOmm,
   DEFAULT_CELESTRAK_USER_AGENT,
   fetchJsonWithRetries,
   normalizeEpochForPg
 } from '../_shared/celestrak.ts';
+import {
+  DEFAULT_CELESTRAK_SUPGP_SYNC_OPTIONS,
+  syncCelestrakSupgpDatasets
+} from '../_shared/celestrakSupgpSync.ts';
 
 const USER_AGENT = Deno.env.get('CELESTRAK_USER_AGENT') || DEFAULT_CELESTRAK_USER_AGENT;
 
@@ -32,12 +41,21 @@ serve(async (req) => {
     datasetsProcessed: 0,
     satellitesUpserted: 0,
     orbitElementsUpserted: 0,
+    bootstrapSyncTriggered: false,
     errors: [] as Array<{ datasetKey: string; code: string; error: string }>
   };
 
   try {
-    const settings = await getSettings(supabase, ['celestrak_supgp_job_enabled', 'celestrak_supgp_max_datasets_per_run']);
+    const settings = await getSettings(supabase, [
+      'celestrak_supgp_job_enabled',
+      'celestrak_supgp_sync_enabled',
+      'celestrak_supgp_max_datasets_per_run',
+      'celestrak_supgp_family_min_interval_seconds',
+      'celestrak_supgp_launch_min_interval_seconds',
+      'celestrak_supgp_launch_retention_hours'
+    ]);
     const enabled = readBooleanSetting(settings.celestrak_supgp_job_enabled, false);
+    const syncEnabled = readBooleanSetting(settings.celestrak_supgp_sync_enabled, true);
     if (!enabled) {
       await finishIngestionRun(supabase, runId, true, { ...stats, skipped: true, reason: 'disabled' });
       return jsonResponse({ ok: true, skipped: true, reason: 'disabled' });
@@ -55,8 +73,50 @@ serve(async (req) => {
     });
     if (claimError) throw claimError;
 
-    const datasets = Array.isArray(claimed) ? claimed : [];
+    let datasets = Array.isArray(claimed) ? claimed : [];
     stats.datasetsClaimed = datasets.length;
+
+    if (!datasets.length && syncEnabled) {
+      stats.bootstrapSyncTriggered = true;
+
+      const familyMinIntervalSeconds = clampInt(
+        readNumberSetting(settings.celestrak_supgp_family_min_interval_seconds, DEFAULT_CELESTRAK_SUPGP_SYNC_OPTIONS.familyMinIntervalSeconds),
+        900,
+        86400 * 7
+      );
+      const launchMinIntervalSeconds = clampInt(
+        readNumberSetting(settings.celestrak_supgp_launch_min_interval_seconds, DEFAULT_CELESTRAK_SUPGP_SYNC_OPTIONS.launchMinIntervalSeconds),
+        300,
+        21_600
+      );
+      const launchRetentionHours = clampInt(
+        readNumberSetting(settings.celestrak_supgp_launch_retention_hours, DEFAULT_CELESTRAK_SUPGP_SYNC_OPTIONS.launchRetentionHours),
+        6,
+        24 * 14
+      );
+
+      const syncStats = await syncCelestrakSupgpDatasets({
+        supabase,
+        userAgent: USER_AGENT,
+        familyMinIntervalSeconds,
+        launchMinIntervalSeconds,
+        launchRetentionHours
+      });
+      stats.bootstrapSync = syncStats;
+
+      const syncedAtIso = new Date().toISOString();
+      await upsertSetting(supabase, 'celestrak_supgp_last_synced_at', syncedAtIso);
+      await upsertSettingIfChanged(supabase, 'celestrak_supgp_last_synced_count', syncStats.datasetsFound);
+
+      const { data: claimedAfterSync, error: claimAfterSyncError } = await supabase.rpc('claim_celestrak_datasets', {
+        dataset_type_filter: 'supgp',
+        batch_size: maxDatasets
+      });
+      if (claimAfterSyncError) throw claimAfterSyncError;
+
+      datasets = Array.isArray(claimedAfterSync) ? claimedAfterSync : [];
+      stats.datasetsClaimed = datasets.length;
+    }
 
     if (!datasets.length) {
       await finishIngestionRun(supabase, runId, true, { ...stats, skipped: true, reason: 'no_due_datasets' });
@@ -159,7 +219,7 @@ async function ingestSupgpDataset({
         mean_anomaly_deg: parseFiniteNumber(item?.MEAN_ANOMALY),
         mean_motion_rev_per_day: parseFiniteNumber(item?.MEAN_MOTION),
         bstar: parseFiniteNumber(item?.BSTAR),
-        raw_omm: item,
+        raw_omm: compactOrbitElementRawOmm(item),
         fetched_at: fetchedAt,
         hash: null
       });

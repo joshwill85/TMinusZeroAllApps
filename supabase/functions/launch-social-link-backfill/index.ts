@@ -56,6 +56,18 @@ serve(async (req) => {
   const authorized = await requireJobAuth(req, supabase);
   if (!authorized) return jsonResponse({ error: 'unauthorized' }, 401);
 
+  const settings = await getSettings(supabase, [
+    'launch_social_link_backfill_enabled',
+    'launch_social_link_backfill_scope',
+    'launch_social_link_backfill_max_per_run',
+    'launch_social_link_backfill_lookback_days',
+    'launch_social_link_backfill_horizon_days'
+  ]);
+  const enabled = readBooleanSetting(settings.launch_social_link_backfill_enabled, DEFAULTS.enabled);
+  if (!enabled) {
+    return jsonResponse({ ok: true, skipped: true, reason: 'disabled', elapsedMs: Date.now() - startedAt });
+  }
+
   const { runId } = await startIngestionRun(supabase, 'launch_social_link_backfill');
   const stats: Record<string, unknown> = {
     considered: 0,
@@ -74,22 +86,6 @@ serve(async (req) => {
   let lockId: string | null = null;
 
   try {
-    const settings = await getSettings(supabase, [
-      'launch_social_link_backfill_enabled',
-      'launch_social_link_backfill_scope',
-      'launch_social_link_backfill_max_per_run',
-      'launch_social_link_backfill_lookback_days',
-      'launch_social_link_backfill_horizon_days'
-    ]);
-
-    const enabled = readBooleanSetting(settings.launch_social_link_backfill_enabled, DEFAULTS.enabled);
-    if (!enabled) {
-      stats.skipped = true;
-      stats.skipReason = 'disabled';
-      await finishIngestionRun(supabase, runId, true, stats);
-      return jsonResponse({ ok: true, ...stats, elapsedMs: Date.now() - startedAt });
-    }
-
     const scope = readStringSetting(settings.launch_social_link_backfill_scope, DEFAULTS.scope).trim().toLowerCase() || DEFAULTS.scope;
     const maxPerRun = clampInt(readNumberSetting(settings.launch_social_link_backfill_max_per_run, DEFAULTS.maxPerRun), 1, 400);
     const lookbackDays = clampInt(readNumberSetting(settings.launch_social_link_backfill_lookback_days, DEFAULTS.lookbackDays), 1, 36500);

@@ -5,6 +5,7 @@ import { fetchBlueOriginFlightHubData } from '@/lib/server/blueOriginFlightHub';
 import { parseBlueOriginFlightSlug } from '@/lib/utils/blueOrigin';
 import { buildLaunchHref } from '@/lib/utils/launchLinks';
 
+export const dynamic = 'force-dynamic';
 export const revalidate = 60 * 10;
 
 type Params = {

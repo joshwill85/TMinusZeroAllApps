@@ -9,6 +9,7 @@ import {
 import { summarizeArRuntimePolicies, type ArRuntimePolicySummary } from '@/lib/ar/runtimePolicyTelemetry';
 import { createSupabaseAdminClient, createSupabaseServerClient } from '@/lib/server/supabaseServer';
 import { isSupabaseAdminConfigured } from '@/lib/server/env';
+import { getWs45LiveCadenceMinutes } from '../../../../../../shared/ws45LiveBoard';
 import { requireAdminRequest } from '../_lib/auth';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -262,6 +263,15 @@ type JobDef = {
   enabledKey?: string;
   newData?: (stats: unknown) => { count: number; detail: string | null };
   command?: string | null;
+};
+
+type Ws45LiveWindowStatus = {
+  active: boolean;
+  reason: 'active' | 'no_launch_within_24h' | 'launch_outside_cadence_window';
+  cadenceMinutes: number | null;
+  launchId: string | null;
+  launchName: string | null;
+  launchAt: string | null;
 };
 
 const SERVER_JOB_DEFS: readonly JobDef[] = [
@@ -739,17 +749,80 @@ const SERVER_JOB_DEFS: readonly JobDef[] = [
   {
     id: 'ws45_forecasts_ingest',
     label: '45th Weather ingest',
-    schedule: 'Every 30 min',
+    schedule: 'Every 8 hours (managed scheduler)',
     cronJobName: 'ws45_forecasts_ingest',
     category: 'scheduled',
     origin: 'server',
     source: 'ingestion_runs',
-    thresholdMinutes: 180,
+    thresholdMinutes: 600,
     newData: (stats) => {
       const inserted = readNumber(stats, 'rowsInserted') ?? 0;
       const updated = readNumber(stats, 'rowsUpdated') ?? 0;
       const total = inserted + updated;
       return { count: total, detail: total ? `inserted=${inserted}, updated=${updated}` : null };
+    }
+  },
+  {
+    id: 'ws45_live_weather_ingest',
+    label: '5 WS live board ingest',
+    schedule: 'Adaptive within 24h (2h / 1h / 30m / 15m)',
+    cronJobName: 'ws45_live_weather_ingest',
+    category: 'scheduled',
+    origin: 'server',
+    source: 'ingestion_runs',
+    thresholdMinutes: 90,
+    enabledKey: 'ws45_live_weather_job_enabled',
+    newData: (stats) => {
+      const inserted = readNumber(stats, 'rowsInserted') ?? 0;
+      const updated = readNumber(stats, 'rowsUpdated') ?? 0;
+      const phase1 = readNumber(stats, 'activePhase1Count') ?? 0;
+      const phase2 = readNumber(stats, 'activePhase2Count') ?? 0;
+      const wind = readNumber(stats, 'activeWindCount') ?? 0;
+      return {
+        count: inserted,
+        detail:
+          inserted || updated || phase1 || phase2 || wind
+            ? `inserted=${inserted}, updated=${updated}, phase1=${phase1}, phase2=${phase2}, wind=${wind}`
+            : null
+      };
+    }
+  },
+  {
+    id: 'ws45_planning_forecast_ingest',
+    label: '45th Weather planning ingest',
+    schedule: 'Every 30 min (4h checks + weekly daily)',
+    cronJobName: 'ws45_planning_forecast_ingest',
+    category: 'scheduled',
+    origin: 'server',
+    source: 'ingestion_runs',
+    thresholdMinutes: 360,
+    enabledKey: 'ws45_planning_forecast_job_enabled',
+    newData: (stats) => {
+      const inserted = readNumber(stats, 'rowsInserted') ?? 0;
+      const updated = readNumber(stats, 'rowsUpdated') ?? 0;
+      const fetched = readNumber(stats, 'pdfsFetched') ?? 0;
+      const total = inserted + updated;
+      return { count: total, detail: total || fetched ? `inserted=${inserted}, updated=${updated}, fetched=${fetched}` : null };
+    }
+  },
+  {
+    id: 'ws45_weather_retention_cleanup',
+    label: 'WS45 weather retention cleanup',
+    schedule: 'Daily (managed scheduler)',
+    cronJobName: 'ws45_weather_retention_cleanup',
+    category: 'scheduled',
+    origin: 'server',
+    source: 'ingestion_runs',
+    thresholdMinutes: 36 * 60,
+    enabledKey: 'ws45_weather_retention_cleanup_enabled',
+    newData: (stats) => {
+      const liveDeleted = readNumber(stats, 'liveDeleted') ?? 0;
+      const planningDeleted = readNumber(stats, 'planningDeleted') ?? 0;
+      const total = liveDeleted + planningDeleted;
+      return {
+        count: total,
+        detail: total ? `liveDeleted=${liveDeleted}, planningDeleted=${planningDeleted}` : null
+      };
     }
   },
   {
@@ -2318,6 +2391,7 @@ async function loadJobStatuses(
   );
 
   const recentRunsByJobName = await loadRecentRunsByJobName(supabase, ingestionJobNames);
+  const ws45LiveWindow = await loadWs45LiveWindowStatus(supabase);
 
   const joinDetails = (...parts: Array<string | null | undefined>) => {
     const items = parts
@@ -2478,7 +2552,11 @@ async function loadJobStatuses(
 
     const lastEndTimestamp = Date.parse(lastRun?.ended_at || lastRun?.started_at || '');
     const ageMinutes = Number.isFinite(lastEndTimestamp) ? (now - lastEndTimestamp) / (1000 * 60) : null;
-    const isStale = job.thresholdMinutes != null && ageMinutes != null && ageMinutes > job.thresholdMinutes;
+    const effectiveThresholdMinutes =
+      job.id === 'ws45_live_weather_ingest' && ws45LiveWindow.active && ws45LiveWindow.cadenceMinutes != null
+        ? Math.max(job.thresholdMinutes ?? 0, ws45LiveWindow.cadenceMinutes * 2)
+        : job.thresholdMinutes;
+    const isStale = effectiveThresholdMinutes != null && ageMinutes != null && ageMinutes > effectiveThresholdMinutes;
 
     let status: JobStatus['status'] = 'unknown';
     let statusDetail: string | null = null;
@@ -2506,6 +2584,20 @@ async function loadJobStatuses(
       statusDetail = `Last run ${Math.round(ageMinutes ?? 0)}m ago`;
     } else {
       status = 'operational';
+    }
+
+    if (
+      job.id === 'ws45_live_weather_ingest' &&
+      isEnabled &&
+      !ws45LiveWindow.active &&
+      status !== 'down' &&
+      status !== 'running'
+    ) {
+      status = 'operational';
+      statusDetail =
+        ws45LiveWindow.reason === 'no_launch_within_24h'
+          ? 'Standby: no Florida launch within 24h'
+          : 'Standby: outside live cadence window';
     }
 
     if (cronMismatchDetail && status !== 'down') {
@@ -2680,6 +2772,85 @@ async function loadRecentRunsByJobName(
     (grouped[jobName] ||= []).push(run);
   }
   return grouped;
+}
+
+async function loadWs45LiveWindowStatus(
+  supabase: ReturnType<typeof createSupabaseServerClient>
+): Promise<Ws45LiveWindowStatus> {
+  const nowIso = new Date().toISOString();
+  const horizonIso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from('launches_public_cache')
+    .select('launch_id, name, mission_name, net, window_start')
+    .eq('pad_state', 'FL')
+    .gte('net', nowIso)
+    .lte('net', horizonIso)
+    .order('net', { ascending: true })
+    .limit(8);
+
+  if (error) {
+    console.warn('admin ws45 live window status error', error.message);
+    return {
+      active: false,
+      reason: 'no_launch_within_24h',
+      cadenceMinutes: null,
+      launchId: null,
+      launchName: null,
+      launchAt: null
+    };
+  }
+
+  const launches = (Array.isArray(data) ? data : [])
+    .map((row) => ({
+      launchId: typeof row?.launch_id === 'string' ? row.launch_id : null,
+      launchName:
+        (typeof row?.name === 'string' && row.name.trim()) ||
+        (typeof row?.mission_name === 'string' && row.mission_name.trim()) ||
+        null,
+      launchAt:
+        (typeof row?.window_start === 'string' && row.window_start) ||
+        (typeof row?.net === 'string' && row.net) ||
+        null
+    }))
+    .filter((row) => row.launchAt)
+    .sort((left, right) => {
+      const leftMs = Date.parse(String(left.launchAt || ''));
+      const rightMs = Date.parse(String(right.launchAt || ''));
+      return (Number.isFinite(leftMs) ? leftMs : Number.MAX_SAFE_INTEGER) - (Number.isFinite(rightMs) ? rightMs : Number.MAX_SAFE_INTEGER);
+    });
+
+  const nextLaunch = launches[0] ?? null;
+  if (!nextLaunch) {
+    return {
+      active: false,
+      reason: 'no_launch_within_24h',
+      cadenceMinutes: null,
+      launchId: null,
+      launchName: null,
+      launchAt: null
+    };
+  }
+
+  const cadenceMinutes = getWs45LiveCadenceMinutes(nextLaunch.launchAt);
+  if (cadenceMinutes == null) {
+    return {
+      active: false,
+      reason: 'launch_outside_cadence_window',
+      cadenceMinutes: null,
+      launchId: nextLaunch.launchId,
+      launchName: nextLaunch.launchName,
+      launchAt: nextLaunch.launchAt
+    };
+  }
+
+  return {
+    active: true,
+    reason: 'active',
+    cadenceMinutes,
+    launchId: nextLaunch.launchId,
+    launchName: nextLaunch.launchName,
+    launchAt: nextLaunch.launchAt
+  };
 }
 
 function computeConsecutiveFailures(runs: IngestionRun[]) {

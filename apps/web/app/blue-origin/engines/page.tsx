@@ -7,6 +7,7 @@ import { getSiteUrl } from '@/lib/server/env';
 import { fetchBlueOriginEngines, getBlueOriginMissionLabel } from '@/lib/server/blueOriginEntities';
 import { buildSiteMeta, SITE_META } from '@/lib/server/siteMeta';
 
+export const dynamic = 'force-dynamic';
 export const revalidate = 60 * 10;
 
 export async function generateMetadata(): Promise<Metadata> {

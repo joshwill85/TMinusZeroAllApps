@@ -6,6 +6,7 @@ import { buildSiteMeta, SITE_META } from '@/lib/server/siteMeta';
 import { getSiteUrl } from '@/lib/server/env';
 import type { BlueOriginMissionKey } from '@/lib/utils/blueOrigin';
 
+export const dynamic = 'force-dynamic';
 export const revalidate = 60 * 10;
 
 type Params = {

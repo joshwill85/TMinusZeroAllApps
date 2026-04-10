@@ -22,7 +22,16 @@ type LiveTabProps = {
 
 export function LiveTab({ data, theme, faaMapData = null, faaMapLoading = false }: LiveTabProps) {
   const router = useRouter();
-  const hasWeather = Boolean(data.weatherDetail?.summary || data.weatherDetail?.cards?.length || data.weatherDetail?.concerns?.length);
+  const operationalWeather = data.weatherDetail?.operational ?? null;
+  const standardWeatherCards = (data.weatherDetail?.cards ?? []).filter((card) => !isAdvancedWeatherSource(card.source));
+  const advancedWeatherCards = (data.weatherDetail?.cards ?? []).filter((card) => isAdvancedWeatherSource(card.source));
+  const hasWeather = Boolean(
+    data.weatherDetail?.summary ||
+      data.weatherDetail?.concerns?.length ||
+      operationalWeather ||
+      standardWeatherCards.length ||
+      advancedWeatherCards.length
+  );
   const hasForecastOutlook = hasWeather || data.faaAdvisories.length > 0;
   const hasContent =
     hasForecastOutlook ||
@@ -86,11 +95,103 @@ export function LiveTab({ data, theme, faaMapData = null, faaMapLoading = false 
                       ))}
                     </View>
                   ) : null}
-                  {data.weatherDetail?.cards?.length ? (
+                  {operationalWeather ? (
+                    <View
+                      style={{
+                        gap: 12,
+                        borderRadius: 18,
+                        borderWidth: 1,
+                        borderColor: operationalBorderColor(operationalWeather.tone, operationalWeather.stale),
+                        backgroundColor: operationalBackgroundColor(operationalWeather.tone),
+                        padding: 16
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
+                        <View style={{ flex: 1, gap: 4 }}>
+                          <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 0.9, textTransform: 'uppercase' }}>
+                            Live range weather
+                          </Text>
+                          <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700', lineHeight: 22 }}>
+                            {operationalWeather.summary}
+                          </Text>
+                          <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
+                            {[operationalWeather.subtitle, operationalWeather.fetchedAt ? `Updated ${formatTimestamp(operationalWeather.fetchedAt)}` : null]
+                              .filter(Boolean)
+                              .join(' • ')}
+                          </Text>
+                        </View>
+                        <View style={{ alignItems: 'flex-end', gap: 8 }}>
+                          <Badge
+                            label={operationalWeather.items.find((item) => item.id === 'range')?.value || 'Operational'}
+                            theme={theme}
+                            accent={operationalWeather.tone !== 'normal'}
+                          />
+                          {operationalWeather.stale ? <Badge label="Stale" theme={theme} /> : null}
+                        </View>
+                      </View>
+
+                      <View style={{ gap: 10 }}>
+                        {operationalWeather.items.map((item) => (
+                          <View
+                            key={item.id}
+                            style={{
+                              gap: 4,
+                              borderRadius: 14,
+                              borderWidth: 1,
+                              borderColor: operationalItemBorderColor(item.tone, theme.stroke),
+                              backgroundColor: operationalItemBackgroundColor(item.tone),
+                              padding: 12
+                            }}
+                          >
+                            <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' }}>
+                              {item.label}
+                            </Text>
+                            <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>{item.value}</Text>
+                            {item.detail ? <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>{item.detail}</Text> : null}
+                          </View>
+                        ))}
+                      </View>
+
+                      {operationalWeather.actionUrl && operationalWeather.actionLabel ? (
+                        <Pressable
+                          onPress={() => {
+                            void openExternalCustomerUrl(operationalWeather.actionUrl || '');
+                          }}
+                        >
+                          <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>{operationalWeather.actionLabel}</Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  ) : null}
+                  {standardWeatherCards.length ? (
                     <View style={{ gap: 12 }}>
-                      {data.weatherDetail.cards.map((card) => (
+                      {standardWeatherCards.map((card) => (
                         <WeatherCard key={card.id} card={card} theme={theme} />
                       ))}
+                    </View>
+                  ) : null}
+                  {advancedWeatherCards.length ? (
+                    <View
+                      style={{
+                        gap: 12,
+                        borderRadius: 18,
+                        borderWidth: 1,
+                        borderColor: theme.stroke,
+                        backgroundColor: 'rgba(255, 255, 255, 0.02)',
+                        padding: 16
+                      }}
+                    >
+                      <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 0.9, textTransform: 'uppercase' }}>
+                        Advanced weather
+                      </Text>
+                      <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
+                        Planning products from 45 WS provide broader day-of and week-ahead Cape context.
+                      </Text>
+                      <View style={{ gap: 12 }}>
+                        {advancedWeatherCards.map((card) => (
+                          <WeatherCard key={card.id} card={card} theme={theme} />
+                        ))}
+                      </View>
                     </View>
                   ) : null}
                 </>
@@ -591,6 +692,45 @@ function Badge({
       </Text>
     </View>
   );
+}
+
+function isAdvancedWeatherSource(source: NonNullable<LiveTabData['weatherDetail']>['cards'][number]['source']) {
+  return source === 'ws45_planning_24h' || source === 'ws45_weekly';
+}
+
+function operationalBorderColor(
+  tone: NonNullable<NonNullable<LiveTabData['weatherDetail']>['operational']>['tone'],
+  stale: boolean
+) {
+  if (stale) return 'rgba(251, 191, 36, 0.38)';
+  if (tone === 'critical') return 'rgba(251, 113, 133, 0.4)';
+  if (tone === 'warning') return 'rgba(251, 191, 36, 0.38)';
+  if (tone === 'watch') return 'rgba(34, 211, 238, 0.28)';
+  return 'rgba(255, 255, 255, 0.12)';
+}
+
+function operationalBackgroundColor(tone: NonNullable<NonNullable<LiveTabData['weatherDetail']>['operational']>['tone']) {
+  if (tone === 'critical') return 'rgba(120, 16, 34, 0.28)';
+  if (tone === 'warning') return 'rgba(251, 191, 36, 0.08)';
+  if (tone === 'watch') return 'rgba(34, 211, 238, 0.08)';
+  return 'rgba(255, 255, 255, 0.03)';
+}
+
+function operationalItemBorderColor(
+  tone: NonNullable<NonNullable<LiveTabData['weatherDetail']>['operational']>['tone'],
+  fallback: string
+) {
+  if (tone === 'critical') return 'rgba(251, 113, 133, 0.32)';
+  if (tone === 'warning') return 'rgba(251, 191, 36, 0.28)';
+  if (tone === 'watch') return 'rgba(34, 211, 238, 0.24)';
+  return fallback;
+}
+
+function operationalItemBackgroundColor(tone: NonNullable<NonNullable<LiveTabData['weatherDetail']>['operational']>['tone']) {
+  if (tone === 'critical') return 'rgba(120, 16, 34, 0.18)';
+  if (tone === 'warning') return 'rgba(251, 191, 36, 0.06)';
+  if (tone === 'watch') return 'rgba(34, 211, 238, 0.06)';
+  return 'rgba(255, 255, 255, 0.02)';
 }
 
 function OpenLabel({ theme }: { theme: MobileTheme }) {

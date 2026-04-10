@@ -44,7 +44,7 @@
       "usableCoverage": "no",
       "allowedScope": "continue URL discovery and timeline context only",
       "reviewDoc": "docs/2026-04-08-ar-trajectory-ingest-admission-blue-origin-mission-pages.md",
-      "notes": "Existing mission-page discovery stays allowed, but no trajectory-truth adapter should be built yet."
+      "notes": "Existing mission-page discovery stays allowed, but audit:blue-origin:fields now shows 45 launches scanned, 11 healthy official pages fetched, and 0 launches with numeric mission facts or authority bundles, so no trajectory-truth adapter should be built."
     },
     {
       "id": "rocket_lab_mission_pages",
@@ -58,9 +58,9 @@
       "availability": "partial",
       "joinability": "partial",
       "usableCoverage": "no",
-      "allowedScope": "source sample audit only",
+      "allowedScope": "source sample, launch-inventory join audit, and field audit only",
       "reviewDoc": "docs/2026-04-08-ar-trajectory-ingest-admission-rocket-lab-mission-pages.md",
-      "notes": "Derived seeds exist, but that is not enough to admit an ingest."
+      "notes": "Derived seeds exist, audit:rocket-lab:sources keeps source-sample evidence current, audit:rocket-lab:joins proves bounded joinability remains partial, and audit:rocket-lab:fields shows matched-page value coverage is still insufficient, so that is still not enough to admit an ingest."
     },
     {
       "id": "faa_navcen_hazard_geometry",

@@ -446,7 +446,10 @@ export const DATA_SOURCE_REGISTRY: DataSourceRecord[] = [
     scope: 'feature',
     endpointDomains: ['wikidata.org', 'commons.wikimedia.org', 'wikipedia.org'],
     dataClasses: ['ship profile facts', 'ship image URLs', 'image license and attribution metadata'],
-    ingestionPath: ['supabase/functions/spacex-drone-ship-ingest/index.ts'],
+    ingestionPath: [
+      'supabase/functions/spacex-drone-ship-ingest/index.ts',
+      'supabase/functions/spacex-drone-ship-wiki-sync/index.ts'
+    ],
     storageTables: ['public.spacex_drone_ships'],
     userFacingSurfaces: ['app/spacex/drone-ships/page.tsx', 'app/spacex/drone-ships/[slug]/page.tsx'],
     publicClaimSurfaces: ['app/spacex/drone-ships/page.tsx', 'app/spacex/drone-ships/[slug]/page.tsx'],

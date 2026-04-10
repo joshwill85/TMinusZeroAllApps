@@ -31,6 +31,8 @@ import { ForecastAdvisoriesDisclosure } from '@/components/launch/ForecastAdviso
 import { LaunchMediaLightboxCard } from '@/components/launch/LaunchMediaLightboxCard';
 import { Ws45ForecastPanel, type Ws45Forecast } from '@/components/Ws45ForecastPanel';
 import { NwsForecastPanel, type NwsLaunchWeather } from '@/components/NwsForecastPanel';
+import { Ws45OperationalPanel } from '@/components/Ws45OperationalPanel';
+import { Ws45PlanningForecastPanel } from '@/components/Ws45PlanningForecastPanel';
 import { PadSatellitePreviewImage } from '@/components/PadSatellitePreviewImage';
 import { JepScoreClient } from '@/components/JepScoreClient';
 import { LaunchFaaMapClient } from '@/components/LaunchFaaMapClient';
@@ -91,6 +93,13 @@ import { fetchLaunchFaaAirspace, fetchLaunchFaaAirspaceMap, type LaunchFaaAirspa
 import { fetchBlueOriginPassengersDatabaseOnly, fetchBlueOriginPayloads } from '@/lib/server/blueOriginPeoplePayloads';
 import { fetchLaunchBoosterStats, type LaunchBoosterStats } from '@/lib/server/launchBoosterStats';
 import { fetchLaunchDetailEnrichment } from '@/lib/server/launchDetailEnrichment';
+import {
+  buildWs45OperationalWeather,
+  fetchWs45LiveWeatherSnapshotForLaunch,
+  fetchWs45PlanningForecastsForLaunch,
+  type Ws45OperationalWeather,
+  type Ws45PlanningForecast
+} from '@/lib/server/ws45RangeWeather';
 import {
   buildBlueOriginTravelerSlug,
   extractBlueOriginFlightCode,
@@ -696,6 +705,20 @@ const fetchNwsForecast = cache(async (launchId: string, isUsPad: boolean, within
   if (error) return null;
   return (data as NwsLaunchWeather | null) ?? null;
 });
+
+function buildWs45LaunchContext(launch: Launch) {
+  return {
+    launchName: launch.name,
+    missionName: launch.mission?.name ?? null,
+    net: launch.net,
+    windowStart: launch.windowStart ?? null,
+    windowEnd: launch.windowEnd ?? null,
+    padName: launch.pad?.name ?? null,
+    padShortCode: launch.pad?.shortCode ?? null,
+    padLocationName: launch.pad?.locationName ?? null,
+    padState: launch.pad?.state ?? null
+  };
+}
 
 const fetchBlueOriginMissionGraphicsFromConstraints = cache(
   async (launchId: string): Promise<BlueOriginMissionGraphics | null> => {
@@ -2334,8 +2357,22 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
   const watchEmbed = primaryWatchUrl ? buildLaunchVideoEmbed(primaryWatchUrl) : null;
   const showWatchSection = Boolean(primaryWatchUrl);
   const jepObserver = resolveJepObserverFromHeaders(headers());
+  const ws45LaunchContext = buildWs45LaunchContext(launch);
 
   const ws45ForecastPromise = viewer.tier === 'premium' ? fetchWs45Forecast(launch.id, isEasternRange) : Promise.resolve(null);
+  const ws45OperationalPromise =
+    viewer.tier === 'premium'
+      ? fetchWs45LiveWeatherSnapshotForLaunch(ws45LaunchContext, isEasternRange).then((snapshot) =>
+          buildWs45OperationalWeather(snapshot, ws45LaunchContext)
+        )
+      : Promise.resolve(null as Ws45OperationalWeather | null);
+  const ws45PlanningPromise =
+    viewer.tier === 'premium'
+      ? fetchWs45PlanningForecastsForLaunch(ws45LaunchContext, isEasternRange)
+      : Promise.resolve({
+          planning24h: null as Ws45PlanningForecast | null,
+          weekly: null as Ws45PlanningForecast | null
+        });
   const nwsForecastPromise = fetchNwsForecast(launch.id, isUsPad, within14Days);
   const jepScorePromise = fetchLaunchJepScore(launch.id, { observer: jepObserver, viewerIsAdmin: viewer.isAdmin });
   const faaAirspacePromise = fetchLaunchFaaAirspace({ launchId: launch.id, limit: 6 });
@@ -2780,6 +2817,8 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
       <Suspense fallback={<LoadingPanel label="Loading forecast outlook..." />}>
         <ConsolidatedWeatherSection
           ws45ForecastPromise={ws45ForecastPromise}
+          ws45OperationalPromise={ws45OperationalPromise}
+          ws45PlanningPromise={ws45PlanningPromise}
           nwsForecastPromise={nwsForecastPromise}
           faaAirspacePromise={faaAirspacePromise}
           faaAirspaceMapPromise={faaAirspaceMapPromise}
@@ -4031,6 +4070,8 @@ function LaunchObjectList({ objects }: { objects: LaunchInventoryObject[] }) {
 
 async function ConsolidatedWeatherSection({
   ws45ForecastPromise,
+  ws45OperationalPromise,
+  ws45PlanningPromise,
   nwsForecastPromise,
   faaAirspacePromise,
   faaAirspaceMapPromise,
@@ -4043,6 +4084,8 @@ async function ConsolidatedWeatherSection({
   tier
 }: {
   ws45ForecastPromise: Promise<Ws45Forecast | null>;
+  ws45OperationalPromise: Promise<Ws45OperationalWeather | null>;
+  ws45PlanningPromise: Promise<{ planning24h: Ws45PlanningForecast | null; weekly: Ws45PlanningForecast | null }>;
   nwsForecastPromise: Promise<NwsLaunchWeather | null>;
   faaAirspacePromise: ReturnType<typeof fetchLaunchFaaAirspace>;
   faaAirspaceMapPromise: ReturnType<typeof fetchLaunchFaaAirspaceMap>;
@@ -4056,14 +4099,19 @@ async function ConsolidatedWeatherSection({
 }) {
   const ws45Eligible = isEasternRange && tier === 'premium';
   const showNws = isUsPad && within14Days;
-  const [ws45Forecast, nwsForecast, faaAirspace, faaAirspaceMap] = await Promise.all([
+  const [ws45Forecast, ws45Operational, ws45Planning, nwsForecast, faaAirspace, faaAirspaceMap] = await Promise.all([
     ws45ForecastPromise,
+    ws45OperationalPromise,
+    ws45PlanningPromise,
     nwsForecastPromise,
     faaAirspacePromise,
     faaAirspaceMapPromise
   ]);
   const showWs45 = ws45Eligible && Boolean(ws45Forecast);
-  const hasForecastPanels = showWs45 || showNws;
+  const showOperational = ws45Eligible && Boolean(ws45Operational);
+  const showPlanning24h = ws45Eligible && Boolean(ws45Planning.planning24h);
+  const showWeekly = ws45Eligible && Boolean(ws45Planning.weekly);
+  const hasForecastPanels = showWs45 || showNws || showOperational || showPlanning24h || showWeekly;
   const advisories = faaAirspace?.advisories ?? [];
   const hasAdvisories = advisories.length > 0;
   if (!hasForecastPanels && !hasAdvisories) return null;
@@ -4077,6 +4125,9 @@ async function ConsolidatedWeatherSection({
           <p className="mt-1 max-w-2xl text-xs text-text3">
             {buildForecastOutlookDescription({
               showWs45,
+              showOperational,
+              showPlanning24h,
+              showWeekly,
               showNws,
               advisoryCount: advisories.length
             })}
@@ -4087,6 +4138,13 @@ async function ConsolidatedWeatherSection({
       <div className="border-t border-stroke/70 px-4 pb-4 pt-4">
         {hasForecastPanels ? (
           <div className="flex flex-col gap-3">
+            {showOperational && (
+              <Ws45OperationalPanel
+                operational={ws45Operational}
+                padTimezone={padTimezone}
+                className="rounded-xl border border-stroke bg-black/20 p-4"
+              />
+            )}
             {showWs45 && (
               <Ws45ForecastPanel
                 forecast={ws45Forecast}
@@ -4097,6 +4155,22 @@ async function ConsolidatedWeatherSection({
             {showNws && (
               <NwsForecastPanel
                 forecast={nwsForecast}
+                padTimezone={padTimezone}
+                className="rounded-xl border border-stroke bg-black/20 p-4"
+              />
+            )}
+            {showPlanning24h && (
+              <Ws45PlanningForecastPanel
+                forecast={ws45Planning.planning24h}
+                kind="planning_24h"
+                padTimezone={padTimezone}
+                className="rounded-xl border border-stroke bg-black/20 p-4"
+              />
+            )}
+            {showWeekly && (
+              <Ws45PlanningForecastPanel
+                forecast={ws45Planning.weekly}
+                kind="weekly_planning"
                 padTimezone={padTimezone}
                 className="rounded-xl border border-stroke bg-black/20 p-4"
               />
@@ -4149,30 +4223,48 @@ async function LaunchJepScoreSection({
 
 function buildForecastOutlookDescription({
   showWs45,
+  showOperational,
+  showPlanning24h,
+  showWeekly,
   showNws,
   advisoryCount
 }: {
   showWs45: boolean;
+  showOperational: boolean;
+  showPlanning24h: boolean;
+  showWeekly: boolean;
   showNws: boolean;
   advisoryCount: number;
 }) {
-  const forecastDescription = showWs45 && showNws
-    ? 'Enhanced forecast insights (select launches) plus an NWS forecast for the pad location at T-0 (api.weather.gov).'
-    : showWs45
-      ? 'Enhanced forecast insights (select launches).'
-      : showNws
-        ? 'NWS forecast for the pad location at T-0 (api.weather.gov).'
-        : null;
+  const parts = [
+    showOperational ? 'live range conditions from the 5 WS live board' : null,
+    showWs45 ? 'enhanced mission forecast insights' : null,
+    showNws ? 'an NWS forecast for the pad location at T-0 (api.weather.gov)' : null,
+    showPlanning24h ? 'the 45 WS 24-hour planning forecast' : null,
+    showWeekly ? 'a Cape weekly outlook' : null
+  ].filter(Boolean) as string[];
+  const forecastDescription = parts.length ? joinWithAnd(parts) : null;
 
   if (!forecastDescription) {
     return 'Matched FAA launch advisories and launch-day airspace notices.';
   }
 
   if (advisoryCount > 0) {
-    return `${forecastDescription} Includes ${advisoryCount} matched FAA launch ${advisoryCount === 1 ? 'advisory' : 'advisories'}.`;
+    return `${capitalizeSentence(forecastDescription)}. Includes ${advisoryCount} matched FAA launch ${advisoryCount === 1 ? 'advisory' : 'advisories'}.`;
   }
 
-  return forecastDescription;
+  return `${capitalizeSentence(forecastDescription)}.`;
+}
+
+function joinWithAnd(parts: string[]) {
+  if (parts.length <= 1) return parts[0] || '';
+  if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
+  return `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
+}
+
+function capitalizeSentence(value: string) {
+  if (!value) return value;
+  return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
 }
 
 function LaunchFaaAirspaceContent({

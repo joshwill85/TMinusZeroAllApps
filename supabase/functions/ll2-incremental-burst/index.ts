@@ -29,6 +29,7 @@ serve(async (req) => {
       'll2_incremental_job_enabled',
       'll2_incremental_calls_per_minute',
       'll2_incremental_interval_seconds',
+      'll2_incremental_last_attempt_at',
       'll2_incremental_last_success_at'
     ]);
 
@@ -54,11 +55,12 @@ serve(async (req) => {
     const callsPerMinute = cadence.isHotWindow ? configuredCallsPerMinute : 1;
 
     if (!cadence.isHotWindow) {
+      const lastAttemptAt = readStringSetting(settings.ll2_incremental_last_attempt_at, '');
       const lastSuccessAt = readStringSetting(settings.ll2_incremental_last_success_at, '');
-      const lastSuccessMs = Date.parse(lastSuccessAt);
-      const sinceLastSuccessMs = Number.isFinite(lastSuccessMs) ? startedAt - lastSuccessMs : Number.POSITIVE_INFINITY;
+      const throttleReferenceMs = coalesceIsoMs(lastAttemptAt, lastSuccessAt);
+      const sinceLastAttemptMs = Number.isFinite(throttleReferenceMs) ? startedAt - throttleReferenceMs : Number.POSITIVE_INFINITY;
       const minIntervalMs = PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS * 1000;
-      if (sinceLastSuccessMs < minIntervalMs) {
+      if (sinceLastAttemptMs < minIntervalMs) {
         return jsonResponse({
           ok: true,
           skipped: true,
@@ -66,7 +68,8 @@ serve(async (req) => {
           intervalSeconds,
           cadenceReason: cadence.cadenceReason,
           cadenceAnchorNet: cadence.cadenceAnchorNet,
-          waitMsRemaining: Math.max(0, minIntervalMs - sinceLastSuccessMs),
+          throttleReference: lastAttemptAt ? 'last_attempt_at' : (lastSuccessAt ? 'last_success_at' : 'none'),
+          waitMsRemaining: Math.max(0, minIntervalMs - sinceLastAttemptMs),
           elapsedMs: Date.now() - startedAt
         });
       }
@@ -87,6 +90,8 @@ serve(async (req) => {
     if (!acquired) {
       return jsonResponse({ ok: true, skipped: true, reason: 'locked', elapsedMs: Date.now() - startedAt });
     }
+
+    await upsertSetting(supabase, 'll2_incremental_last_attempt_at', new Date(startedAt).toISOString());
 
     const intervalMs = intervalSeconds * 1000;
     const baseMs = Date.now();
@@ -151,6 +156,25 @@ function delay(ms: number) {
 function clampInt(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) return min;
   return Math.max(min, Math.min(max, Math.trunc(value)));
+}
+
+function coalesceIsoMs(...values: string[]) {
+  for (const value of values) {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return Number.POSITIVE_INFINITY;
+}
+
+async function upsertSetting(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  key: string,
+  value: unknown
+) {
+  const { error } = await supabase
+    .from('system_settings')
+    .upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+  if (error) throw error;
 }
 
 function isServiceRoleRequest(req: Request) {

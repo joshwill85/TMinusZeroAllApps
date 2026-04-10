@@ -23,6 +23,9 @@ type AdminSyncJob =
   | 'refresh_public_cache'
   | 'dispatch_notifications'
   | 'ws45_forecasts_ingest'
+  | 'ws45_live_weather_ingest'
+  | 'ws45_planning_forecast_ingest'
+  | 'ws45_weather_retention_cleanup'
   | 'nws_refresh'
   | 'billing_reconcile'
   | 'celestrak_gp_groups_sync'
@@ -59,6 +62,9 @@ const JOB_TRIGGER_BY_ID: Partial<Record<JobStatus['id'], AdminSyncJob>> = {
   notifications_send: 'notifications_send',
   nws_refresh: 'nws_refresh',
   ws45_forecasts_ingest: 'ws45_forecasts_ingest',
+  ws45_live_weather_ingest: 'ws45_live_weather_ingest',
+  ws45_planning_forecast_ingest: 'ws45_planning_forecast_ingest',
+  ws45_weather_retention_cleanup: 'ws45_weather_retention_cleanup',
   spacex_infographics_ingest: 'spacex_infographics_ingest',
   spacex_x_post_snapshot: 'spacex_x_post_snapshot',
   launch_social_refresh: 'launch_social_refresh',
@@ -396,6 +402,12 @@ export default function AdminOpsPage() {
             className="btn-secondary rounded-full px-3 py-1 text-xs uppercase tracking-[0.1em]"
           >
             Trajectory
+          </Link>
+          <Link
+            href="/admin/ops/jep"
+            className="btn-secondary rounded-full px-3 py-1 text-xs uppercase tracking-[0.1em]"
+          >
+            JEP
           </Link>
           <button
             type="button"

@@ -114,7 +114,8 @@ Question: if we can join it, do enough of our real launches actually have the va
 - Exact scope allowed:
   - maintain and improve the existing SpaceX infographic adapter
   - use it for `mission_infographic` corroboration and landing-hint extraction
-  - add parser fixtures, health metrics, and manual override handling
+  - keep parser-fixture coverage in `scripts/spacex-infographics-corpus-smoke.ts`
+  - add health metrics and manual override handling
 - Exact scope not allowed:
   - do not treat SpaceX infographic assets as direct ascent-truth geometry
   - do not use this source alone to rewrite branch topology or milestone timing

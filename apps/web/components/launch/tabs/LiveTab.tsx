@@ -26,7 +26,16 @@ export function LiveTab({
   googleMapsWebApiKey = null,
   googleMapsPadHref = null
 }: LiveTabProps) {
-  const hasWeather = Boolean(data.weatherDetail?.summary || data.weatherDetail?.cards?.length || data.weatherDetail?.concerns?.length);
+  const operationalWeather = data.weatherDetail?.operational ?? null;
+  const standardWeatherCards = (data.weatherDetail?.cards ?? []).filter((card) => !isAdvancedWeatherSource(card.source));
+  const advancedWeatherCards = (data.weatherDetail?.cards ?? []).filter((card) => isAdvancedWeatherSource(card.source));
+  const hasWeather = Boolean(
+    data.weatherDetail?.summary ||
+      data.weatherDetail?.concerns?.length ||
+      operationalWeather ||
+      standardWeatherCards.length ||
+      advancedWeatherCards.length
+  );
   const hasForecastOutlook = hasWeather || data.faaAdvisories.length > 0;
   const hasContent =
     hasForecastOutlook ||
@@ -82,9 +91,56 @@ export function LiveTab({
                   </div>
                 ) : null}
 
-                {data.weatherDetail?.cards?.length ? (
+                {operationalWeather ? (
+                  <article
+                    className={clsx(
+                      'mt-4 rounded-xl border p-4',
+                      operationalToneClass(operationalWeather.tone),
+                      operationalWeather.stale ? 'border-warning/40' : null
+                    )}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-xs uppercase tracking-[0.08em] text-text3">Live range weather</div>
+                        <div className="mt-1 text-lg font-semibold text-text1">{operationalWeather.summary}</div>
+                        <div className="mt-2 text-sm text-text2">
+                          {[operationalWeather.subtitle, operationalWeather.fetchedAt ? `Updated ${formatTimestamp(operationalWeather.fetchedAt)}` : null]
+                            .filter(Boolean)
+                            .join(' • ')}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge accent={operationalWeather.tone !== 'normal'}>{operationalWeather.items.find((item) => item.id === 'range')?.value || 'Operational'}</Badge>
+                        {operationalWeather.stale ? <Badge>Stale</Badge> : null}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 md:grid-cols-3">
+                      {operationalWeather.items.map((item) => (
+                        <div key={item.id} className={clsx('rounded-xl border p-3', operationalItemClass(item.tone))}>
+                          <div className="text-[11px] uppercase tracking-[0.08em] text-text3">{item.label}</div>
+                          <div className="mt-2 text-sm font-semibold text-text1">{item.value}</div>
+                          {item.detail ? <p className="mt-2 text-sm leading-relaxed text-text2">{item.detail}</p> : null}
+                        </div>
+                      ))}
+                    </div>
+
+                    {operationalWeather.actionUrl && operationalWeather.actionLabel ? (
+                      <a
+                        className="mt-3 inline-flex text-sm font-semibold text-primary hover:text-primary/80"
+                        href={operationalWeather.actionUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {operationalWeather.actionLabel}
+                      </a>
+                    ) : null}
+                  </article>
+                ) : null}
+
+                {standardWeatherCards.length ? (
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
-                    {data.weatherDetail.cards.map((card) => (
+                    {standardWeatherCards.map((card) => (
                       <article
                         key={card.id}
                         className="rounded-xl border border-stroke bg-surface-0 p-4"
@@ -119,6 +175,45 @@ export function LiveTab({
                         ) : null}
                       </article>
                     ))}
+                  </div>
+                ) : null}
+
+                {advancedWeatherCards.length ? (
+                  <div className="mt-6 rounded-xl border border-stroke/70 bg-[rgba(255,255,255,0.02)] p-4">
+                    <div className="text-xs uppercase tracking-[0.08em] text-text3">Advanced weather</div>
+                    <p className="mt-2 text-sm leading-relaxed text-text2">
+                      Planning products from 45 WS add broader prelaunch trend context beyond the mission forecast and pad forecast.
+                    </p>
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      {advancedWeatherCards.map((card) => (
+                        <article
+                          key={card.id}
+                          className="rounded-xl border border-stroke bg-surface-0 p-4"
+                        >
+                          <div className="text-xs uppercase tracking-[0.08em] text-text3">{card.title}</div>
+                          {card.subtitle ? <div className="mt-1 text-sm text-text2">{card.subtitle}</div> : null}
+                          {card.headline ? <div className="mt-3 text-lg font-semibold text-text1">{card.headline}</div> : null}
+                          {card.badges.length ? (
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {card.badges.map((badge) => (
+                                <Badge key={`${card.id}:${badge}`}>{badge}</Badge>
+                              ))}
+                            </div>
+                          ) : null}
+                          {card.detail ? <p className="mt-3 text-sm leading-relaxed text-text2">{card.detail}</p> : null}
+                          {card.actionUrl && card.actionLabel ? (
+                            <a
+                              className="mt-3 inline-flex text-sm font-semibold text-primary hover:text-primary/80"
+                              href={card.actionUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {card.actionLabel}
+                            </a>
+                          ) : null}
+                        </article>
+                      ))}
+                    </div>
                   </div>
                 ) : null}
               </>
@@ -541,6 +636,24 @@ function Badge({
       {children}
     </span>
   );
+}
+
+function isAdvancedWeatherSource(source: NonNullable<LiveTabData['weatherDetail']>['cards'][number]['source']) {
+  return source === 'ws45_planning_24h' || source === 'ws45_weekly';
+}
+
+function operationalToneClass(tone: NonNullable<NonNullable<LiveTabData['weatherDetail']>['operational']>['tone']) {
+  if (tone === 'critical') return 'border-danger/40 bg-[rgba(120,16,34,0.22)]';
+  if (tone === 'warning') return 'border-warning/40 bg-warning/10';
+  if (tone === 'watch') return 'border-primary/30 bg-primary/10';
+  return 'border-stroke bg-surface-0';
+}
+
+function operationalItemClass(tone: NonNullable<NonNullable<LiveTabData['weatherDetail']>['operational']>['tone']) {
+  if (tone === 'critical') return 'border-danger/30 bg-[rgba(120,16,34,0.18)]';
+  if (tone === 'warning') return 'border-warning/30 bg-[rgba(251,191,36,0.08)]';
+  if (tone === 'watch') return 'border-primary/30 bg-[rgba(59,130,246,0.08)]';
+  return 'border-stroke bg-[rgba(255,255,255,0.02)]';
 }
 
 function formatTimestamp(value: string | null | undefined) {

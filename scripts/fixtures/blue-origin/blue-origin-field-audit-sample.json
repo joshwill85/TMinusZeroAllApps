@@ -1,0 +1,84 @@
+{
+  "launches": [
+    {
+      "launchId": "launch-ns29",
+      "ll2LaunchUuid": "ll2-ns29",
+      "flightCode": "ns-29",
+      "name": "New Shepard | NS-29",
+      "missionName": "NS-29",
+      "net": "2025-01-28T16:00:00+00:00",
+      "enhancements": {
+        "missionSummary": "Blue Origin completed the NS-29 mission.",
+        "officialSourcePages": [
+          {
+            "canonicalUrl": "https://www.blueorigin.com/news/new-shepard-ns-29-mission",
+            "archiveSnapshotUrl": "https://web.archive.org/web/20251010064022/https://www.blueorigin.com/news/new-shepard-ns-29-mission",
+            "title": "Blue Origin Completes 29th New Shepard Mission",
+            "provenance": "wayback",
+            "fetchedAt": "2026-04-08T00:00:00.000Z"
+          }
+        ]
+      },
+      "officialSourceHealth": {
+        "checked": 1,
+        "broken": 0,
+        "errors": 0
+      },
+      "anomalies": []
+    },
+    {
+      "launchId": "launch-blue-moon",
+      "ll2LaunchUuid": "ll2-blue-moon",
+      "flightCode": null,
+      "name": "New Glenn | Blue Moon Pathfinder",
+      "missionName": "Blue Moon Pathfinder",
+      "net": "2027-01-01T00:00:00+00:00",
+      "enhancements": {
+        "missionSummary": "Blue Moon is a lunar lander program.",
+        "officialSourcePages": [
+          {
+            "canonicalUrl": "https://www.blueorigin.com/blue-moon",
+            "archiveSnapshotUrl": "https://web.archive.org/web/20190510001510id_/https://www.blueorigin.com/blue-moon",
+            "title": "Blue Origin | Blue Moon",
+            "provenance": "wayback",
+            "fetchedAt": "2026-04-08T00:00:00.000Z"
+          }
+        ]
+      },
+      "officialSourceHealth": {
+        "checked": 1,
+        "broken": 0,
+        "errors": 0
+      },
+      "anomalies": []
+    },
+    {
+      "launchId": "launch-no-source",
+      "ll2LaunchUuid": "ll2-no-source",
+      "flightCode": null,
+      "name": "New Glenn | Commercial Payload",
+      "missionName": "Commercial Payload",
+      "net": "2028-01-01T00:00:00+00:00",
+      "enhancements": {
+        "missionSummary": "Launch with no official page in the sample.",
+        "officialSourcePages": []
+      },
+      "officialSourceHealth": {
+        "checked": 0,
+        "broken": 0,
+        "errors": 0
+      },
+      "anomalies": []
+    }
+  ],
+  "pages": [
+    {
+      "url": "https://web.archive.org/web/20251010064022/https://www.blueorigin.com/news/new-shepard-ns-29-mission",
+      "html": "<html><head><title>Blue Origin Completes 29th New Shepard Mission</title><meta name=\"description\" content=\"Blue Origin successfully completed its 29th New Shepard flight. The payloads experienced roughly two minutes of lunar gravity forces.\" /></head><body><h1>Mission Profile</h1><p>Liftoff</p><p>Booster landing</p><p>Apogee of 105 km</p><p>Crew capsule landing time: 00:11:42</p></body></html>"
+    },
+    {
+      "url": "https://web.archive.org/web/20190510001510id_/https://www.blueorigin.com/blue-moon",
+      "html": "<html><head><title>Blue Origin | Blue Moon</title></head><body><p>Blue Moon is a lunar lander program for future moon missions.</p></body></html>"
+    }
+  ]
+}

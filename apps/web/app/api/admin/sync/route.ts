@@ -10,6 +10,9 @@ const JOBS = {
   refresh_public_cache: { slug: 'ingestion-cycle' },
   dispatch_notifications: { slug: 'notifications-dispatch' },
   ws45_forecasts_ingest: { slug: 'ws45-forecast-ingest' },
+  ws45_live_weather_ingest: { slug: 'ws45-live-weather-ingest' },
+  ws45_planning_forecast_ingest: { slug: 'ws45-planning-forecast-ingest' },
+  ws45_weather_retention_cleanup: { slug: 'ws45-weather-retention-cleanup' },
   nws_refresh: { slug: 'nws-refresh' },
   billing_reconcile: { slug: 'billing-reconcile' },
 
@@ -60,6 +63,9 @@ const schema = z.object({
     'refresh_public_cache',
     'dispatch_notifications',
     'ws45_forecasts_ingest',
+    'ws45_live_weather_ingest',
+    'ws45_planning_forecast_ingest',
+    'ws45_weather_retention_cleanup',
     'nws_refresh',
     'billing_reconcile',
 

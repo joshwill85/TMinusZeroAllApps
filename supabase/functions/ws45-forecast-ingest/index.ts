@@ -16,7 +16,7 @@ async function loadPdfJsModule(): Promise<PdfJsModule | null> {
 
   pdfJsModulePromise = (async () => {
     const staticCandidate = pdfjsStatic as unknown as PdfJsModule;
-    if (staticCandidate && typeof staticCandidate.getDocument === 'function') {
+    if (staticCandidate && typeof staticCandidate === 'object' && typeof staticCandidate.getDocument === 'function') {
       return staticCandidate;
     }
 
@@ -114,6 +114,8 @@ serve(async (req) => {
   const stats: Record<string, unknown> = {
     pageUrl: WS45_PAGE_URL,
     pdfsFound: 0,
+    forecastPdfsFound: 0,
+    faqPdfsFound: 0,
     pdfsFetched: 0,
     pdfsNotModified: 0,
     forecastsParsed: 0,
@@ -134,10 +136,13 @@ serve(async (req) => {
 
     const html = await fetchText(WS45_PAGE_URL);
     const items = parseForecastPage(html);
+    const forecastItems = items.filter((item) => deriveForecastKind(item.label, item.pdfUrl) !== 'faq');
     stats.pdfsFound = items.length;
+    stats.forecastPdfsFound = forecastItems.length;
+    stats.faqPdfsFound = items.length - forecastItems.length;
     if (!items.length) throw new Error('ws45_no_pdfs_found');
 
-    for (const item of items) {
+    for (const item of forecastItems) {
       const pdfUrl = item.pdfUrl;
       try {
         const latest = await loadLatestByUrl(supabase, pdfUrl);
@@ -170,8 +175,6 @@ serve(async (req) => {
 
         const { text, metadata } = await extractPdfText(pdfRes.bytes);
         const forecastKind = deriveForecastKind(item.label, pdfUrl);
-        if (forecastKind === 'faq') continue;
-
         const parsed = parseWs45ForecastText(text);
 
         stats.forecastsParsed = (stats.forecastsParsed as number) + 1;
@@ -411,7 +414,8 @@ function isPdfBytes(bytes: Uint8Array) {
 }
 
 async function sha256Hex(bytes: Uint8Array) {
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  const digestInput = new Uint8Array(bytes);
+  const digest = await crypto.subtle.digest('SHA-256', digestInput);
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');

@@ -10,6 +10,7 @@ import { hasPresentSearchParams, type RouteSearchParams } from '@/lib/utils/sear
 import { BlueOriginRouteTraceLink } from '@/app/blue-origin/_components/BlueOriginRouteTransitionTracker';
 import { resolveShowCount } from '@/lib/utils/showCount';
 
+export const dynamic = 'force-dynamic';
 export const revalidate = 60 * 10;
 const SHOW_STEP = 100;
 

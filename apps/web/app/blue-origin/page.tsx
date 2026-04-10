@@ -70,6 +70,7 @@ import { formatPercent } from '@/lib/utils/formatters';
 import { ProgramContractDiscoveryList } from '@/components/contracts/ProgramContractDiscoveryList';
 import { ProgramHubHero } from '@/components/program-hubs/ProgramHubHero';
 
+export const dynamic = 'force-dynamic';
 export const revalidate = 60 * 10; // 10 minutes
 
 const BLUE_ORIGIN_MISSION_SUMMARY_FACT_KEY = 'mission_summary';

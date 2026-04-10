@@ -2,20 +2,27 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createSupabaseAdminClient } from '../_shared/supabase.ts';
 import { requireJobAuth } from '../_shared/jobAuth.ts';
 import { getSettings, readBooleanSetting, readNumberSetting } from '../_shared/settings.ts';
+import { reconcileStaleIngestionRuns, releaseJobLock, tryAcquireJobLock } from '../_shared/ingestionRuns.ts';
 
 const DEFAULTS = {
   enabled: true,
   lookbackDays: 540,
   launchLimit: 1200,
-  minSamples: 6
+  minSamples: 6,
+  lockTtlSeconds: 900,
+  staleRunTimeoutMs: 6 * 60 * 60 * 1000
 };
 
 const SETTINGS_KEYS = [
   'trajectory_templates_job_enabled',
   'trajectory_templates_lookback_days',
   'trajectory_templates_launch_limit',
-  'trajectory_templates_min_samples'
+  'trajectory_templates_min_samples',
+  'trajectory_templates_lock_ttl_seconds',
+  'trajectory_templates_stale_run_timeout_ms'
 ];
+
+const JOB_NAME = 'trajectory_templates_generate';
 
 type LaunchSite = 'cape' | 'vandenberg' | 'starbase' | 'unknown';
 type MissionClass = 'SSO_POLAR' | 'GTO_GEO' | 'ISS_CREW' | 'LEO_GENERIC' | 'UNKNOWN';
@@ -53,6 +60,11 @@ type DirectionSignal = {
   weight: number;
 };
 
+type LandingSignalCandidate = DirectionSignal & {
+  kind: 'landing';
+  priority: number;
+};
+
 type LaunchDirectionalSample = {
   azDeg: number;
   weight: number;
@@ -78,13 +90,18 @@ serve(async (req) => {
   if (!authorized) return jsonResponse({ error: 'unauthorized' }, 401);
 
   const { runId } = await startIngestionRun(supabase, 'trajectory_templates_generate');
+  let lockId: string | null = null;
 
   const stats: Record<string, unknown> = {
     lookbackDays: null as number | null,
     launchLimit: null as number | null,
     minSamples: null as number | null,
+    staleIngestionRunsClosed: 0,
+    skipped: false,
+    skipReason: null as string | null,
     launchesLoaded: 0,
     launchesWithSignal: 0,
+    constraintLaunchIdsLoaded: 0,
     constraintRowsLoaded: 0,
     samplesUsed: 0,
     groupsBuilt: 0,
@@ -111,46 +128,49 @@ serve(async (req) => {
     stats.lookbackDays = lookbackDays;
     stats.launchLimit = launchLimit;
     stats.minSamples = minSamples;
+    const lockTtlSeconds = clampInt(
+      readNumberSetting(settings.trajectory_templates_lock_ttl_seconds, DEFAULTS.lockTtlSeconds),
+      60,
+      3600
+    );
+    const staleRunTimeoutMs = clampInt(
+      readNumberSetting(settings.trajectory_templates_stale_run_timeout_ms, DEFAULTS.staleRunTimeoutMs),
+      60_000,
+      7 * 24 * 60 * 60 * 1000
+    );
+    stats.lockTtlSeconds = lockTtlSeconds;
+    stats.staleRunTimeoutMs = staleRunTimeoutMs;
+    stats.staleIngestionRunsClosed = await reconcileStaleIngestionRuns(supabase, {
+      jobName: JOB_NAME,
+      currentRunId: runId,
+      staleBeforeIso: new Date(Date.now() - staleRunTimeoutMs).toISOString()
+    });
+
+    lockId = crypto.randomUUID();
+    const acquired = await tryAcquireJobLock(supabase, {
+      lockName: JOB_NAME,
+      ttlSeconds: lockTtlSeconds,
+      lockId
+    });
+    if (!acquired) {
+      stats.skipped = true;
+      stats.skipReason = 'locked';
+      await finishIngestionRun(supabase, runId, true, stats);
+      return jsonResponse({ ok: true, skipped: true, reason: 'locked', elapsedMs: Date.now() - startedAt, stats });
+    }
 
     const nowMs = Date.now();
     const fromIso = new Date(nowMs - lookbackDays * 24 * 60 * 60 * 1000).toISOString();
-
-    const { data: launchesRaw, error: launchesError } = await supabase
-      .from('launches_public_cache')
-      .select(
-        'launch_id, net, pad_latitude, pad_longitude, rocket_family, vehicle, mission_name, mission_orbit, pad_name, location_name'
-      )
-      .gte('net', fromIso)
-      .order('net', { ascending: false })
-      .limit(launchLimit);
-
-    if (launchesError || !launchesRaw) throw launchesError ?? new Error('Failed to load launches_public_cache');
-    const launches = launchesRaw as LaunchRow[];
+    const candidateSet = await loadConstraintBackedLaunchSet(supabase, { fromIso, launchLimit });
+    const launches = candidateSet.launches;
+    const constraintsByLaunch = candidateSet.constraintsByLaunch;
     stats.launchesLoaded = launches.length;
+    stats.constraintLaunchIdsLoaded = candidateSet.constraintLaunchIdsLoaded;
+    stats.constraintRowsLoaded = candidateSet.constraintRowsLoaded;
 
-    const launchIds = launches.map((launch) => launch.launch_id).filter((launchId) => typeof launchId === 'string' && launchId.length > 0);
-    if (!launchIds.length) {
-      await finishIngestionRun(supabase, runId, true, { ...stats, skipped: true, reason: 'no_launches' });
-      return jsonResponse({ ok: true, skipped: true, reason: 'no_launches', elapsedMs: Date.now() - startedAt });
-    }
-
-    const constraintsByLaunch = new Map<string, ConstraintRow[]>();
-    const chunkSize = 200;
-    for (let i = 0; i < launchIds.length; i += chunkSize) {
-      const slice = launchIds.slice(i, i + chunkSize);
-      const { data: rows, error } = await supabase
-        .from('launch_trajectory_constraints')
-        .select('launch_id, source, source_id, constraint_type, data, geometry, confidence, fetched_at')
-        .in('constraint_type', ['target_orbit', 'hazard_area', 'landing'])
-        .in('launch_id', slice);
-      if (error) throw error;
-      for (const row of (rows as any[]) || []) {
-        const typed = row as ConstraintRow;
-        const list = constraintsByLaunch.get(typed.launch_id) || [];
-        list.push(typed);
-        constraintsByLaunch.set(typed.launch_id, list);
-      }
-      stats.constraintRowsLoaded = Number(stats.constraintRowsLoaded || 0) + (((rows as any[]) || []).length);
+    if (!launches.length) {
+      await finishIngestionRun(supabase, runId, true, { ...stats, skipped: true, reason: 'no_constraint_backed_launches' });
+      return jsonResponse({ ok: true, skipped: true, reason: 'no_constraint_backed_launches', elapsedMs: Date.now() - startedAt });
     }
 
     const groupedSamples = new Map<
@@ -248,8 +268,113 @@ serve(async (req) => {
     const message = stringifyError(err);
     await finishIngestionRun(supabase, runId, false, stats, message);
     return jsonResponse({ ok: false, elapsedMs: Date.now() - startedAt, error: message, stats }, 500);
+  } finally {
+    if (lockId) {
+      await releaseJobLock(supabase, { lockName: JOB_NAME, lockId }).catch((error) => {
+        console.warn('Failed to release job lock', { jobName: JOB_NAME, error: stringifyError(error) });
+      });
+    }
   }
 });
+
+async function loadConstraintBackedLaunchSet(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  {
+    fromIso,
+    launchLimit
+  }: {
+    fromIso: string;
+    launchLimit: number;
+  }
+) {
+  const constraintTypes = ['target_orbit', 'hazard_area', 'landing'];
+  const pageSize = 1000;
+  const candidateLaunchIds: string[] = [];
+  const candidateLaunchIdSet = new Set<string>();
+  const constraintsByLaunch = new Map<string, ConstraintRow[]>();
+  let constraintRowsLoaded = 0;
+
+  for (let pageStart = 0; pageStart < 10_000; pageStart += pageSize) {
+    const { data: rows, error } = await supabase
+      .from('launch_trajectory_constraints')
+      .select('launch_id, source, source_id, constraint_type, data, geometry, confidence, fetched_at')
+      .in('constraint_type', constraintTypes)
+      .order('fetched_at', { ascending: false, nullsFirst: false })
+      .range(pageStart, pageStart + pageSize - 1);
+    if (error) throw error;
+
+    const typedRows = (rows as ConstraintRow[] | null) || [];
+    if (!typedRows.length) break;
+
+    constraintRowsLoaded += typedRows.length;
+    for (const row of typedRows) {
+      if (!row.launch_id) continue;
+      const existing = constraintsByLaunch.get(row.launch_id) || [];
+      existing.push(row);
+      constraintsByLaunch.set(row.launch_id, existing);
+
+      if (!candidateLaunchIdSet.has(row.launch_id)) {
+        candidateLaunchIdSet.add(row.launch_id);
+        candidateLaunchIds.push(row.launch_id);
+      }
+    }
+
+    if (typedRows.length < pageSize) break;
+    if (candidateLaunchIds.length >= launchLimit * 6 && constraintsByLaunch.size >= launchLimit) break;
+  }
+
+  if (!candidateLaunchIds.length) {
+    return {
+      launches: [] as LaunchRow[],
+      constraintsByLaunch,
+      constraintRowsLoaded,
+      constraintLaunchIdsLoaded: 0
+    };
+  }
+
+  const launches: LaunchRow[] = [];
+  const chunkSize = 200;
+  for (let index = 0; index < candidateLaunchIds.length; index += chunkSize) {
+    const slice = candidateLaunchIds.slice(index, index + chunkSize);
+    const { data: rows, error } = await supabase
+      .from('launches_public_cache')
+      .select(
+        'launch_id, net, pad_latitude, pad_longitude, rocket_family, vehicle, mission_name, mission_orbit, pad_name, location_name'
+      )
+      .in('launch_id', slice)
+      .gte('net', fromIso);
+    if (error) throw error;
+    launches.push(...(((rows as LaunchRow[] | null) || [])));
+  }
+
+  launches.sort((left, right) => compareIsoDesc(left.net, right.net));
+  const boundedLaunches = launches.slice(0, launchLimit);
+  const allowedLaunchIds = new Set(boundedLaunches.map((launch) => launch.launch_id));
+
+  const filteredConstraintsByLaunch = new Map<string, ConstraintRow[]>();
+  let filteredConstraintRowsLoaded = 0;
+  for (const launch of boundedLaunches) {
+    const rows = constraintsByLaunch.get(launch.launch_id) || [];
+    if (!rows.length) continue;
+    filteredConstraintsByLaunch.set(launch.launch_id, rows);
+    filteredConstraintRowsLoaded += rows.length;
+  }
+
+  return {
+    launches: boundedLaunches.filter((launch) => allowedLaunchIds.has(launch.launch_id)),
+    constraintsByLaunch: filteredConstraintsByLaunch,
+    constraintRowsLoaded: filteredConstraintRowsLoaded,
+    constraintLaunchIdsLoaded: allowedLaunchIds.size
+  };
+}
+
+function compareIsoDesc(leftIso: string | null, rightIso: string | null) {
+  const leftMs = typeof leftIso === 'string' ? Date.parse(leftIso) : NaN;
+  const rightMs = typeof rightIso === 'string' ? Date.parse(rightIso) : NaN;
+  const safeLeft = Number.isFinite(leftMs) ? leftMs : -Infinity;
+  const safeRight = Number.isFinite(rightMs) ? rightMs : -Infinity;
+  return safeRight - safeLeft;
+}
 
 function deriveLaunchDirectionalSample({
   launch,
@@ -554,7 +679,7 @@ function pickLandingSignal({
           confidence
       };
     })
-    .filter((candidate): candidate is DirectionSignal & { priority: number } => candidate != null)
+    .filter((candidate): candidate is LandingSignalCandidate => candidate != null)
     .sort((a, b) => b.priority - a.priority);
 
   if (!candidates.length) return null;
@@ -903,8 +1028,17 @@ async function finishIngestionRun(
   };
   if (stats) update.stats = stats;
   if (error) update.error = error;
-  const { error: upsertError } = await supabase.from('ingestion_runs').update(update).eq('id', runId);
-  if (upsertError) {
-    console.warn('Failed to update ingestion_runs record', { runId, error: upsertError.message });
+  let lastError: string | null = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const client = attempt === 0 ? supabase : createSupabaseAdminClient();
+    const { error: upsertError } = await client.from('ingestion_runs').update(update).eq('id', runId);
+    if (!upsertError) return;
+    lastError = upsertError.message;
+    await waitForMs(150 * (attempt + 1));
   }
+  console.warn('Failed to update ingestion_runs record', { runId, error: lastError });
+}
+
+function waitForMs(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

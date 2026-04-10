@@ -18,6 +18,11 @@ serve(async (req) => {
   if (!authorized) return jsonResponse({ error: 'unauthorized' }, 401);
 
   const startedAt = Date.now();
+  const enabled = await readBooleanSetting(supabase, 'blue_origin_social_job_enabled', true);
+  if (!enabled) {
+    return jsonResponse({ ok: true, skipped: true, reason: 'disabled', elapsedMs: Date.now() - startedAt });
+  }
+
   const runStartedAtIso = new Date().toISOString();
   const { runId } = await startIngestionRun(supabase, 'blue_origin_social_ingest');
 
@@ -28,12 +33,6 @@ serve(async (req) => {
   };
 
   try {
-    const enabled = await readBooleanSetting(supabase, 'blue_origin_social_job_enabled', true);
-    if (!enabled) {
-      await finishIngestionRun(supabase, runId, true, { skipped: true, reason: 'disabled' });
-      return jsonResponse({ ok: true, skipped: true, reason: 'disabled', elapsedMs: Date.now() - startedAt });
-    }
-
     await updateCheckpoint(supabase, 'blue_origin_social', {
       sourceType: 'social',
       status: 'running',

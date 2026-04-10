@@ -25,6 +25,7 @@ type LaunchCandidate = {
 serve(async (req) => {
   const startedAt = Date.now();
   const supabase = createSupabaseAdminClient();
+  let runId: number | null = null;
 
   const authorized = await requireJobAuth(req, supabase);
   if (!authorized) return jsonResponse({ error: 'unauthorized' }, 401);
@@ -40,18 +41,14 @@ serve(async (req) => {
     errors: [] as Array<{ step: string; error: string; context?: Record<string, unknown> }>
   };
 
-  const { runId } = await startIngestionRun(supabase, 'ws45_live_weather_ingest');
-
   try {
     const settings = await getSettings(supabase, ['ws45_live_weather_job_enabled']);
     if (!readBooleanSetting(settings.ws45_live_weather_job_enabled, true)) {
-      await finishIngestionRun(supabase, runId, true, { ...stats, skipped: true, reason: 'disabled' });
       return jsonResponse({ ok: true, skipped: true, reason: 'disabled', elapsedMs: Date.now() - startedAt, stats });
     }
 
     const dueLaunch = await loadDueLaunchCandidate(supabase);
     if (!dueLaunch) {
-      await finishIngestionRun(supabase, runId, true, { ...stats, skipped: true, reason: 'no_launch_within_24h' });
       return jsonResponse({ ok: true, skipped: true, reason: 'no_launch_within_24h', elapsedMs: Date.now() - startedAt, stats });
     }
 
@@ -63,25 +60,21 @@ serve(async (req) => {
     stats.cadenceMinutes = cadenceMinutes;
 
     if (cadenceMinutes == null) {
-      await finishIngestionRun(supabase, runId, true, { ...stats, skipped: true, reason: 'launch_outside_cadence_window' });
       return jsonResponse({ ok: true, skipped: true, reason: 'launch_outside_cadence_window', elapsedMs: Date.now() - startedAt, stats });
     }
 
-    const latestFetchedAt = await loadLatestSnapshotFetchedAt(supabase);
-    if (latestFetchedAt) {
-      const latestMs = Date.parse(latestFetchedAt);
+    const latestSnapshot = await loadLatestSnapshot(supabase);
+    if (latestSnapshot?.fetched_at) {
+      const latestMs = Date.parse(latestSnapshot.fetched_at);
       const ageMinutes = Number.isFinite(latestMs) ? Math.floor((Date.now() - latestMs) / (60 * 1000)) : null;
-      stats.latestFetchedAt = latestFetchedAt;
+      stats.latestFetchedAt = latestSnapshot.fetched_at;
       stats.latestAgeMinutes = ageMinutes;
       if (Number.isFinite(latestMs) && Date.now() - latestMs < cadenceMinutes * 60 * 1000) {
-        await finishIngestionRun(supabase, runId, true, {
-          ...stats,
-          skipped: true,
-          reason: 'not_due'
-        });
         return jsonResponse({ ok: true, skipped: true, reason: 'not_due', elapsedMs: Date.now() - startedAt, stats });
       }
     }
+
+    runId = (await startIngestionRun(supabase, 'ws45_live_weather_ingest')).runId;
 
     const agenciesRaw = await fetchJson(LIVE_BOARD_API_AGENCIES_URL);
     let lightningRingsRaw: unknown = [];
@@ -102,25 +95,41 @@ serve(async (req) => {
     stats.activeWindCount = normalized.activeWindCount;
     stats.activeSevereCount = normalized.activeSevereCount;
     stats.summary = normalized.summary;
+    const fetchedAtIso = new Date().toISOString();
+    const normalizedHash = await hashSnapshotPayload(normalized);
+    const latestHash = latestSnapshot ? await hashSnapshotPayload(latestSnapshot) : null;
 
-    const { error: insertError } = await supabase.from('ws45_live_weather_snapshots').insert({
-      agency_count: normalized.agencyCount,
-      ring_count: normalized.ringCount,
-      active_phase_1_count: normalized.activePhase1Count,
-      active_phase_2_count: normalized.activePhase2Count,
-      active_wind_count: normalized.activeWindCount,
-      active_severe_count: normalized.activeSevereCount,
-      summary: normalized.summary,
-      agencies: normalized.agencies,
-      lightning_rings: normalized.lightningRings,
-      raw: {
-        agencies: agenciesRaw,
-        lightningRings: lightningRingsRaw
-      }
-    });
-    if (insertError) throw insertError;
+    if (latestSnapshot?.id && latestHash === normalizedHash) {
+      const { error: updateError } = await supabase
+        .from('ws45_live_weather_snapshots')
+        .update({
+          fetched_at: fetchedAtIso
+        })
+        .eq('id', latestSnapshot.id);
+      if (updateError) throw updateError;
+      stats.rowsUpdated = 1;
+      stats.deduped = true;
+    } else {
+      const { error: insertError } = await supabase.from('ws45_live_weather_snapshots').insert({
+        fetched_at: fetchedAtIso,
+        agency_count: normalized.agencyCount,
+        ring_count: normalized.ringCount,
+        active_phase_1_count: normalized.activePhase1Count,
+        active_phase_2_count: normalized.activePhase2Count,
+        active_wind_count: normalized.activeWindCount,
+        active_severe_count: normalized.activeSevereCount,
+        summary: normalized.summary,
+        agencies: normalized.agencies,
+        lightning_rings: normalized.lightningRings,
+        raw: {
+          agencies: agenciesRaw,
+          lightningRings: lightningRingsRaw
+        }
+      });
+      if (insertError) throw insertError;
+      stats.rowsInserted = 1;
+    }
 
-    stats.rowsInserted = 1;
     await finishIngestionRun(supabase, runId, true, stats);
     return jsonResponse({ ok: true, elapsedMs: Date.now() - startedAt, stats });
   } catch (err) {
@@ -149,16 +158,32 @@ async function loadDueLaunchCandidate(supabase: ReturnType<typeof createSupabase
   return launches[0] ?? null;
 }
 
-async function loadLatestSnapshotFetchedAt(supabase: ReturnType<typeof createSupabaseAdminClient>) {
+type LatestSnapshotRow = {
+  id: string;
+  fetched_at?: string | null;
+  summary?: string | null;
+  agency_count?: number | null;
+  ring_count?: number | null;
+  active_phase_1_count?: number | null;
+  active_phase_2_count?: number | null;
+  active_wind_count?: number | null;
+  active_severe_count?: number | null;
+  agencies?: unknown;
+  lightning_rings?: unknown;
+};
+
+async function loadLatestSnapshot(supabase: ReturnType<typeof createSupabaseAdminClient>) {
   const { data, error } = await supabase
     .from('ws45_live_weather_snapshots')
-    .select('fetched_at')
+    .select(
+      'id, fetched_at, summary, agency_count, ring_count, active_phase_1_count, active_phase_2_count, active_wind_count, active_severe_count, agencies, lightning_rings'
+    )
     .order('fetched_at', { ascending: false })
     .limit(1)
     .maybeSingle();
 
   if (error) throw error;
-  return typeof data?.fetched_at === 'string' ? data.fetched_at : null;
+  return (data as LatestSnapshotRow | null) ?? null;
 }
 
 function parseLaunchAnchor(launch: LaunchCandidate) {
@@ -210,6 +235,51 @@ async function finishIngestionRun(
 function stringifyError(err: unknown) {
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+async function hashSnapshotPayload(
+  snapshot:
+    | {
+        agencyCount: number;
+        ringCount: number;
+        activePhase1Count: number;
+        activePhase2Count: number;
+        activeWindCount: number;
+        activeSevereCount: number;
+        summary: string;
+        agencies: unknown;
+        lightningRings: unknown;
+      }
+    | LatestSnapshotRow
+) {
+  const payload = stableJsonStringify({
+    agencyCount: 'agencyCount' in snapshot ? snapshot.agencyCount : Number(snapshot.agency_count || 0),
+    ringCount: 'ringCount' in snapshot ? snapshot.ringCount : Number(snapshot.ring_count || 0),
+    activePhase1Count: 'activePhase1Count' in snapshot ? snapshot.activePhase1Count : Number(snapshot.active_phase_1_count || 0),
+    activePhase2Count: 'activePhase2Count' in snapshot ? snapshot.activePhase2Count : Number(snapshot.active_phase_2_count || 0),
+    activeWindCount: 'activeWindCount' in snapshot ? snapshot.activeWindCount : Number(snapshot.active_wind_count || 0),
+    activeSevereCount: 'activeSevereCount' in snapshot ? snapshot.activeSevereCount : Number(snapshot.active_severe_count || 0),
+    summary: String(snapshot.summary || ''),
+    agencies: Array.isArray(snapshot.agencies) ? snapshot.agencies : [],
+    lightningRings: 'lightningRings' in snapshot ? snapshot.lightningRings : Array.isArray(snapshot.lightning_rings) ? snapshot.lightning_rings : []
+  });
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(payload));
+  return Array.from(new Uint8Array(digest))
+    .map((value) => value.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function stableJsonStringify(value: unknown): string {
+  return JSON.stringify(sortJsonValue(value));
+}
+
+function sortJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => sortJsonValue(item));
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([left], [right]) => left.localeCompare(right));
+    return Object.fromEntries(entries.map(([key, entryValue]) => [key, sortJsonValue(entryValue)]));
+  }
+  return value;
 }
 
 function jsonResponse(body: unknown, status = 200) {

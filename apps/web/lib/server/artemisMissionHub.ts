@@ -108,7 +108,6 @@ export const fetchArtemisMissionHubData = cache(async (missionKey: ArtemisMissio
 
   const watchLinks = mergeWatchLinks(buildWatchLinks(primaryLaunch), profile.watchLinks);
   const evidenceLinks = mergeEvidenceLinks(buildEvidenceLinks(primaryLaunch), timelineEvidenceLinks, profile.evidenceLinks);
-
   const launchCrew = buildCrewHighlights(primaryLaunch);
   const crewHighlights = launchCrew.length ? launchCrew : profile.crewHighlights.slice(0, 8);
 

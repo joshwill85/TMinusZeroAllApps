@@ -29,7 +29,6 @@ export const fetchArtemisLaunchBuckets = cache(async (): Promise<ArtemisLaunchBu
 
   const supabase = createSupabasePublicClient();
   const nowIso = new Date().toISOString();
-
   const [upcomingRes, recentRes] = await Promise.all([
     supabase
       .from('launches_public_cache')

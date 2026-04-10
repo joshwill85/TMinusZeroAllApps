@@ -78,7 +78,7 @@ values
   (
     'spacex_falcon9_fl',
     'SpaceX Falcon 9 Florida',
-    null,
+    164,
     'spacex',
     'FL',
     'Falcon 9',
@@ -88,18 +88,21 @@ values
     'https://www.spacex.com/vehicles/falcon-9/',
     'SpaceX Falcon 9 vehicle page',
     '2026-04-08',
-    'Initial neutral family prior for Falcon 9 launches from Florida. Exact config-ID joins can tighten this later without changing the public v1 contract.',
+    'Neutral family prior for Falcon 9 launches from Florida. LL2 upstream upcoming launches and configuration records currently resolve Falcon 9 Block 5 as config 164, so this row now uses the exact config-ID join with Florida as the regional discriminator.',
     jsonb_build_object(
       'launchRegion', 'FL',
       'familyType', 'falcon9',
       'policy', 'neutral_baseline',
-      'sourceClass', 'official_vehicle_page'
+      'sourceClass', 'official_vehicle_page',
+      'joinVerificationSource', 'll2_upcoming_upstream',
+      'joinVerificationDate', '2026-04-08',
+      'joinVerificationConfigId', 164
     )
   ),
   (
     'spacex_falcon9_ca',
     'SpaceX Falcon 9 California',
-    null,
+    164,
     'spacex',
     'CA',
     'Falcon 9',
@@ -109,18 +112,21 @@ values
     'https://www.spacex.com/vehicles/falcon-9/',
     'SpaceX Falcon 9 vehicle page',
     '2026-04-08',
-    'Initial neutral family prior for Falcon 9 launches from California. Exact config-ID joins can tighten this later without changing the public v1 contract.',
+    'Neutral family prior for Falcon 9 launches from California. Current LL2 upstream upcoming launches also resolve Vandenberg Falcon 9 flights to Falcon 9 Block 5 config 164, so this row uses the exact config-ID join with California as the regional discriminator.',
     jsonb_build_object(
       'launchRegion', 'CA',
       'familyType', 'falcon9',
       'policy', 'neutral_baseline',
-      'sourceClass', 'official_vehicle_page'
+      'sourceClass', 'official_vehicle_page',
+      'joinVerificationSource', 'll2_upcoming_upstream',
+      'joinVerificationDate', '2026-04-08',
+      'joinVerificationConfigId', 164
     )
   ),
   (
     'spacex_falcon_heavy',
     'SpaceX Falcon Heavy',
-    null,
+    161,
     'spacex',
     null,
     'Falcon Heavy',
@@ -130,17 +136,20 @@ values
     'https://www.spacex.com/vehicles/falcon-heavy/',
     'SpaceX Falcon Heavy vehicle page',
     '2026-04-08',
-    'Initial neutral family prior for Falcon Heavy. This creates a dedicated family hook without adding speculative score bias ahead of family-specific review.',
+    'Neutral family prior for Falcon Heavy. Current LL2 upstream upcoming launches resolve Falcon Heavy to config 161, so this row now uses the exact config-ID join instead of relying only on text matching.',
     jsonb_build_object(
       'familyType', 'falcon_heavy',
       'policy', 'neutral_baseline',
-      'sourceClass', 'official_vehicle_page'
+      'sourceClass', 'official_vehicle_page',
+      'joinVerificationSource', 'll2_upcoming_upstream',
+      'joinVerificationDate', '2026-04-08',
+      'joinVerificationConfigId', 161
     )
   ),
   (
     'spacex_starship_tx',
     'SpaceX Starship Texas',
-    null,
+    528,
     'spacex',
     'TX',
     'Starship',
@@ -150,12 +159,15 @@ values
     'https://www.spacex.com/vehicles/starship/',
     'SpaceX Starship vehicle page',
     '2026-04-08',
-    'Conservative initial family prior while Texas Starship twilight watchability is kept separate from the Falcon-family baseline. This is a small readiness penalty, not a launch-probability model.',
+    'Conservative initial family prior while Texas Starship twilight watchability is kept separate from the Falcon-family baseline. Current LL2 upstream upcoming launches resolve Starship missions from SpaceX Starbase to config 528, so this row now uses the exact config-ID join plus Texas as the regional discriminator.',
     jsonb_build_object(
       'launchRegion', 'TX',
       'familyType', 'starship',
       'policy', 'conservative_penalty',
-      'sourceClass', 'official_vehicle_page'
+      'sourceClass', 'official_vehicle_page',
+      'joinVerificationSource', 'll2_upcoming_upstream',
+      'joinVerificationDate', '2026-04-08',
+      'joinVerificationConfigId', 528
     )
   )
 on conflict (family_key) do update

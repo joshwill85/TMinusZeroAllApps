@@ -471,6 +471,13 @@ export default function LaunchDetailScreen() {
   } else {
     const launchRecord = launch;
     const weatherModule = detail.weather ?? null;
+    const operationalWeather = weatherModule?.operational ?? null;
+    const standardWeatherCards = (weatherModule?.cards ?? []).filter(
+      (card) => card.source !== 'ws45_planning_24h' && card.source !== 'ws45_weekly'
+    );
+    const advancedWeatherCards = (weatherModule?.cards ?? []).filter(
+      (card) => card.source === 'ws45_planning_24h' || card.source === 'ws45_weekly'
+    );
     const resourcesModule = detail.resources ?? null;
     const socialModule = detail.social ?? null;
     const blueOriginModule = detail.blueOrigin ?? null;
@@ -504,6 +511,7 @@ export default function LaunchDetailScreen() {
       weatherModule?.concerns && weatherModule.concerns.length > 0
         ? weatherModule.concerns
         : launch.weatherConcerns || [];
+    const weatherHeadline = operationalWeather?.summary || weatherModule?.summary || null;
     const watchLinks: WatchLinkView[] =
       resourcesModule?.watchLinks?.map((item) => ({
         url: item.url,
@@ -1171,14 +1179,14 @@ export default function LaunchDetailScreen() {
     );
 
     const statTiles: StatTile[] = [
-      ...(weatherModule?.summary
+      ...(weatherHeadline
         ? [
             {
               id: 'weather',
               label: 'Weather conditions',
-              value: weatherModule.summary.split('.')[0] || 'Favorable',
+              value: weatherHeadline.split('.')[0] || 'Favorable',
               description: weatherConcerns.length > 0 ? `Concerns: ${weatherConcerns.join(', ')}` : 'No weather concerns',
-              tone: weatherConcerns.length > 0 ? 'warning' : 'success'
+              tone: operationalWeather?.tone === 'critical' || operationalWeather?.tone === 'warning' || weatherConcerns.length > 0 ? 'warning' : 'success'
             } satisfies StatTile
           ]
         : []),
@@ -1208,8 +1216,8 @@ export default function LaunchDetailScreen() {
       }
     ];
     const statTileFallbackItems: FactGridItem[] = [
-      ...(weatherModule?.summary
-        ? [['Weather conditions', weatherModule.summary.split('.')[0] || 'Favorable'] satisfies FactGridItem]
+      ...(weatherHeadline
+        ? [['Weather conditions', weatherHeadline.split('.')[0] || 'Favorable'] satisfies FactGridItem]
         : []),
       ['Launch provider', launch.provider],
       ['Launch vehicle', launch.vehicle || launch.rocket?.fullName || 'TBD']
@@ -1221,11 +1229,11 @@ export default function LaunchDetailScreen() {
       : 'Matched mission resources and SpaceX media assets for this launch.';
     const vehicleTimeline = detail.vehicleTimeline ?? [];
     const advisoryCount = detail.enrichment.faaAdvisories.length;
-    const hasForecastOutlook = Boolean(weatherModule?.cards?.length || advisoryCount > 0);
-    const forecastOutlookDescription = weatherModule?.cards?.length
+    const hasForecastOutlook = Boolean(operationalWeather || standardWeatherCards.length || advancedWeatherCards.length || advisoryCount > 0);
+    const forecastOutlookDescription = operationalWeather || standardWeatherCards.length || advancedWeatherCards.length
       ? advisoryCount > 0
-        ? 'Structured weather sources and matched FAA advisories for this launch.'
-        : 'Structured weather sources matched to this launch.'
+        ? 'Live range conditions, weather sources, and matched FAA advisories for this launch.'
+        : 'Live range conditions and structured weather sources matched to this launch.'
       : `Launch-day FAA advisories matched to this launch. ${advisoryCount} match${advisoryCount === 1 ? '' : 'es'} found.`;
 
     floatingTopBarNode = (
@@ -1368,7 +1376,7 @@ export default function LaunchDetailScreen() {
           description="Countdown, launch actions, alerts, and live launch signals."
         >
           <View style={{ gap: 16 }}>
-            {weatherModule?.summary || weatherConcerns.length ? (
+            {weatherHeadline || weatherConcerns.length ? (
               <View
                 style={{
                   borderRadius: 18,
@@ -1380,7 +1388,14 @@ export default function LaunchDetailScreen() {
                 }}
               >
                 <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>Weather</Text>
-                {weatherModule?.summary ? <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>{weatherModule.summary}</Text> : null}
+                {weatherHeadline ? <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>{weatherHeadline}</Text> : null}
+                {operationalWeather ? (
+                  <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
+                    {[operationalWeather.subtitle, operationalWeather.fetchedAt ? `Updated ${formatTimestamp(operationalWeather.fetchedAt)}` : null]
+                      .filter(Boolean)
+                      .join(' • ')}
+                  </Text>
+                ) : null}
                 {weatherConcerns.length ? (
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                     {weatherConcerns.map((concern) => (
@@ -1831,7 +1846,65 @@ export default function LaunchDetailScreen() {
             collapsible={false}
           >
             <View style={{ gap: 12 }}>
-              {weatherModule?.cards?.map((card) => (
+              {operationalWeather ? (
+                <View
+                  style={{
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor:
+                      operationalWeather.stale
+                        ? 'rgba(251, 191, 36, 0.38)'
+                        : operationalWeather.tone === 'critical'
+                          ? 'rgba(251, 113, 133, 0.4)'
+                          : operationalWeather.tone === 'warning'
+                            ? 'rgba(251, 191, 36, 0.38)'
+                            : operationalWeather.tone === 'watch'
+                              ? 'rgba(34, 211, 238, 0.28)'
+                              : theme.stroke,
+                    backgroundColor:
+                      operationalWeather.tone === 'critical'
+                        ? 'rgba(120, 16, 34, 0.28)'
+                        : operationalWeather.tone === 'warning'
+                          ? 'rgba(251, 191, 36, 0.08)'
+                          : operationalWeather.tone === 'watch'
+                            ? 'rgba(34, 211, 238, 0.08)'
+                            : 'rgba(255, 255, 255, 0.03)',
+                    padding: 14,
+                    gap: 10
+                  }}
+                >
+                  <View style={{ gap: 4 }}>
+                    <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>5 WS live board</Text>
+                    <Text style={{ color: theme.muted, fontSize: 13 }}>{operationalWeather.subtitle || 'Live range weather'}</Text>
+                  </View>
+                  <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>{operationalWeather.summary}</Text>
+                  <Text style={{ color: theme.muted, fontSize: 12 }}>
+                    {[operationalWeather.fetchedAt ? `Updated ${formatTimestamp(operationalWeather.fetchedAt)}` : null, operationalWeather.stale ? 'Stale' : null]
+                      .filter(Boolean)
+                      .join(' • ')}
+                  </Text>
+                  {operationalWeather.items.map((item) => (
+                    <View key={item.id} style={{ gap: 2 }}>
+                      <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' }}>
+                        {item.label}
+                      </Text>
+                      <Text style={{ color: theme.foreground, fontSize: 13, fontWeight: '700' }}>{item.value}</Text>
+                      {item.detail ? <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>{item.detail}</Text> : null}
+                    </View>
+                  ))}
+                  {operationalWeather.actionUrl && operationalWeather.actionLabel ? (
+                    <ActionButton
+                      label={operationalWeather.actionLabel}
+                      onPress={() => {
+                        openTarget(operationalWeather.actionUrl || '');
+                      }}
+                      variant="secondary"
+                    />
+                  ) : null}
+                </View>
+              ) : null}
+
+              {standardWeatherCards.map((card) => (
                 <View
                   key={card.id}
                   style={{
@@ -1878,8 +1951,69 @@ export default function LaunchDetailScreen() {
                 </View>
               ))}
 
+              {advancedWeatherCards.length ? (
+                <View
+                  style={{
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: theme.stroke,
+                    backgroundColor: 'rgba(255, 255, 255, 0.02)',
+                    padding: 14,
+                    gap: 10
+                  }}
+                >
+                  <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>Advanced weather</Text>
+                  <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
+                    Planning products from 45 WS provide broader launch-day and week-ahead Cape context.
+                  </Text>
+                  {advancedWeatherCards.map((card) => (
+                    <View
+                      key={card.id}
+                      style={{
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        borderColor: theme.stroke,
+                        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                        padding: 14,
+                        gap: 8
+                      }}
+                    >
+                      <View style={{ gap: 4 }}>
+                        <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{card.title}</Text>
+                        {card.subtitle ? <Text style={{ color: theme.muted, fontSize: 13 }}>{card.subtitle}</Text> : null}
+                      </View>
+                      {card.headline ? <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>{card.headline}</Text> : null}
+                      {(card.issuedAt || card.validStart || card.validEnd) ? (
+                        <Text style={{ color: theme.muted, fontSize: 12 }}>
+                          {[card.issuedAt ? `Issued ${formatTimestamp(card.issuedAt)}` : null, card.validStart ? `Valid ${formatTimestamp(card.validStart)}` : null, card.validEnd ? `to ${formatTimestamp(card.validEnd)}` : null]
+                            .filter(Boolean)
+                            .join(' • ')}
+                        </Text>
+                      ) : null}
+                      {card.badges.length ? (
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                          {card.badges.map((badge) => (
+                            <DetailChip key={`${card.id}:${badge}`} label={badge} />
+                          ))}
+                        </View>
+                      ) : null}
+                      {card.detail ? <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>{card.detail}</Text> : null}
+                      {card.actionUrl && card.actionLabel ? (
+                        <ActionButton
+                          label={card.actionLabel}
+                          onPress={() => {
+                            openTarget(card.actionUrl || '');
+                          }}
+                          variant="secondary"
+                        />
+                      ) : null}
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+
               {advisoryCount > 0 ? (
-                <View style={{ marginTop: weatherModule?.cards?.length ? 4 : 0 }}>
+                <View style={{ marginTop: standardWeatherCards.length || advancedWeatherCards.length || operationalWeather ? 4 : 0 }}>
                   <ForecastAdvisoriesDisclosure count={advisoryCount} theme={theme}>
                     {launchFaaAirspaceMapQuery.isPending ? (
                       <SectionCard title="Launch zone map" compact>

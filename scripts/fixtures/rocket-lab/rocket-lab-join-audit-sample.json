@@ -1,0 +1,78 @@
+{
+  "launches": [
+    {
+      "launchId": "launch-1",
+      "name": "Electron | A Sky Full of SARs",
+      "missionName": "A Sky Full of SARs",
+      "net": "2026-04-20T00:00:00Z",
+      "provider": "Rocket Lab",
+      "vehicle": "Electron",
+      "statusName": "tbd",
+      "expected": {
+        "status": "deterministic",
+        "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/a-sky-full-of-sars",
+        "matchedAlias": "a sky full of sars"
+      }
+    },
+    {
+      "launchId": "launch-2",
+      "name": "Electron | Daughter Of The Stars (LEO-PNT Pathfinder A)",
+      "missionName": "Daughter Of The Stars (LEO-PNT Pathfinder A)",
+      "net": "2026-04-21T00:00:00Z",
+      "provider": "Rocket Lab",
+      "vehicle": "Electron",
+      "statusName": "tbd",
+      "expected": {
+        "status": "deterministic",
+        "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/daughter-of-the-stars",
+        "matchedAlias": "daughter of the stars"
+      }
+    },
+    {
+      "launchId": "launch-3",
+      "name": "Electron | VICTUS HAZE Puma",
+      "missionName": "VICTUS HAZE Puma",
+      "net": "2026-06-30T00:00:00Z",
+      "provider": "Rocket Lab",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "expected": {
+        "status": "ambiguous",
+        "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/victus-haze",
+        "matchedAlias": "victus haze puma"
+      }
+    },
+    {
+      "launchId": "launch-4",
+      "name": "Electron | StriX Launch 9",
+      "missionName": "StriX Launch 9",
+      "net": "2026-05-31T00:00:00Z",
+      "provider": "Rocket Lab",
+      "vehicle": "Electron",
+      "statusName": "tbd",
+      "expected": {
+        "status": "none",
+        "bestMatchUrl": null,
+        "matchedAlias": null
+      }
+    }
+  ],
+  "candidatePages": [
+    {
+      "url": "https://rocketlabcorp.com/missions/launches/a-sky-full-of-sars",
+      "html": "<html><body><p>This mission targeted low Earth orbit and an SSO insertion profile.</p></body></html>"
+    },
+    {
+      "url": "https://rocketlabcorp.com/missions/launches/daughter-of-the-stars",
+      "html": "<html><body><p>The mission deployed the payload after ascent into orbit.</p></body></html>"
+    },
+    {
+      "url": "https://rocketlabcorp.com/missions/launches/victus-haze",
+      "html": "<html><body><p>Mission page placeholder.</p></body></html>"
+    },
+    {
+      "url": "https://rocketlabcorp.com/missions/launches/victus-haze-2",
+      "html": "<html><body><p>Mission page placeholder.</p></body></html>"
+    }
+  ]
+}

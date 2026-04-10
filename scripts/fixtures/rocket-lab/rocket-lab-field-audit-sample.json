@@ -1,0 +1,50 @@
+{
+  "launches": [
+    {
+      "launchId": "launch-1",
+      "name": "Electron | Eight Days A Week (StriX Launch 8)",
+      "missionName": "Eight Days A Week (StriX Launch 8)",
+      "net": "2026-03-20T18:10:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "go",
+      "matchStatus": "deterministic",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/eight-days-a-week",
+      "bestMatchScore": 120,
+      "matchedAlias": "eight days a week"
+    },
+    {
+      "launchId": "launch-2",
+      "name": "Electron | LOXSAT 1",
+      "missionName": "LOXSAT 1",
+      "net": "2026-06-25T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "unknown",
+      "matchStatus": "probable",
+      "bestMatchUrl": "https://rocketlabcorp.com/missions/launches/loxsat",
+      "bestMatchScore": 76,
+      "matchedAlias": "loxsat 1"
+    },
+    {
+      "launchId": "launch-3",
+      "name": "Electron | StriX Launch 9",
+      "missionName": "StriX Launch 9",
+      "net": "2026-05-31T00:00:00+00:00",
+      "vehicle": "Electron",
+      "statusName": "tbd",
+      "matchStatus": "none",
+      "bestMatchUrl": null,
+      "bestMatchScore": null,
+      "matchedAlias": null
+    }
+  ],
+  "pages": [
+    {
+      "url": "https://rocketlabcorp.com/missions/launches/eight-days-a-week",
+      "html": "<html><body><p>Electron will deploy the payload to a 500 km circular orbit with 97.3 degree inclination after payload deployment.</p></body></html>"
+    },
+    {
+      "url": "https://rocketlabcorp.com/missions/launches/loxsat",
+      "html": "<html><body><p>Liftoff, fairing separation, kick stage deployment, and payload deployment are listed in the mission timeline.</p></body></html>"
+    }
+  ]
+}

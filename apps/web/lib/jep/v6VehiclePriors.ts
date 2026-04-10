@@ -103,11 +103,10 @@ export function resolveJepV6VehiclePrior(
     if (rowProviderKey && rowProviderKey !== providerKey) continue;
     if (rowPadState && rowPadState !== padState) continue;
 
+    const configIdMatch = rowConfigId != null && ll2RocketConfigId != null && rowConfigId === ll2RocketConfigId;
     const fullNamePatternMatch = fullNamePattern ? rocketFullName.includes(fullNamePattern) : true;
     const rocketFamilyPatternMatch = rocketFamilyPattern ? rocketFamily.includes(rocketFamilyPattern) : true;
-    if (!fullNamePatternMatch || !rocketFamilyPatternMatch) continue;
-
-    const configIdMatch = rowConfigId != null && ll2RocketConfigId != null && rowConfigId === ll2RocketConfigId;
+    if (!configIdMatch && (!fullNamePatternMatch || !rocketFamilyPatternMatch)) continue;
     const familyKeyMatch = Boolean(rowFamilyKey && derivedFamilyKey && rowFamilyKey === derivedFamilyKey);
     const patternMatch = Boolean(
       !configIdMatch &&
