@@ -37,6 +37,12 @@ docs/ll2/
 
 # Local ingestion logs (do not commit)
 ingestion.log
+
+# Temporary working files (do not commit)
+tmp/
+
+# iOS build artifacts (do not commit)
+apps/mobile/.deriveddata/
 .vercel
 .env*.local
 apps/mobile/android
