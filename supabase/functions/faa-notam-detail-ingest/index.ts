@@ -6,7 +6,7 @@ import {
   FAA_USER_AGENT,
   buildNotamSourceUrl,
   normalizeNonEmptyString,
-  parseDateWindowFromText,
+  parseFaaNotamDetailWindow,
   parseNotamId
 } from '../_shared/faa.ts';
 
@@ -17,6 +17,8 @@ const DEFAULTS = {
   notamTextUrl: 'https://tfr.faa.gov/tfrapi/getNotamText',
   webTextUrl: 'https://tfr.faa.gov/tfrapi/getWebText'
 };
+
+const PARSER_VERSION = 'v2';
 
 type TfrRecordRow = {
   id: string;
@@ -29,6 +31,7 @@ type TfrRecordRow = {
 type ExistingDetailRow = {
   notam_id: string;
   fetched_at: string | null;
+  parse_version: string | null;
 };
 
 type Candidate = {
@@ -128,7 +131,7 @@ serve(async (req) => {
     if (candidateIds.length > 0) {
       const { data: details, error: detailsError } = await supabase
         .from('faa_notam_details')
-        .select('notam_id, fetched_at')
+        .select('notam_id, fetched_at, parse_version')
         .in('notam_id', candidateIds)
         .order('fetched_at', { ascending: false });
       if (detailsError) throw detailsError;
@@ -152,7 +155,8 @@ serve(async (req) => {
           const ageHours = (nowMs - fetchedMs) / (60 * 60 * 1000);
           if (ageHours < refreshHours) {
             const candidateModMs = candidate.modAt ? Date.parse(candidate.modAt) : NaN;
-            if (!Number.isFinite(candidateModMs) || candidateModMs <= fetchedMs) {
+            const needsParserUpgrade = normalizeNonEmptyString(latest.parse_version) !== PARSER_VERSION;
+            if ((!Number.isFinite(candidateModMs) || candidateModMs <= fetchedMs) && !needsParserUpgrade) {
               stats.skippedRecentlyFetched = Number(stats.skippedRecentlyFetched || 0) + 1;
               continue;
             }
@@ -186,7 +190,10 @@ serve(async (req) => {
           `${candidate.notamId}\n---\n${normalizeNonEmptyString(notamText) || ''}\n---\n${normalizeNonEmptyString(webText) || ''}`
         );
 
-        const parseWindow = parseDateWindowFromText(stripHtmlToText(`${webText || ''}\n${notamText || ''}`));
+        const parseWindow = parseFaaNotamDetailWindow({
+          webText,
+          notamText
+        });
         if (parseWindow.validStart || parseWindow.validEnd) {
           stats.parseWindowFound = Number(stats.parseWindowFound || 0) + 1;
         }
@@ -211,23 +218,27 @@ serve(async (req) => {
                 notamPayload
               },
               content_hash: contentHash,
-              parse_version: 'v1',
+              parse_version: PARSER_VERSION,
               fetched_at: nowIso,
               updated_at: nowIso
             },
             {
-              onConflict: 'notam_id,content_hash',
-              ignoreDuplicates: true
+              onConflict: 'notam_id,content_hash'
             }
           )
-          .select('id');
+          .select('id, created_at, updated_at');
 
         if (insertError) throw insertError;
 
-        const insertedCount = (insertedRows || []).length;
-        stats.inserted = Number(stats.inserted || 0) + insertedCount;
-        if (insertedCount === 0) {
-          stats.duplicatePayloads = Number(stats.duplicatePayloads || 0) + 1;
+        const persistedRows = insertedRows || [];
+        for (const row of persistedRows) {
+          const createdAtMs = typeof row.created_at === 'string' ? Date.parse(row.created_at) : NaN;
+          const updatedAtMs = typeof row.updated_at === 'string' ? Date.parse(row.updated_at) : NaN;
+          if (Number.isFinite(createdAtMs) && Number.isFinite(updatedAtMs) && Math.abs(updatedAtMs - createdAtMs) <= 1_000) {
+            stats.inserted = Number(stats.inserted || 0) + 1;
+          } else {
+            stats.duplicatePayloads = Number(stats.duplicatePayloads || 0) + 1;
+          }
         }
       } catch (err) {
         (stats.errors as Array<any>).push({
@@ -307,16 +318,6 @@ function normalizeTextNode(node: unknown): string {
   } catch {
     return '';
   }
-}
-
-function stripHtmlToText(value: string) {
-  return value
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 async function fetchJson(url: string): Promise<unknown> {

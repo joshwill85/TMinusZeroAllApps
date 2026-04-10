@@ -61,6 +61,8 @@
     "test:blue-origin-dossier": "ts-node --project tsconfig.scripts.json --transpile-only -r tsconfig-paths/register scripts/blue-origin-dossier-smoke.ts",
     "test:spacex-hub": "ts-node --project tsconfig.scripts.json --transpile-only -r tsconfig-paths/register scripts/spacex-program-hub-smoke.ts",
     "test:token-feeds": "ts-node --project tsconfig.scripts.json --transpile-only -r tsconfig-paths/register scripts/token-feeds-smoke.ts",
+    "test:faa-date-window": "tsx --tsconfig tsconfig.scripts.json scripts/faa-date-window-smoke.ts",
+    "test:faa-launch-match": "tsx --tsconfig tsconfig.scripts.json scripts/faa-launch-match-smoke.ts",
     "test:public-cache": "ts-node --project tsconfig.scripts.json --transpile-only -r tsconfig-paths/register scripts/public-cache-guard.ts",
     "test:v1-contracts": "TS_NODE_TRANSPILE_ONLY=1 node --loader ts-node/esm scripts/v1-contracts-smoke.mts",
     "test:mobile-query-guard": "TS_NODE_TRANSPILE_ONLY=1 node --loader ts-node/esm scripts/mobile-query-guard.mts",

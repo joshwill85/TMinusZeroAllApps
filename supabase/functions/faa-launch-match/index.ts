@@ -2,86 +2,31 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createSupabaseAdminClient } from '../_shared/supabase.ts';
 import { requireJobAuth } from '../_shared/jobAuth.ts';
 import { getSettings, readBooleanSetting, readNumberSetting } from '../_shared/settings.ts';
+import { normalizeNonEmptyString } from '../_shared/faa.ts';
 import {
-  normalizeNonEmptyString,
-  pointInBoundingBox,
-  pointInGeometry,
-  type GeoPoint,
-  type GeometryBBox
-} from '../_shared/faa.ts';
+  computeLaunchWindow,
+  decideLaunchMatch,
+  scoreLaunchCandidate,
+  type LaunchRow,
+  type ShapeRow,
+  type TfrRecordRow
+} from '../_shared/faaLaunchMatch.ts';
+import {
+  buildDirectionalPriorsByLaunch,
+  type DirectionalPrior,
+  type TrajectoryConstraintRow
+} from '../_shared/trajectoryDirection.ts';
 
 const DEFAULTS = {
   enabled: true,
   candidateLimit: 250,
   recordLimit: 400,
   horizonDays: 21,
-  lookbackHours: 24,
-  bboxPaddingDeg: 0.15
-};
-
-type LaunchRow = {
-  id: string;
-  name: string | null;
-  mission_name: string | null;
-  provider: string | null;
-  vehicle: string | null;
-  net: string | null;
-  window_start: string | null;
-  window_end: string | null;
-  pad_name: string | null;
-  pad_short_code: string | null;
-  pad_state: string | null;
-  pad_country_code: string | null;
-  pad_latitude: number | null;
-  pad_longitude: number | null;
+  lookbackHours: 24
 };
 
 type DirtyLaunchRow = {
   launch_id: string;
-};
-
-type TfrRecordRow = {
-  id: string;
-  source_key: string;
-  notam_id: string | null;
-  facility: string | null;
-  state: string | null;
-  type: string | null;
-  legal: string | null;
-  title: string | null;
-  description: string | null;
-  valid_start: string | null;
-  valid_end: string | null;
-  mod_at: string | null;
-  status: 'active' | 'expired' | 'manual';
-  has_shape: boolean;
-};
-
-type ShapeRow = {
-  id: string;
-  faa_tfr_record_id: string;
-  geometry: Record<string, unknown> | null;
-  bbox_min_lat: number | null;
-  bbox_min_lon: number | null;
-  bbox_max_lat: number | null;
-  bbox_max_lon: number | null;
-};
-
-type LaunchWindow = {
-  startMs: number | null;
-  endMs: number | null;
-  netMs: number | null;
-};
-
-type CandidateScore = {
-  launch: LaunchRow;
-  score: number;
-  reasons: string[];
-  shapeId: string | null;
-  shapeContainsPad: boolean;
-  shapeBBoxHit: boolean;
-  timeOverlap: boolean;
-  deltaHours: number | null;
 };
 
 serve(async (req) => {
@@ -95,6 +40,7 @@ serve(async (req) => {
 
   const stats: Record<string, unknown> = {
     launchesFetched: 0,
+    directionalLaunches: 0,
     dirtyLaunchesFetched: 0,
     dirtyLaunchesCleared: 0,
     recordsFetched: 0,
@@ -151,7 +97,7 @@ serve(async (req) => {
       supabase
         .from('launches')
         .select(
-          'id, name, mission_name, provider, vehicle, net, window_start, window_end, pad_name, pad_short_code, pad_state, pad_country_code, pad_latitude, pad_longitude'
+          'id, name, mission_name, mission_orbit, provider, vehicle, net, window_start, window_end, pad_name, pad_short_code, pad_state, pad_country_code, pad_latitude, pad_longitude, location_name'
         )
         .eq('hidden', false)
         .gte('net', launchFromIso)
@@ -183,7 +129,7 @@ serve(async (req) => {
       const { data, error } = await supabase
         .from('launches')
         .select(
-          'id, name, mission_name, provider, vehicle, net, window_start, window_end, pad_name, pad_short_code, pad_state, pad_country_code, pad_latitude, pad_longitude'
+          'id, name, mission_name, mission_orbit, provider, vehicle, net, window_start, window_end, pad_name, pad_short_code, pad_state, pad_country_code, pad_latitude, pad_longitude, location_name'
         )
         .eq('hidden', false)
         .in('id', dirtyLaunchIds);
@@ -244,7 +190,25 @@ serve(async (req) => {
       }
     }
 
-    const launchWindows = new Map<string, LaunchWindow>(launches.map((launch) => [launch.id, computeLaunchWindow(launch)]));
+    const launchWindows = new Map<string, ReturnType<typeof computeLaunchWindow>>(launches.map((launch) => [launch.id, computeLaunchWindow(launch)]));
+    const launchIds = launches.map((launch) => launch.id);
+    let directionalPriorsByLaunch = new Map<string, DirectionalPrior>();
+
+    if (launchIds.length > 0) {
+      const { data: constraintRowsRaw, error: constraintError } = await supabase
+        .from('launch_trajectory_constraints')
+        .select('launch_id, source, source_id, constraint_type, data, confidence, fetched_at')
+        .in('launch_id', launchIds)
+        .in('constraint_type', ['target_orbit', 'landing'])
+        .order('fetched_at', { ascending: false });
+      if (constraintError) throw constraintError;
+
+      directionalPriorsByLaunch = buildDirectionalPriorsByLaunch(
+        launches,
+        ((constraintRowsRaw || []) as TrajectoryConstraintRow[]).filter((row) => normalizeNonEmptyString(row.launch_id) != null)
+      );
+      stats.directionalLaunches = directionalPriorsByLaunch.size;
+    }
 
     const rowsToInsert: Array<Record<string, unknown>> = [];
 
@@ -256,36 +220,14 @@ serve(async (req) => {
           launchWindow: launchWindows.get(launch.id) || { startMs: null, endMs: null, netMs: null },
           record,
           shapes,
-          nowMs
+          nowMs,
+          directionalPrior: directionalPriorsByLaunch.get(launch.id) || null
         }))
         .filter((candidate) => candidate.score > 0)
         .sort((a, b) => b.score - a.score);
 
-      const best = ranked[0] || null;
-      const second = ranked[1] || null;
-      const scoreGap = best && second ? best.score - second.score : null;
-
-      let matchStatus: 'matched' | 'ambiguous' | 'unmatched' = 'unmatched';
-      let launchId: string | null = null;
-      let shapeId: string | null = null;
-      let matchConfidence: number | null = null;
-      let matchScore: number | null = null;
-
-      if (best) {
-        const roundedScore = Math.round(best.score);
-        matchConfidence = clampInt(roundedScore, 0, 100);
-        matchScore = Number(best.score.toFixed(2));
-
-        if (best.score >= 65 && (scoreGap == null || scoreGap >= 8)) {
-          matchStatus = 'matched';
-          launchId = best.launch.id;
-          shapeId = best.shapeId;
-        } else if (best.score >= 52) {
-          matchStatus = 'ambiguous';
-          launchId = best.launch.id;
-          shapeId = best.shapeId;
-        }
-      }
+      const decision = decideLaunchMatch(ranked);
+      const { best, second, scoreGap, matchStatus, launchId, shapeId, matchConfidence, matchScore } = decision;
 
       if (matchStatus === 'matched') {
         stats.matched = Number(stats.matched || 0) + 1;
@@ -302,7 +244,7 @@ serve(async (req) => {
         match_status: matchStatus,
         match_confidence: matchConfidence,
         match_score: matchScore,
-        match_strategy: 'v1_time_shape_state',
+        match_strategy: 'v2_time_shape_corridor',
         match_meta: {
           record: {
             sourceKey: record.source_key,
@@ -319,8 +261,17 @@ serve(async (req) => {
                 shapeId: best.shapeId,
                 shapeContainsPad: best.shapeContainsPad,
                 shapeBBoxHit: best.shapeBBoxHit,
+                shapeCorridorHit: best.shapeCorridorHit,
+                shapeCorridorDiffDeg: best.shapeCorridorDiffDeg,
                 timeOverlap: best.timeOverlap,
-                deltaHours: best.deltaHours
+                deltaHours: best.deltaHours,
+                directionalAzDeg: best.directionalAzDeg,
+                directionalSigmaDeg: best.directionalSigmaDeg,
+                directionalSource: best.directionalSource,
+                directionalProvenance: best.directionalProvenance,
+                recordTypeClass: best.recordTypeClass,
+                hasSpatialEvidence: best.hasSpatialEvidence,
+                hasTextEvidence: best.hasTextEvidence
               }
             : null,
           scoreGap: scoreGap != null ? Number(scoreGap.toFixed(2)) : null,
@@ -407,240 +358,6 @@ serve(async (req) => {
     return jsonResponse({ ok: false, elapsedMs: Date.now() - startedAt, error: message, stats }, 500);
   }
 });
-
-function scoreLaunchCandidate({
-  launch,
-  launchWindow,
-  record,
-  shapes,
-  nowMs
-}: {
-  launch: LaunchRow;
-  launchWindow: LaunchWindow;
-  record: TfrRecordRow;
-  shapes: ShapeRow[];
-  nowMs: number;
-}): CandidateScore {
-  let score = 0;
-  const reasons: string[] = [];
-
-  const recordWindow = computeRecordWindow(record);
-
-  let shapeId: string | null = null;
-  let shapeContainsPad = false;
-  let shapeBBoxHit = false;
-
-  const timeResult = scoreTimeAlignment({ launchWindow, recordWindow, nowMs });
-  score += timeResult.score;
-  if (timeResult.reason) reasons.push(timeResult.reason);
-
-  const stateMatch = isSameToken(record.state, launch.pad_state);
-  if (stateMatch) {
-    score += 10;
-    reasons.push('state_match');
-  }
-
-  const recordText = [record.facility, record.title, record.legal, record.description]
-    .map((value) => normalizeNonEmptyString(value)?.toLowerCase() || '')
-    .join(' ');
-
-  const padTokens = [launch.pad_short_code, launch.pad_name]
-    .map((value) => normalizeToken(value))
-    .filter(Boolean) as string[];
-
-  if (padTokens.some((token) => token.length >= 3 && recordText.includes(token))) {
-    score += 14;
-    reasons.push('pad_text_match');
-  }
-
-  const providerToken = normalizeToken(launch.provider);
-  if (providerToken && providerToken.length >= 4 && recordText.includes(providerToken)) {
-    score += 8;
-    reasons.push('provider_text_match');
-  }
-
-  const vehicleToken = normalizeToken(launch.vehicle);
-  if (vehicleToken && vehicleToken.length >= 4 && recordText.includes(vehicleToken)) {
-    score += 8;
-    reasons.push('vehicle_text_match');
-  }
-
-  const isSpaceOps = ['space operations', 'space operation', 'space launch', 'launch operations'].some((needle) =>
-    recordText.includes(needle)
-  );
-  if (isSpaceOps) {
-    score += 6;
-    reasons.push('space_ops_type');
-  }
-
-  const hasPadPoint =
-    typeof launch.pad_latitude === 'number' &&
-    Number.isFinite(launch.pad_latitude) &&
-    typeof launch.pad_longitude === 'number' &&
-    Number.isFinite(launch.pad_longitude);
-
-  if (hasPadPoint && shapes.length > 0) {
-    const point: GeoPoint = { lat: Number(launch.pad_latitude), lon: Number(launch.pad_longitude) };
-
-    let bestShapeScore = 0;
-    for (const shape of shapes) {
-      const bbox = toBBox(shape);
-      const bboxHit = pointInBoundingBox(point, bbox, DEFAULTS.bboxPaddingDeg);
-      if (!bboxHit) continue;
-
-      shapeBBoxHit = true;
-
-      let shapeScore = 8;
-      let containsPad = false;
-      if (shape.geometry && pointInGeometry(point, shape.geometry)) {
-        shapeScore = 36;
-        containsPad = true;
-      }
-
-      if (shapeScore > bestShapeScore) {
-        bestShapeScore = shapeScore;
-        shapeId = shape.id;
-        shapeContainsPad = containsPad;
-      }
-    }
-
-    if (bestShapeScore > 0) {
-      score += bestShapeScore;
-      reasons.push(shapeContainsPad ? 'shape_contains_pad' : 'shape_bbox_hit');
-    }
-  }
-
-  const launchNameToken = normalizeToken(launch.name);
-  if (launchNameToken && launchNameToken.length >= 6 && recordText.includes(launchNameToken)) {
-    score += 10;
-    reasons.push('launch_name_text_match');
-  }
-
-  score = Math.min(100, Math.max(0, score));
-
-  return {
-    launch,
-    score,
-    reasons,
-    shapeId,
-    shapeContainsPad,
-    shapeBBoxHit,
-    timeOverlap: timeResult.overlap,
-    deltaHours: timeResult.deltaHours
-  };
-}
-
-function computeLaunchWindow(launch: LaunchRow): LaunchWindow {
-  const netMs = launch.net ? Date.parse(launch.net) : NaN;
-  const startMsRaw = launch.window_start ? Date.parse(launch.window_start) : NaN;
-  const endMsRaw = launch.window_end ? Date.parse(launch.window_end) : NaN;
-
-  const net = Number.isFinite(netMs) ? netMs : null;
-  const start = Number.isFinite(startMsRaw) ? startMsRaw : net;
-  const end = Number.isFinite(endMsRaw) ? endMsRaw : net;
-
-  return {
-    startMs: start,
-    endMs: end,
-    netMs: net
-  };
-}
-
-function computeRecordWindow(record: TfrRecordRow) {
-  const startMsRaw = record.valid_start ? Date.parse(record.valid_start) : NaN;
-  const endMsRaw = record.valid_end ? Date.parse(record.valid_end) : NaN;
-
-  const startMs = Number.isFinite(startMsRaw) ? startMsRaw : null;
-  const endMs = Number.isFinite(endMsRaw) ? endMsRaw : null;
-
-  return { startMs, endMs };
-}
-
-function scoreTimeAlignment({
-  launchWindow,
-  recordWindow,
-  nowMs
-}: {
-  launchWindow: LaunchWindow;
-  recordWindow: { startMs: number | null; endMs: number | null };
-  nowMs: number;
-}) {
-  const launchStart = launchWindow.startMs;
-  const launchEnd = launchWindow.endMs;
-  const launchNet = launchWindow.netMs;
-  const recordStart = recordWindow.startMs;
-  const recordEnd = recordWindow.endMs;
-
-  if (recordStart != null && recordEnd != null && launchStart != null && launchEnd != null) {
-    const overlaps = launchStart <= recordEnd && launchEnd >= recordStart;
-    if (overlaps) {
-      return {
-        score: 44,
-        reason: 'time_overlap',
-        overlap: true,
-        deltaHours: 0
-      };
-    }
-
-    const deltaMs = Math.min(Math.abs(launchStart - recordEnd), Math.abs(recordStart - launchEnd));
-    const deltaHours = deltaMs / (60 * 60 * 1000);
-    if (deltaHours <= 6) return { score: 26, reason: 'time_near_6h', overlap: false, deltaHours };
-    if (deltaHours <= 24) return { score: 14, reason: 'time_near_24h', overlap: false, deltaHours };
-    if (deltaHours <= 72) return { score: 6, reason: 'time_near_72h', overlap: false, deltaHours };
-    return { score: 0, reason: null, overlap: false, deltaHours };
-  }
-
-  if (launchNet != null && recordStart != null && recordEnd == null) {
-    if (launchNet >= recordStart) {
-      const deltaHours = (launchNet - recordStart) / (60 * 60 * 1000);
-      if (deltaHours <= 24) return { score: 12, reason: 'time_after_open_start', overlap: false, deltaHours };
-    }
-  }
-
-  if (launchNet != null && recordEnd != null && recordStart == null) {
-    if (launchNet <= recordEnd) {
-      const deltaHours = (recordEnd - launchNet) / (60 * 60 * 1000);
-      if (deltaHours <= 24) return { score: 12, reason: 'time_before_open_end', overlap: false, deltaHours };
-    }
-  }
-
-  if (launchNet != null && recordStart == null && recordEnd == null) {
-    const deltaHours = Math.abs(nowMs - launchNet) / (60 * 60 * 1000);
-    if (deltaHours <= 24) return { score: 8, reason: 'time_recent_launch', overlap: false, deltaHours };
-  }
-
-  return { score: 0, reason: null, overlap: false, deltaHours: null as number | null };
-}
-
-function toBBox(shape: ShapeRow): GeometryBBox | null {
-  const minLat = typeof shape.bbox_min_lat === 'number' ? shape.bbox_min_lat : NaN;
-  const minLon = typeof shape.bbox_min_lon === 'number' ? shape.bbox_min_lon : NaN;
-  const maxLat = typeof shape.bbox_max_lat === 'number' ? shape.bbox_max_lat : NaN;
-  const maxLon = typeof shape.bbox_max_lon === 'number' ? shape.bbox_max_lon : NaN;
-
-  if (![minLat, minLon, maxLat, maxLon].every((value) => Number.isFinite(value))) return null;
-
-  return {
-    minLat,
-    minLon,
-    maxLat,
-    maxLon
-  };
-}
-
-function normalizeToken(value: string | null | undefined) {
-  return normalizeNonEmptyString(value)
-    ?.toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
-}
-
-function isSameToken(a: string | null | undefined, b: string | null | undefined) {
-  const aa = normalizeToken(a);
-  const bb = normalizeToken(b);
-  if (!aa || !bb) return false;
-  return aa === bb;
-}
 
 async function upsertSetting(supabase: ReturnType<typeof createSupabaseAdminClient>, key: string, value: unknown) {
   const { error } = await supabase

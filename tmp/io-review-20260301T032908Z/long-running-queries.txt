@@ -1,7 +1,0 @@
-Initialising login role...
-Connecting to remote database...
-
-  
-   pid | Duration | Query 
-  -----|----------|-------
-

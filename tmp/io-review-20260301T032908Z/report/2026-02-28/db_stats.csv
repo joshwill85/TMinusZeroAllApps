@@ -1,2 +1,0 @@
-database_size,total_index_size,total_table_size,total_toast_size,time_since_stats_reset,index_hit_rate,table_hit_rate,wal_size
-1889 MB,296 MB,1290 MB,0 bytes,05:00:57.301074,0.96,0.96,240 MB

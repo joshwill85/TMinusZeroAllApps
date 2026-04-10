@@ -1,0 +1,191 @@
+{
+  "seed": "faa-launch-match-v1",
+  "notes": "Regression corpus for FAA launch matching decisions. Covers pad hits, corridor-only matches, and non-launch notice suppression.",
+  "cases": [
+    {
+      "id": "cape_space_ops_pad_match",
+      "launch": {
+        "id": "launch-cape-1",
+        "name": "Falcon 9 Block 5 | Cygnus CRS-2 NG-24",
+        "mission_name": "Cygnus CRS-2 NG-24",
+        "mission_orbit": "ISS",
+        "provider": "SpaceX",
+        "vehicle": "Falcon 9 Block 5",
+        "net": "2026-04-11T11:41:21.000Z",
+        "window_start": "2026-04-11T11:21:00.000Z",
+        "window_end": "2026-04-11T12:34:00.000Z",
+        "pad_name": "Space Launch Complex 40",
+        "pad_short_code": "SLC-40",
+        "pad_state": "FL",
+        "pad_country_code": "USA",
+        "pad_latitude": 28.56194122,
+        "pad_longitude": -80.57735736,
+        "location_name": "Cape Canaveral SFS, FL, USA"
+      },
+      "record": {
+        "id": "record-cape-1",
+        "source_key": "6/9075-1-FDC-F",
+        "notam_id": "6/9075",
+        "facility": "ZMA",
+        "state": "FL",
+        "type": "SPACE OPERATIONS",
+        "legal": "SPACE OPERATIONS",
+        "title": "Cape Canaveral, FL, Saturday, April 11, 2026 Local",
+        "description": null,
+        "valid_start": "2026-04-11T00:00:00.000Z",
+        "valid_end": "2026-04-12T00:00:00.000Z",
+        "mod_at": "2026-04-07T17:10:00.000Z",
+        "status": "active",
+        "has_shape": true
+      },
+      "shapes": [
+        {
+          "id": "shape-cape-1",
+          "faa_tfr_record_id": "record-cape-1",
+          "bbox_min_lat": 28.48,
+          "bbox_min_lon": -80.66,
+          "bbox_max_lat": 28.64,
+          "bbox_max_lon": -80.49,
+          "geometry": {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [-80.66, 28.48],
+                [-80.49, 28.48],
+                [-80.49, 28.64],
+                [-80.66, 28.64],
+                [-80.66, 28.48]
+              ]
+            ]
+          }
+        }
+      ],
+      "constraints": [],
+      "expected": {
+        "status": "matched",
+        "reasonsContain": ["time_overlap", "state_match", "space_ops_type", "shape_contains_pad"]
+      }
+    },
+    {
+      "id": "vandenberg_space_ops_corridor_match",
+      "launch": {
+        "id": "launch-vbg-1",
+        "name": "Falcon 9 Block 5 | Starlink Group 17-21",
+        "mission_name": "Starlink Group 17-21",
+        "mission_orbit": "SSO",
+        "provider": "SpaceX",
+        "vehicle": "Falcon 9 Block 5",
+        "net": "2026-04-11T03:01:30.000Z",
+        "window_start": "2026-04-11T02:45:00.000Z",
+        "window_end": "2026-04-11T03:20:00.000Z",
+        "pad_name": "Space Launch Complex 4E",
+        "pad_short_code": "SLC-4E",
+        "pad_state": "CA",
+        "pad_country_code": "USA",
+        "pad_latitude": 34.632,
+        "pad_longitude": -120.611,
+        "location_name": "Vandenberg SFB, CA, USA"
+      },
+      "record": {
+        "id": "record-vbg-1",
+        "source_key": "synthetic-vbg-space-ops-1",
+        "notam_id": "9/0001",
+        "facility": "ZLA",
+        "state": "CA",
+        "type": "SPACE OPERATIONS",
+        "legal": "SPACE OPERATIONS",
+        "title": "Pacific Corridor, CA, Friday, April 10, 2026 Local",
+        "description": null,
+        "valid_start": "2026-04-11T02:30:00.000Z",
+        "valid_end": "2026-04-11T03:30:00.000Z",
+        "mod_at": "2026-04-10T20:00:00.000Z",
+        "status": "active",
+        "has_shape": true
+      },
+      "shapes": [
+        {
+          "id": "shape-vbg-1",
+          "faa_tfr_record_id": "record-vbg-1",
+          "bbox_min_lat": 33.35,
+          "bbox_min_lon": -120.75,
+          "bbox_max_lat": 33.6,
+          "bbox_max_lon": -120.45,
+          "geometry": {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [-120.75, 33.35],
+                [-120.45, 33.35],
+                [-120.45, 33.6],
+                [-120.75, 33.6],
+                [-120.75, 33.35]
+              ]
+            ]
+          }
+        }
+      ],
+      "constraints": [
+        {
+          "launch_id": "launch-vbg-1",
+          "source": "celestrak_supgp",
+          "source_id": "supgp-starlink-17-21",
+          "constraint_type": "target_orbit",
+          "data": {
+            "orbitType": "supgp_prelaunch_match",
+            "inclination_deg": 97.2906,
+            "flight_azimuth_deg": null
+          },
+          "confidence": 0.93,
+          "fetched_at": "2026-04-10T16:00:11.721Z"
+        }
+      ],
+      "expected": {
+        "status": "matched",
+        "reasonsContain": ["time_overlap", "state_match", "space_ops_type", "shape_corridor_alignment"]
+      }
+    },
+    {
+      "id": "security_notice_stays_unmatched",
+      "launch": {
+        "id": "launch-vbg-2",
+        "name": "Falcon 9 Block 5 | Starlink Group 17-21",
+        "mission_name": "Starlink Group 17-21",
+        "mission_orbit": "SSO",
+        "provider": "SpaceX",
+        "vehicle": "Falcon 9 Block 5",
+        "net": "2026-04-11T03:01:30.000Z",
+        "window_start": "2026-04-11T02:45:00.000Z",
+        "window_end": "2026-04-11T03:20:00.000Z",
+        "pad_name": "Space Launch Complex 4E",
+        "pad_short_code": "SLC-4E",
+        "pad_state": "CA",
+        "pad_country_code": "USA",
+        "pad_latitude": 34.632,
+        "pad_longitude": -120.611,
+        "location_name": "Vandenberg SFB, CA, USA"
+      },
+      "record": {
+        "id": "record-vbg-2",
+        "source_key": "5/0601-1-FDC-F",
+        "notam_id": "5/0601",
+        "facility": "ZLA",
+        "state": "CA",
+        "type": "SECURITY",
+        "legal": "SECURITY",
+        "title": "Los Angeles, CA, Sunday, November 30, 2025 through Sunday, May 31, 2026 Local",
+        "description": null,
+        "valid_start": "2025-11-30T00:00:00.000Z",
+        "valid_end": "2026-06-01T00:00:00.000Z",
+        "mod_at": "2026-03-01T20:00:00.000Z",
+        "status": "active",
+        "has_shape": false
+      },
+      "shapes": [],
+      "constraints": [],
+      "expected": {
+        "status": "unmatched",
+        "reasonsContain": ["time_overlap", "state_match", "non_launch_type_penalty"]
+      }
+    }
+  ]
+}

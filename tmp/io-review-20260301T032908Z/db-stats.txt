@@ -1,8 +1,0 @@
-Initialising login role...
-Connecting to remote database...
-
-  
-   Name     | Database Size | Total Index Size | Total Table Size | Total Toast Size | Time Since Stats Reset | Index Hit Rate | Table Hit Rate | WAL Size 
-  ----------|---------------|------------------|------------------|------------------|------------------------|----------------|----------------|----------
-   postgres | 1889 MB       | 296 MB           | 1290 MB          | 0 bytes          | 05:00:13.458635        | 0.96           | 0.96           | 240 MB   
-

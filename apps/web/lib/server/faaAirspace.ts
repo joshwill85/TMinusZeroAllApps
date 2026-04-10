@@ -188,7 +188,7 @@ export async function fetchLaunchFaaAirspace({
   const snapshot = await loadLaunchFaaAirspaceSnapshot({
     launchId,
     limit,
-    matchStatuses: ['matched', 'ambiguous', 'manual'],
+    matchStatuses: ['matched', 'manual'],
     includeShapeGeometry: false
   });
   if (!snapshot) return null;
@@ -196,7 +196,7 @@ export async function fetchLaunchFaaAirspace({
   return {
     launchId: snapshot.launchId,
     generatedAt: snapshot.generatedAt,
-    hasPotentialRestrictions: snapshot.advisories.some((entry) => entry.matchStatus === 'matched' || entry.matchStatus === 'ambiguous'),
+    hasPotentialRestrictions: snapshot.advisories.some((entry) => entry.matchStatus === 'matched' || entry.matchStatus === 'manual'),
     advisories: snapshot.advisories.map(toPublicAdvisory)
   };
 }
@@ -211,7 +211,7 @@ export async function fetchLaunchFaaAirspaceMap({
   const snapshot = await loadLaunchFaaAirspaceSnapshot({
     launchId,
     limit,
-    matchStatuses: ['matched', 'ambiguous', 'manual'],
+    matchStatuses: ['matched', 'manual'],
     includeShapeGeometry: true
   });
   if (!snapshot) return null;
@@ -373,8 +373,12 @@ async function loadLaunchFaaAirspaceSnapshot({
       if (!record) return null;
 
       const notamDetail = notamDetailsByNotamId.get(normalizeNonEmptyString(record.notam_id) || '');
-      const validStart = notamDetail?.validStart ?? normalizeNonEmptyString(record.valid_start);
-      const validEnd = notamDetail?.validEnd ?? normalizeNonEmptyString(record.valid_end);
+      const window = pickPreferredAdvisoryWindow({
+        recordValidStart: normalizeNonEmptyString(record.valid_start),
+        recordValidEnd: normalizeNonEmptyString(record.valid_end),
+        detailValidStart: notamDetail?.validStart ?? null,
+        detailValidEnd: notamDetail?.validEnd ?? null
+      });
       const title =
         normalizeNonEmptyString(record.title) ||
         normalizeNonEmptyString(record.description) ||
@@ -400,9 +404,9 @@ async function loadLaunchFaaAirspaceSnapshot({
         facility: normalizeNonEmptyString(record.facility),
         state: normalizeNonEmptyString(record.state),
         status: record.status,
-        validStart,
-        validEnd,
-        isActiveNow: isActiveInWindow(validStart, validEnd, nowMs),
+        validStart: window.validStart,
+        validEnd: window.validEnd,
+        isActiveNow: isActiveInWindow(window.validStart, window.validEnd, nowMs),
         hasShape: Boolean(record.has_shape),
         shapeCount: shapeCountByRecordId.get(record.id) || 0,
         rawText: notamDetail?.rawText ?? null,
@@ -727,6 +731,70 @@ function parseNotamDetailWindow(parsed: Record<string, unknown> | null) {
     validStart: normalizeNonEmptyString(dateWindow?.validStart),
     validEnd: normalizeNonEmptyString(dateWindow?.validEnd)
   };
+}
+
+function pickPreferredAdvisoryWindow({
+  recordValidStart,
+  recordValidEnd,
+  detailValidStart,
+  detailValidEnd
+}: {
+  recordValidStart: string | null;
+  recordValidEnd: string | null;
+  detailValidStart: string | null;
+  detailValidEnd: string | null;
+}) {
+  const recordRank = rankDateWindowPrecision(recordValidStart, recordValidEnd);
+  const detailRank = rankDateWindowPrecision(detailValidStart, detailValidEnd);
+
+  if (detailRank > recordRank) {
+    return {
+      validStart: detailValidStart,
+      validEnd: detailValidEnd
+    };
+  }
+
+  if (recordRank > 0) {
+    return {
+      validStart: recordValidStart,
+      validEnd: recordValidEnd
+    };
+  }
+
+  return {
+    validStart: detailValidStart,
+    validEnd: detailValidEnd
+  };
+}
+
+function rankDateWindowPrecision(validStart: string | null, validEnd: string | null) {
+  if (!validStart && !validEnd) return 0;
+
+  const startMs = validStart ? Date.parse(validStart) : NaN;
+  const endMs = validEnd ? Date.parse(validEnd) : NaN;
+  const startDateOnly = isDateOnlyInstant(startMs);
+  const endDateOnly = isDateOnlyInstant(endMs);
+
+  if ((validStart && !Number.isFinite(startMs)) || (validEnd && !Number.isFinite(endMs))) return 2;
+  if ((startDateOnly || !validStart) && (endDateOnly || !validEnd)) {
+    if (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs && (endMs - startMs) % DAY_MS === 0) {
+      return 1;
+    }
+    if ((validStart && startDateOnly) || (validEnd && endDateOnly)) return 1;
+  }
+
+  return 2;
+}
+
+function isDateOnlyInstant(timestampMs: number) {
+  if (!Number.isFinite(timestampMs)) return false;
+  const date = new Date(timestampMs);
+  return (
+    date.getUTCHours() === 0 &&
+    date.getUTCMinutes() === 0 &&
+    date.getUTCSeconds() === 0 &&
+    date.getUTCMilliseconds() === 0
+  );
 }
 
 function normalizeNotamRawText(notamText: string | null, webText: string | null) {

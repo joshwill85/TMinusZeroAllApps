@@ -1,0 +1,26 @@
+{
+  "seed": "faa-date-window-v1",
+  "notes": "Regression corpus for FAA NOTAM detail window parsing. Covers issue-date drift and multi-segment effective windows.",
+  "cases": [
+    {
+      "id": "cape_6_9075_precise_detail_window",
+      "webTextPath": "scripts/fixtures/faa/cape-69075-web.html",
+      "notamTextPath": "scripts/fixtures/faa/cape-69075-notam.txt",
+      "expected": {
+        "validStart": "2026-04-11T11:21:00.000Z",
+        "validEnd": "2026-04-11T12:34:00.000Z",
+        "precision": "datetime"
+      }
+    },
+    {
+      "id": "san_diego_6_0609_merged_effective_window",
+      "webTextPath": "scripts/fixtures/faa/sandiego-60609-web.html",
+      "notamTextPath": "scripts/fixtures/faa/sandiego-60609-notam.txt",
+      "expected": {
+        "validStart": "2026-04-10T23:36:00.000Z",
+        "validEnd": "2026-04-11T02:38:00.000Z",
+        "precision": "datetime"
+      }
+    }
+  ]
+}

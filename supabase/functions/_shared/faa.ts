@@ -1,10 +1,13 @@
 export const FAA_USER_AGENT = 'TMinusZero/0.1 (+https://tminusnow.app)';
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export type DateWindow = {
   validStart: string | null;
   validEnd: string | null;
   source: string | null;
 };
+
+export type DateWindowPrecision = 'none' | 'date' | 'datetime';
 
 export type GeometryBBox = {
   minLat: number;
@@ -109,6 +112,68 @@ export function parseDateWindowFromText(text: string | null | undefined): DateWi
   return { validStart: null, validEnd: null, source: null };
 }
 
+export function parseFaaNotamDetailWindow({
+  webText,
+  notamText
+}: {
+  webText?: string | null;
+  notamText?: string | null;
+}): DateWindow {
+  const htmlLines = htmlishTextLines(webText);
+  const fieldStart = extractLabeledDateTime(htmlLines, 'Beginning Date and Time');
+  const fieldEnd = extractLabeledDateTime(htmlLines, 'Ending Date and Time');
+
+  const preciseCandidates: DateWindow[] = [];
+  if (fieldStart || fieldEnd) {
+    preciseCandidates.push({
+      validStart: fieldStart,
+      validEnd: fieldEnd,
+      source: 'detail_fields'
+    });
+  }
+
+  const preciseText = [normalizeNonEmptyString(notamText), htmlLines.join('\n')].filter(Boolean).join('\n');
+  const effectivePairs = extractEffectiveUtcPairs(preciseText);
+  if (effectivePairs.length) {
+    preciseCandidates.push(buildUtcRangeWindow(effectivePairs, 'effective_utc'));
+  }
+
+  const numericPairs = extractNumericUtcPairs(preciseText);
+  if (numericPairs.length) {
+    preciseCandidates.push(buildUtcRangeWindow(numericPairs, 'utc_minute_range'));
+  }
+
+  const mergedPrecise = mergeDateWindows(preciseCandidates);
+  if (mergedPrecise) return mergedPrecise;
+
+  return parseDateWindowFromText([normalizeNonEmptyString(notamText), stripHtmlishToText(webText)].filter(Boolean).join('\n'));
+}
+
+export function inferDateWindowPrecision(
+  validStart: string | null | undefined,
+  validEnd: string | null | undefined
+): DateWindowPrecision {
+  const start = normalizeNonEmptyString(validStart);
+  const end = normalizeNonEmptyString(validEnd);
+  if (!start && !end) return 'none';
+
+  const startMs = start ? Date.parse(start) : NaN;
+  const endMs = end ? Date.parse(end) : NaN;
+  const startDateOnly = isDateOnlyInstant(startMs);
+  const endDateOnly = isDateOnlyInstant(endMs);
+
+  if ((start && !Number.isFinite(startMs)) || (end && !Number.isFinite(endMs))) return 'datetime';
+  if ((startDateOnly || !start) && (endDateOnly || !end)) {
+    if (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs) {
+      const deltaMs = endMs - startMs;
+      if (deltaMs % DAY_MS === 0) return 'date';
+    }
+    if ((start && startDateOnly) || (end && endDateOnly)) return 'date';
+  }
+
+  return 'datetime';
+}
+
 function parseDateCandidate(value: string, timezoneHint: string | undefined): Date | null {
   const normalized = value
     .replace(/\s+/g, ' ')
@@ -131,6 +196,183 @@ function parseDateCandidate(value: string, timezoneHint: string | undefined): Da
   }
 
   return null;
+}
+
+function parseFaaUtcDateTimeText(value: string | null | undefined): string | null {
+  const raw = normalizeNonEmptyString(value);
+  if (!raw) return null;
+
+  const normalized = raw
+    .replace(/\s+/g, ' ')
+    .replace(/\s+,/g, ',')
+    .replace(/,\s*/g, ', ')
+    .trim();
+
+  const match =
+    normalized.match(/([A-Za-z]+\s+\d{1,2},\s+\d{4})\s+at\s+(\d{3,4})\s+UTC/i) ||
+    normalized.match(/([A-Za-z]+\s+\d{1,2},\s+\d{4})\s+(\d{3,4})\s+UTC/i);
+  if (!match) return null;
+
+  const date = parseDateCandidate(match[1], 'UTC');
+  if (!date) return null;
+
+  const hhmm = match[2].padStart(4, '0');
+  const hour = Number(hhmm.slice(0, 2));
+  const minute = Number(hhmm.slice(2, 4));
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), hour, minute, 0, 0)).toISOString();
+}
+
+function parseUtcCompactDateTime(value: string): string | null {
+  const raw = value.trim();
+  if (!/^\d{10}$/.test(raw)) return null;
+
+  const year = 2000 + Number(raw.slice(0, 2));
+  const month = Number(raw.slice(2, 4));
+  const day = Number(raw.slice(4, 6));
+  const hour = Number(raw.slice(6, 8));
+  const minute = Number(raw.slice(8, 10));
+
+  if (![year, month, day, hour, minute].every((entry) => Number.isFinite(entry))) return null;
+  if (month < 1 || month > 12) return null;
+  if (day < 1 || day > 31) return null;
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+
+  return new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0)).toISOString();
+}
+
+function extractLabeledDateTime(lines: string[], label: string) {
+  const normalizedLabel = normalizeLabel(label);
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const normalizedLine = normalizeLabel(line);
+
+    if (normalizedLine === normalizedLabel) {
+      for (let probe = index + 1; probe < Math.min(lines.length, index + 4); probe += 1) {
+        const parsed = parseFaaUtcDateTimeText(lines[probe]);
+        if (parsed) return parsed;
+      }
+      continue;
+    }
+
+    const inlineMatch = line.match(new RegExp(`^${escapeRegex(label)}\\s*:?\\s*(.+)$`, 'i'));
+    if (inlineMatch?.[1]) {
+      const parsed = parseFaaUtcDateTimeText(inlineMatch[1]);
+      if (parsed) return parsed;
+    }
+  }
+
+  return null;
+}
+
+function extractEffectiveUtcPairs(text: string) {
+  const out: Array<{ validStart: string; validEnd: string }> = [];
+  const pattern = /EFFECTIVE\s+(\d{10})\s+UTC[\s\S]{0,160}?UNTIL\s+(\d{10})\s+UTC/gi;
+  for (const match of text.matchAll(pattern)) {
+    const validStart = parseUtcCompactDateTime(match[1]);
+    const validEnd = parseUtcCompactDateTime(match[2]);
+    if (!validStart || !validEnd) continue;
+    out.push({ validStart, validEnd });
+  }
+  return out;
+}
+
+function extractNumericUtcPairs(text: string) {
+  const out: Array<{ validStart: string; validEnd: string }> = [];
+  const pattern = /\b(\d{10})-(\d{10})\b/g;
+  for (const match of text.matchAll(pattern)) {
+    const validStart = parseUtcCompactDateTime(match[1]);
+    const validEnd = parseUtcCompactDateTime(match[2]);
+    if (!validStart || !validEnd) continue;
+    out.push({ validStart, validEnd });
+  }
+  return out;
+}
+
+function buildUtcRangeWindow(pairs: Array<{ validStart: string; validEnd: string }>, source: string): DateWindow {
+  const startMs = pairs.map((pair) => Date.parse(pair.validStart)).filter(Number.isFinite);
+  const endMs = pairs.map((pair) => Date.parse(pair.validEnd)).filter(Number.isFinite);
+  if (!startMs.length || !endMs.length) {
+    return { validStart: null, validEnd: null, source: null };
+  }
+
+  return {
+    validStart: new Date(Math.min(...startMs)).toISOString(),
+    validEnd: new Date(Math.max(...endMs)).toISOString(),
+    source
+  };
+}
+
+function mergeDateWindows(windows: DateWindow[]) {
+  const precise = windows.filter((window) => inferDateWindowPrecision(window.validStart, window.validEnd) === 'datetime');
+  if (!precise.length) return null;
+
+  const startMs = precise
+    .map((window) => (window.validStart ? Date.parse(window.validStart) : NaN))
+    .filter((value) => Number.isFinite(value));
+  const endMs = precise
+    .map((window) => (window.validEnd ? Date.parse(window.validEnd) : NaN))
+    .filter((value) => Number.isFinite(value));
+  const sources = Array.from(new Set(precise.map((window) => normalizeNonEmptyString(window.source)).filter(Boolean)));
+
+  return {
+    validStart: startMs.length ? new Date(Math.min(...startMs)).toISOString() : null,
+    validEnd: endMs.length ? new Date(Math.max(...endMs)).toISOString() : null,
+    source: sources.length ? sources.join('+') : null
+  };
+}
+
+function htmlishTextLines(value: string | null | undefined) {
+  const stripped = stripHtmlishToText(value);
+  if (!stripped) return [];
+  return stripped
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function stripHtmlishToText(value: string | null | undefined) {
+  const raw = normalizeNonEmptyString(value);
+  if (!raw) return '';
+
+  return raw
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(tr|p|div|td|th|li|h\d)>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&#160;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
+function normalizeLabel(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/\s+:/g, '')
+    .replace(/:+$/g, '')
+    .trim();
+}
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function isDateOnlyInstant(timestampMs: number) {
+  if (!Number.isFinite(timestampMs)) return false;
+  const date = new Date(timestampMs);
+  return (
+    date.getUTCHours() === 0 &&
+    date.getUTCMinutes() === 0 &&
+    date.getUTCSeconds() === 0 &&
+    date.getUTCMilliseconds() === 0
+  );
 }
 
 function toStartOfDayUtc(date: Date) {
