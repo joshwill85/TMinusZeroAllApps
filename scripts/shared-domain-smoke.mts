@@ -39,6 +39,7 @@ import {
 import { deriveTrajectoryEvidenceView } from '../packages/domain/src/trajectory/evidence.ts';
 import { deriveTrajectoryFieldAuthorityProfile } from '../packages/domain/src/trajectory/fieldAuthority.ts';
 import { deriveTrajectoryPublishPolicy } from '../packages/domain/src/trajectory/publishPolicy.ts';
+import { buildJepObserverContext, buildJepPresentation } from '../packages/domain/src/jepPresentation.ts';
 import {
   deriveArTelemetryTimeToUsableMs,
   inferMobileArReleaseProfile,
@@ -61,6 +62,36 @@ assert.equal(tierToMode('premium'), 'live');
 assert.equal(getTierRefreshSeconds('premium'), 15);
 assert.equal(getTierLimits('anon').watchlistRuleLimit, 0);
 assert.equal(getTierCapabilities('anon').canUseSavedItems, false);
+
+const fallbackObserverContext = buildJepObserverContext({ personalized: false, usingPadFallback: true });
+assert.equal(fallbackObserverContext.launchAreaFallback, true);
+assert.equal(fallbackObserverContext.locationBadgeLabel, 'Launch-area fallback');
+
+const fallbackJepPresentation = buildJepPresentation({
+  score: 82,
+  factors: {
+    illumination: 0.9,
+    darkness: 1,
+    lineOfSight: 0.85,
+    weather: 0.8,
+    solarDepressionDeg: 8,
+    cloudCoverPct: 20,
+    cloudCoverLowPct: 10,
+    cloudCoverMidPct: 10,
+    cloudCoverHighPct: 20
+  },
+  sunlitMarginKm: 120,
+  losVisibleFraction: 0.85,
+  weatherDetails: null,
+  solarWindowRange: null,
+  scenarioWindows: [],
+  observer: {
+    locationHash: 'pad',
+    personalized: false,
+    usingPadFallback: true
+  }
+} as any);
+assert.match(fallbackJepPresentation.summary, /Launch-area conditions look favorable right now/);
 
 const parsedSearch = parseSiteSearchInput('type:launch provider:SpaceX -status:scrubbed "Starlink 12"');
 assert.equal(parsedSearch.query, 'SpaceX -scrubbed "Starlink 12"');

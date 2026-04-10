@@ -1,9 +1,20 @@
 import { Pressable, Text, View } from 'react-native';
 import type { LaunchJepScoreV1 } from '@tminuszero/api-client';
 import type { MobileTheme } from '@tminuszero/design-tokens';
-import { buildJepPresentation, type JepPresentationTone } from '@tminuszero/domain';
-import { useLaunchJepQuery } from '@/src/api/queries';
+import {
+  buildJepConfidenceLabel,
+  buildJepObserverContext,
+  buildJepPresentation,
+  buildJepScenarioTimeline,
+  buildJepVisibilityCallPresentation,
+  type JepPresentationTone
+} from '@tminuszero/domain';
 import { CollapsibleCard } from '@/src/components/launch/CollapsibleSection';
+import {
+  useLaunchJepViewpoint,
+  type MobileJepFallbackReason,
+  type MobileJepViewpointPromptState
+} from '@/src/hooks/useLaunchJepViewpoint';
 
 type JepPanelProps = {
   launchId: string;
@@ -12,7 +23,20 @@ type JepPanelProps = {
 };
 
 export function JepPanel({ launchId, hasJepScore, theme }: JepPanelProps) {
-  const query = useLaunchJepQuery(launchId, {}, { enabled: hasJepScore });
+  const {
+    score,
+    query,
+    locationMode,
+    fallbackReason,
+    promptVisible,
+    promptState,
+    showLocationLoading,
+    requestCurrentLocation,
+    selectLaunchSiteReference
+  } = useLaunchJepViewpoint({
+    launchId,
+    enabled: hasJepScore
+  });
 
   if (!hasJepScore) {
     return (
@@ -26,7 +50,7 @@ export function JepPanel({ launchId, hasJepScore, theme }: JepPanelProps) {
     );
   }
 
-  if (query.isPending && !query.data) {
+  if (query.isPending && !score) {
     return (
       <Card theme={theme}>
         <Text style={eyebrowStyle(theme)}>Jellyfish Exposure Potential</Text>
@@ -38,7 +62,7 @@ export function JepPanel({ launchId, hasJepScore, theme }: JepPanelProps) {
     );
   }
 
-  if (!query.data) {
+  if (!score) {
     return (
       <Card theme={theme}>
         <Text style={eyebrowStyle(theme)}>Jellyfish Exposure Potential</Text>
@@ -69,17 +93,31 @@ export function JepPanel({ launchId, hasJepScore, theme }: JepPanelProps) {
     );
   }
 
-  const score = query.data;
   const presentation = buildJepPresentation(score);
+  const observerContext = buildJepObserverContext(score.observer);
+  const usesFallbackPresentation = locationMode === 'pad_fallback' || observerContext.launchAreaFallback;
+  const visibilityCall = buildJepVisibilityCallPresentation(score, observerContext);
+  const confidenceLabel = buildJepConfidenceLabel(score);
+  const scenarioTimeline = buildJepScenarioTimeline(score);
   const probability = clampProbability(score.probability);
   const isProbabilityMode = score.mode === 'probability';
   const primaryValue = isProbabilityMode && probability != null ? formatProbability(probability) : `${score.score}/100`;
-  const primaryLabel = isProbabilityMode ? 'Chance to see it' : 'Visibility score';
+  const primaryLabel = isProbabilityMode
+    ? usesFallbackPresentation
+      ? 'Launch-area chance'
+      : 'Chance to see it'
+    : usesFallbackPresentation
+      ? 'Launch-area score'
+      : 'Visibility score';
   const scaleSummary = isProbabilityMode
-    ? '0% = almost no chance. 100% = very likely.'
-    : '0 = very unlikely to see it. 100 = best setup.';
-  const locationLabel =
-    score.observer.personalized && !score.observer.usingPadFallback ? 'Using your location' : 'Using launch pad (fallback)';
+    ? usesFallbackPresentation
+      ? 'Reference only: high values mean launch-area conditions look favorable, not that it will be visible from you.'
+      : '0% = almost no chance. 100% = very likely.'
+    : usesFallbackPresentation
+      ? 'Reference only: high values mean launch-area conditions look favorable, not that it will be visible from you.'
+      : '0 = very unlikely to see it. 100 = best setup.';
+  const locationLabel = usesFallbackPresentation ? 'Launch-area fallback' : observerContext.locationBadgeLabel;
+  const fallbackReasonLabel = formatFallbackReason(fallbackReason);
   const updatedLabel = formatDateTime(score.computedAt);
   const hasGuidance =
     score.bestWindow != null || score.directionBand != null || score.elevationBand != null || score.solarWindowRange != null;
@@ -93,13 +131,76 @@ export function JepPanel({ launchId, hasJepScore, theme }: JepPanelProps) {
             <Text style={titleStyle(theme)}>Why this launch is scoring this way</Text>
           </View>
 
+          {promptVisible ? (
+            <View
+              style={{
+                gap: 10,
+                borderRadius: 18,
+                borderWidth: 1,
+                borderColor: theme.stroke,
+                backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                paddingHorizontal: 14,
+                paddingVertical: 14
+              }}
+            >
+              <Text style={eyebrowStyle(theme)}>Choose your viewpoint</Text>
+              <Text style={{ color: theme.foreground, fontSize: 17, fontWeight: '700', lineHeight: 22 }}>
+                {viewpointPromptTitle(promptState)}
+              </Text>
+              <Text style={bodyStyle(theme)}>{viewpointPromptBody(promptState)}</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                <ActionButton
+                  label={promptState === 'resolving' ? 'Checking your location...' : 'Use my location'}
+                  onPress={() => {
+                    void requestCurrentLocation();
+                  }}
+                  theme={theme}
+                  emphasis="primary"
+                  disabled={promptState === 'resolving'}
+                />
+                <ActionButton
+                  label="Near launch site"
+                  onPress={selectLaunchSiteReference}
+                  theme={theme}
+                  emphasis="secondary"
+                  disabled={promptState === 'resolving'}
+                />
+              </View>
+            </View>
+          ) : null}
+
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-            <TonePill label={locationLabel} tone={score.observer.usingPadFallback ? 'neutral' : 'success'} theme={theme} />
+            <TonePill label={locationLabel} tone={usesFallbackPresentation ? 'warning' : 'success'} theme={theme} />
+            <TonePill label={visibilityCall.label} tone={visibilityCall.tone} theme={theme} />
+            <TonePill label={confidenceLabelLabel(confidenceLabel)} tone={confidenceLabelTone(confidenceLabel)} theme={theme} />
+            {usesFallbackPresentation ? <TonePill label="Not personalized" tone="warning" theme={theme} /> : null}
             <TonePill label={isProbabilityMode ? 'Chance mode' : 'Score mode'} tone={isProbabilityMode ? 'info' : 'neutral'} theme={theme} />
             {score.isSnapshot ? <TonePill label="Snapshot" tone="info" theme={theme} /> : null}
             {score.isStale ? <TonePill label="Stale" tone="warning" theme={theme} /> : null}
-            {query.isFetching ? <TonePill label="Refreshing" tone="info" theme={theme} /> : null}
+            {showLocationLoading ? <TonePill label="Refining for your location" tone="info" theme={theme} /> : query.isFetching ? <TonePill label="Refreshing" tone="info" theme={theme} /> : null}
+            {fallbackReasonLabel ? <TonePill label={fallbackReasonLabel} tone="warning" theme={theme} /> : null}
           </View>
+
+          {!promptVisible ? (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+              <ActionButton
+                label="From your location"
+                onPress={() => {
+                  void requestCurrentLocation();
+                }}
+                theme={theme}
+                emphasis={locationMode === 'user' ? 'primary' : 'secondary'}
+                disabled={promptState === 'resolving'}
+              />
+              <ActionButton
+                label="Near launch site"
+                onPress={selectLaunchSiteReference}
+                theme={theme}
+                emphasis={locationMode === 'pad_fallback' ? 'primary' : 'secondary'}
+                disabled={promptState === 'resolving'}
+              />
+            </View>
+          ) : null}
 
           <View style={{ gap: 6 }}>
             <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase' }}>
@@ -107,12 +208,80 @@ export function JepPanel({ launchId, hasJepScore, theme }: JepPanelProps) {
             </Text>
             <Text style={{ color: theme.accent, fontSize: 42, fontWeight: '800', lineHeight: 48 }}>{primaryValue}</Text>
             <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '600', lineHeight: 21 }}>
-              {primaryInterpretation(isProbabilityMode, score.score, probability)}
+              {primaryInterpretation(isProbabilityMode, score.score, probability, usesFallbackPresentation)}
             </Text>
             <Text style={bodyStyle(theme)}>{presentation.summary}</Text>
             <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>{scaleSummary}</Text>
+            {usesFallbackPresentation ? (
+              <Text style={{ color: '#f0bf66', fontSize: 12, lineHeight: 18 }}>
+                This number is a launch-area reference score from the pad and ascent corridor. Your exact location can still be impossible.
+              </Text>
+            ) : null}
             {updatedLabel ? <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>Updated {updatedLabel}</Text> : null}
           </View>
+
+          <View
+            style={{
+              gap: 8,
+              borderRadius: 18,
+              borderWidth: 1,
+              borderColor: theme.stroke,
+              backgroundColor: 'rgba(255, 255, 255, 0.03)',
+              paddingHorizontal: 14,
+              paddingVertical: 14
+            }}
+          >
+            <Text style={eyebrowStyle(theme)}>Visibility call</Text>
+            <Text style={{ color: theme.foreground, fontSize: 17, fontWeight: '700', lineHeight: 22 }}>{visibilityCall.label}</Text>
+            <Text style={bodyStyle(theme)}>{visibilityCall.detail}</Text>
+          </View>
+
+          {scenarioTimeline.length > 0 ? (
+            <View
+              style={{
+                gap: 10,
+                borderRadius: 18,
+                borderWidth: 1,
+                borderColor: theme.stroke,
+                backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                paddingHorizontal: 14,
+                paddingVertical: 14
+              }}
+            >
+              <Text style={eyebrowStyle(theme)}>Timing outlook</Text>
+              {score.bestWindow ? (
+                <Text style={bodyStyle(theme)}>
+                  Best window: <Text style={{ color: theme.foreground, fontWeight: '700' }}>{score.bestWindow.label}</Text>. {score.bestWindow.reason}
+                </Text>
+              ) : null}
+              <View style={{ gap: 8 }}>
+                {scenarioTimeline.map((entry) => (
+                  <View
+                    key={entry.id}
+                    style={{
+                      gap: 8,
+                      borderRadius: 16,
+                      borderWidth: 1,
+                      borderColor: 'rgba(234, 240, 255, 0.1)',
+                      backgroundColor: 'rgba(255, 255, 255, 0.025)',
+                      paddingHorizontal: 12,
+                      paddingVertical: 12
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                      <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{entry.label}</Text>
+                      <Text style={{ color: theme.muted, fontSize: 13, fontWeight: '600' }}>{entry.score}/100</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                      {entry.current ? <TonePill label="Current" tone="info" theme={theme} /> : null}
+                      <TonePill label={timelineTrendLabel(entry.delta, entry.trend)} tone={timelineTrendTone(entry.trend)} theme={theme} />
+                      <TonePill label={visibilityCallLabel(entry.visibilityCall)} tone={entry.tone} theme={theme} />
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </View>
+          ) : null}
 
           {hasGuidance ? (
             <View style={{ gap: 10 }}>
@@ -131,7 +300,7 @@ export function JepPanel({ launchId, hasJepScore, theme }: JepPanelProps) {
                   <MetricTile
                     label="Height"
                     value={score.elevationBand.label}
-                    caption="Usually needs about 5°+ above your local horizon."
+                    caption={`Usually needs about 5°+ above ${observerContext.horizonPhrase}.`}
                     theme={theme}
                   />
                 ) : null}
@@ -295,6 +464,48 @@ function TonePill({ label, tone, theme }: { label: string; tone: JepPresentation
   );
 }
 
+function ActionButton({
+  label,
+  onPress,
+  theme,
+  emphasis,
+  disabled = false
+}: {
+  label: string;
+  onPress: () => void;
+  theme: MobileTheme;
+  emphasis: 'primary' | 'secondary';
+  disabled?: boolean;
+}) {
+  const primary = emphasis === 'primary';
+  return (
+    <Pressable
+      accessibilityRole="button"
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: primary ? theme.accent : theme.stroke,
+        backgroundColor: primary ? 'rgba(34, 211, 238, 0.16)' : 'rgba(255, 255, 255, 0.03)',
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        opacity: disabled ? 0.6 : pressed ? 0.82 : 1
+      })}
+    >
+      <Text
+        style={{
+          color: primary ? theme.accent : theme.foreground,
+          fontSize: 13,
+          fontWeight: '700'
+        }}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
 function toneStyle(tone: JepPresentationTone, theme: MobileTheme) {
   if (tone === 'success') {
     return {
@@ -364,7 +575,24 @@ function bodyStyle(theme: MobileTheme) {
   };
 }
 
-function primaryInterpretation(isProbabilityMode: boolean, score: number, probability: number | null) {
+function primaryInterpretation(
+  isProbabilityMode: boolean,
+  score: number,
+  probability: number | null,
+  usesFallbackPresentation = false
+) {
+  if (usesFallbackPresentation) {
+    if (isProbabilityMode) {
+      if ((probability ?? 0) >= 0.7) return 'Launch-area conditions look favorable, but this is not your personal visibility call.';
+      if ((probability ?? 0) >= 0.3) return 'Launch-area conditions are mixed. Your exact location can still be impossible.';
+      return 'Launch-area conditions look weak right now.';
+    }
+
+    if (score >= 70) return 'Launch-area conditions look favorable, but this is not your personal visibility call.';
+    if (score >= 30) return 'Launch-area conditions are mixed. Your exact location can still be impossible.';
+    return 'Launch-area conditions look weak right now.';
+  }
+
   if (isProbabilityMode) {
     if ((probability ?? 0) >= 0.7) return 'Good setup for a visible jellyfish plume.';
     if ((probability ?? 0) >= 0.3) return 'You may see it, but conditions are mixed.';
@@ -374,6 +602,79 @@ function primaryInterpretation(isProbabilityMode: boolean, score: number, probab
   if (score >= 70) return 'Good setup for a visible jellyfish plume.';
   if (score >= 30) return 'You may see it, but conditions are mixed.';
   return 'A visible jellyfish plume is unlikely from this location.';
+}
+
+function confidenceLabelTone(value: ReturnType<typeof buildJepConfidenceLabel>): JepPresentationTone {
+  if (value === 'high') return 'success';
+  if (value === 'medium') return 'info';
+  return 'warning';
+}
+
+function confidenceLabelLabel(value: ReturnType<typeof buildJepConfidenceLabel>) {
+  if (value === 'high') return 'High confidence';
+  if (value === 'medium') return 'Medium confidence';
+  return 'Low confidence';
+}
+
+function timelineTrendTone(trend: 'better' | 'similar' | 'worse'): JepPresentationTone {
+  if (trend === 'better') return 'success';
+  if (trend === 'worse') return 'warning';
+  return 'neutral';
+}
+
+function timelineTrendLabel(delta: number, trend: 'better' | 'similar' | 'worse') {
+  if (trend === 'better' && delta > 0) return `+${delta}`;
+  if (trend === 'worse' && delta < 0) return `${delta}`;
+  if (trend === 'similar') return 'Flat';
+  return delta > 0 ? `+${delta}` : `${delta}`;
+}
+
+function visibilityCallLabel(value: ReturnType<typeof buildJepScenarioTimeline>[number]['visibilityCall']) {
+  if (value === 'not_expected') return 'Not expected';
+  if (value === 'possible') return 'Possible';
+  if (value === 'favorable') return 'Favorable';
+  return 'Highly favorable';
+}
+
+function formatFallbackReason(reason: MobileJepFallbackReason) {
+  if (reason === 'denied') return 'Location denied';
+  if (reason === 'unsupported') return 'Location unavailable';
+  if (reason === 'timeout') return 'Location timed out';
+  if (reason === 'unavailable') return 'Location unavailable';
+  if (reason === 'error') return 'Location failed';
+  return null;
+}
+
+function viewpointPromptTitle(state: MobileJepViewpointPromptState) {
+  if (state === 'resolving') return 'Checking your viewpoint';
+  if (state === 'denied') return 'Location access was denied';
+  if (state === 'unsupported') return 'Location is not available on this device';
+  if (state === 'timeout') return 'Location lookup took too long';
+  if (state === 'unavailable') return 'We could not resolve your location';
+  if (state === 'error') return 'Location lookup failed';
+  return 'Choose your viewpoint';
+}
+
+function viewpointPromptBody(state: MobileJepViewpointPromptState) {
+  if (state === 'resolving') {
+    return 'We are checking your current location so the JEP score reflects your actual viewing setup.';
+  }
+  if (state === 'denied') {
+    return 'Without location access we can only show the launch-site reference. You can allow location and retry, or continue with the launch-site view.';
+  }
+  if (state === 'unsupported') {
+    return 'This device cannot provide a usable location right now, so only the launch-site reference is available.';
+  }
+  if (state === 'timeout') {
+    return 'We could not get a location fix quickly enough. You can retry or use the launch-site reference instead.';
+  }
+  if (state === 'unavailable') {
+    return 'We did not get a usable personal JEP result from your current location, so the safe fallback is the launch-site reference.';
+  }
+  if (state === 'error') {
+    return 'Something went wrong while checking your location. You can retry or use the launch-site reference instead.';
+  }
+  return 'Use your current location for a personal visibility answer, or switch to the launch-site reference view.';
 }
 
 function buildWeatherCaption(score: LaunchJepScoreV1 | undefined) {

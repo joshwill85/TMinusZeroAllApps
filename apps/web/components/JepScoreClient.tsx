@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { JepScorePanel, type JepFallbackReason, type JepLocationMode } from '@/components/JepScorePanel';
 import type { LaunchJepScore } from '@/lib/types/jep';
 
@@ -14,6 +14,8 @@ type GeolocationFailure = {
   code: number;
 };
 
+type JepViewpointPromptState = 'idle' | Exclude<JepFallbackReason, null> | 'resolving';
+
 const GEOLOCATION_TIMEOUT_MS = 6000;
 const GEOLOCATION_MAX_AGE_MS = 5 * 60 * 1000;
 
@@ -22,115 +24,155 @@ export function JepScoreClient({ launchId, initialScore, padTimezone }: JepScore
   const [locationMode, setLocationMode] = useState<JepLocationMode>(initialScore.observer.personalized ? 'user' : 'pad_fallback');
   const [fallbackReason, setFallbackReason] = useState<JepFallbackReason>(null);
   const [isRefining, setIsRefining] = useState(false);
-  const attemptedLaunchRef = useRef<string | null>(null);
-  const hasInitialPersonalizedScore = initialScore.observer.personalized;
+  const [promptVisible, setPromptVisible] = useState(!initialScore.observer.personalized);
+  const [promptState, setPromptState] = useState<JepViewpointPromptState>('idle');
+  const requestControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    if (!launchId || attemptedLaunchRef.current === launchId) return;
-    attemptedLaunchRef.current = launchId;
+    requestControllerRef.current?.abort();
+    requestControllerRef.current = null;
+    setScore(initialScore);
+    setLocationMode(initialScore.observer.personalized ? 'user' : 'pad_fallback');
+    setFallbackReason(null);
+    setIsRefining(false);
+    setPromptVisible(!initialScore.observer.personalized);
+    setPromptState('idle');
+  }, [initialScore, launchId]);
 
-    let isCanceled = false;
-    const controller = new AbortController();
+  const fetchScore = useCallback(
+    async (observer?: { lat: number; lon: number }) => {
+      requestControllerRef.current?.abort();
+      const controller = new AbortController();
+      requestControllerRef.current = controller;
+      try {
+        const response = await fetch(`/api/public/launches/${encodeURIComponent(launchId)}/jep`, {
+          method: observer ? 'POST' : 'GET',
+          headers: observer
+            ? {
+                'Content-Type': 'application/json'
+              }
+            : undefined,
+          cache: 'no-store',
+          signal: controller.signal,
+          body: observer
+            ? JSON.stringify({
+                observerLat: Number(observer.lat.toFixed(5)),
+                observerLon: Number(observer.lon.toFixed(5))
+              })
+            : undefined
+        });
 
-    const run = async () => {
-      if (typeof window === 'undefined' || typeof navigator === 'undefined') return;
-
-      if (!navigator.geolocation) {
-        if (!isCanceled && !hasInitialPersonalizedScore) {
-          setLocationMode('pad_fallback');
-          setFallbackReason('unsupported');
+        if (!response.ok) {
+          if (response.status === 404) throw new Error('jep_not_found');
+          if (response.status === 429) throw new Error('jep_rate_limited');
+          throw new Error(`jep_fetch_${response.status}`);
         }
+
+        return (await response.json()) as LaunchJepScore;
+      } finally {
+        if (requestControllerRef.current === controller) {
+          requestControllerRef.current = null;
+        }
+      }
+    },
+    [launchId]
+  );
+
+  const selectLaunchSiteReference = useCallback(async () => {
+    setPromptVisible(false);
+    setPromptState('idle');
+    setFallbackReason(null);
+
+    if (!score.observer.personalized) {
+      setLocationMode('pad_fallback');
+      return;
+    }
+
+    setIsRefining(true);
+    try {
+      const payload = await fetchScore();
+      setScore(payload);
+      setLocationMode('pad_fallback');
+    } catch (error) {
+      if (!isAbortError(error)) {
+        setFallbackReason('error');
+      }
+    } finally {
+      setIsRefining(false);
+    }
+  }, [fetchScore, score.observer.personalized]);
+
+  const requestCurrentLocation = useCallback(async () => {
+    if (typeof window === 'undefined' || typeof navigator === 'undefined') return;
+
+    setPromptState('resolving');
+    setIsRefining(true);
+
+    try {
+      if (!navigator.geolocation) {
+        setLocationMode('pad_fallback');
+        setFallbackReason('unsupported');
+        setPromptState('unsupported');
+        setPromptVisible(true);
         return;
       }
 
       const denied = await isGeolocationDenied();
       if (denied) {
-        if (!isCanceled && !hasInitialPersonalizedScore) {
-          setLocationMode('pad_fallback');
-          setFallbackReason('denied');
-        }
+        setLocationMode('pad_fallback');
+        setFallbackReason('denied');
+        setPromptState('denied');
+        setPromptVisible(true);
         return;
       }
 
-      setIsRefining(true);
+      const position = await getCurrentPosition();
+      const payload = await fetchScore({
+        lat: position.coords.latitude,
+        lon: position.coords.longitude
+      });
 
-      try {
-        const position = await getCurrentPosition();
-        if (isCanceled) return;
-
-        const lat = position.coords.latitude;
-        const lon = position.coords.longitude;
-        const response = await fetch(`/api/public/launches/${encodeURIComponent(launchId)}/jep`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          cache: 'no-store',
-          signal: controller.signal,
-          body: JSON.stringify({
-            observerLat: Number(lat.toFixed(5)),
-            observerLon: Number(lon.toFixed(5))
-          })
-        });
-
-        if (!response.ok) {
-          if (response.status === 404) {
-            throw new Error('jep_not_found');
-          }
-          if (response.status === 429) {
-            throw new Error('jep_rate_limited');
-          }
-          throw new Error(`jep_fetch_${response.status}`);
-        }
-
-        const payload = (await response.json()) as LaunchJepScore;
-        if (isCanceled) return;
-
-        if (payload?.observer?.personalized === true) {
-          setScore(payload);
-          setLocationMode('user');
-          setFallbackReason(null);
-          return;
-        }
-
+      if (payload?.observer?.personalized === true) {
         setScore(payload);
-        setLocationMode('pad_fallback');
-        setFallbackReason('unavailable');
-      } catch (error) {
-        if (isCanceled || isAbortError(error)) return;
-
-        if (hasInitialPersonalizedScore) {
-          setFallbackReason(null);
-          return;
-        }
-
-        const geoReason = mapGeolocationFailure(error);
-        setLocationMode('pad_fallback');
-        if (geoReason) {
-          setFallbackReason(geoReason);
-          return;
-        }
-
-        const message = error instanceof Error ? error.message : '';
-        if (message === 'jep_rate_limited') {
-          setFallbackReason(null);
-          return;
-        }
-        setFallbackReason(message === 'jep_not_found' ? 'unavailable' : 'error');
-      } finally {
-        if (!isCanceled) {
-          setIsRefining(false);
-        }
+        setLocationMode('user');
+        setFallbackReason(null);
+        setPromptState('idle');
+        setPromptVisible(false);
+        return;
       }
-    };
 
-    void run();
+      setScore(payload);
+      setLocationMode('pad_fallback');
+      setFallbackReason('unavailable');
+      setPromptState('unavailable');
+      setPromptVisible(true);
+    } catch (error) {
+      if (isAbortError(error)) return;
 
-    return () => {
-      isCanceled = true;
-      controller.abort();
-    };
-  }, [launchId, hasInitialPersonalizedScore]);
+      const geoReason = mapGeolocationFailure(error);
+      setLocationMode('pad_fallback');
+      if (geoReason) {
+        setFallbackReason(geoReason);
+        setPromptState(geoReason);
+        setPromptVisible(true);
+        return;
+      }
+
+      const message = error instanceof Error ? error.message : '';
+      if (message === 'jep_rate_limited') {
+        setFallbackReason(null);
+        setPromptState('idle');
+        setPromptVisible(false);
+        return;
+      }
+
+      setFallbackReason(message === 'jep_not_found' ? 'unavailable' : 'error');
+      setPromptState(message === 'jep_not_found' ? 'unavailable' : 'error');
+      setPromptVisible(true);
+    } finally {
+      setIsRefining(false);
+    }
+  }, [fetchScore]);
 
   return (
     <JepScorePanel
@@ -139,6 +181,23 @@ export function JepScoreClient({ launchId, initialScore, padTimezone }: JepScore
       locationMode={locationMode}
       fallbackReason={fallbackReason}
       personalizationLoading={isRefining}
+      viewpointPrompt={{
+        visible: promptVisible,
+        state: promptState,
+        onUseMyLocation: () => {
+          void requestCurrentLocation();
+        },
+        onUseLaunchSite: () => {
+          void selectLaunchSiteReference();
+        }
+      }}
+      onLocationModeChange={(nextMode) => {
+        if (nextMode === 'user') {
+          void requestCurrentLocation();
+          return;
+        }
+        void selectLaunchSiteReference();
+      }}
     />
   );
 }

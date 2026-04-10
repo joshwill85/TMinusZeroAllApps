@@ -1,4 +1,5 @@
 import { cache } from 'react';
+import { unstable_cache } from 'next/cache';
 import { createSupabasePublicClient } from '@/lib/server/supabaseServer';
 import { isSupabaseConfigured } from '@/lib/server/env';
 import { toProviderSlug } from '@/lib/utils/launchLinks';
@@ -14,8 +15,9 @@ export type ProviderSummary = {
 };
 
 const PAGE_SIZE = 1000;
+const PROVIDERS_CACHE_REVALIDATE_SECONDS = 60 * 60;
 
-export const fetchProviders = cache(async (): Promise<ProviderSummary[]> => {
+const fetchCachedProviders = unstable_cache(async (): Promise<ProviderSummary[]> => {
   if (!isSupabaseConfigured()) return [];
   const supabase = createSupabasePublicClient();
   const cacheRes = await supabase
@@ -40,7 +42,9 @@ export const fetchProviders = cache(async (): Promise<ProviderSummary[]> => {
 
   // Fallback if the cache table isn't deployed yet.
   return fetchProvidersFromLaunchesPublicCache(supabase);
-});
+}, ['providers-public-summary-v2'], { revalidate: PROVIDERS_CACHE_REVALIDATE_SECONDS });
+
+export const fetchProviders = cache(async (): Promise<ProviderSummary[]> => fetchCachedProviders());
 
 export async function fetchProviderBySlug(slug: string): Promise<ProviderSummary | null> {
   const normalized = toProviderSlug(slug);

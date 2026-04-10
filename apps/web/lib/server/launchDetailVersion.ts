@@ -1,5 +1,11 @@
+import { unstable_cache } from 'next/cache';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { buildDetailVersionToken } from '@tminuszero/domain';
+import { logLaunchRefreshDiagnostic } from '@/lib/server/launchRefreshDiagnostics';
+import { loadLaunchRefreshStateSeed } from '@/lib/server/launchRefreshState';
 import { createSupabasePublicClient } from '@/lib/server/supabaseServer';
+
+const LAUNCH_DETAIL_VERSION_CACHE_REVALIDATE_SECONDS = 3600;
 
 export function maxIsoTimestamp(values: Array<string | null | undefined>) {
   let latestIso: string | null = null;
@@ -98,4 +104,77 @@ export async function buildLaunchDetailVersionSeed({
       payloadManifest: payloadManifestUpdatedAt
     }
   };
+}
+
+const loadCachedLaunchDetailVersionSnapshot = unstable_cache(
+  async ({
+    launchId,
+    scope,
+    launchCoreUpdatedAt,
+    ll2LaunchId,
+    refreshRevision,
+    refreshUpdatedAt
+  }: {
+    launchId: string;
+    scope: 'public' | 'live';
+    launchCoreUpdatedAt: string | null;
+    ll2LaunchId: string | null;
+    refreshRevision: number;
+    refreshUpdatedAt: string | null;
+  }) => {
+    logLaunchRefreshDiagnostic('cache_fill', {
+      layer: 'launch_detail_version',
+      launchId,
+      scope,
+      refreshRevision,
+      refreshUpdatedAt
+    });
+    const detailSeed = await buildLaunchDetailVersionSeed({
+      launchId,
+      scope,
+      launchCoreUpdatedAt,
+      ll2LaunchId
+    });
+    const updatedAt = maxIsoTimestamp([detailSeed.updatedAt, refreshUpdatedAt]);
+
+    return {
+      updatedAt,
+      version: `${detailSeed.version}|refresh:${refreshRevision}`,
+      moduleUpdatedAt: detailSeed.moduleUpdatedAt
+    };
+  },
+  ['launch-detail-version-snapshot-v2'],
+  { revalidate: LAUNCH_DETAIL_VERSION_CACHE_REVALIDATE_SECONDS }
+);
+
+export async function loadLaunchDetailVersionSnapshot({
+  launchId,
+  scope,
+  launchCoreUpdatedAt,
+  ll2LaunchId,
+  refreshStateClient
+}: {
+  launchId: string;
+  scope: 'public' | 'live';
+  launchCoreUpdatedAt: string | null;
+  ll2LaunchId: string | null;
+  refreshStateClient?: SupabaseClient<any, any, any>;
+}) {
+  const refreshSeed = await loadLaunchRefreshStateSeed(
+    refreshStateClient ?? createSupabasePublicClient(),
+    scope === 'live' ? 'detail_live' : 'detail_public',
+    {
+      launchId,
+      fallbackUpdatedAt: launchCoreUpdatedAt
+    }
+  );
+
+  return loadCachedLaunchDetailVersionSnapshot({
+    launchId,
+    scope,
+    launchCoreUpdatedAt,
+    ll2LaunchId,
+    refreshRevision: refreshSeed.revision,
+    refreshUpdatedAt: refreshSeed.updatedAt
+  });
 }

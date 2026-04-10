@@ -64,6 +64,46 @@ export function getGoogleMapsWebApiKey() {
   return normalizeEnvText(key);
 }
 
+export function getAppleMapsWebKeyId() {
+  const keyId = process.env.APPLE_MAPS_WEB_KEY_ID;
+  if (isPlaceholder(keyId, ['APPLE_MAPS_WEB_KEY_ID'])) return null;
+  return normalizeEnvText(keyId);
+}
+
+export function getAppleMapsWebMapsId() {
+  const mapsId = process.env.APPLE_MAPS_WEB_MAPS_ID;
+  if (isPlaceholder(mapsId, ['APPLE_MAPS_WEB_MAPS_ID'])) return null;
+  return normalizeEnvText(mapsId);
+}
+
+export function getAppleMapsWebPrivateKey() {
+  const privateKey = process.env.APPLE_MAPS_WEB_PRIVATE_KEY;
+  if (isPlaceholder(privateKey, ['APPLE_MAPS_WEB_PRIVATE_KEY'])) return null;
+  return normalizeEnvText(privateKey);
+}
+
+export function getAppleMapsWebPrivateKeyPath() {
+  const privateKeyPath = process.env.APPLE_MAPS_WEB_PRIVATE_KEY_PATH;
+  if (isPlaceholder(privateKeyPath, ['APPLE_MAPS_WEB_PRIVATE_KEY_PATH'])) return null;
+  return normalizeEnvText(privateKeyPath);
+}
+
+export function getAppleMapsWebAllowedOrigins() {
+  return String(normalizeEnvText(process.env.APPLE_MAPS_WEB_ALLOWED_ORIGINS) || '')
+    .split(',')
+    .map((entry) => normalizeEnvUrl(entry))
+    .filter((entry): entry is string => Boolean(entry));
+}
+
+export function isAppleMapsWebConfigured() {
+  return Boolean(
+    (readConfiguredValue(process.env.APPLE_MAPS_WEB_TEAM_ID, ['APPLE_MAPS_WEB_TEAM_ID']) || getAppleDeveloperTeamId()) &&
+      getAppleMapsWebKeyId() &&
+      getAppleMapsWebMapsId() &&
+      (getAppleMapsWebPrivateKey() || getAppleMapsWebPrivateKeyPath())
+  );
+}
+
 export function getInternalBlueOriginRevalidateTokens() {
   return parseCsvSecretList(process.env.INTERNAL_REVALIDATE_BLUE_ORIGIN_TOKEN);
 }
@@ -117,6 +157,10 @@ export function getAntiIngestionTokenSecret() {
 
 export function isJepPublicVisibilityForced() {
   return parseBooleanEnv(process.env.JEP_FORCE_PUBLIC_VISIBLE);
+}
+
+export function isLaunchRefreshDiagnosticsEnabled() {
+  return parseBooleanEnv(process.env.TMZ_LAUNCH_REFRESH_DIAGNOSTICS);
 }
 
 export function isStripeConfigured() {

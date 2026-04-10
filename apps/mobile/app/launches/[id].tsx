@@ -48,6 +48,7 @@ import {
   useViewerEntitlementsQuery,
   useViewerSessionQuery
 } from '@/src/api/queries';
+import { subscribeToMobileLaunchRefreshSignal } from '@/src/api/launchRefreshRealtime';
 import { AppScreen } from '@/src/components/AppScreen';
 import { LaunchAlertsPanel } from '@/src/components/LaunchAlertsPanel';
 import { LaunchCalendarSheet } from '@/src/components/LaunchCalendarSheet';
@@ -92,6 +93,9 @@ import { TmzLaunchMapView, getTmzLaunchMapCapabilitiesAsync, type TmzLaunchMapCa
 import { resolveNativeProgramHubOrCoreHref } from '@/src/features/programHubs/rollout';
 import { openExternalCustomerUrl } from '@/src/features/customerRoutes/shared';
 import { formatRefreshTimeLabel } from '@/src/utils/launchRefresh';
+import { useAndroidGoogleMapsAccess } from '@/src/hooks/useAndroidGoogleMapsAccess';
+
+const LIVE_DETAIL_REFRESH_SIGNAL_COOLDOWN_MS = 1000;
 
 type LegacyLaunchSummary = LaunchDetailV1['launch'];
 type RichLaunchSummary = NonNullable<LaunchDetailV1['launchData']>;
@@ -121,7 +125,7 @@ export default function LaunchDetailScreen() {
   const queryClient = useQueryClient();
   const isFocused = useIsFocused();
   const insets = useSafeAreaInsets();
-  const { theme } = useMobileBootstrap();
+  const { theme, accessToken } = useMobileBootstrap();
   const { showToast } = useMobileToast();
 
   const handleBackToFeed = useCallback(() => {
@@ -180,6 +184,7 @@ export default function LaunchDetailScreen() {
   const shouldReduceMotion = useReducedMotion();
   const scrollRef = useRef<ScrollView | null>(null);
   const lastSeenVersionRef = useRef<string | null>(null);
+  const lastRealtimeSignalAtRef = useRef(0);
   const refetchLaunchDetail = launchDetailQuery.refetch;
   const refetchLaunchFaaAirspaceMap = launchFaaAirspaceMapQuery.refetch;
   const [scheduledRefreshIntervalSeconds, setScheduledRefreshIntervalSeconds] = useState<number>(fallbackRefreshIntervalSeconds);
@@ -230,6 +235,35 @@ export default function LaunchDetailScreen() {
     onScroll: (event) => {
       scrollY.value = event.contentOffset.y;
     }
+  });
+  const platformPadMapHref = buildPlatformPadMapUrl(
+    {
+      latitude: launch?.pad.latitude,
+      longitude: launch?.pad.longitude,
+      label: launch?.pad.shortCode || launch?.pad.name || launch?.name || 'Launch pad'
+    },
+    Platform.OS
+  );
+  const launchFaaAirspaceMap = launchFaaAirspaceMapQuery.data ?? null;
+  const nativeLaunchMapsSupported = launchMapCapabilities?.isAvailable === true;
+  const androidPadPreviewAccess = useAndroidGoogleMapsAccess({
+    surface: 'pad_preview',
+    launchId: launch?.id ?? launchId,
+    enabled: Platform.OS === 'android' && nativeLaunchMapsSupported && Boolean(platformPadMapHref)
+  });
+  const androidFaaPreviewAccess = useAndroidGoogleMapsAccess({
+    surface: 'faa_preview',
+    launchId: launch?.id ?? launchId,
+    enabled: Platform.OS === 'android' && nativeLaunchMapsSupported && Boolean(launchFaaAirspaceMap?.hasRenderableGeometry)
+  });
+  const androidFaaFullscreenAccess = useAndroidGoogleMapsAccess({
+    surface: 'faa_fullscreen',
+    launchId: launch?.id ?? launchId,
+    enabled:
+      Platform.OS === 'android' &&
+      faaMapModalOpen &&
+      nativeLaunchMapsSupported &&
+      Boolean(launchFaaAirspaceMap?.hasRenderableGeometry)
   });
 
   let content: JSX.Element;
@@ -449,6 +483,67 @@ export default function LaunchDetailScreen() {
     refreshIntervalSeconds
   ]);
 
+  useEffect(() => {
+    if (detailVersionScope !== 'live' || !accessToken || !launchId) {
+      return;
+    }
+
+    let cancelled = false;
+    let cleanup: (() => void) | null = null;
+
+    const handleSignal = async () => {
+      if (cancelled || !canAutoRefreshActiveSurface({ isFocused, appStateStatus })) {
+        return;
+      }
+
+      const now = Date.now();
+      if (now - lastRealtimeSignalAtRef.current < LIVE_DETAIL_REFRESH_SIGNAL_COOLDOWN_MS) {
+        return;
+      }
+      lastRealtimeSignalAtRef.current = now;
+
+      if (detailRefreshing || launchDetailQuery.isPending) {
+        return;
+      }
+
+      try {
+        lastSeenVersionRef.current = null;
+        setPendingDetailRefresh(null);
+        await applyResolvedDetailRefresh(null);
+        lastSeenVersionRef.current = null;
+      } catch (error) {
+        console.error('mobile detail realtime refresh failed', error);
+      }
+    };
+
+    void subscribeToMobileLaunchRefreshSignal({
+      accessToken,
+      scope: 'detail_live',
+      launchId,
+      onSignal: handleSignal
+    }).then((nextCleanup) => {
+      if (cancelled) {
+        nextCleanup?.();
+        return;
+      }
+      cleanup = nextCleanup;
+    });
+
+    return () => {
+      cancelled = true;
+      cleanup?.();
+    };
+  }, [
+    accessToken,
+    appStateStatus,
+    applyResolvedDetailRefresh,
+    detailRefreshing,
+    detailVersionScope,
+    isFocused,
+    launchDetailQuery.isPending,
+    launchId
+  ]);
+
   if (!launchId) {
     content = <EmptyStateCard title="Missing launch id" body="A launch detail route was opened without an id parameter." />;
   } else if (launchDetailQuery.isPending) {
@@ -568,14 +663,6 @@ export default function LaunchDetailScreen() {
       padLabel: launch.padName || launch.pad.name,
       ll2PadId: launch.ll2PadId
     });
-    const platformPadMapHref = buildPlatformPadMapUrl(
-      {
-        latitude: launch.pad.latitude,
-        longitude: launch.pad.longitude,
-        label: launch.pad.shortCode || launch.pad.name || launch.name || 'Launch pad'
-      },
-      Platform.OS
-    );
     const launchInfoPadCatalogHref = buildLaunchPadEntityHref({
       ll2PadId: launch.ll2PadId,
       fallbackLocationHref: launchInfoLocationHref
@@ -638,12 +725,39 @@ export default function LaunchDetailScreen() {
     );
     const floatingTopBarTop = Math.max(insets.top + 8, 14);
     const floatingTopBarSpacerHeight = 52;
-    const launchFaaAirspaceMap = launchFaaAirspaceMapQuery.data ?? null;
-    const nativeLaunchMapsSupported = launchMapCapabilities?.isAvailable === true;
     const faaMapPayload = launchFaaAirspaceMap;
     const padMapPayload = buildPadSatelliteMapPayload(launch);
-    const showNativePadMapPreview = nativeLaunchMapsSupported && Boolean(platformPadMapHref);
-    const showNativeFaaMapPreview = nativeLaunchMapsSupported && Boolean(launchFaaAirspaceMap?.hasRenderableGeometry);
+    const showNativePadMapPreview =
+      nativeLaunchMapsSupported && Boolean(platformPadMapHref) && (Platform.OS !== 'android' || androidPadPreviewAccess.allowed);
+    const showNativeFaaMapPreview =
+      nativeLaunchMapsSupported &&
+      Boolean(launchFaaAirspaceMap?.hasRenderableGeometry) &&
+      (Platform.OS !== 'android' || androidFaaPreviewAccess.allowed);
+    const androidPadMapReason =
+      Platform.OS === 'android' && androidPadPreviewAccess.checked && !androidPadPreviewAccess.allowed
+        ? androidPadPreviewAccess.reason
+        : null;
+    const androidFaaMapReason =
+      Platform.OS === 'android' && androidFaaPreviewAccess.checked && !androidFaaPreviewAccess.allowed
+        ? androidFaaPreviewAccess.reason
+        : null;
+    const androidFaaFullscreenReason =
+      Platform.OS === 'android' && androidFaaFullscreenAccess.checked && !androidFaaFullscreenAccess.allowed
+        ? androidFaaFullscreenAccess.reason
+        : null;
+    const checkingAndroidPadMap =
+      Platform.OS === 'android' && nativeLaunchMapsSupported && Boolean(platformPadMapHref) && !androidPadPreviewAccess.checked;
+    const checkingAndroidFaaMap =
+      Platform.OS === 'android' &&
+      nativeLaunchMapsSupported &&
+      Boolean(launchFaaAirspaceMap?.hasRenderableGeometry) &&
+      !androidFaaPreviewAccess.checked;
+    const checkingAndroidFaaFullscreen =
+      Platform.OS === 'android' &&
+      faaMapModalOpen &&
+      nativeLaunchMapsSupported &&
+      Boolean(launchFaaAirspaceMap?.hasRenderableGeometry) &&
+      !androidFaaFullscreenAccess.checked;
     const openTarget = (target: string) => {
       if (!target) return;
       if (/^https?:\/\//i.test(target)) {
@@ -674,7 +788,7 @@ export default function LaunchDetailScreen() {
     const basicActiveLaunchRule = !canUseSavedItems ? mobilePushRules.find((rule) => rule.scopeKind === 'launch') ?? null : null;
     const currentBasicLaunchActive = basicActiveLaunchRule?.launchId === launchRecord.id;
     const basicLaunchSlotOccupiedElsewhere = Boolean(basicActiveLaunchRule && !currentBasicLaunchActive);
-    const basicFollowCapacityLabel = canUseSavedItems || !isAuthed ? undefined : `${basicActiveLaunchRule ? 1 : 0}/${singleLaunchFollowLimit}`;
+    const basicFollowCapacityLabel = canUseSavedItems ? undefined : `${basicActiveLaunchRule ? 1 : 0}/${singleLaunchFollowLimit}`;
     const launchNotificationRule = mobilePushRules.find((rule) => rule.scopeKind === 'launch' && rule.launchId === launchRecord.id) ?? null;
 
     const showFollowToast = ({
@@ -975,8 +1089,7 @@ export default function LaunchDetailScreen() {
             }
           }
         ]
-      : isAuthed
-        ? [
+      : [
           {
             key: 'launch_notifications',
             label: 'This launch',
@@ -1062,81 +1175,7 @@ export default function LaunchDetailScreen() {
               openPremiumGate();
             }
           }
-        ]
-        : [
-            {
-              key: 'launch_locked',
-              label: 'This launch',
-              description: title ? `Premium unlocks launch reminders and follow tracking for ${title}.` : 'Premium unlocks launch reminders and follow tracking for this launch.',
-              active: false,
-              disabled: false,
-              locked: true,
-              onPress: () => {
-                closeFollowSheet();
-                openPremiumGate();
-              }
-            },
-            {
-              key: 'state_locked',
-              label: 'This state',
-              description: 'Premium adds state-wide launch alerts.',
-              active: false,
-              disabled: false,
-              locked: true,
-              onPress: () => {
-                closeFollowSheet();
-                openPremiumGate();
-              }
-            },
-            {
-              key: 'provider_locked',
-              label: 'This provider',
-              description: 'Premium adds recurring provider follows.',
-              active: false,
-              disabled: false,
-              locked: true,
-              onPress: () => {
-                closeFollowSheet();
-                openPremiumGate();
-              }
-            },
-            {
-              key: 'rocket_locked',
-              label: 'This rocket',
-              description: 'Premium adds recurring rocket follows.',
-              active: false,
-              disabled: false,
-              locked: true,
-              onPress: () => {
-                closeFollowSheet();
-                openPremiumGate();
-              }
-            },
-            {
-              key: 'pad_locked',
-              label: 'This pad',
-              description: 'Premium adds recurring pad follows.',
-              active: false,
-              disabled: false,
-              locked: true,
-              onPress: () => {
-                closeFollowSheet();
-                openPremiumGate();
-              }
-            },
-            {
-              key: 'launch_site_locked',
-              label: 'This launch site',
-              description: 'Premium adds recurring launch-site follows.',
-              active: false,
-              disabled: false,
-              locked: true,
-              onPress: () => {
-                closeFollowSheet();
-                openPremiumGate();
-              }
-            }
-          ];
+        ];
     const activeFollowCount = followOptions.filter((option) => option.active).length;
     const followButtonLabel = activeFollowCount > 0 ? 'Following' : 'Follow';
 
@@ -1168,11 +1207,9 @@ export default function LaunchDetailScreen() {
         message={
           canUseSavedItems
             ? 'Following keeps matching launches in your saved list, and launch alerts live in the Notifications tab for this launch.'
-            : isAuthed && canUseAllUsLaunchAlerts
+            : canUseAllUsLaunchAlerts
               ? 'Public access keeps one launch reminder slot on this device. Manage this launch in the Notifications tab and All U.S. launches from Preferences. Premium adds synced follows across broader scopes.'
-              : isAuthed
-                ? 'Public access keeps one launch reminder slot on this device. Manage launch alerts from the Notifications tab here. Premium adds synced follows across broader scopes.'
-                : 'Premium unlocks launch reminders, followed-launch tracking, and broader follow scopes from this sheet.'
+              : 'Public access keeps one launch reminder slot on this device. Manage launch alerts from the Notifications tab here. Premium adds synced follows across broader scopes.'
         }
         onClose={() => setFollowSheetOpen(false)}
       />
@@ -1721,7 +1758,21 @@ export default function LaunchDetailScreen() {
                     ? 'Native Apple satellite preview centered on the launch pad. Tap the preview to open Apple Maps.'
                     : 'Native Google satellite preview centered on the launch pad. Tap the preview to open Google Maps.'}
                 </Text>
-                {showNativePadMapPreview ? (
+                {checkingAndroidPadMap ? (
+                  <View
+                    style={{
+                      borderRadius: 14,
+                      borderWidth: 1,
+                      borderColor: theme.stroke,
+                      padding: 12
+                    }}
+                  >
+                    <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '600' }}>Checking map availability</Text>
+                    <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
+                      Verifying the Android Google Maps budget before loading the native preview.
+                    </Text>
+                  </View>
+                ) : showNativePadMapPreview ? (
                   <Pressable
                     onPress={() => {
                       void Linking.openURL(platformPadMapHref);
@@ -1744,7 +1795,7 @@ export default function LaunchDetailScreen() {
                 ) : (
                   <LinkRow
                     title={Platform.OS === 'ios' ? 'Open in Apple Maps' : 'Open in Google Maps'}
-                    subtitle={launchMapCapabilities?.reason || 'Native map preview is unavailable right now.'}
+                    subtitle={androidPadMapReason || launchMapCapabilities?.reason || 'Native map preview is unavailable right now.'}
                     onPress={() => {
                       void Linking.openURL(platformPadMapHref);
                     }}
@@ -2025,7 +2076,21 @@ export default function LaunchDetailScreen() {
                           <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
                             Native satellite view with launch-day FAA polygons and the launch pad in the same frame.
                           </Text>
-                          {showNativeFaaMapPreview && faaMapPayload ? (
+                          {checkingAndroidFaaMap ? (
+                            <View
+                              style={{
+                                borderRadius: 14,
+                                borderWidth: 1,
+                                borderColor: theme.stroke,
+                                padding: 12
+                              }}
+                            >
+                              <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '600' }}>Checking map availability</Text>
+                              <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
+                                Verifying the Android Google Maps budget before loading the launch-zone map.
+                              </Text>
+                            </View>
+                          ) : showNativeFaaMapPreview && faaMapPayload ? (
                             <Pressable
                               onPress={() => {
                                 setFaaMapModalOpen(true);
@@ -2047,7 +2112,7 @@ export default function LaunchDetailScreen() {
                             platformPadMapHref ? (
                               <LinkRow
                                 title={Platform.OS === 'ios' ? 'Open in Apple Maps' : 'Open in Google Maps'}
-                                subtitle={launchMapCapabilities?.reason || 'Native launch map rendering is unavailable right now.'}
+                                subtitle={androidFaaMapReason || launchMapCapabilities?.reason || 'Native launch map rendering is unavailable right now.'}
                                 onPress={() => {
                                   void Linking.openURL(platformPadMapHref);
                                 }}
@@ -2063,7 +2128,7 @@ export default function LaunchDetailScreen() {
                               >
                                 <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '600' }}>Map unavailable</Text>
                                 <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
-                                  {launchMapCapabilities?.reason || 'Native launch map rendering is unavailable right now.'}
+                                  {androidFaaMapReason || launchMapCapabilities?.reason || 'Native launch map rendering is unavailable right now.'}
                                 </Text>
                               </View>
                             )
@@ -2760,6 +2825,9 @@ export default function LaunchDetailScreen() {
             description="Launch-day FAA polygons and launch pad context."
             externalMapHref={platformPadMapHref}
             externalMapLabel={Platform.OS === 'ios' ? 'Open in Apple Maps' : 'Open in Google Maps'}
+            allowNativeRender={Platform.OS !== 'android' || androidFaaFullscreenAccess.allowed}
+            checkingNativeRender={checkingAndroidFaaFullscreen}
+            unavailableReason={androidFaaFullscreenReason}
             theme={theme}
           />
         ) : null}
@@ -2846,6 +2914,9 @@ function LaunchMapModal({
   description,
   externalMapHref,
   externalMapLabel,
+  allowNativeRender,
+  checkingNativeRender,
+  unavailableReason,
   theme
 }: {
   open: boolean;
@@ -2856,6 +2927,9 @@ function LaunchMapModal({
   description: string;
   externalMapHref: string | null;
   externalMapLabel: string;
+  allowNativeRender: boolean;
+  checkingNativeRender: boolean;
+  unavailableReason: string | null;
   theme: { stroke: string; foreground: string; muted: string; accent: string };
 }) {
   const mapViewProps = buildNativeLaunchMapViewProps(payload);
@@ -2917,14 +2991,44 @@ function LaunchMapModal({
             </View>
           </View>
           <View style={{ height: 440 }}>
-            <TmzLaunchMapView
-              style={{ flex: 1 }}
-              advisoriesJson={mapViewProps.advisoriesJson}
-              boundsJson={mapViewProps.boundsJson}
-              padJson={mapViewProps.padJson}
-              interactive
-              renderMode={renderMode}
-            />
+            {checkingNativeRender ? (
+              <View
+                style={{
+                  flex: 1,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  paddingHorizontal: 24
+                }}
+              >
+                <Text style={{ color: theme.foreground, fontSize: 16, fontWeight: '700' }}>Checking map availability</Text>
+                <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20, marginTop: 8, textAlign: 'center' }}>
+                  Verifying the Android Google Maps budget before loading this full-screen map.
+                </Text>
+              </View>
+            ) : allowNativeRender ? (
+              <TmzLaunchMapView
+                style={{ flex: 1 }}
+                advisoriesJson={mapViewProps.advisoriesJson}
+                boundsJson={mapViewProps.boundsJson}
+                padJson={mapViewProps.padJson}
+                interactive
+                renderMode={renderMode}
+              />
+            ) : (
+              <View
+                style={{
+                  flex: 1,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  paddingHorizontal: 24
+                }}
+              >
+                <Text style={{ color: theme.foreground, fontSize: 16, fontWeight: '700' }}>Map unavailable</Text>
+                <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20, marginTop: 8, textAlign: 'center' }}>
+                  {unavailableReason || 'Native launch map rendering is unavailable right now.'}
+                </Text>
+              </View>
+            )}
           </View>
         </View>
       </View>

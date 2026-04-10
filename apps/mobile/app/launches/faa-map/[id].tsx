@@ -6,6 +6,7 @@ import { EmptyStateCard, ErrorStateCard, LoadingStateCard } from '@/src/componen
 import { NativeLaunchMapViewport } from '@/src/components/launch/NativeLaunchMapCard';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import { buildPlatformPadMapUrl } from '@/src/utils/mapLinks';
+import { useAndroidGoogleMapsAccess } from '@/src/hooks/useAndroidGoogleMapsAccess';
 
 function getLaunchId(value: string | string[] | undefined) {
   if (Array.isArray(value)) {
@@ -20,6 +21,11 @@ export default function LaunchFaaMapScreen() {
   const launchId = getLaunchId(params.id);
   const { theme } = useMobileBootstrap();
   const mapQuery = useLaunchFaaAirspaceMapQuery(launchId, { enabled: Boolean(launchId) });
+  const androidFullscreenAccess = useAndroidGoogleMapsAccess({
+    surface: 'faa_fullscreen',
+    launchId,
+    enabled: Platform.OS === 'android' && Boolean(mapQuery.data?.hasRenderableGeometry)
+  });
 
   const mapData = mapQuery.data ?? null;
   const padMapUrl = buildPlatformPadMapUrl(
@@ -36,10 +42,39 @@ export default function LaunchFaaMapScreen() {
     content = <EmptyStateCard title="Missing launch id" body="A launch FAA map route was opened without an id parameter." />;
   } else if (mapQuery.isPending) {
     content = <LoadingStateCard title="Loading FAA map" body={`Fetching /api/v1/launches/${launchId}/faa-airspace-map.`} />;
+  } else if (Platform.OS === 'android' && !androidFullscreenAccess.checked) {
+    content = <LoadingStateCard title="Checking map availability" body="Verifying the Android Google Maps budget before loading the full-screen FAA map." />;
   } else if (mapQuery.isError) {
     content = <ErrorStateCard title="FAA map unavailable" body="The launch-day FAA map could not be loaded right now." />;
   } else if (!mapData) {
     content = <EmptyStateCard title="FAA map unavailable" body="No FAA launch map data was returned for this launch." />;
+  } else if (Platform.OS === 'android' && !androidFullscreenAccess.allowed) {
+    content = (
+      <View style={{ gap: 16 }}>
+        <EmptyStateCard
+          title="FAA map unavailable"
+          body={androidFullscreenAccess.reason || 'Android Google Maps are temporarily unavailable for full-screen launch maps.'}
+        />
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+          {padMapUrl ? (
+            <ActionButton
+              themeAccent={theme.accent}
+              borderColor={theme.accent}
+              label="Open pad in Maps"
+              onPress={() => {
+                void Linking.openURL(padMapUrl);
+              }}
+            />
+          ) : null}
+          <ActionButton
+            themeAccent={theme.foreground}
+            borderColor={theme.stroke}
+            label="Back to launch"
+            onPress={() => router.back()}
+          />
+        </View>
+      </View>
+    );
   } else {
     content = (
       <View style={{ gap: 16 }}>

@@ -2914,6 +2914,27 @@ export const clientBootstrapResponseSchemaV1 = z
   })
   .strict();
 
+export const androidGoogleMapsAccessSurfaceSchemaV1 = z.enum(['pad_preview', 'faa_preview', 'faa_fullscreen']);
+
+export const androidGoogleMapsAccessRequestSchemaV1 = z
+  .object({
+    launchId: z.string().trim().min(1).max(160).nullable().optional(),
+    surface: androidGoogleMapsAccessSurfaceSchemaV1
+  })
+  .strict();
+
+export const androidGoogleMapsAccessResponseSchemaV1 = z
+  .object({
+    enabled: z.boolean(),
+    reason: z.string().trim().min(1).max(160).nullable().optional(),
+    checkedAt: z.string().datetime(),
+    expiresAt: z.string().datetime(),
+    dailyLimit: z.number().int().positive(),
+    monthlyLimit: z.number().int().positive(),
+    surface: androidGoogleMapsAccessSurfaceSchemaV1
+  })
+  .strict();
+
 export const mobileAuthPasswordSignInSchemaV1 = z
   .object({
     email: z.string().trim().email(),
@@ -3768,6 +3789,10 @@ const jepScenarioWindowSchemaV1 = z.object({
   label: z.string()
 });
 
+const jepVisibilityCallSchemaV1 = z.enum(['not_expected', 'possible', 'favorable', 'highly_favorable']);
+const jepViewpointSchemaV1 = z.enum(['personal', 'launch_site_reference']);
+const jepConfidenceLabelSchemaV1 = z.enum(['low', 'medium', 'high']);
+
 export const launchJepScoreSchemaV1 = z
   .object({
     launchId: z.string(),
@@ -3785,6 +3810,9 @@ export const launchJepScoreSchemaV1 = z
     sunlitMarginKm: z.number().nullable(),
     losVisibleFraction: z.number().nullable(),
     weatherFreshnessMinutes: z.number().int().nonnegative().nullable().optional(),
+    visibilityCall: jepVisibilityCallSchemaV1.optional(),
+    viewpoint: jepViewpointSchemaV1.optional(),
+    confidenceLabel: jepConfidenceLabelSchemaV1.optional(),
     factors: jepFactorsSchemaV1,
     source: z
       .object({
@@ -4229,6 +4257,9 @@ export type MobileAuthChallengeCompleteV1 = z.infer<typeof mobileAuthChallengeCo
 export type MobileAuthChallengeResultV1 = z.infer<typeof mobileAuthChallengeResultSchemaV1>;
 export type ClientBootstrapRequestV1 = z.infer<typeof clientBootstrapRequestSchemaV1>;
 export type ClientBootstrapResponseV1 = z.infer<typeof clientBootstrapResponseSchemaV1>;
+export type AndroidGoogleMapsAccessSurfaceV1 = z.infer<typeof androidGoogleMapsAccessSurfaceSchemaV1>;
+export type AndroidGoogleMapsAccessRequestV1 = z.infer<typeof androidGoogleMapsAccessRequestSchemaV1>;
+export type AndroidGoogleMapsAccessResponseV1 = z.infer<typeof androidGoogleMapsAccessResponseSchemaV1>;
 export type MobileAuthPasswordSignInV1 = z.infer<typeof mobileAuthPasswordSignInSchemaV1>;
 export type MobileAuthPasswordSignInResponseV1 = z.infer<typeof mobileAuthPasswordSignInResponseSchemaV1>;
 export type MobileAuthPasswordSignUpV1 = z.infer<typeof mobileAuthPasswordSignUpSchemaV1>;

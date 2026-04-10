@@ -38,6 +38,7 @@ import {
   invalidateLaunchFeedQueries,
   invalidateViewerScopedQueries
 } from '@/lib/api/queries';
+import { subscribeToBrowserLaunchRefreshSignal } from '@/lib/api/supabase';
 import { Launch, LaunchFilter, LaunchFilterOptions } from '@/lib/types/launch';
 import { LAUNCH_FEED_PAGE_SIZE } from '@/lib/constants/launchFeed';
 import { NEXT_LAUNCH_RETENTION_MS } from '@/lib/constants/launchTimeline';
@@ -69,6 +70,7 @@ const HOME_UPSELL_KEYS = {
   onboardingDismissedAt: 'tminus.upsell.home_onboarding.dismissed_at'
 } as const;
 const OPEN_LAUNCH_SEARCH_EVENT = 'tmz:open-launch-search';
+const LIVE_REFRESH_SIGNAL_COOLDOWN_MS = 1500;
 
 type LaunchFeedProps = {
   initialLaunches?: Launch[];
@@ -559,6 +561,7 @@ export function LaunchFeed({
     myLaunchesEnabled,
     myWatchlistId
   };
+  const lastLiveRefreshSignalAtRef = useRef(0);
 
   useEffect(() => {
     setScheduledRefreshIntervalSeconds(
@@ -1171,6 +1174,58 @@ export function LaunchFeed({
     cadenceAnchorNet,
     viewerTier
   ]);
+
+  useEffect(() => {
+    if (viewerTier !== 'premium' || mode !== 'live' || launchFeedWatchlistDependency) {
+      return;
+    }
+
+    let cancelled = false;
+    let cleanup: (() => void) | null = null;
+
+    const handleSignal = async () => {
+      if (cancelled) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      if (typeof navigator !== 'undefined' && 'onLine' in navigator && navigator.onLine === false) return;
+
+      const now = Date.now();
+      if (now - lastLiveRefreshSignalAtRef.current < LIVE_REFRESH_SIGNAL_COOLDOWN_MS) {
+        return;
+      }
+      lastLiveRefreshSignalAtRef.current = now;
+
+      if (latestRef.current.loading || latestRef.current.loadingMore || refreshApplying) {
+        return;
+      }
+
+      lastSeenLiveVersionRef.current = null;
+      setPendingRefresh(null);
+
+      await fetchPage({
+        offset: latestRef.current.pageOffset,
+        replace: true,
+        reason: 'realtime_signal'
+      });
+
+      await fetchRecentChanges();
+    };
+
+    void subscribeToBrowserLaunchRefreshSignal({
+      scope: 'feed_live',
+      onSignal: handleSignal
+    }).then((nextCleanup) => {
+      if (cancelled) {
+        nextCleanup?.();
+        return;
+      }
+      cleanup = nextCleanup;
+    });
+
+    return () => {
+      cancelled = true;
+      cleanup?.();
+    };
+  }, [fetchPage, fetchRecentChanges, launchFeedWatchlistDependency, mode, refreshApplying, viewerTier]);
 
   const nextArtemis = useMemo(() => findNextProgramLaunch(launches, nowMs, isArtemisLaunch), [launches, nowMs]);
   const nextStarship = useMemo(() => findNextProgramLaunch(launches, nowMs, isStarshipLaunch), [launches, nowMs]);

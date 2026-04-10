@@ -125,6 +125,12 @@ export async function GET(request: Request) {
         generatedAt: new Date().toISOString(),
         modelVersion,
         states,
+        shadowReady: true,
+        minAbsDelta,
+        gate: gateFilter,
+        sort,
+        limit,
+        returnedLaunches: 0,
         summary: {
           targetLaunches: 0,
           baselineRows: 0,
@@ -205,8 +211,8 @@ export async function GET(request: Request) {
     });
 
   reviewRows.sort((left, right) => compareRows(left, right, sort));
+  const summary = buildSummary(reviewRows);
   const trimmedRows = reviewRows.slice(0, limit);
-  const summary = buildSummary(trimmedRows);
 
   return NextResponse.json(
     {
@@ -217,6 +223,8 @@ export async function GET(request: Request) {
       minAbsDelta,
       gate: gateFilter,
       sort,
+      limit,
+      returnedLaunches: trimmedRows.length,
       summary,
       launches: trimmedRows
     },
@@ -282,7 +290,7 @@ async function loadBaselineRows(admin: any, launchIds: string[]) {
   return rows;
 }
 
-function buildSummary(rows: ShadowReviewLaunch[]) {
+export function buildSummary(rows: ShadowReviewLaunch[]) {
   const shadowRows = rows.filter((row) => row.shadowAvailable);
   const deltas = shadowRows.map((row) => row.scoreDelta).filter((value): value is number => typeof value === 'number');
   const byStateMap = new Map<string, { launches: number; withShadow: number; gateOpen: number; avgDeltaValues: number[] }>();
@@ -372,7 +380,7 @@ function parseSort(value: string | null) {
   return 'abs_delta' as const;
 }
 
-function compareRows(
+export function compareRows(
   left: ShadowReviewLaunch,
   right: ShadowReviewLaunch,
   sort: 'abs_delta' | 'delta_desc' | 'delta_asc' | 'net'
@@ -381,11 +389,17 @@ function compareRows(
     return compareNumbers(toMs(left.net), toMs(right.net));
   }
 
-  const leftDelta = left.scoreDelta ?? Number.NEGATIVE_INFINITY;
-  const rightDelta = right.scoreDelta ?? Number.NEGATIVE_INFINITY;
-  if (sort === 'delta_desc') return compareNumbers(rightDelta, leftDelta) || compareNumbers(toMs(left.net), toMs(right.net));
-  if (sort === 'delta_asc') return compareNumbers(leftDelta, rightDelta) || compareNumbers(toMs(left.net), toMs(right.net));
-  return compareNumbers(Math.abs(rightDelta), Math.abs(leftDelta)) || compareNumbers(toMs(left.net), toMs(right.net));
+  if (sort === 'delta_desc') {
+    return compareNullableNumbers(left.scoreDelta, right.scoreDelta, (leftValue, rightValue) => compareNumbers(rightValue, leftValue))
+      || compareNumbers(toMs(left.net), toMs(right.net));
+  }
+  if (sort === 'delta_asc') {
+    return compareNullableNumbers(left.scoreDelta, right.scoreDelta, compareNumbers)
+      || compareNumbers(toMs(left.net), toMs(right.net));
+  }
+  return compareNullableNumbers(left.scoreDelta, right.scoreDelta, (leftValue, rightValue) =>
+    compareNumbers(Math.abs(rightValue), Math.abs(leftValue))
+  ) || compareNumbers(toMs(left.net), toMs(right.net));
 }
 
 function toMs(value: string | null) {
@@ -397,6 +411,19 @@ function toMs(value: string | null) {
 function compareNumbers(left: number, right: number) {
   if (left === right) return 0;
   return left < right ? -1 : 1;
+}
+
+function compareNullableNumbers(
+  left: number | null,
+  right: number | null,
+  compareDefined: (left: number, right: number) => number
+) {
+  const leftDefined = typeof left === 'number' && Number.isFinite(left);
+  const rightDefined = typeof right === 'number' && Number.isFinite(right);
+  if (!leftDefined && !rightDefined) return 0;
+  if (!leftDefined) return 1;
+  if (!rightDefined) return -1;
+  return compareDefined(left, right);
 }
 
 function normalizeText(value: unknown) {

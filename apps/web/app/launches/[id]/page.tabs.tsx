@@ -12,6 +12,7 @@ import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import type { LaunchDetailV1, LaunchFaaAirspaceMapV1 } from '@tminuszero/contracts';
 import type { LaunchTab } from '@tminuszero/launch-detail-ui';
+import type { LaunchFaaMapRenderMode } from '@/lib/maps/providerTypes';
 import {
   computeTabVisibility,
   getVisibleTabs,
@@ -32,15 +33,23 @@ import { LiveTab, MissionTab, OverviewTab, RelatedTab, VehicleTab } from '@/comp
 type LaunchDetailTabsPageProps = {
   detail: LaunchDetailV1;
   faaAirspaceMap?: LaunchFaaAirspaceMapV1 | null;
+  faaMapMode?: LaunchFaaMapRenderMode;
   googleMapsWebApiKey?: string | null;
-  googleMapsPadHref?: string | null;
+  appleMapsAuthorizationToken?: string | null;
+  padMapsHref?: string | null;
+  padMapsLinkLabel?: string;
+  faaMapUnavailableMessage?: string;
 };
 
 export default function LaunchDetailTabsPage({
   detail,
   faaAirspaceMap = null,
+  faaMapMode = 'fallback',
   googleMapsWebApiKey = null,
-  googleMapsPadHref = null
+  appleMapsAuthorizationToken = null,
+  padMapsHref = null,
+  padMapsLinkLabel,
+  faaMapUnavailableMessage = 'FAA launch-day geometry is available for this launch, but the interactive map is not configured in this environment.'
 }: LaunchDetailTabsPageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -142,8 +151,12 @@ export default function LaunchDetailTabsPage({
             <LiveTab
               data={liveData}
               faaMapData={faaAirspaceMap}
+              faaMapMode={faaMapMode}
               googleMapsWebApiKey={googleMapsWebApiKey}
-              googleMapsPadHref={googleMapsPadHref}
+              appleMapsAuthorizationToken={appleMapsAuthorizationToken}
+              padMapsHref={padMapsHref}
+              padMapsLinkLabel={padMapsLinkLabel}
+              faaMapUnavailableMessage={faaMapUnavailableMessage}
             />
           </Suspense>
         </LaunchDetailTabPanel>

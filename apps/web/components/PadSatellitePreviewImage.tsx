@@ -6,9 +6,10 @@ type PadSatellitePreviewImageProps = {
   src: string | null;
   alt: string;
   padName: string;
+  providerLabel: string;
 };
 
-export function PadSatellitePreviewImage({ src, alt, padName }: PadSatellitePreviewImageProps) {
+export function PadSatellitePreviewImage({ src, alt, padName, providerLabel }: PadSatellitePreviewImageProps) {
   const [imageFailed, setImageFailed] = useState(false);
   const showImage = Boolean(src) && !imageFailed;
   const previewUnavailable = Boolean(src) && imageFailed;
@@ -24,8 +25,8 @@ export function PadSatellitePreviewImage({ src, alt, padName }: PadSatellitePrev
           <div className="mt-1 text-base font-semibold text-text1">{padName}</div>
           <div className="mt-1 text-sm text-text2">
             {previewUnavailable
-              ? 'Static preview unavailable right now. Tap to open the pad in Google Maps satellite view.'
-              : 'Tap to open the pad in Google Maps satellite view.'}
+              ? `Static preview unavailable right now. Tap to open the pad in ${providerLabel}.`
+              : `Tap to open the pad in ${providerLabel}.`}
           </div>
         </div>
       </div>

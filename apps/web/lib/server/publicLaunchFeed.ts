@@ -1,9 +1,12 @@
+import { unstable_cache } from 'next/cache';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Launch } from '@/lib/types/launch';
 import { NEXT_LAUNCH_RETENTION_MS } from '@/lib/constants/launchTimeline';
 import { isSupabaseAdminConfigured } from '@/lib/server/env';
+import { logLaunchRefreshDiagnostic } from '@/lib/server/launchRefreshDiagnostics';
 import { attachNextLaunchEvents } from '@/lib/server/ll2Events';
 import { buildStatusFilterOrClause } from '@/lib/server/launchStatus';
+import { loadLaunchRefreshStateSeed } from '@/lib/server/launchRefreshState';
 import { createSupabaseAdminClient, createSupabasePublicClient } from '@/lib/server/supabaseServer';
 import { mapPublicCacheRow } from '@/lib/server/transformers';
 import { buildPublicStateFilterOrClause } from '@/lib/server/usStates';
@@ -43,6 +46,14 @@ type PublicLaunchPageResult = {
   hasMore: boolean;
 };
 
+type PublicLaunchFeedVersionArgs = Omit<PublicLaunchFeedArgs, 'sort' | 'limit' | 'offset'>;
+
+export type PublicLaunchFeedVersionSnapshot = {
+  matchCount: number;
+  updatedAt: string | null;
+  version: string;
+};
+
 type LaunchBoosterJoinRow = {
   ll2_launcher_id?: number | null;
   launch_id?: string | null;
@@ -55,6 +66,9 @@ type LaunchBoosterRow = {
 };
 
 const BOOSTER_QUERY_CHUNK_SIZE = 200;
+const PUBLIC_LAUNCH_FEED_CACHE_REVALIDATE_SECONDS = 3600;
+const PUBLIC_LAUNCH_FEED_TIME_BUCKET_MS = 60 * 1000;
+const PUBLIC_LAUNCH_FEED_VERSION_CACHE_REVALIDATE_SECONDS = 3600;
 
 export class PublicLaunchFeedError extends Error {
   readonly code: string;
@@ -66,7 +80,105 @@ export class PublicLaunchFeedError extends Error {
   }
 }
 
+const loadCachedPublicLaunchPage = unstable_cache(
+  async (
+    args: PublicLaunchFeedArgs,
+    cacheVersion: string,
+    bucketNowMs: number,
+    filterMilestones: boolean
+  ): Promise<PublicLaunchPageResult> => {
+    logLaunchRefreshDiagnostic('cache_fill', {
+      layer: 'public_feed_payload',
+      cacheVersion,
+      bucketNowMs,
+      sort: args.sort,
+      region: args.region,
+      status: args.status,
+      provider: args.provider,
+      state: args.state,
+      limit: args.limit,
+      offset: args.offset,
+      filterMilestones
+    });
+    return loadPublicLaunchPageUncached(args, {
+      nowMs: bucketNowMs,
+      filterMilestones
+    });
+  },
+  ['public-launch-feed-v2'],
+  { revalidate: PUBLIC_LAUNCH_FEED_CACHE_REVALIDATE_SECONDS }
+);
+
 export async function loadPublicLaunchPage(
+  args: PublicLaunchFeedArgs,
+  options: { nowMs?: number; filterMilestones?: boolean } = {}
+): Promise<PublicLaunchPageResult> {
+  const versionSnapshot = await loadPublicLaunchFeedVersionSnapshot(args);
+  const safeNowMs = Number.isFinite(options.nowMs) ? Number(options.nowMs) : Date.now();
+  const bucketNowMs = Math.floor(safeNowMs / PUBLIC_LAUNCH_FEED_TIME_BUCKET_MS) * PUBLIC_LAUNCH_FEED_TIME_BUCKET_MS;
+  return loadCachedPublicLaunchPage(
+    normalizePublicLaunchFeedArgs(args),
+    versionSnapshot.version,
+    bucketNowMs,
+    options.filterMilestones !== false
+  );
+}
+
+const loadCachedPublicLaunchFeedVersionSnapshot = unstable_cache(
+  async (args: PublicLaunchFeedVersionArgs, refreshRevision: number) => {
+    logLaunchRefreshDiagnostic('cache_fill', {
+      layer: 'public_feed_version',
+      refreshRevision,
+      region: args.region,
+      status: args.status,
+      provider: args.provider,
+      state: args.state
+    });
+    const client = createSupabasePublicClient();
+    let countQuery = client.from('launches_public_cache').select('launch_id', { count: 'exact', head: true });
+    countQuery = applyPublicLaunchVersionFilters(countQuery, args);
+
+    const { count, error: countError } = await countQuery;
+    if (countError) {
+      console.error('public launches version count error', countError);
+      throw new PublicLaunchFeedError();
+    }
+
+    let latestQuery = client.from('launches_public_cache').select('cache_generated_at').limit(1);
+    latestQuery = applyPublicLaunchVersionFilters(latestQuery, args);
+
+    const { data: latestRow, error: latestError } = await latestQuery
+      .order('cache_generated_at', { ascending: false })
+      .maybeSingle();
+    if (latestError) {
+      console.error('public launches version latest error', latestError);
+      throw new PublicLaunchFeedError();
+    }
+
+    void refreshRevision;
+
+    return {
+      matchCount: count ?? 0,
+      updatedAt: typeof latestRow?.cache_generated_at === 'string' ? latestRow.cache_generated_at : null
+    };
+  },
+  ['public-launch-feed-version-v3'],
+  { revalidate: PUBLIC_LAUNCH_FEED_VERSION_CACHE_REVALIDATE_SECONDS }
+);
+
+export async function loadPublicLaunchFeedVersionSnapshot(args: PublicLaunchFeedVersionArgs | PublicLaunchFeedArgs): Promise<PublicLaunchFeedVersionSnapshot> {
+  const normalizedArgs = normalizePublicLaunchFeedVersionArgs(args);
+  const refreshSeed = await loadLaunchRefreshStateSeed(createSupabasePublicClient(), 'feed_public');
+  const snapshot = await loadCachedPublicLaunchFeedVersionSnapshot(normalizedArgs, refreshSeed.revision);
+  const updatedAt = snapshot.updatedAt ?? refreshSeed.updatedAt ?? null;
+  return {
+    matchCount: snapshot.matchCount,
+    updatedAt,
+    version: buildPublicFeedVersionToken(snapshot.matchCount, updatedAt)
+  };
+}
+
+async function loadPublicLaunchPageUncached(
   args: PublicLaunchFeedArgs,
   options: { nowMs?: number; filterMilestones?: boolean } = {}
 ): Promise<PublicLaunchPageResult> {
@@ -107,31 +219,49 @@ export async function loadPublicLaunchPage(
   };
 }
 
+function normalizePublicLaunchFeedArgs(args: PublicLaunchFeedArgs): PublicLaunchFeedArgs {
+  return {
+    from: normalizeText(args.from),
+    to: normalizeText(args.to),
+    location: normalizeText(args.location),
+    state: normalizeText(args.state),
+    pad: normalizeText(args.pad),
+    padId: toBoundedInteger(args.padId, 1, Number.MAX_SAFE_INTEGER),
+    provider: normalizeText(args.provider),
+    providerId: toBoundedInteger(args.providerId, 1, Number.MAX_SAFE_INTEGER),
+    rocketId: toBoundedInteger(args.rocketId, 1, Number.MAX_SAFE_INTEGER),
+    status: args.status,
+    sort: args.sort,
+    region: args.region,
+    limit: toBoundedInteger(args.limit, 1, 1000) ?? 20,
+    offset: toBoundedInteger(args.offset, 0, 100_000) ?? 0
+  };
+}
+
+function normalizePublicLaunchFeedVersionArgs(
+  args: PublicLaunchFeedVersionArgs | PublicLaunchFeedArgs
+): PublicLaunchFeedVersionArgs {
+  return {
+    from: normalizeText(args.from),
+    to: normalizeText(args.to),
+    location: normalizeText(args.location),
+    state: normalizeText(args.state),
+    pad: normalizeText(args.pad),
+    padId: toBoundedInteger(args.padId, 1, Number.MAX_SAFE_INTEGER),
+    provider: normalizeText(args.provider),
+    providerId: toBoundedInteger(args.providerId, 1, Number.MAX_SAFE_INTEGER),
+    rocketId: toBoundedInteger(args.rocketId, 1, Number.MAX_SAFE_INTEGER),
+    status: args.status,
+    region: args.region
+  };
+}
+
 async function executePublicLaunchQuery(
   client: SupabaseClient,
   args: PublicLaunchFeedArgs
 ): Promise<PublicLaunchQueryResult> {
   let query = client.from('launches_public_cache').select('*');
-  if (args.region === 'us') {
-    query = query.in('pad_country_code', US_PAD_COUNTRY_CODES);
-  }
-  if (args.region === 'non-us') {
-    query = query.not('pad_country_code', 'in', `(${US_PAD_COUNTRY_CODES.join(',')})`);
-  }
-
-  if (args.from) query = query.gte('net', args.from);
-  if (args.to) query = query.lt('net', args.to);
-  if (args.location) query = query.eq('pad_location_name', args.location);
-  if (args.state) query = query.or(buildPublicStateFilterOrClause(args.state));
-  if (args.pad) query = query.eq('pad_name', args.pad);
-  if (args.padId != null) query = query.eq('ll2_pad_id', args.padId);
-  if (args.provider) query = query.eq('provider', args.provider);
-  if (args.providerId != null) query = query.eq('ll2_agency_id', args.providerId);
-  if (args.rocketId != null) query = query.eq('ll2_rocket_config_id', args.rocketId);
-  if (args.status) {
-    const statusClause = buildStatusFilterOrClause(args.status);
-    if (statusClause) query = query.or(statusClause);
-  }
+  query = applyPublicLaunchVersionFilters(query, args);
 
   query =
     args.sort === 'changed'
@@ -147,6 +277,36 @@ async function executePublicLaunchQuery(
     error: (error || null) as PublicLaunchQueryResult['error'],
     client
   };
+}
+
+function applyPublicLaunchVersionFilters(query: any, args: PublicLaunchFeedVersionArgs | PublicLaunchFeedArgs) {
+  let next = query;
+  if (args.region === 'us') {
+    next = next.in('pad_country_code', US_PAD_COUNTRY_CODES);
+  }
+  if (args.region === 'non-us') {
+    next = next.not('pad_country_code', 'in', `(${US_PAD_COUNTRY_CODES.join(',')})`);
+  }
+
+  if (args.from) next = next.gte('net', args.from);
+  if (args.to) next = next.lt('net', args.to);
+  if (args.location) next = next.eq('pad_location_name', args.location);
+  if (args.state) next = next.or(buildPublicStateFilterOrClause(args.state));
+  if (args.pad) next = next.eq('pad_name', args.pad);
+  if (args.padId != null) next = next.eq('ll2_pad_id', args.padId);
+  if (args.provider) next = next.eq('provider', args.provider);
+  if (args.providerId != null) next = next.eq('ll2_agency_id', args.providerId);
+  if (args.rocketId != null) next = next.eq('ll2_rocket_config_id', args.rocketId);
+  if (args.status) {
+    const statusClause = buildStatusFilterOrClause(args.status);
+    if (statusClause) next = next.or(statusClause);
+  }
+
+  return next;
+}
+
+function buildPublicFeedVersionToken(matchCount: number, updatedAt: string | null) {
+  return `${matchCount}|${updatedAt ?? 'null'}`;
 }
 
 function shouldRetryWithAdmin(result: PublicLaunchQueryResult, args: PublicLaunchFeedArgs) {
@@ -287,6 +447,14 @@ function toFiniteNumber(value: unknown) {
     if (Number.isFinite(numeric)) return numeric;
   }
   return null;
+}
+
+function toBoundedInteger(value: unknown, min: number, max: number) {
+  const numeric = toFiniteNumber(value);
+  if (numeric == null) return null;
+  const whole = Math.trunc(numeric);
+  if (whole < min || whole > max) return null;
+  return whole;
 }
 
 function chunkArray<T>(items: T[], size: number) {

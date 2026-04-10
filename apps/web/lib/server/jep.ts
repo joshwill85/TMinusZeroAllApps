@@ -26,7 +26,7 @@ import {
   type TrajectoryContractRow,
   type TrajectoryContract
 } from '@/lib/server/trajectoryContract';
-import type { JepCalibrationBand, JepConfidence, LaunchJepScore } from '@/lib/types/jep';
+import type { JepCalibrationBand, JepConfidence, JepConfidenceLabel, JepViewpoint, JepVisibilityCall, LaunchJepScore } from '@/lib/types/jep';
 
 const PAD_OBSERVER_HASH = 'pad';
 const GATE_CACHE_TTL_MS = 60_000;
@@ -36,6 +36,7 @@ const TRANSIENT_PERSIST_HORIZON_MS = 24 * 60 * 60 * 1000;
 const TRANSIENT_RESULT_CACHE_MAX_ENTRIES = 256;
 const TRANSIENT_WEATHER_CACHE_MAX_ENTRIES = 256;
 const DEFAULT_TRANSIENT_MODEL_VERSION = 'jep_v5';
+const DEFAULT_V6_MODEL_VERSION = 'jep_v6';
 const DEFAULT_TRANSIENT_WEATHER_CACHE_MINUTES = 10;
 const DEFAULT_TRANSIENT_OPEN_METEO_US_MODELS = ['best_match', 'gfs_seamless'];
 
@@ -82,6 +83,22 @@ type LaunchJepScoreRow = {
   weather_freshness_min?: number | string | null;
   explainability?: unknown;
   snapshot_at?: string | null;
+};
+
+type LaunchJepCandidateRow = {
+  launch_id: string;
+  observer_location_hash: string | null;
+  observer_lat_bucket: number | string | null;
+  observer_lon_bucket: number | string | null;
+  score: number | string | null;
+  baseline_score?: number | string | null;
+  model_version: string | null;
+  computed_at: string | null;
+  expires_at: string | null;
+  snapshot_at?: string | null;
+  factor_payload?: unknown;
+  compatibility_payload?: unknown;
+  explainability?: unknown;
 };
 
 type FetchLaunchJepScoreOptions = {
@@ -152,6 +169,7 @@ export async function fetchLaunchJepScore(
   const launchContextPromise = fetchJepLaunchContext(launchId);
 
   const supabase = createSupabasePublicClient();
+  const v6ModelVersionPromise = gate.v6PublicEnabled ? loadJepV6ModelVersion().catch(() => DEFAULT_V6_MODEL_VERSION) : Promise.resolve(null);
   let row = await fetchObserverRow(supabase, launchId, requestedHash);
   if (requestedObserver && options.skipObserverRegistration !== true && (!row || isRowStale(row))) {
     void registerObserver(requestedObserver);
@@ -188,6 +206,15 @@ export async function fetchLaunchJepScore(
     row = await fetchLegacyRow(supabase, launchId);
     if (!row) return null;
     usingPadFallback = requestedHash !== PAD_OBSERVER_HASH;
+  }
+
+  if (gate.v6PublicEnabled) {
+    const v6ModelVersion = (await v6ModelVersionPromise) || DEFAULT_V6_MODEL_VERSION;
+    const candidateObserverHash = usingPadFallback ? PAD_OBSERVER_HASH : requestedHash;
+    const candidate = await fetchPublicV6CandidateRow(launchId, candidateObserverHash, v6ModelVersion);
+    if (candidate) {
+      row = mergeV6CandidateIntoScoreRow(candidate, row);
+    }
   }
 
   const [trajectoryContext, launchContext] = await Promise.all([trajectoryContextPromise, launchContextPromise]);
@@ -317,6 +344,14 @@ async function mapRowToLaunchJepScore({
     sunlitMarginKm: clampOptional(toNumber(row.sunlit_margin_km), 0, 5000),
     losVisibleFraction: clampOptional(toNumber(row.los_visible_fraction) ?? factors.lineOfSight, 0, 1),
     weatherFreshnessMinutes: toNumberInt(row.weather_freshness_min),
+    visibilityCall: deriveVisibilityCall(score, factors),
+    viewpoint: deriveViewpoint(rowObserverHash, usingPadFallback),
+    confidenceLabel: deriveConfidenceLabel({
+      time: row.time_confidence,
+      trajectory: row.trajectory_confidence,
+      weather: row.weather_confidence,
+      geometryOnlyFallback: row.geometry_only_fallback
+    }),
     factors,
     confidence: {
       time: normalizeConfidence(row.time_confidence),
@@ -353,6 +388,48 @@ async function mapRowToLaunchJepScore({
     scenarioWindows: guidance.scenarioWindows,
     trajectory: trajectoryContract ? mapTrajectoryContractToJepEvidence(trajectoryContract) : null
   };
+}
+
+function deriveVisibilityCall(
+  score: number,
+  factors: Pick<LaunchJepScore['factors'], 'darkness' | 'illumination' | 'lineOfSight'>
+): JepVisibilityCall {
+  if (score <= 0 || factors.darkness <= 0 || factors.illumination <= 0 || factors.lineOfSight <= 0) {
+    return 'not_expected';
+  }
+  if (score >= 85) return 'highly_favorable';
+  if (score >= 65) return 'favorable';
+  return 'possible';
+}
+
+function deriveViewpoint(rowObserverHash: string, usingPadFallback: boolean): JepViewpoint {
+  return usingPadFallback || rowObserverHash === PAD_OBSERVER_HASH ? 'launch_site_reference' : 'personal';
+}
+
+function deriveConfidenceLabel({
+  time,
+  trajectory,
+  weather,
+  geometryOnlyFallback
+}: {
+  time: string | null;
+  trajectory: string | null;
+  weather: string | null;
+  geometryOnlyFallback: boolean | null;
+}): JepConfidenceLabel {
+  if (geometryOnlyFallback) return 'low';
+  const ranks = [normalizeConfidence(time), normalizeConfidence(trajectory), normalizeConfidence(weather)].map(confidenceRank);
+  const minRank = ranks.reduce((best, rank) => Math.min(best, rank), Number.POSITIVE_INFINITY);
+  if (minRank >= 3) return 'high';
+  if (minRank >= 2) return 'medium';
+  return 'low';
+}
+
+function confidenceRank(value: JepConfidence) {
+  if (value === 'HIGH') return 3;
+  if (value === 'MEDIUM') return 2;
+  if (value === 'LOW') return 1;
+  return 0;
 }
 
 async function computeTransientLaunchJepScore({
@@ -734,6 +811,142 @@ async function queryLegacyRow(supabase: ReturnType<typeof createSupabasePublicCl
     data: (data as LaunchJepScoreRow | null) ?? null,
     error
   };
+}
+
+async function fetchPublicV6CandidateRow(launchId: string, observerHash: string, modelVersion: string) {
+  if (!isSupabaseAdminConfigured()) return null;
+
+  try {
+    const admin = createSupabaseAdminClient();
+    const { data, error } = await admin
+      .from('launch_jep_score_candidates')
+      .select(
+        'launch_id, observer_location_hash, observer_lat_bucket, observer_lon_bucket, score, baseline_score, model_version, computed_at, expires_at, snapshot_at, factor_payload, compatibility_payload, explainability'
+      )
+      .eq('launch_id', launchId)
+      .eq('observer_location_hash', observerHash)
+      .eq('model_version', modelVersion)
+      .maybeSingle();
+
+    if (error) {
+      const text = `${error.message || ''}`.toLowerCase();
+      if (text.includes('launch_jep_score_candidates')) return null;
+      console.warn('launch jep v6 candidate query error', error.message);
+      return null;
+    }
+
+    return (data as LaunchJepCandidateRow | null) ?? null;
+  } catch (error) {
+    console.warn('launch jep v6 candidate query exception', error);
+    return null;
+  }
+}
+
+function mergeV6CandidateIntoScoreRow(candidate: LaunchJepCandidateRow, baseline: LaunchJepScoreRow | null): LaunchJepScoreRow {
+  const compatibility = normalizeCandidateCompatibility(candidate.compatibility_payload);
+  const factorPayload = normalizeCandidateFactorPayload(candidate.factor_payload);
+  const reasonCodes = normalizeCandidateReasonCodes(candidate.explainability);
+
+  const cloudCoverMidPct =
+    factorPayload.cloudCoverMidPct ??
+    compatibility.cloudCoverMidPct ??
+    toNumber(baseline?.cloud_cover_mid_pct) ??
+    null;
+  const cloudCoverHighPct =
+    factorPayload.cloudCoverHighPct ??
+    compatibility.cloudCoverHighPct ??
+    toNumber(baseline?.cloud_cover_high_pct) ??
+    null;
+
+  return {
+    launch_id: candidate.launch_id,
+    observer_location_hash: normalizeText(candidate.observer_location_hash) || baseline?.observer_location_hash || PAD_OBSERVER_HASH,
+    observer_lat_bucket: candidate.observer_lat_bucket ?? baseline?.observer_lat_bucket ?? null,
+    observer_lon_bucket: candidate.observer_lon_bucket ?? baseline?.observer_lon_bucket ?? null,
+    score: toNumber(candidate.score) ?? baseline?.score ?? 0,
+    illumination_factor: compatibility.illumination ?? baseline?.illumination_factor ?? 0,
+    darkness_factor: factorPayload.darkness ?? compatibility.darkness ?? baseline?.darkness_factor ?? 0,
+    los_factor: compatibility.lineOfSight ?? baseline?.los_factor ?? 0,
+    weather_factor: compatibility.weather ?? baseline?.weather_factor ?? 0,
+    solar_depression_deg: factorPayload.solarDepressionDeg ?? baseline?.solar_depression_deg ?? null,
+    cloud_cover_pct: factorPayload.cloudCoverPct ?? compatibility.cloudCoverPct ?? baseline?.cloud_cover_pct ?? null,
+    cloud_cover_low_pct: factorPayload.cloudCoverLowPct ?? compatibility.cloudCoverLowPct ?? baseline?.cloud_cover_low_pct ?? null,
+    cloud_cover_mid_pct: cloudCoverMidPct,
+    cloud_cover_high_pct: cloudCoverHighPct,
+    time_confidence: baseline?.time_confidence ?? 'UNKNOWN',
+    trajectory_confidence: baseline?.trajectory_confidence ?? 'UNKNOWN',
+    weather_confidence: baseline?.weather_confidence ?? 'UNKNOWN',
+    weather_source: baseline?.weather_source ?? null,
+    azimuth_source: baseline?.azimuth_source ?? null,
+    geometry_only_fallback: baseline?.geometry_only_fallback ?? false,
+    model_version: normalizeText(candidate.model_version) || DEFAULT_V6_MODEL_VERSION,
+    computed_at: candidate.computed_at ?? baseline?.computed_at ?? null,
+    expires_at: candidate.expires_at ?? baseline?.expires_at ?? null,
+    probability: null,
+    calibration_band: null,
+    sunlit_margin_km: factorPayload.sunlitMarginKm ?? baseline?.sunlit_margin_km ?? null,
+    los_visible_fraction: factorPayload.losVisibleFraction ?? baseline?.los_visible_fraction ?? compatibility.lineOfSight ?? null,
+    weather_freshness_min: baseline?.weather_freshness_min ?? null,
+    explainability: {
+      reasonCodes,
+      weightedContributions: {
+        illumination: round((compatibility.illumination ?? 0) * 0.35, 3),
+        darkness: round((factorPayload.darkness ?? compatibility.darkness ?? 0) * 0.25, 3),
+        lineOfSight: round((compatibility.lineOfSight ?? 0) * 0.25, 3),
+        weather: round((compatibility.weather ?? 0) * 0.15, 3)
+      },
+      safeMode: false
+    },
+    snapshot_at: candidate.snapshot_at ?? baseline?.snapshot_at ?? null
+  };
+}
+
+async function loadJepV6ModelVersion() {
+  if (!isSupabaseAdminConfigured()) return DEFAULT_V6_MODEL_VERSION;
+  const admin = createSupabaseAdminClient();
+  const { data, error } = await admin.from('system_settings').select('value').eq('key', 'jep_v6_model_version').maybeSingle();
+  if (error) throw error;
+  const raw = data?.value;
+  return normalizeText(typeof raw === 'string' ? raw : null) || (typeof raw === 'number' ? String(raw) : '') || DEFAULT_V6_MODEL_VERSION;
+}
+
+function normalizeCandidateCompatibility(value: unknown) {
+  const raw = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  return {
+    illumination: clampOptional(toNumber(raw.illumination), 0, 1),
+    darkness: clampOptional(toNumber(raw.darkness), 0, 1),
+    lineOfSight: clampOptional(toNumber(raw.lineOfSight ?? raw.line_of_sight), 0, 1),
+    weather: clampOptional(toNumber(raw.weather), 0, 1),
+    cloudCoverPct: clampOptional(toNumber(raw.cloudCoverPct ?? raw.cloud_cover_pct), 0, 100),
+    cloudCoverLowPct: clampOptional(toNumber(raw.cloudCoverLowPct ?? raw.cloud_cover_low_pct), 0, 100),
+    cloudCoverMidPct: clampOptional(toNumber(raw.cloudCoverMidPct ?? raw.cloud_cover_mid_pct), 0, 100),
+    cloudCoverHighPct: clampOptional(toNumber(raw.cloudCoverHighPct ?? raw.cloud_cover_high_pct), 0, 100)
+  };
+}
+
+function normalizeCandidateFactorPayload(value: unknown) {
+  const raw = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  return {
+    darkness: clampOptional(toNumber(raw.darkness), 0, 1),
+    solarDepressionDeg: toNumber(raw.solarDepressionDeg ?? raw.solar_depression_deg),
+    sunlitMarginKm: clampOptional(toNumber(raw.sunlitMarginKm ?? raw.sunlit_margin_km), 0, 5000),
+    losVisibleFraction: clampOptional(toNumber(raw.losVisibleFraction ?? raw.los_visible_fraction), 0, 1),
+    cloudCoverPct: clampOptional(toNumber(raw.cloudCoverPct ?? raw.cloud_cover_pct), 0, 100),
+    cloudCoverLowPct: clampOptional(toNumber(raw.cloudCoverLowPct ?? raw.cloud_cover_low_pct), 0, 100),
+    cloudCoverMidPct: clampOptional(toNumber(raw.cloudCoverMidPct ?? raw.cloud_cover_mid_pct), 0, 100),
+    cloudCoverHighPct: clampOptional(toNumber(raw.cloudCoverHighPct ?? raw.cloud_cover_high_pct), 0, 100)
+  };
+}
+
+function normalizeCandidateReasonCodes(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return ['jep_v6_public_candidate'];
+  const raw = value as Record<string, unknown>;
+  const codes = Array.isArray(raw.reasonCodes)
+    ? raw.reasonCodes
+        .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+        .filter((entry) => entry.length > 0)
+    : [];
+  return codes.length ? codes : ['jep_v6_public_candidate'];
 }
 
 async function registerObserver(observer: JepObserver) {

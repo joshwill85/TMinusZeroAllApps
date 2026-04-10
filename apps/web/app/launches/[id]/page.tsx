@@ -35,7 +35,7 @@ import { Ws45OperationalPanel } from '@/components/Ws45OperationalPanel';
 import { Ws45PlanningForecastPanel } from '@/components/Ws45PlanningForecastPanel';
 import { PadSatellitePreviewImage } from '@/components/PadSatellitePreviewImage';
 import { JepScoreClient } from '@/components/JepScoreClient';
-import { LaunchFaaMapClient } from '@/components/LaunchFaaMapClient';
+import { LaunchFaaMapBlock } from '@/components/LaunchFaaMapBlock';
 import { ThirdPartyVideoEmbed } from '@/components/ThirdPartyVideoEmbed';
 import type { TimelineNode } from '@/components/ChronoHelixTimeline';
 import { RocketPhotoGallery } from '@/components/RocketPhotoGallery';
@@ -44,6 +44,7 @@ import { XTweetEmbed } from '@/components/XTweetEmbed';
 import { mapLiveLaunchRow, mapPublicCacheRow } from '@/lib/server/transformers';
 import { isCountdownEligible, isDateOnlyNet } from '@/lib/time';
 import {
+  isAppleMapsWebConfigured,
   getGoogleMapsStaticApiKey,
   getGoogleMapsWebApiKey,
   getOgImageVersion,
@@ -59,10 +60,13 @@ import { getViewerTier } from '@/lib/server/viewerTier';
 import { fetchLaunchJepScore } from '@/lib/server/jep';
 import { resolveJepObserverFromHeaders } from '@/lib/server/jepObserver';
 import { buildLaunchDetailVersionSeed } from '@/lib/server/launchDetailVersion';
+import { resolveWebLaunchMapPolicy } from '@/lib/server/mapProviderPolicy';
+import { getAppleMapsWebAuthorizationTokenForRequest } from '@/lib/server/appleMapsWeb';
 import {
   buildLaunchMissionTimeline,
   type ViewerTier
 } from '@tminuszero/domain';
+import type { LaunchFaaMapRenderMode } from '@/lib/maps/providerTypes';
 import type { LaunchJepScore } from '@/lib/types/jep';
 import type {
   LaunchDetailEnrichment,
@@ -85,7 +89,7 @@ import { isArtemisLaunch } from '@/lib/utils/launchArtemis';
 import { isStarshipLaunch } from '@/lib/utils/launchStarship';
 import { buildCatalogHref } from '@/lib/utils/catalog';
 import { buildLaunchHref, buildLocationHref, buildProviderHref, buildRocketHref } from '@/lib/utils/launchLinks';
-import { buildGoogleMapsSatelliteUrl, buildPadSatellitePreviewPath, formatCoordinatePair } from '@/lib/utils/googleMaps';
+import { buildPadSatellitePreviewPath, formatCoordinatePair } from '@/lib/utils/googleMaps';
 import { buildSatelliteHref, buildSatelliteOwnerHref, formatSatelliteOwnerLabel } from '@/lib/utils/satelliteLinks';
 import { getLaunchStatusTone, type LaunchStatusTone } from '@/lib/utils/launchStatusTone';
 import { getEffectivePrivacyPreferences } from '@/lib/server/privacyPreferences';
@@ -2292,18 +2296,34 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
   const watchLinks = buildWatchLinks(watchUrl, vidLinks);
   const primaryWatchLink = watchLinks[0] || null;
   const primaryWatchUrl = primaryWatchLink?.url;
-  const hasGoogleMapsStaticApiKey = Boolean(getGoogleMapsStaticApiKey());
-  const googleMapsWebApiKey = getGoogleMapsWebApiKey();
-  const googleMapsPadHref = buildGoogleMapsSatelliteUrl(launch.pad, { zoom: 18 });
+  const requestHeaders = headers();
+  const webMapPolicy = resolveWebLaunchMapPolicy({
+    userAgent: requestHeaders.get('user-agent'),
+    pad: {
+      latitude: launch.pad.latitude,
+      longitude: launch.pad.longitude,
+      label: launch.pad.shortCode || launch.pad.name || launch.name || 'Launch pad'
+    },
+    fallbackPadMapUrl: launch.pad.mapUrl || null,
+    hasGoogleStaticApiKey: Boolean(getGoogleMapsStaticApiKey()),
+    hasGoogleWebApiKey: Boolean(getGoogleMapsWebApiKey()),
+    hasAppleMapsWebConfig: isAppleMapsWebConfigured()
+  });
+  const googleMapsWebApiKey = webMapPolicy.faaMapMode === 'google' ? getGoogleMapsWebApiKey() : null;
+  const appleMapsAuthorizationToken =
+    webMapPolicy.faaMapMode === 'apple' ? getAppleMapsWebAuthorizationTokenForRequest(requestHeaders) : null;
+  const faaMapMode: LaunchFaaMapRenderMode =
+    webMapPolicy.faaMapMode === 'apple' && !appleMapsAuthorizationToken ? 'fallback' : webMapPolicy.faaMapMode;
+  const padMapsHref = webMapPolicy.padMapsHref;
   const googleMapsPadPreviewUrl =
-    googleMapsPadHref && hasGoogleMapsStaticApiKey
-      ? buildPadSatellitePreviewPath(launch.id, launch.pad)
+    webMapPolicy.allowGoogleStaticPadPreview
+      ? buildPadSatellitePreviewPath({ launchId: launch.id, ll2PadId: launch.ll2PadId })
       : null;
   const externalLinksRaw = buildExternalLinks({
     watch: watchUrl,
     flightclub: launch.flightclubUrl,
-    padMap: googleMapsPadHref || launch.pad.mapUrl || undefined,
-    padMapLabel: googleMapsPadHref ? 'Pad satellite map' : 'Pad map',
+    padMap: padMapsHref || undefined,
+    padMapLabel: webMapPolicy.padMapsProviderLabel === 'Map provider' ? 'Pad map' : 'Pad satellite map',
     rocketInfo: rocket.infoUrl,
     rocketWiki: rocket.wikiUrl,
     infoLinks,
@@ -2356,7 +2376,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
   const isUsPad = padCountry === 'USA' || padCountry === 'US';
   const watchEmbed = primaryWatchUrl ? buildLaunchVideoEmbed(primaryWatchUrl) : null;
   const showWatchSection = Boolean(primaryWatchUrl);
-  const jepObserver = resolveJepObserverFromHeaders(headers());
+  const jepObserver = resolveJepObserverFromHeaders(requestHeaders);
   const ws45LaunchContext = buildWs45LaunchContext(launch);
 
   const ws45ForecastPromise = viewer.tier === 'premium' ? fetchWs45Forecast(launch.id, isEasternRange) : Promise.resolve(null);
@@ -2822,8 +2842,12 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
           nwsForecastPromise={nwsForecastPromise}
           faaAirspacePromise={faaAirspacePromise}
           faaAirspaceMapPromise={faaAirspaceMapPromise}
+          faaMapMode={faaMapMode}
           googleMapsWebApiKey={googleMapsWebApiKey}
-          googleMapsPadHref={googleMapsPadHref}
+          appleMapsAuthorizationToken={appleMapsAuthorizationToken}
+          padMapsHref={padMapsHref}
+          padMapsLinkLabel={webMapPolicy.padMapsLinkLabel}
+          faaMapUnavailableMessage={webMapPolicy.faaUnavailableMessage}
           isEasternRange={isEasternRange}
           isUsPad={isUsPad}
           within14Days={within14Days}
@@ -3162,10 +3186,11 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
             {rocket.leoCapacity && <Info label="LEO capacity (kg)" value={String(rocket.leoCapacity)} />}
             {rocket.gtoCapacity && <Info label="GTO capacity (kg)" value={String(rocket.gtoCapacity)} />}
           </dl>
-          {googleMapsPadHref ? (
+          {padMapsHref ? (
             <PadSatellitePreviewCard
               pad={launch.pad}
-              googleMapsHref={googleMapsPadHref}
+              mapHref={padMapsHref}
+              mapProviderLabel={webMapPolicy.padMapsProviderLabel}
               staticPreviewUrl={googleMapsPadPreviewUrl}
               fallbackMapUrl={launch.pad.mapUrl || null}
             />
@@ -3468,7 +3493,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
               existingLinkUrls={blueOriginExistingResourceUrls}
             />
           ) : null}
-          {!googleMapsPadHref && launch.pad.mapUrl && (
+          {!padMapsHref && launch.pad.mapUrl && !webMapPolicy.isSafari && (
             <div className="mt-3 text-sm text-text3">
               <a className="text-primary" href={launch.pad.mapUrl} target="_blank" rel="noreferrer">
                 View pad map
@@ -3531,43 +3556,46 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
 
 function PadSatellitePreviewCard({
   pad,
-  googleMapsHref,
+  mapHref,
+  mapProviderLabel,
   staticPreviewUrl,
   fallbackMapUrl
 }: {
   pad: Launch['pad'];
-  googleMapsHref: string;
+  mapHref: string;
+  mapProviderLabel: string;
   staticPreviewUrl: string | null;
   fallbackMapUrl?: string | null;
 }) {
   const coordinateLabel = formatCoordinatePair(pad, 5);
   const locationLabel = [pad.locationName || pad.name, pad.state && pad.state !== 'NA' ? pad.state : null].filter(Boolean).join(' • ');
-  const showFallbackMapLink = Boolean(fallbackMapUrl && fallbackMapUrl !== googleMapsHref);
+  const showFallbackMapLink = Boolean(fallbackMapUrl && fallbackMapUrl !== mapHref);
+  const providerDisplayLabel = mapProviderLabel === 'Map provider' ? 'the configured map provider' : mapProviderLabel;
 
   return (
     <div className="mt-3 overflow-hidden rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)]">
       <div className="flex flex-wrap items-start justify-between gap-3 px-3 py-3">
         <div>
           <div className="text-xs uppercase tracking-[0.08em] text-text3">Pad satellite view</div>
-          <p className="mt-1 text-sm text-text2">Open the launch pad in Google Maps satellite mode using the pad coordinates.</p>
+          <p className="mt-1 text-sm text-text2">Open the launch pad in {providerDisplayLabel} using the pad coordinates.</p>
         </div>
         <a
           className="rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.08em] text-primary transition hover:border-primary hover:bg-primary/15"
-          href={googleMapsHref}
+          href={mapHref}
           target="_blank"
           rel="noreferrer"
         >
-          Open in Google Maps
+          {mapProviderLabel === 'Map provider' ? 'Open map' : `Open in ${mapProviderLabel}`}
         </a>
       </div>
       <a
-        href={googleMapsHref}
+        href={mapHref}
         target="_blank"
         rel="noreferrer"
         className="block border-y border-stroke bg-surface-0 transition hover:opacity-95"
-        aria-label={`Open ${pad.name} in Google Maps satellite view`}
+        aria-label={`Open ${pad.name} in ${mapProviderLabel}`}
       >
-        <PadSatellitePreviewImage src={staticPreviewUrl} alt={`Satellite view of ${pad.name}`} padName={pad.name} />
+        <PadSatellitePreviewImage src={staticPreviewUrl} alt={`Satellite view of ${pad.name}`} padName={pad.name} providerLabel={providerDisplayLabel} />
       </a>
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs text-text3">
         <span className="font-medium text-text2">{locationLabel}</span>
@@ -4075,8 +4103,12 @@ async function ConsolidatedWeatherSection({
   nwsForecastPromise,
   faaAirspacePromise,
   faaAirspaceMapPromise,
+  faaMapMode,
   googleMapsWebApiKey,
-  googleMapsPadHref,
+  appleMapsAuthorizationToken,
+  padMapsHref,
+  padMapsLinkLabel,
+  faaMapUnavailableMessage,
   isEasternRange,
   isUsPad,
   within14Days,
@@ -4089,8 +4121,12 @@ async function ConsolidatedWeatherSection({
   nwsForecastPromise: Promise<NwsLaunchWeather | null>;
   faaAirspacePromise: ReturnType<typeof fetchLaunchFaaAirspace>;
   faaAirspaceMapPromise: ReturnType<typeof fetchLaunchFaaAirspaceMap>;
+  faaMapMode: LaunchFaaMapRenderMode;
   googleMapsWebApiKey: string | null;
-  googleMapsPadHref: string | null;
+  appleMapsAuthorizationToken: string | null;
+  padMapsHref: string | null;
+  padMapsLinkLabel: string;
+  faaMapUnavailableMessage: string;
   isEasternRange: boolean;
   isUsPad: boolean;
   within14Days: boolean;
@@ -4184,8 +4220,12 @@ async function ConsolidatedWeatherSection({
               <LaunchFaaAirspaceContent
                 advisories={advisories}
                 mapData={faaAirspaceMap}
+                renderMode={faaMapMode}
                 googleMapsWebApiKey={googleMapsWebApiKey}
-                googleMapsPadHref={googleMapsPadHref}
+                appleMapsAuthorizationToken={appleMapsAuthorizationToken}
+                padMapsHref={padMapsHref}
+                padMapsLinkLabel={padMapsLinkLabel}
+                unavailableMessage={faaMapUnavailableMessage}
                 padTimezone={padTimezone}
               />
             </ForecastAdvisoriesDisclosure>
@@ -4270,28 +4310,37 @@ function capitalizeSentence(value: string) {
 function LaunchFaaAirspaceContent({
   advisories,
   mapData,
+  renderMode,
   googleMapsWebApiKey,
-  googleMapsPadHref,
+  appleMapsAuthorizationToken,
+  padMapsHref,
+  padMapsLinkLabel,
+  unavailableMessage,
   padTimezone
 }: {
   advisories: LaunchFaaAirspaceAdvisory[];
   mapData: Awaited<ReturnType<typeof fetchLaunchFaaAirspaceMap>>;
+  renderMode: LaunchFaaMapRenderMode;
   googleMapsWebApiKey: string | null;
-  googleMapsPadHref: string | null;
+  appleMapsAuthorizationToken: string | null;
+  padMapsHref: string | null;
+  padMapsLinkLabel: string;
+  unavailableMessage: string;
   padTimezone: string | null;
 }) {
-  const canRenderInteractiveMap = Boolean(googleMapsWebApiKey && mapData?.hasRenderableGeometry);
-  const hasMapBlock = canRenderInteractiveMap || Boolean(mapData?.advisoryCount);
+  const hasMapBlock = Boolean(mapData?.advisoryCount);
 
   return (
     <>
-      {canRenderInteractiveMap && mapData && googleMapsWebApiKey ? (
-        <LaunchFaaMapClient apiKey={googleMapsWebApiKey} data={mapData} padMapsHref={googleMapsPadHref} />
-      ) : mapData?.advisoryCount ? (
-        <div className="rounded-xl border border-dashed border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-3 text-sm text-text3">
-          FAA launch-day geometry is available for this launch, but the interactive map is not configured in this environment.
-        </div>
-      ) : null}
+      <LaunchFaaMapBlock
+        data={mapData}
+        renderMode={renderMode}
+        googleMapsApiKey={googleMapsWebApiKey}
+        appleMapsAuthorizationToken={appleMapsAuthorizationToken}
+        padMapsHref={padMapsHref}
+        padMapsLinkLabel={padMapsLinkLabel}
+        unavailableMessage={unavailableMessage}
+      />
 
       <div className={clsx('space-y-3', hasMapBlock ? 'mt-4' : '')}>
         {advisories.map((advisory) => {

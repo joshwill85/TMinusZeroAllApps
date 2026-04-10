@@ -1,9 +1,16 @@
 import { Badge, type BadgeTone } from './Badge';
+import {
+  buildJepConfidenceLabel,
+  buildJepObserverContext,
+  buildJepScenarioTimeline,
+  buildJepVisibilityCallPresentation
+} from '@tminuszero/domain';
 import { deriveJepWeatherImpact } from '@/lib/jep/weather';
 import type { LaunchJepScore } from '@/lib/types/jep';
 
 export type JepLocationMode = 'user' | 'pad_fallback';
 export type JepFallbackReason = 'denied' | 'unsupported' | 'timeout' | 'unavailable' | 'error' | null;
+export type JepViewpointPromptState = 'idle' | Exclude<JepFallbackReason, null> | 'resolving';
 
 type NarrativeItem = {
   title: string;
@@ -30,18 +37,29 @@ type ScoreNarrative = {
   guidance: GuidancePresentation;
 };
 
+type ViewpointPrompt = {
+  visible: boolean;
+  state: JepViewpointPromptState;
+  onUseMyLocation: () => void;
+  onUseLaunchSite: () => void;
+};
+
 export function JepScorePanel({
   score,
   padTimezone,
   locationMode,
   fallbackReason,
-  personalizationLoading = false
+  personalizationLoading = false,
+  viewpointPrompt,
+  onLocationModeChange
 }: {
   score: LaunchJepScore;
   padTimezone: string;
   locationMode?: JepLocationMode;
   fallbackReason?: JepFallbackReason;
   personalizationLoading?: boolean;
+  viewpointPrompt?: ViewpointPrompt;
+  onLocationModeChange?: (nextMode: JepLocationMode) => void;
 }) {
   const probability = clampProbability(score.probability);
   const isProbabilityMode = score.mode === 'probability';
@@ -51,25 +69,45 @@ export function JepScorePanel({
   const computedLabel = formatDateTime(score.computedAt, padTimezone);
   const expiresLabel = formatDateTime(score.expiresAt, padTimezone);
   const snapshotLabel = formatDateTime(score.snapshotAt || score.computedAt, padTimezone);
-  const resolvedLocationMode = locationMode ?? (score.observer.personalized ? 'user' : 'pad_fallback');
-  const locationLabel = resolvedLocationMode === 'user' ? 'Using your location' : 'Using launch pad (fallback)';
+  const observerContext = buildJepObserverContext(score.observer);
+  const resolvedLocationMode = locationMode ?? (observerContext.isPersonalized ? 'user' : 'pad_fallback');
+  const usesFallbackPresentation = resolvedLocationMode === 'pad_fallback' || observerContext.launchAreaFallback;
+  const locationLabel = usesFallbackPresentation ? 'Launch-area fallback' : observerContext.locationBadgeLabel;
   const fallbackReasonLabel = formatFallbackReason(fallbackReason ?? null);
   const primaryValue = isProbabilityMode && probability != null ? formatProbability(probability) : `${score.score}/100`;
-  const primaryLabel = isProbabilityMode ? 'Chance to see it' : 'Visibility score';
+  const primaryLabel = isProbabilityMode
+    ? usesFallbackPresentation
+      ? 'Launch-area chance'
+      : 'Chance to see it'
+    : usesFallbackPresentation
+      ? 'Launch-area score'
+      : 'Visibility score';
   const scaleSummary = isProbabilityMode
-    ? '0% = almost no chance. 100% = very likely.'
-    : '0 = very unlikely to see it. 100 = best setup.';
+    ? usesFallbackPresentation
+      ? 'Reference only: high values mean launch-area conditions look favorable, not that it will be visible from you.'
+      : '0% = almost no chance. 100% = very likely.'
+    : usesFallbackPresentation
+      ? 'Reference only: high values mean launch-area conditions look favorable, not that it will be visible from you.'
+      : '0 = very unlikely to see it. 100 = best setup.';
   const hasGuidanceSummary = score.bestWindow != null || score.directionBand != null || score.elevationBand != null;
   const readinessSummary = formatReadinessSummary(score);
   const modelSummary = isProbabilityMode
-    ? 'Estimated chance of seeing the jellyfish effect from your location.'
-    : '0-100 score for how likely the jellyfish effect is to be visible from your location.';
-  const narrative = deriveScoreNarrative(score);
+    ? usesFallbackPresentation
+      ? 'Launch-area reference estimate from the launch pad and ascent corridor. It is not personalized to your location.'
+      : 'Estimated chance of seeing the jellyfish effect from your location.'
+    : usesFallbackPresentation
+      ? '0-100 launch-area reference score from the launch pad and ascent corridor. Your personal visibility can still be impossible.'
+      : '0-100 score for how likely the jellyfish effect is to be visible from your location.';
+  const narrative = deriveScoreNarrative(score, observerContext);
   const guidancePresentation = narrative.guidance;
   const hasNarrative = narrative.whyNow.length > 0;
   const shouldShowGuidanceSummary =
     hasGuidanceSummary && (guidancePresentation.mode === 'visible' || guidancePresentation.mode === 'conditional');
-  const observerMetricLabel = resolvedLocationMode === 'user' ? 'Your location' : 'Launch pad fallback';
+  const observerMetricLabel = usesFallbackPresentation ? observerContext.observerMetricLabel : 'Your location';
+  const visibilityCall = buildJepVisibilityCallPresentation(score, observerContext);
+  const confidenceLabel = buildJepConfidenceLabel(score);
+  const scenarioTimeline = buildJepScenarioTimeline(score);
+  const showViewpointToggle = Boolean(onLocationModeChange) && !viewpointPrompt?.visible;
 
   return (
     <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
@@ -81,27 +119,60 @@ export function JepScorePanel({
         </div>
       </div>
 
+      {viewpointPrompt?.visible && (
+        <div className="mt-4 rounded-xl border border-stroke bg-surface-0 p-4">
+          <div className="text-[11px] uppercase tracking-[0.08em] text-text3">Choose your viewpoint</div>
+          <div className="mt-2 text-base font-semibold text-text1">{viewpointPromptTitle(viewpointPrompt.state)}</div>
+          <p className="mt-2 max-w-2xl text-sm text-text2">{viewpointPromptBody(viewpointPrompt.state)}</p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={viewpointPrompt.onUseMyLocation}
+              disabled={viewpointPrompt.state === 'resolving'}
+              className="rounded-full border border-primary bg-primary px-4 py-2 text-sm font-semibold text-slate-950 transition disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {viewpointPrompt.state === 'resolving' ? 'Checking your location...' : 'Use my location'}
+            </button>
+            <button
+              type="button"
+              onClick={viewpointPrompt.onUseLaunchSite}
+              disabled={viewpointPrompt.state === 'resolving'}
+              className="rounded-full border border-stroke bg-[rgba(255,255,255,0.03)] px-4 py-2 text-sm font-semibold text-text1 transition hover:bg-[rgba(255,255,255,0.05)] disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              Near launch site
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="mt-4 rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="text-[11px] uppercase tracking-[0.08em] text-text3">{primaryLabel}</div>
             <div className="mt-1 text-3xl font-semibold text-text1">{primaryValue}</div>
-            <p className="mt-2 max-w-2xl text-sm text-text2">{primaryInterpretation(band.label)}</p>
+            <p className="mt-2 max-w-2xl text-sm text-text2">{primaryInterpretation(band.label, usesFallbackPresentation)}</p>
             <p className="mt-2 max-w-2xl text-xs text-text3">{scaleSummary}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Badge tone={visibilityCall.tone}>{visibilityCall.label}</Badge>
+            <Badge tone={confidenceLabelTone(confidenceLabel)}>{confidenceLabelLabel(confidenceLabel)}</Badge>
             <Badge tone={band.tone}>{band.label}</Badge>
             <Badge tone={calibrationTone}>{score.calibrationBand.replace('_', ' ')}</Badge>
-            {!isProbabilityMode && <Badge tone="neutral">Visibility score</Badge>}
+            {!isProbabilityMode && <Badge tone="neutral">{usesFallbackPresentation ? 'Launch-area reference' : 'Visibility score'}</Badge>}
             {score.isSnapshot && <Badge tone="info">Snapshot</Badge>}
             {score.isStale && <Badge tone="warning">Stale</Badge>}
           </div>
         </div>
 
         <div className="mt-3 flex flex-wrap gap-2">
-          <Badge tone={resolvedLocationMode === 'user' ? 'success' : 'neutral'} subtle>
+          <Badge tone={usesFallbackPresentation ? 'warning' : 'success'} subtle>
             {locationLabel}
           </Badge>
+          {usesFallbackPresentation && (
+            <Badge tone="warning" subtle>
+              Not personalized
+            </Badge>
+          )}
           {fallbackReasonLabel && (
             <Badge tone="warning" subtle>
               {fallbackReasonLabel}
@@ -114,9 +185,72 @@ export function JepScorePanel({
           )}
         </div>
 
+        {showViewpointToggle && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            <ViewpointToggleButton
+              active={resolvedLocationMode === 'user'}
+              label="From your location"
+              onClick={() => onLocationModeChange?.('user')}
+            />
+            <ViewpointToggleButton
+              active={resolvedLocationMode === 'pad_fallback'}
+              label="Near launch site"
+              onClick={() => onLocationModeChange?.('pad_fallback')}
+            />
+          </div>
+        )}
+
+        <div className="mt-4 rounded-xl border border-stroke bg-surface-0 p-3">
+          <div className="text-[11px] uppercase tracking-[0.08em] text-text3">Visibility call</div>
+          <div className="mt-1 text-lg font-semibold text-text1">{visibilityCall.label}</div>
+          <p className="mt-2 text-sm text-text2">{visibilityCall.detail}</p>
+        </div>
+
+        {usesFallbackPresentation && (
+          <div className="mt-3 rounded-xl border border-stroke bg-surface-0 p-3 text-sm text-text2">
+            This number reflects launch-area conditions near the pad and ascent corridor. It is not your personal visibility call, and your
+            actual answer can still be impossible from where you are.
+          </div>
+        )}
+
         {hasNarrative && (
           <div className="mt-4">
             <NarrativePanel heading="Why This Score" summary={narrative.summary} items={narrative.whyNow} />
+          </div>
+        )}
+
+        {scenarioTimeline.length > 0 && (
+          <div className="mt-4 rounded-xl border border-stroke bg-surface-0 p-3">
+            <div className="text-[11px] uppercase tracking-[0.08em] text-text3">Timing outlook</div>
+            {score.bestWindow ? (
+              <p className="mt-2 text-sm text-text2">
+                Best window: <span className="font-semibold text-text1">{score.bestWindow.label}</span>. {score.bestWindow.reason}
+              </p>
+            ) : null}
+            <div className="mt-3 space-y-2">
+              {scenarioTimeline.map((entry) => (
+                <div
+                  key={entry.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-2"
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <div className="text-sm font-semibold text-text1">{entry.label}</div>
+                    {entry.current ? (
+                      <Badge tone="info" subtle>
+                        Current
+                      </Badge>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge tone={timelineTrendTone(entry.trend)} subtle>
+                      {timelineTrendLabel(entry.delta, entry.trend)}
+                    </Badge>
+                    <Badge tone={entry.tone}>{visibilityCallLabel(entry.visibilityCall)}</Badge>
+                    <div className="text-sm text-text2">{entry.score}/100</div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -163,9 +297,20 @@ export function JepScorePanel({
         <summary className="cursor-pointer text-sm font-semibold text-text1">Score Breakdown</summary>
 
         <div className="mt-3 grid gap-3 md:grid-cols-7">
-          <Metric label="Visibility score" value={`${score.score}/100`} />
-          <Metric label={isProbabilityMode ? 'Chance to see it' : 'Showing'} value={isProbabilityMode ? formatProbability(probability) : '0-100 score'} />
-          <Metric label="Chance estimate" value={isProbabilityMode ? 'Shown' : 'Not shown yet'} note={readinessSummary} />
+          <Metric label={usesFallbackPresentation ? 'Launch-area score' : 'Visibility score'} value={`${score.score}/100`} />
+          <Metric
+            label={isProbabilityMode ? 'Chance to see it' : 'Showing'}
+            value={isProbabilityMode ? formatProbability(probability) : usesFallbackPresentation ? 'Launch-area score' : '0-100 score'}
+          />
+          <Metric
+            label={usesFallbackPresentation ? 'Personal visibility' : 'Chance estimate'}
+            value={isProbabilityMode ? 'Shown' : usesFallbackPresentation ? 'Location needed' : 'Not shown yet'}
+            note={
+              usesFallbackPresentation
+                ? 'The current number is a launch-area reference score, not a personal visibility estimate.'
+                : readinessSummary
+            }
+          />
           <Metric label="Rocket in sunlight" value={formatFactor(score.factors.illumination)} />
           <Metric label="Twilight timing" value={formatFactor(score.factors.darkness)} />
           <Metric label="Visible path" value={formatFactor(score.factors.lineOfSight)} />
@@ -196,8 +341,8 @@ export function JepScorePanel({
             label="Observer location"
             value={observerMetricLabel}
             note={
-              score.observer.usingPadFallback && resolvedLocationMode === 'pad_fallback'
-                ? 'Using launch-pad geometry until your score refreshes.'
+              usesFallbackPresentation
+                ? 'Using launch-area reference geometry. This does not tell you whether it is visible from your exact location.'
                 : null
             }
           />
@@ -211,7 +356,7 @@ export function JepScorePanel({
 
         <div className="mt-3 text-xs text-text3">
           {score.source.geometryOnlyFallback && <div>Weather fallback: geometry-only estimate because no usable forecast was available.</div>}
-          {fallbackReasonLabel && resolvedLocationMode === 'pad_fallback' && <div>Browser location note: {fallbackReasonLabel}.</div>}
+          {fallbackReasonLabel && usesFallbackPresentation && <div>Browser location note: {fallbackReasonLabel}.</div>}
         </div>
       </details>
 
@@ -221,6 +366,30 @@ export function JepScorePanel({
         </a>
       </p>
     </section>
+  );
+}
+
+function ViewpointToggleButton({
+  active,
+  label,
+  onClick
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        active
+          ? 'rounded-full border border-primary bg-primary px-3 py-1.5 text-sm font-semibold text-slate-950'
+          : 'rounded-full border border-stroke bg-[rgba(255,255,255,0.03)] px-3 py-1.5 text-sm font-semibold text-text2 hover:bg-[rgba(255,255,255,0.05)]'
+      }
+    >
+      {label}
+    </button>
   );
 }
 
@@ -274,11 +443,18 @@ function Metric({
   );
 }
 
-function deriveScoreNarrative(score: LaunchJepScore): ScoreNarrative {
-  const guidance = deriveGuidancePresentation(score);
+function deriveScoreNarrative(score: LaunchJepScore, observerContext = buildJepObserverContext(score.observer)): ScoreNarrative {
+  const guidance = deriveGuidancePresentation(score, observerContext);
   const whyNow = sortNarrativeItems(buildWhyNowItems(score));
-  const summary =
-    score.score === 0
+  const summary = observerContext.launchAreaFallback
+    ? score.score === 0
+      ? 'The launch-area reference setup does not currently support a visible jellyfish plume.'
+      : score.score < 30
+        ? 'Launch-area conditions look weak right now because multiple parts of the visibility chain are underperforming.'
+        : score.score < 70
+          ? 'Launch-area conditions are mixed right now. This is a reference setup, not your personal visibility call.'
+          : 'Launch-area conditions look favorable right now, but this is still a reference setup rather than your personal visibility call.'
+    : score.score === 0
       ? 'No visible jellyfish plume is currently expected from this location.'
       : score.score < 30
         ? 'The setup is weak right now because multiple parts of the visibility chain are underperforming.'
@@ -294,6 +470,7 @@ function deriveScoreNarrative(score: LaunchJepScore): ScoreNarrative {
 }
 
 function buildWhyNowItems(score: LaunchJepScore): NarrativeItem[] {
+  const observerContext = buildJepObserverContext(score.observer);
   const items: NarrativeItem[] = [];
   const cloudCover = toPctNumber(score.factors.cloudCoverPct);
   const lowClouds = toPctNumber(score.factors.cloudCoverLowPct);
@@ -306,7 +483,7 @@ function buildWhyNowItems(score: LaunchJepScore): NarrativeItem[] {
     cloudCoverMid: score.factors.cloudCoverMidPct,
     cloudCoverHigh: score.factors.cloudCoverHighPct
   });
-  const detailedWeatherItem = buildDetailedWeatherWhyItem(score.weatherDetails);
+  const detailedWeatherItem = buildDetailedWeatherWhyItem(score.weatherDetails, observerContext);
 
   if (detailedWeatherItem) {
     items.push(detailedWeatherItem);
@@ -334,7 +511,7 @@ function buildWhyNowItems(score: LaunchJepScore): NarrativeItem[] {
   if (score.factors.illumination === 0) {
     items.push({
       title: 'No sunlit plume window is modeled',
-      detail: 'The model does not place the useful part of ascent in sunlight from this location at the current launch time.',
+      detail: `The model does not place the useful part of ascent in sunlight from ${observerContext.locationPhrase} at the current launch time.`,
       tone: 'danger',
       rank: 95
     });
@@ -349,8 +526,10 @@ function buildWhyNowItems(score: LaunchJepScore): NarrativeItem[] {
 
   if (score.factors.illumination > 0 && score.factors.lineOfSight === 0) {
     items.push({
-      title: 'The sunlit part never clears your horizon enough',
-      detail: 'From this location, the sunlit segment is not modeled as clearly visible above the viewing threshold.',
+      title: observerContext.launchAreaFallback
+        ? 'The sunlit part never clears the reference horizon enough'
+        : 'The sunlit part never clears your horizon enough',
+      detail: `From ${observerContext.locationPhrase}, the sunlit segment is not modeled as clearly visible above the viewing threshold.`,
       tone: 'danger',
       rank: 90
     });
@@ -382,7 +561,10 @@ function buildWhyNowItems(score: LaunchJepScore): NarrativeItem[] {
   return items;
 }
 
-function deriveGuidancePresentation(score: LaunchJepScore): GuidancePresentation {
+function deriveGuidancePresentation(
+  score: LaunchJepScore,
+  observerContext = buildJepObserverContext(score.observer)
+): GuidancePresentation {
   if (score.factors.illumination > 0 && score.factors.lineOfSight > 0) {
     if (score.score > 0) {
       return {
@@ -394,7 +576,7 @@ function deriveGuidancePresentation(score: LaunchJepScore): GuidancePresentation
         directionLabel: 'Look toward',
         directionNote: null,
         elevationLabel: 'Height above horizon',
-        elevationNote: 'Above your local horizon'
+        elevationNote: `Above ${observerContext.horizonPhrase}`
       };
     }
     return {
@@ -406,7 +588,7 @@ function deriveGuidancePresentation(score: LaunchJepScore): GuidancePresentation
       directionLabel: 'Look toward',
       directionNote: 'Direction if current blockers improve.',
       elevationLabel: 'Height above horizon',
-      elevationNote: 'Above your local horizon if current blockers improve.'
+      elevationNote: `Above ${observerContext.horizonPhrase} if current blockers improve.`
     };
   }
 
@@ -416,7 +598,7 @@ function deriveGuidancePresentation(score: LaunchJepScore): GuidancePresentation
       badgeLabel: 'Sunlit path is not clearly visible',
       badgeTone: 'warning',
       windowLabel: 'Sunlit path peak',
-      windowNote: 'The plume may be sunlit here, but the modeled sunlit segment is not clearly viewable from this location.',
+      windowNote: `The plume may be sunlit here, but the modeled sunlit segment is not clearly viewable from ${observerContext.locationPhrase}.`,
       directionLabel: 'Path direction',
       directionNote: 'Geometry only. This is not a predicted visible plume window.',
       elevationLabel: 'Path height',
@@ -429,7 +611,9 @@ function deriveGuidancePresentation(score: LaunchJepScore): GuidancePresentation
     badgeLabel: 'Modeled path only',
     badgeTone: 'neutral',
     windowLabel: 'Modeled flight path peak',
-    windowNote: 'This is the rocket’s highest modeled path from your observer, not a predicted visible plume window.',
+    windowNote: observerContext.launchAreaFallback
+      ? 'This is the rocket’s highest modeled path from the launch-area reference viewpoint, not a predicted visible plume window.'
+      : 'This is the rocket’s highest modeled path from your observer, not a predicted visible plume window.',
     directionLabel: 'Path direction',
     directionNote: 'Geometry only. This is not a predicted visible plume window.',
     elevationLabel: 'Path height',
@@ -453,24 +637,90 @@ function narrativeToneLabel(tone: BadgeTone) {
   return 'Also matters';
 }
 
-function buildDetailedWeatherWhyItem(weatherDetails: LaunchJepScore['weatherDetails']): NarrativeItem | null {
+function confidenceLabelTone(value: ReturnType<typeof buildJepConfidenceLabel>): BadgeTone {
+  if (value === 'high') return 'success';
+  if (value === 'medium') return 'info';
+  return 'warning';
+}
+
+function confidenceLabelLabel(value: ReturnType<typeof buildJepConfidenceLabel>) {
+  if (value === 'high') return 'High confidence';
+  if (value === 'medium') return 'Medium confidence';
+  return 'Low confidence';
+}
+
+function timelineTrendTone(trend: 'better' | 'similar' | 'worse'): BadgeTone {
+  if (trend === 'better') return 'success';
+  if (trend === 'worse') return 'warning';
+  return 'neutral';
+}
+
+function timelineTrendLabel(delta: number, trend: 'better' | 'similar' | 'worse') {
+  if (trend === 'better') return `+${delta}`;
+  if (trend === 'worse') return String(delta);
+  return 'Similar';
+}
+
+function visibilityCallLabel(value: ReturnType<typeof buildJepScenarioTimeline>[number]['visibilityCall']) {
+  if (value === 'not_expected') return 'Not expected';
+  if (value === 'possible') return 'Possible';
+  if (value === 'favorable') return 'Favorable';
+  return 'Highly favorable';
+}
+
+function viewpointPromptTitle(state: JepViewpointPromptState) {
+  if (state === 'resolving') return 'Checking your viewpoint';
+  if (state === 'denied') return 'Location access was denied';
+  if (state === 'unsupported') return 'Location is not available here';
+  if (state === 'timeout') return 'We could not get your location in time';
+  if (state === 'unavailable') return 'We could not personalize this launch';
+  if (state === 'error') return 'We hit a location lookup problem';
+  return 'Choose your viewpoint';
+}
+
+function viewpointPromptBody(state: JepViewpointPromptState) {
+  if (state === 'resolving') {
+    return 'Use your current location for a personal visibility answer, or switch to a launch-area reference if you only want the pad-side forecast.';
+  }
+  if (state === 'denied') {
+    return 'Use my location is the only way to answer for your actual viewing spot. You can allow location and try again, or keep using the launch-area reference forecast.';
+  }
+  if (state === 'unsupported') {
+    return 'This browser cannot provide your current location, so the fallback is a launch-area reference forecast near the pad and ascent corridor.';
+  }
+  if (state === 'timeout') {
+    return 'We could not resolve your location quickly enough. You can retry for a personal answer or continue with the launch-area reference forecast.';
+  }
+  if (state === 'unavailable') {
+    return 'We could not build a personal answer from your current location, so the fallback is the launch-area reference forecast.';
+  }
+  if (state === 'error') {
+    return 'We hit a temporary problem while resolving your location. Retry for a personal answer or continue with the launch-area reference forecast.';
+  }
+  return 'Use my location for the only answer that speaks to your actual viewing spot. Near launch site shows a reference forecast for viewers near the pad and ascent corridor.';
+}
+
+function buildDetailedWeatherWhyItem(
+  weatherDetails: LaunchJepScore['weatherDetails'],
+  observerContext: ReturnType<typeof buildJepObserverContext>
+): NarrativeItem | null {
   if (!weatherDetails) return null;
   switch (weatherDetails.mainBlocker) {
     case 'observer_low_ceiling':
       return {
-        title: 'Low cloud over your location is the main weather blocker',
+        title: `Low cloud over ${observerContext.areaPhrase} is the main weather blocker`,
         detail:
           weatherDetails.observer?.note ||
-          'The forecast puts a low cloud deck over your location, which is the strongest weather blocker in the current model.',
+          `The forecast puts a low cloud deck over ${observerContext.areaPhrase}, which is the strongest weather blocker in the current model.`,
         tone: 'danger',
         rank: 100
       };
     case 'observer_sky_cover':
       return {
-        title: 'Cloud cover over your location is the main weather blocker',
+        title: `Cloud cover over ${observerContext.areaPhrase} is the main weather blocker`,
         detail:
           weatherDetails.observer?.note ||
-          'The weather model expects heavy cloud cover over your location at launch time.',
+          `The weather model expects heavy cloud cover over ${observerContext.areaPhrase} at launch time.`,
         tone: 'danger',
         rank: 94
       };
@@ -479,7 +729,9 @@ function buildDetailedWeatherWhyItem(weatherDetails: LaunchJepScore['weatherDeta
         title: 'Low cloud along the plume path is the main weather blocker',
         detail:
           weatherDetails.alongPath?.note ||
-          'The modeled plume path runs under a low cloud deck, which makes blockage likely even if your local sky is somewhat better.',
+          `The modeled plume path runs under a low cloud deck, which makes blockage likely even if ${
+            observerContext.launchAreaFallback ? 'the reference viewing sky' : 'your local sky'
+          } is somewhat better.`,
         tone: 'danger',
         rank: 96
       };
@@ -497,7 +749,7 @@ function buildDetailedWeatherWhyItem(weatherDetails: LaunchJepScore['weatherDeta
         title: 'Low clouds are the main weather drag',
         detail:
           weatherDetails.observer?.note ||
-          'Low clouds over your location are the largest weather penalty in the current model.',
+          `Low clouds over ${observerContext.areaPhrase} are the largest weather penalty in the current model.`,
         tone: 'warning',
         rank: 82
       };
@@ -506,7 +758,7 @@ function buildDetailedWeatherWhyItem(weatherDetails: LaunchJepScore['weatherDeta
         title: 'Mid-level cloud is softening the setup',
         detail:
           weatherDetails.observer?.note ||
-          'Mid-level cloud is currently the main weather drag over your location.',
+          `Mid-level cloud is currently the main weather drag over ${observerContext.areaPhrase}.`,
         tone: 'warning',
         rank: 74
       };
@@ -679,7 +931,17 @@ function probabilityBand(probability: number): { label: string; tone: BadgeTone 
   return { label: 'Low', tone: 'danger' };
 }
 
-function primaryInterpretation(label: string) {
+function primaryInterpretation(label: string, usesFallbackPresentation = false) {
+  if (usesFallbackPresentation) {
+    if (label === 'High') {
+      return 'Launch-area conditions look favorable, but this is not your personal visibility call.';
+    }
+    if (label === 'Moderate') {
+      return 'Launch-area conditions are mixed. Your exact location can still be impossible.';
+    }
+    return 'Launch-area conditions look weak right now.';
+  }
+
   if (label === 'High') {
     return 'Good setup for a visible jellyfish plume.';
   }

@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import clsx from 'clsx';
 import type { LaunchFaaAirspaceMapV1 } from '@tminuszero/contracts';
 import { buildLaunchVideoEmbed, type LiveTabData } from '@tminuszero/launch-detail-ui';
-import { LaunchFaaMapClient } from '@/components/LaunchFaaMapClient';
+import type { LaunchFaaMapRenderMode } from '@/lib/maps/providerTypes';
+import { LaunchFaaMapBlock } from '@/components/LaunchFaaMapBlock';
 import { ForecastAdvisoriesDisclosure } from '@/components/launch/ForecastAdvisoriesDisclosure';
 import { JepScoreClient } from '@/components/JepScoreClient';
 import { ThirdPartyVideoEmbed } from '@/components/ThirdPartyVideoEmbed';
@@ -15,16 +16,24 @@ type LiveTabProps = {
   data: LiveTabData;
   className?: string;
   faaMapData?: LaunchFaaAirspaceMapV1 | null;
+  faaMapMode?: LaunchFaaMapRenderMode;
   googleMapsWebApiKey?: string | null;
-  googleMapsPadHref?: string | null;
+  appleMapsAuthorizationToken?: string | null;
+  padMapsHref?: string | null;
+  padMapsLinkLabel?: string;
+  faaMapUnavailableMessage?: string;
 };
 
 export function LiveTab({
   data,
   className,
   faaMapData = null,
+  faaMapMode = 'fallback',
   googleMapsWebApiKey = null,
-  googleMapsPadHref = null
+  appleMapsAuthorizationToken = null,
+  padMapsHref = null,
+  padMapsLinkLabel,
+  faaMapUnavailableMessage = 'FAA launch-day geometry is available for this launch, but the interactive map is not configured in this environment.'
 }: LiveTabProps) {
   const operationalWeather = data.weatherDetail?.operational ?? null;
   const standardWeatherCards = (data.weatherDetail?.cards ?? []).filter((card) => !isAdvancedWeatherSource(card.source));
@@ -56,8 +65,7 @@ export function LiveTab({
   const primaryWatchEmbed = primaryWatchLink ? buildLaunchVideoEmbed(primaryWatchLink.url) : null;
   const matchedPost = data.socialPosts.find((post) => post.kind === 'matched') ?? null;
   const providerPosts = data.socialPosts.filter((post) => post.kind !== 'matched');
-  const canRenderFaaMap = Boolean(googleMapsWebApiKey && faaMapData?.hasRenderableGeometry);
-  const hasFaaMapBlock = canRenderFaaMap || Boolean(faaMapData?.advisoryCount);
+  const hasFaaMapBlock = Boolean(faaMapData?.advisoryCount);
 
   return (
     <div className={clsx('space-y-8', className)}>
@@ -223,12 +231,16 @@ export function LiveTab({
               <div className={clsx(hasWeather ? 'mt-6 border-t border-stroke/50 pt-4' : '')}>
                 <ForecastAdvisoriesDisclosure count={data.faaAdvisories.length}>
                   <>
-                    {canRenderFaaMap && faaMapData && googleMapsWebApiKey ? (
-                      <LaunchFaaMapClient apiKey={googleMapsWebApiKey} data={faaMapData} padMapsHref={googleMapsPadHref} />
-                    ) : faaMapData?.advisoryCount ? (
-                      <div className="rounded-xl border border-dashed border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-3 text-sm text-text3">
-                        FAA launch-day geometry is available for this launch, but the interactive map is not configured in this environment.
-                      </div>
+                    {faaMapData?.advisoryCount ? (
+                      <LaunchFaaMapBlock
+                        data={faaMapData}
+                        renderMode={faaMapMode}
+                        googleMapsApiKey={googleMapsWebApiKey}
+                        appleMapsAuthorizationToken={appleMapsAuthorizationToken}
+                        padMapsHref={padMapsHref}
+                        padMapsLinkLabel={padMapsLinkLabel}
+                        unavailableMessage={faaMapUnavailableMessage}
+                      />
                     ) : (
                       <div className="rounded-xl border border-stroke bg-surface-0 px-3 py-3 text-sm text-text3">
                         FAA advisory geometry is not available for this launch yet.

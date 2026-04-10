@@ -1,6 +1,7 @@
 type CoordinateTarget = {
   latitude?: number | null;
   longitude?: number | null;
+  label?: string | null;
 };
 
 type GoogleMapsOptions = {
@@ -45,6 +46,21 @@ export function buildGoogleMapsSatelliteUrl(target: CoordinateTarget, options?: 
   return url.toString();
 }
 
+export function buildAppleMapsSatelliteUrl(target: CoordinateTarget, options?: GoogleMapsOptions) {
+  const coordinates = readCoordinates(target);
+  if (!coordinates) return null;
+
+  const url = new URL('https://maps.apple.com/');
+  url.searchParams.set('ll', `${formatCoordinate(coordinates.latitude)},${formatCoordinate(coordinates.longitude)}`);
+  url.searchParams.set('t', 'k');
+  url.searchParams.set('z', String(clampInteger(options?.zoom ?? 18, 3, 21)));
+  const label = typeof target.label === 'string' ? target.label.trim() : '';
+  if (label) {
+    url.searchParams.set('q', label);
+  }
+  return url.toString();
+}
+
 export function buildGoogleMapsStaticSatelliteUrl(target: CoordinateTarget, apiKey: string, options?: GoogleMapsStaticOptions) {
   const coordinates = readCoordinates(target);
   const trimmedApiKey = apiKey.trim();
@@ -68,18 +84,22 @@ export function buildGoogleMapsStaticSatelliteUrl(target: CoordinateTarget, apiK
   return url.toString();
 }
 
-export function buildPadSatellitePreviewPath(launchId: string, target?: CoordinateTarget) {
+export function buildPadSatellitePreviewPath({
+  launchId,
+  ll2PadId
+}: {
+  launchId: string;
+  ll2PadId?: number | null;
+}) {
   const normalizedLaunchId = String(launchId || '').trim();
   if (!normalizedLaunchId) return null;
 
-  const params = new URLSearchParams({ launchId: normalizedLaunchId });
-  const coordinates = target ? readCoordinates(target) : null;
-
-  if (coordinates) {
-    params.set('latitude', formatCoordinate(coordinates.latitude));
-    params.set('longitude', formatCoordinate(coordinates.longitude));
+  if (typeof ll2PadId === 'number' && Number.isInteger(ll2PadId) && ll2PadId > 0) {
+    const params = new URLSearchParams({ ll2PadId: String(ll2PadId) });
+    return `/api/pad-satellite?${params.toString()}`;
   }
 
+  const params = new URLSearchParams({ launchId: normalizedLaunchId });
   return `/api/pad-satellite?${params.toString()}`;
 }
 
@@ -88,4 +108,17 @@ export function formatCoordinatePair(target: CoordinateTarget, precision = 5) {
   if (!coordinates) return null;
   const boundedPrecision = clampInteger(precision, 0, 6);
   return `${coordinates.latitude.toFixed(boundedPrecision)}, ${coordinates.longitude.toFixed(boundedPrecision)}`;
+}
+
+export function isGoogleMapsUrl(value: string | null | undefined) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  if (!normalized) return false;
+
+  try {
+    const url = new URL(normalized);
+    const host = url.hostname.replace(/^www\./i, '').toLowerCase();
+    return (host === 'google.com' || host.endsWith('.google.com')) && url.pathname.toLowerCase().startsWith('/maps/');
+  } catch {
+    return false;
+  }
 }

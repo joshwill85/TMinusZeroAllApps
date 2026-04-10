@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { enforceLaunchFeedVersionRateLimit, resolveLaunchFeedScopeFromRequest } from '@/lib/server/launchApiRateLimit';
+import { logLaunchRefreshDiagnostic } from '@/lib/server/launchRefreshDiagnostics';
 import { getViewerTier } from '@/lib/server/viewerTier';
 import { resolveViewerSession } from '@/lib/server/viewerSession';
 import { LaunchFeedApiRouteError, loadVersionedLaunchFeedVersionPayload } from '@/lib/server/v1/launchFeedApi';
@@ -27,9 +28,21 @@ export async function GET(request: Request) {
       viewer: viewer ?? undefined,
       session: session ?? undefined
     });
+    const cacheControl =
+      payload.scope === 'public'
+        ? 'public, s-maxage=60, stale-while-revalidate=300, stale-if-error=86400'
+        : 'private, no-store';
+    logLaunchRefreshDiagnostic('route_response', {
+      route: 'api_v1_launches_version',
+      scope: payload.scope,
+      cacheControl,
+      version: payload.version,
+      updatedAt: payload.updatedAt,
+      recommendedIntervalSeconds: payload.recommendedIntervalSeconds ?? payload.intervalSeconds
+    });
     return NextResponse.json(payload, {
       headers: {
-        'Cache-Control': 'private, no-store'
+        'Cache-Control': cacheControl
       }
     });
   } catch (error) {

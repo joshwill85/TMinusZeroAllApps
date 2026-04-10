@@ -1,4 +1,5 @@
 import { createBrowserClient } from '@supabase/ssr';
+import { buildLaunchRefreshChannelTopic, buildLaunchRefreshStateKey, type LaunchRefreshStateScope } from '@tminuszero/domain';
 import { CANONICAL_HOST, COOKIE_DOMAIN, DOMAIN_APEX } from '@/lib/brand';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -40,4 +41,41 @@ export function getBrowserClient() {
 
 export function getAnonClient() {
   return getBrowserClient();
+}
+
+export async function subscribeToBrowserLaunchRefreshSignal({
+  scope,
+  launchId,
+  onSignal
+}: {
+  scope: LaunchRefreshStateScope;
+  launchId?: string | null;
+  onSignal: () => void | Promise<void>;
+}) {
+  const supabase = getBrowserClient();
+  if (!supabase) {
+    return null;
+  }
+
+  const {
+    data: { session }
+  } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    return null;
+  }
+
+  await supabase.realtime.setAuth(session.access_token);
+
+  const topic = buildLaunchRefreshChannelTopic(buildLaunchRefreshStateKey(scope, launchId));
+  const channel = supabase
+    .channel(topic, { config: { private: true } })
+    .on('broadcast', { event: 'INSERT' }, () => void onSignal())
+    .on('broadcast', { event: 'UPDATE' }, () => void onSignal())
+    .on('broadcast', { event: 'DELETE' }, () => void onSignal());
+
+  channel.subscribe();
+
+  return () => {
+    void supabase.removeChannel(channel);
+  };
 }

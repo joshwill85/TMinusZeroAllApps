@@ -1,5 +1,6 @@
 import { createApiClient } from '@tminuszero/api-client';
 import { selectPreferredResponsiveLaunchExternalContent, selectPreferredResponsiveLaunchExternalResources } from '@tminuszero/launch-detail-ui';
+import { unstable_cache } from 'next/cache';
 import { z } from 'zod';
 import {
   adminAccessOverrideSchemaV1,
@@ -61,6 +62,8 @@ import { getViewerEntitlement, type ViewerEntitlement } from '@/lib/server/entit
 import { fetchLaunchFaaAirspace } from '@/lib/server/faaAirspace';
 import { fetchLaunchJepScore } from '@/lib/server/jep';
 import { fetchLaunchBoosterStats } from '@/lib/server/launchBoosterStats';
+import { logLaunchRefreshDiagnostic } from '@/lib/server/launchRefreshDiagnostics';
+import { loadLaunchRefreshStateSeed } from '@/lib/server/launchRefreshState';
 import { buildStatusFilterOrClause, parseLaunchStatusFilter } from '@/lib/server/launchStatus';
 import { fetchLaunchDetailEnrichment } from '@/lib/server/launchDetailEnrichment';
 import { loadMobileHubRollout } from '@/lib/server/mobileHubRollout';
@@ -827,13 +830,6 @@ function extractXStatusId(value: string | null | undefined) {
   return match?.[1] ? match[1] : null;
 }
 
-function buildGoogleMapsUrl(launch: ReturnType<typeof mapPublicCacheRow>) {
-  const latitude = launch.pad?.latitude;
-  const longitude = launch.pad?.longitude;
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${latitude},${longitude}`)}`;
-}
-
 function normalizeInfoLinks(
   primary: Array<{ url?: string; title?: string; source?: string; type?: { name?: string } }> = [],
   secondary: Array<{ url?: string; title?: string; source?: string; type?: { name?: string } }> = []
@@ -911,8 +907,6 @@ function buildExternalLinks(launch: ReturnType<typeof mapPublicCacheRow>) {
   const seen = new Set<string>();
   const links: Array<{ url: string; label: string; meta: string; imageUrl: null; host: string | null; kind: string }> = [];
   const infoLinks = normalizeInfoLinks(launch.launchInfoUrls || [], launch.mission?.infoUrls || []);
-  const googleMapsUrl = buildGoogleMapsUrl(launch);
-  const padMapUrl = googleMapsUrl || normalizeUrlString(launch.pad?.mapUrl) || null;
 
   const add = (url: string | null | undefined, label: string | null | undefined, meta: string | null | undefined, kind = 'resource') => {
     const normalizedUrl = normalizeUrlString(url);
@@ -930,9 +924,6 @@ function buildExternalLinks(launch: ReturnType<typeof mapPublicCacheRow>) {
 
   for (const item of infoLinks) {
     add(item.url, item.label, item.meta, 'resource');
-  }
-  if (padMapUrl) {
-    add(padMapUrl, googleMapsUrl ? 'Pad satellite map' : 'Pad map', googleMapsUrl ? 'Satellite' : 'Location', 'map');
   }
   add(launch.rocket?.infoUrl, 'Vehicle info', 'Vehicle', 'rocket');
   add(launch.rocket?.wikiUrl, 'Vehicle wiki', 'Reference', 'rocket');
@@ -1072,7 +1063,7 @@ async function loadRelatedEventItems(launchId: string) {
 
 async function fetchWs45Forecast(launchId: string, isEasternRange: boolean) {
   if (!isSupabaseConfigured() || !isEasternRange) return null as Ws45Forecast | null;
-  const client = isSupabaseAdminConfigured() ? createSupabaseAdminClient() : createSupabaseServerClient();
+  const client = isSupabaseAdminConfigured() ? createSupabaseAdminClient() : createSupabasePublicClient();
   const { data, error } = await client
     .from('ws45_launch_forecasts')
     .select(
@@ -1091,7 +1082,7 @@ async function fetchWs45Forecast(launchId: string, isEasternRange: boolean) {
 
 async function fetchNwsForecast(launchId: string, isUsPad: boolean, within14Days: boolean) {
   if (!isSupabaseConfigured() || !isUsPad || !within14Days) return null as NwsLaunchWeather | null;
-  const client = isSupabaseAdminConfigured() ? createSupabaseAdminClient() : createSupabaseServerClient();
+  const client = isSupabaseAdminConfigured() ? createSupabaseAdminClient() : createSupabasePublicClient();
   const { data, error } = await client
     .from('launch_weather')
     .select('id, issued_at, valid_start, valid_end, summary, probability, data')
@@ -1187,6 +1178,7 @@ function buildWeatherModule(
     const badges = [
       'Advanced weather',
       '24-hour planning',
+      planning24h.parse_status !== 'parsed' ? 'Limited extract' : null,
       planning24h.document_family || null,
       ...(planning24h.highlights || []).slice(0, 2).map((entry) => String(entry || '').trim())
     ].filter(Boolean) as string[];
@@ -1211,6 +1203,7 @@ function buildWeatherModule(
     const badges = [
       'Advanced weather',
       'Weekly planning',
+      weeklyPlanning.parse_status !== 'parsed' ? 'Limited extract' : null,
       ...(weeklyPlanning.highlights || []).slice(0, 2).map((entry) => String(entry || '').trim())
     ].filter(Boolean) as string[];
     cards.push({
@@ -1291,7 +1284,7 @@ function buildWeatherModule(
 
 async function fetchPayloadManifest(ll2LaunchUuid: string) {
   if (!ll2LaunchUuid || !isSupabaseConfigured()) return [] as PayloadManifestEntry[];
-  const supabase = createSupabaseServerClient();
+  const supabase = createSupabasePublicClient();
 
   let { data, error } = await supabase.rpc('get_launch_payload_manifest_v2', {
     ll2_launch_uuid_in: ll2LaunchUuid,
@@ -1310,7 +1303,7 @@ async function fetchPayloadManifest(ll2LaunchUuid: string) {
 
 async function fetchLaunchObjectInventory(ll2LaunchUuid: string) {
   if (!ll2LaunchUuid || !isSupabaseConfigured()) return null as LaunchObjectInventory | null;
-  const supabase = createSupabaseServerClient();
+  const supabase = createSupabasePublicClient();
 
   const { data, error } = await supabase.rpc('get_launch_object_inventory_v1', {
     ll2_launch_uuid_in: ll2LaunchUuid,
@@ -1592,7 +1585,7 @@ async function fetchRocketOutcomeStats(rocketFullName?: string, vehicle?: string
     .map((value) => value?.trim())
     .filter((value) => value && value.toLowerCase() !== 'unknown') as string[];
   if (filters.length === 0) return null;
-  const supabase = createSupabaseServerClient();
+  const supabase = createSupabasePublicClient();
   const orFilter = buildVehicleOrFilter(filters);
   if (!orFilter) return null;
   const { data, error } = await supabase.from('launches_public_cache').select('status_name, status_abbrev, net').or(orFilter);
@@ -1632,7 +1625,7 @@ async function fetchVehicleTimelineRows(launch: ReturnType<typeof mapPublicCache
     .filter((value) => value && value.toLowerCase() !== 'unknown') as string[];
   if (filters.length === 0) return [] as Array<Record<string, any>>;
 
-  const supabase = createSupabaseServerClient();
+  const supabase = createSupabasePublicClient();
   const orFilter = buildVehicleOrFilter(filters);
   if (!orFilter) return [] as Array<Record<string, any>>;
 
@@ -2326,7 +2319,7 @@ async function loadLl2SpacecraftFlights(ll2LaunchUuid: string | null | undefined
   const normalized = normalizeCompactText(ll2LaunchUuid);
   if (!normalized || !isSupabaseConfigured()) return [] as Ll2SpacecraftFlightRow[];
 
-  const client = createSupabaseServerClient();
+  const client = createSupabasePublicClient();
   const { data, error } = await client
     .from('ll2_spacecraft_flights')
     .select('ll2_spacecraft_flight_id,ll2_launch_uuid,launch_crew,onboard_crew,landing_crew,active')
@@ -3540,38 +3533,17 @@ export async function loadLaunchFeedPayload(request: Request) {
   return loadVersionedLaunchFeedPayload(request);
 }
 
-export async function loadLaunchDetailPayload(id: string, session: ResolvedViewerSession, entitlementOverride?: Awaited<ReturnType<typeof getViewerEntitlement>>['entitlement']) {
-  if (!isSupabaseConfigured()) {
-    return null;
-  }
+const launchDetailPublicCoreSchemaV1 = launchDetailSchemaV1.omit({ entitlements: true });
+const PUBLIC_LAUNCH_DETAIL_CACHE_REVALIDATE_SECONDS = 3600;
+const PUBLIC_LAUNCH_DETAIL_TIME_BUCKET_MS = 60 * 1000;
 
-  const parsedLaunch = parseLaunchParam(id);
-  if (!parsedLaunch) {
-    return null;
-  }
+type LaunchDetailPublicCore = z.infer<typeof launchDetailPublicCoreSchemaV1>;
+type LaunchDetailRecord = ReturnType<typeof mapPublicCacheRow>;
 
-  const entitlement = entitlementOverride ?? (await getViewerEntitlement({ session, reconcileStripe: false })).entitlement;
-  const wantsLiveDetail = entitlement.isAuthed && entitlement.tier === 'premium';
-  const liveClient = wantsLiveDetail ? getPrivilegedClient(session) : null;
-  const useLiveDetail = Boolean(liveClient);
-  let sourceQuery;
-  if (liveClient) {
-    sourceQuery = liveClient.from('launches').select('*').eq('id', parsedLaunch.launchId).eq('hidden', false);
-  } else {
-    sourceQuery = createSupabasePublicClient().from('launches_public_cache').select('*').eq('launch_id', parsedLaunch.launchId);
-  }
-  const { data, error } = await sourceQuery.maybeSingle();
-
-  if (error) {
-    throw error;
-  }
-
-  if (!data) {
-    return null;
-  }
-
-  const launch = useLiveDetail ? mapLiveLaunchRow(data) : mapPublicCacheRow(data);
-  const entitlements = buildViewerEntitlementEnvelope(entitlement);
+async function buildLaunchDetailPublicCore(
+  launch: LaunchDetailRecord,
+  options: { viewerIsAdmin: boolean }
+): Promise<LaunchDetailPublicCore> {
   const netMs = Date.parse(launch.net);
   const nowMs = Date.now();
   const isEasternRange = launch.pad?.state === 'FL';
@@ -3609,7 +3581,7 @@ export async function loadLaunchDetailPayload(id: string, session: ResolvedViewe
   ] = await Promise.all([
     loadRelatedLaunchResults(launch.id),
     fetchLaunchDetailEnrichment(launch.id, launch.ll2Id),
-    fetchLaunchJepScore(launch.id, { viewerIsAdmin: session.role === 'admin' }),
+    fetchLaunchJepScore(launch.id, { viewerIsAdmin: options.viewerIsAdmin }),
     fetchLaunchFaaAirspace({ launchId: launch.id, limit: 6 }),
     loadArTrajectorySummary(launch.id),
     loadRelatedNewsItems(launch.id),
@@ -3691,7 +3663,7 @@ export async function loadLaunchDetailPayload(id: string, session: ResolvedViewe
     rocketName: launch.rocket?.fullName ?? launch.vehicle ?? null
   };
 
-  return launchDetailSchemaV1.parse({
+  return launchDetailPublicCoreSchemaV1.parse({
     launch: {
       ...mapLaunchCardPayload(launch),
       mission: launchData.missionSummary,
@@ -3705,7 +3677,6 @@ export async function loadLaunchDetailPayload(id: string, session: ResolvedViewe
     },
     launchData,
     arTrajectory,
-    entitlements,
     related,
     enrichment: {
       firstStageCount: enrichment.firstStages.length,
@@ -3730,6 +3701,107 @@ export async function loadLaunchDetailPayload(id: string, session: ResolvedViewe
     vehicleTimeline,
     blueOrigin: blueOriginDetail.blueOrigin
   });
+}
+
+function buildLaunchDetailPayloadFromCore(
+  core: LaunchDetailPublicCore,
+  entitlements: ReturnType<typeof buildViewerEntitlementEnvelope>,
+  options: { hasJepScore?: boolean } = {}
+) {
+  return launchDetailSchemaV1.parse({
+    ...core,
+    entitlements,
+    enrichment:
+      typeof options.hasJepScore === 'boolean'
+        ? {
+            ...core.enrichment,
+            hasJepScore: options.hasJepScore
+          }
+        : core.enrichment
+  });
+}
+
+const loadCachedPublicLaunchDetailCore = unstable_cache(
+  async (launchId: string, refreshRevision: number, bucketNowMs: number): Promise<LaunchDetailPublicCore | null> => {
+    logLaunchRefreshDiagnostic('cache_fill', {
+      layer: 'public_detail_core',
+      launchId,
+      refreshRevision,
+      bucketNowMs
+    });
+
+    const { data, error } = await createSupabasePublicClient()
+      .from('launches_public_cache')
+      .select('*')
+      .eq('launch_id', launchId)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    if (!data) {
+      return null;
+    }
+
+    return buildLaunchDetailPublicCore(mapPublicCacheRow(data), { viewerIsAdmin: false });
+  },
+  ['public-launch-detail-core-v1'],
+  { revalidate: PUBLIC_LAUNCH_DETAIL_CACHE_REVALIDATE_SECONDS }
+);
+
+async function loadPublicLaunchDetailCore(launchId: string) {
+  const refreshSeed = await loadLaunchRefreshStateSeed(createSupabasePublicClient(), 'detail_public', { launchId });
+  const bucketNowMs =
+    Math.floor(Date.now() / PUBLIC_LAUNCH_DETAIL_TIME_BUCKET_MS) * PUBLIC_LAUNCH_DETAIL_TIME_BUCKET_MS;
+
+  return loadCachedPublicLaunchDetailCore(launchId, refreshSeed.revision, bucketNowMs);
+}
+
+export async function loadLaunchDetailPayload(id: string, session: ResolvedViewerSession, entitlementOverride?: Awaited<ReturnType<typeof getViewerEntitlement>>['entitlement']) {
+  if (!isSupabaseConfigured()) {
+    return null;
+  }
+
+  const parsedLaunch = parseLaunchParam(id);
+  if (!parsedLaunch) {
+    return null;
+  }
+
+  const entitlement = entitlementOverride ?? (await getViewerEntitlement({ session, reconcileStripe: false })).entitlement;
+  const entitlements = buildViewerEntitlementEnvelope(entitlement);
+  const wantsLiveDetail = entitlement.isAuthed && entitlement.tier === 'premium';
+  const liveClient = wantsLiveDetail ? getPrivilegedClient(session) : null;
+
+  if (!liveClient) {
+    const publicCore = await loadPublicLaunchDetailCore(parsedLaunch.launchId);
+    if (!publicCore) {
+      return null;
+    }
+
+    if (session.role !== 'admin' || publicCore.enrichment.hasJepScore) {
+      return buildLaunchDetailPayloadFromCore(publicCore, entitlements);
+    }
+
+    const adminJepScore = await fetchLaunchJepScore(parsedLaunch.launchId, { viewerIsAdmin: true });
+    return buildLaunchDetailPayloadFromCore(publicCore, entitlements, {
+      hasJepScore: Boolean(adminJepScore)
+    });
+  }
+
+  const { data, error } = await liveClient.from('launches').select('*').eq('id', parsedLaunch.launchId).eq('hidden', false).maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const launch = mapLiveLaunchRow(data);
+  const core = await buildLaunchDetailPublicCore(launch, { viewerIsAdmin: session.role === 'admin' });
+  return buildLaunchDetailPayloadFromCore(core, entitlements);
 }
 
 export async function searchPayload(request: Request) {

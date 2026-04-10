@@ -1,10 +1,12 @@
 # Three-Platform Overhaul Plan
 
-Last updated: 2026-04-08
+Last updated: 2026-04-10
 
 This is the living master checklist for moving T-Minus Zero from a web-only product to a maintainable, high-performance web + iOS + Android product line.
 
 Related implementation plans:
+- `docs/2026-04-10-safari-faa-apple-maps-web-plan.md`
+- `docs/2026-04-10-maps-cost-control-and-provider-routing-plan.md`
 - `docs/2026-04-08-ar-trajectory-v3-data-and-roadmap-plan.md`
 - `docs/2026-04-03-apple-sign-in-linking-and-rollout-plan.md`
 - `docs/2026-04-04-anon-premium-model-enforcement-plan.md`
@@ -77,6 +79,14 @@ Related implementation plans:
 
 ## Current Slice Tracker
 
+- 2026-04-10: Safari FAA Apple Maps web implementation planning is in progress for `Web`.
+  - Source-of-truth plan: `docs/2026-04-10-safari-faa-apple-maps-web-plan.md`
+  - Scope: replace the current Safari advisory-only FAA fallback with an Apple-backed polygon map on both web launch-detail surfaces while keeping iOS native MapKit unchanged, Android unchanged, and non-Safari browsers on the current Google path.
+  - Guardrails: no Google on Safari, no iOS native map changes, no Android changes, no breaking `/api/v1` changes, and no launch-detail hard failure when Apple web-map config or token generation is unavailable.
+- 2026-04-10: Maps cost control and provider routing planning is in progress for `Web`, `iOS`, and `Android`.
+  - Source-of-truth plan: `docs/2026-04-10-maps-cost-control-and-provider-routing-plan.md`
+  - Scope: cap Google map usage to one-tenth of the free threshold, redesign pad-preview caching around canonical pad identity, remove open Static Maps proxy behavior, keep Safari web and iOS native off Google maps, and add Android budget gating plus provider-specific fallback behavior.
+  - Guardrails: no silent Safari/iOS Google usage, no permanent Google map asset storage, no breaking `/api/v1` changes without additive compatibility, and no user-facing launch-detail hard failures when map budgets are exhausted.
 - 2026-04-08: AR trajectory `v3` data and product roadmap planning is in progress for `Web`, `iOS`, and `Android`.
   - Source-of-truth plan: `docs/2026-04-08-ar-trajectory-v3-data-and-roadmap-plan.md`
   - Scope: raise source authority, complete telemetry evidence, dual-write a richer mission package under current contracts, simplify the handheld sky-finder product, and add bounded actualization only after replay and field gates hold.

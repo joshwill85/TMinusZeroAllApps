@@ -350,7 +350,7 @@ function computeIlluminationFactor(samples: GuidanceSample[], solarDepressionDeg
 }
 
 function computeDarknessFactor(depressionDeg: number) {
-  if (depressionDeg > 18) return 0.1;
+  if (depressionDeg > 18) return 0;
   if (depressionDeg >= 12 && depressionDeg <= 18) return 0.6;
   if (depressionDeg >= JEP_TWILIGHT_SWEET_SPOT_MIN_DEG && depressionDeg < JEP_TWILIGHT_SWEET_SPOT_MAX_DEG) return 1;
   if (depressionDeg >= 3 && depressionDeg < 6) return 0.8;

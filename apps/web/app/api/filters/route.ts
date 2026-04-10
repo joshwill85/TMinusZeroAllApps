@@ -1,6 +1,8 @@
+import { unstable_cache } from 'next/cache';
 import { NextResponse } from 'next/server';
 import {
   createSupabaseAdminClient,
+  createSupabasePublicClient,
   createSupabaseServerClient
 } from '@/lib/server/supabaseServer';
 import { isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
@@ -33,6 +35,7 @@ type CachedFilterPayload = {
 const FILTER_RPC_CACHE_TTL_MS = 5 * 60 * 1000;
 const FILTER_FALLBACK_CACHE_TTL_MS = 60 * 1000;
 const FILTER_RPC_TIMEOUT_COOLDOWN_MS = 90 * 1000;
+const PUBLIC_FILTER_CACHE_REVALIDATE_SECONDS = 60;
 
 const filterRpcCache = new Map<FilterRpcName, CachedFilterPayload>();
 const filterFallbackCache = new Map<string, CachedFilterPayload>();
@@ -63,6 +66,33 @@ type FilterOptionQueryArgs = {
   provider: string | null;
   status: FilterStatus | null;
 };
+
+type FilterQueryClient =
+  | ReturnType<typeof createSupabaseAdminClient>
+  | ReturnType<typeof createSupabasePublicClient>
+  | ReturnType<typeof createSupabaseServerClient>;
+
+const fetchCachedPublicFilterOptions = unstable_cache(
+  async (context: FilterFallbackCacheContext): Promise<FilterOptionPayload> => {
+    const payload = await fetchFilterFallback(createSupabasePublicClient(), {
+      mode: 'public',
+      region: context.region,
+      from: context.from,
+      to: context.to,
+      location: context.location,
+      state: context.state,
+      pad: context.pad,
+      provider: context.provider,
+      status: context.status
+    });
+    if (!payload) {
+      throw new Error('filters_failed');
+    }
+    return payload;
+  },
+  ['public-filter-options-v2'],
+  { revalidate: PUBLIC_FILTER_CACHE_REVALIDATE_SECONDS }
+);
 
 function isPostgrestTimeout(error: unknown) {
   if (!error || typeof error !== 'object') return false;
@@ -179,13 +209,19 @@ function getFilterRpcName(region: FilterRegion): FilterRpcName {
   return 'get_launch_filter_options';
 }
 
-function makeFilterFallbackHeaders(canUseAdmin: boolean) {
+function makeFilterResponseHeaders(mode: FilterRequestMode, canUseAdmin: boolean) {
+  if (mode === 'public') {
+    return {
+      'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300, stale-if-error=86400'
+    };
+  }
+
   const cacheHeader = canUseAdmin ? 'private, max-age=120' : 'private, max-age=300';
   return { 'Cache-Control': cacheHeader };
 }
 
 async function fetchFilterFallback(
-  supabase: ReturnType<typeof createSupabaseServerClient> | ReturnType<typeof createSupabaseAdminClient>,
+  supabase: FilterQueryClient,
   args: FilterOptionQueryArgs
 ): Promise<FilterOptionPayload | null> {
   const tableName = args.mode === 'live' ? 'launches' : 'launches_public_cache';
@@ -307,7 +343,6 @@ export async function GET(request: Request) {
       ? resolveDateWindow({ range: parsedRange || '7d', parsedFrom, parsedTo, now })
       : { from: null, to: null };
 
-    const supabase = createSupabaseServerClient();
     const canUseAdmin = isSupabaseAdminConfigured();
 
     if (mode === 'live') {
@@ -318,7 +353,8 @@ export async function GET(request: Request) {
     }
 
     const filterMode: FilterRequestMode = mode === 'live' && canUseAdmin ? 'live' : 'public';
-    const fallbackClient = filterMode === 'live' && canUseAdmin ? createSupabaseAdminClient() : supabase;
+    const requestClient = filterMode === 'public' ? createSupabasePublicClient() : createSupabaseServerClient();
+    const fallbackClient = filterMode === 'live' && canUseAdmin ? createSupabaseAdminClient() : requestClient;
     const filterArgs: FilterOptionQueryArgs = {
       mode: filterMode,
       region,
@@ -343,10 +379,19 @@ export async function GET(request: Request) {
       variant: shouldUseDynamicOptions ? 'dynamic' : 'legacy'
     };
 
+    const responseHeaders = makeFilterResponseHeaders(filterMode, canUseAdmin);
     const cachedFallback = getFreshFilterFallbackCache(fallbackCacheContext);
     if (cachedFallback) {
       return NextResponse.json(cachedFallback, {
-        headers: makeFilterFallbackHeaders(canUseAdmin)
+        headers: responseHeaders
+      });
+    }
+
+    if (filterMode === 'public') {
+      const sharedPayload = await fetchCachedPublicFilterOptions(fallbackCacheContext);
+      setFilterFallbackCache(fallbackCacheContext, sharedPayload);
+      return NextResponse.json(sharedPayload, {
+        headers: responseHeaders
       });
     }
 
@@ -357,7 +402,7 @@ export async function GET(request: Request) {
       }
       setFilterFallbackCache(fallbackCacheContext, dynamicPayload);
       return NextResponse.json(dynamicPayload, {
-        headers: makeFilterFallbackHeaders(canUseAdmin)
+        headers: responseHeaders
       });
     }
 
@@ -368,7 +413,7 @@ export async function GET(request: Request) {
       if (freshRpcPayload) {
         setFilterFallbackCache(fallbackCacheContext, freshRpcPayload);
         return NextResponse.json(freshRpcPayload, {
-          headers: makeFilterFallbackHeaders(canUseAdmin)
+          headers: responseHeaders
         });
       }
 
@@ -384,7 +429,7 @@ export async function GET(request: Request) {
           setFilterRpcCache(fn, payload);
           setFilterFallbackCache(fallbackCacheContext, payload);
           return NextResponse.json(payload, {
-            headers: makeFilterFallbackHeaders(canUseAdmin)
+            headers: responseHeaders
           });
         }
 
@@ -403,7 +448,7 @@ export async function GET(request: Request) {
     setFilterFallbackCache(fallbackCacheContext, fallback);
     return NextResponse.json(
       fallback,
-      { headers: makeFilterFallbackHeaders(canUseAdmin) }
+      { headers: responseHeaders }
     );
   } catch (err) {
     console.error('filters fetch error', err);

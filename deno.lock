@@ -107,6 +107,7 @@
             "npm:expo-device@^55.0.9",
             "npm:expo-iap@^3.4.9",
             "npm:expo-linking@~55.0.7",
+            "npm:expo-location@~55.1.8",
             "npm:expo-notifications@^55.0.11",
             "npm:expo-router@~55.0.4",
             "npm:expo-secure-store@~55.0.8",

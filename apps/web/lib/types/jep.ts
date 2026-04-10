@@ -1,5 +1,8 @@
 export type JepConfidence = 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
 export type JepCalibrationBand = 'VERY_LOW' | 'LOW' | 'MEDIUM' | 'HIGH' | 'VERY_HIGH' | 'UNKNOWN';
+export type JepVisibilityCall = 'not_expected' | 'possible' | 'favorable' | 'highly_favorable';
+export type JepViewpoint = 'personal' | 'launch_site_reference';
+export type JepConfidenceLabel = 'low' | 'medium' | 'high';
 export type JepForecastPhase = 'week_ahead' | 'day_ahead' | 'same_day' | 'near_launch' | 'post_launch';
 export type JepForecastConfidence = 'LOW' | 'MEDIUM' | 'HIGH';
 export type JepWeatherSourceKey = 'nbm_ndfd' | 'hrrr' | 'goes_nowcast' | 'open_meteo_fallback';
@@ -150,6 +153,9 @@ export type LaunchJepScore = {
   sunlitMarginKm: number | null;
   losVisibleFraction: number | null;
   weatherFreshnessMinutes: number | null;
+  visibilityCall: JepVisibilityCall;
+  viewpoint: JepViewpoint;
+  confidenceLabel: JepConfidenceLabel;
   factors: {
     illumination: number;
     darkness: number;

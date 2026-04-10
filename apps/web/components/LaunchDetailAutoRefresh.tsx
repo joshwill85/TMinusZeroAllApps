@@ -13,10 +13,12 @@ import {
   tierToMode,
   type ViewerTier
 } from '@tminuszero/domain';
+import { subscribeToBrowserLaunchRefreshSignal } from '@/lib/api/supabase';
 import { fetchLaunchDetailVersion } from '@/lib/api/queries';
 
 const LAUNCH_ROUTE_TRACE_KEY = '__tmzBlueOriginRouteTrace';
 const LAUNCH_PERF_SLOW_RESOURCE_MS = 150;
+const LIVE_DETAIL_REFRESH_SIGNAL_COOLDOWN_MS = 1000;
 
 type RouteTraceEntry = {
   targetPath: string;
@@ -132,6 +134,7 @@ export function LaunchDetailAutoRefresh({
   const scope = tierToMode(tier);
   const [nextRefreshAt, setNextRefreshAt] = useState<number | null>(null);
   const lastSeenRef = useRef<string | null>(initialVersion ?? buildDetailVersionToken(launchId, scope, lastUpdated ?? null));
+  const lastSignalAtRef = useRef(0);
   const debugSessionIdRef = useRef(Math.random().toString(36).slice(2));
   const debugName = useMemo(() => `LaunchDetailAutoRefresh:${debugSessionIdRef.current}`, []);
 
@@ -317,6 +320,51 @@ export function LaunchDetailAutoRefresh({
       window.removeEventListener('focus', handleFocus);
     };
   }, [cadenceAnchorNet, debugEnabled, debugName, debugTrace, launchId, queryClient, refreshIntervalMs, refreshIntervalSeconds, router, scope, tier]);
+
+  useEffect(() => {
+    if (tier !== 'premium' || scope !== 'live' || !launchId) {
+      return;
+    }
+
+    let cancelled = false;
+    let cleanup: (() => void) | null = null;
+
+    const handleSignal = async () => {
+      if (cancelled) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      if (typeof navigator !== 'undefined' && 'onLine' in navigator && navigator.onLine === false) return;
+
+      const now = Date.now();
+      if (now - lastSignalAtRef.current < LIVE_DETAIL_REFRESH_SIGNAL_COOLDOWN_MS) {
+        return;
+      }
+      lastSignalAtRef.current = now;
+      lastSeenRef.current = null;
+
+      if (debugEnabled) {
+        console.log(`[${debugName}] realtime_refresh_signal`, { launchId, scope });
+      }
+
+      router.refresh();
+    };
+
+    void subscribeToBrowserLaunchRefreshSignal({
+      scope: 'detail_live',
+      launchId,
+      onSignal: handleSignal
+    }).then((nextCleanup) => {
+      if (cancelled) {
+        nextCleanup?.();
+        return;
+      }
+      cleanup = nextCleanup;
+    });
+
+    return () => {
+      cancelled = true;
+      cleanup?.();
+    };
+  }, [debugEnabled, debugName, launchId, router, scope, tier]);
 
   const summary = useMemo(() => {
     if (tier === 'premium') {

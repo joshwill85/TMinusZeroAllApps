@@ -7,6 +7,7 @@ type Props = {
   apiKey: string;
   data: LaunchFaaAirspaceMapV1;
   padMapsHref: string | null;
+  openMapsLabel?: string;
 };
 
 type GoogleMapWindow = Window & {
@@ -14,7 +15,7 @@ type GoogleMapWindow = Window & {
   __tmzGoogleMapsLoadingPromise?: Promise<any>;
 };
 
-export function LaunchFaaMapClient({ apiKey, data, padMapsHref }: Props) {
+export function LaunchFaaMapClient({ apiKey, data, padMapsHref, openMapsLabel = 'Open in Google Maps' }: Props) {
   const previewRef = useRef<HTMLDivElement | null>(null);
   const modalRef = useRef<HTMLDivElement | null>(null);
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
@@ -86,7 +87,7 @@ export function LaunchFaaMapClient({ apiKey, data, padMapsHref }: Props) {
                 target="_blank"
                 rel="noreferrer"
               >
-                Open in Google Maps
+                {openMapsLabel}
               </a>
             ) : null}
           </div>
@@ -126,7 +127,7 @@ export function LaunchFaaMapClient({ apiKey, data, padMapsHref }: Props) {
                     target="_blank"
                     rel="noreferrer"
                   >
-                    Open in Google Maps
+                    {openMapsLabel}
                   </a>
                 ) : null}
                 <button

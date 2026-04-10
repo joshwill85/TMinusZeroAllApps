@@ -263,14 +263,14 @@ async function main() {
 
   assertPattern(
     'apps/web/lib/server/v1/mobileApi.ts',
-    /if \(liveClient\) \{[\s\S]*liveClient\.from\('launches'\)\.select\('\*'\)\.eq\('id',\s*parsedLaunch\.launchId\)\.eq\('hidden',\s*false\)/,
+    /if \(!liveClient\) \{[\s\S]*loadPublicLaunchDetailCore\(parsedLaunch\.launchId\)[\s\S]*\}[\s\S]*const \{ data, error \} = await liveClient\.from\('launches'\)\.select\('\*'\)\.eq\('id',\s*parsedLaunch\.launchId\)\.eq\('hidden',\s*false\)\.maybeSingle\(\);/s,
     'mobile detail live path reads from the live launches table'
   );
   sourceAssertions.push('premium mobile detail reads from the live launches table');
 
   assertPattern(
     'apps/web/lib/server/v1/mobileApi.ts',
-    /const launch = useLiveDetail \? mapLiveLaunchRow\(data\) : mapPublicCacheRow\(data\);/,
+    /const launch = mapLiveLaunchRow\(data\);[\s\S]*return buildLaunchDetailPayloadFromCore\(core,\s*entitlements\);/s,
     'mobile detail maps live rows through the live transformer'
   );
   sourceAssertions.push('mobile detail maps live rows with the live transformer');
@@ -326,7 +326,7 @@ async function main() {
 
   assertPattern(
     'apps/web/app/api/v1/launches/[id]/version/route.ts',
-    /enforceLaunchDetailVersionRateLimit\(request,\s*\{\s*scope,\s*viewerId:\s*viewer\.userId\s*\}\)/s,
+    /enforceLaunchDetailVersionRateLimit\(request,\s*\{\s*scope,\s*viewerId:\s*viewer\?\.userId\s*\?\?\s*null\s*\}\)/s,
     'detail version route applies durable rate limiting before returning versions'
   );
   sourceAssertions.push('detail version route is rate limited');

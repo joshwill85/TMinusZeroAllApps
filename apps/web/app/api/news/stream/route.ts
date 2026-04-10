@@ -26,7 +26,7 @@ export async function GET(request: Request) {
 
   return NextResponse.json(page, {
     headers: {
-      'Cache-Control': 'no-store'
+      'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300, stale-if-error=86400'
     }
   });
 }
@@ -47,4 +47,3 @@ function clampInt(value: string | null, fallback: number, min: number, max: numb
   if (!Number.isFinite(n)) return fallback;
   return Math.min(max, Math.max(min, Math.trunc(n)));
 }
-

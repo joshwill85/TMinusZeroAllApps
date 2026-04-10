@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { NEXT_LAUNCH_RETENTION_MS } from '@/lib/constants/launchTimeline';
 import { isSupabaseConfigured } from '@/lib/server/env';
 import { enforceLegacyPublicLaunchFeedRateLimit } from '@/lib/server/launchApiRateLimit';
+import { logLaunchRefreshDiagnostic } from '@/lib/server/launchRefreshDiagnostics';
 import {
   loadPublicLaunchPage,
   PublicLaunchFeedError,
@@ -70,6 +71,13 @@ export async function GET(request: Request) {
       }
     );
 
+    logLaunchRefreshDiagnostic('route_response', {
+      route: 'api_public_launches_payload',
+      scope: 'public',
+      cacheControl: 'public, s-maxage=60, stale-while-revalidate=300, stale-if-error=86400',
+      launchCount: result.launches.length,
+      hasMore: result.hasMore
+    });
     return NextResponse.json(
       {
         freshness,
@@ -79,7 +87,7 @@ export async function GET(request: Request) {
       },
       {
         headers: {
-          'Cache-Control': 'public, s-maxage=600, stale-while-revalidate=1800, stale-if-error=86400'
+          'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300, stale-if-error=86400'
         }
       }
     );

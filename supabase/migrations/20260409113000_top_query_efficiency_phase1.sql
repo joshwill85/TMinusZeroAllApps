@@ -112,6 +112,60 @@ begin
        or a.contract_id = any(contract_ids_in)
     group by a.contract_id
   ),
+  scoped_contracts as (
+    select c.*
+    from public.artemis_contracts c
+    cross join lateral (
+      select
+        nullif(lower(btrim(coalesce(c.metadata->>'programScope', c.metadata->>'program_scope'))), '') as direct_scope,
+        coalesce(
+          case
+            when jsonb_typeof(c.metadata->'programScopes') = 'array'
+              then c.metadata->'programScopes'
+            else '[]'::jsonb
+          end,
+          '[]'::jsonb
+        ) ||
+        coalesce(
+          case
+            when jsonb_typeof(c.metadata->'program_scopes') = 'array'
+              then c.metadata->'program_scopes'
+            else '[]'::jsonb
+          end,
+          '[]'::jsonb
+        ) as scope_values
+    ) scope_filter
+    where (
+      contract_ids_in is null
+      or c.id = any(contract_ids_in)
+    )
+    and (
+      case
+        when scope_filter.direct_scope is not null then scope_filter.direct_scope = 'artemis'
+        when jsonb_array_length(scope_filter.scope_values) = 0 then true
+        else exists (
+          select 1
+          from jsonb_array_elements_text(scope_filter.scope_values) as scope(value)
+          where lower(btrim(scope.value)) = 'artemis'
+        )
+        or not exists (
+          select 1
+          from jsonb_array_elements_text(scope_filter.scope_values) as scope(value)
+          where lower(btrim(scope.value)) in (
+            'artemis',
+            'blue-origin',
+            'blue_origin',
+            'blueorigin',
+            'blue',
+            'spacex',
+            'space-x',
+            'space_x',
+            'space x'
+          )
+        )
+      end
+    )
+  ),
   rows_to_upsert as (
     select
       c.id as contract_id,
@@ -141,13 +195,11 @@ begin
           'programScope', 'artemis'
         )
       ) as metadata
-    from public.artemis_contracts c
+    from scoped_contracts c
     join action_rollup ar
       on ar.contract_id = c.id
     left join latest_action la
       on la.contract_id = c.id
-    where contract_ids_in is null
-       or c.id = any(contract_ids_in)
   )
   insert into public.artemis_program_procurement_cache (
     contract_id,

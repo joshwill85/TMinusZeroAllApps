@@ -10,6 +10,7 @@ import { LaunchFaaMapCard } from '@/src/components/launch/NativeLaunchMapCard';
 import { LaunchVideoInlineEmbed } from '@/src/components/launch/LaunchVideoInlineEmbed';
 import { XPostInlineEmbed } from '@/src/components/launch/XPostInlineEmbed';
 import { openExternalCustomerUrl } from '@/src/features/customerRoutes/shared';
+import { useAndroidGoogleMapsAccess } from '@/src/hooks/useAndroidGoogleMapsAccess';
 import { formatTimestamp } from '@/src/utils/format';
 import { buildPlatformPadMapUrl } from '@/src/utils/mapLinks';
 
@@ -39,6 +40,21 @@ export function LiveTab({ data, theme, faaMapData = null, faaMapLoading = false 
     data.watchLinks.length > 0 ||
     data.launchUpdates.length > 0 ||
     data.socialPosts.length > 0;
+  const padMapUrl = buildPlatformPadMapUrl(
+    {
+      latitude: faaMapData?.pad.latitude,
+      longitude: faaMapData?.pad.longitude,
+      label: faaMapData?.pad.shortCode || faaMapData?.pad.label || 'Launch pad'
+    },
+    Platform.OS
+  );
+  const androidFaaPreviewAccess = useAndroidGoogleMapsAccess({
+    surface: 'faa_preview',
+    launchId: data.launchId,
+    enabled: Platform.OS === 'android' && Boolean(faaMapData?.hasRenderableGeometry)
+  });
+  const showAndroidLoadingGate = Platform.OS === 'android' && faaMapData?.hasRenderableGeometry && !androidFaaPreviewAccess.checked;
+  const allowNativeFaaMap = Platform.OS !== 'android' || androidFaaPreviewAccess.allowed;
 
   if (!hasContent) {
     return (
@@ -55,14 +71,6 @@ export function LiveTab({ data, theme, faaMapData = null, faaMapLoading = false 
 
   const primaryWatchLink = data.watchLinks[0] ?? null;
   const primaryWatchEmbed = primaryWatchLink ? buildLaunchVideoEmbed(primaryWatchLink.url) : null;
-  const padMapUrl = buildPlatformPadMapUrl(
-    {
-      latitude: faaMapData?.pad.latitude,
-      longitude: faaMapData?.pad.longitude,
-      label: faaMapData?.pad.shortCode || faaMapData?.pad.label || 'Launch pad'
-    },
-    Platform.OS
-  );
 
   return (
     <>
@@ -221,7 +229,23 @@ export function LiveTab({ data, theme, faaMapData = null, faaMapLoading = false 
                         <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>Launch zone map</Text>
                         <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>Loading launch-day FAA geometry…</Text>
                       </View>
-                    ) : faaMapData?.advisoryCount ? (
+                    ) : showAndroidLoadingGate ? (
+                      <View
+                        style={{
+                          gap: 8,
+                          borderRadius: 18,
+                          borderWidth: 1,
+                          borderColor: theme.stroke,
+                          backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                          padding: 16
+                        }}
+                      >
+                        <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>Launch zone map</Text>
+                        <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
+                          Verifying the Android Google Maps budget before loading the native map.
+                        </Text>
+                      </View>
+                    ) : faaMapData?.advisoryCount && allowNativeFaaMap ? (
                       <LaunchFaaMapCard
                         theme={theme}
                         mapData={faaMapData}
@@ -249,8 +273,21 @@ export function LiveTab({ data, theme, faaMapData = null, faaMapLoading = false 
                       >
                         <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>Launch zone map</Text>
                         <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
-                          FAA advisory geometry is not available for this launch yet.
+                          {faaMapData?.advisoryCount
+                            ? androidFaaPreviewAccess.reason || 'Native launch-zone maps are unavailable right now.'
+                            : 'FAA advisory geometry is not available for this launch yet.'}
                         </Text>
+                        {faaMapData?.advisoryCount && padMapUrl ? (
+                          <Pressable
+                            onPress={() => {
+                              void openExternalCustomerUrl(padMapUrl);
+                            }}
+                          >
+                            <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>
+                              {Platform.OS === 'ios' ? 'Open in Apple Maps' : 'Open in Google Maps'}
+                            </Text>
+                          </Pressable>
+                        ) : null}
                       </View>
                     )}
 

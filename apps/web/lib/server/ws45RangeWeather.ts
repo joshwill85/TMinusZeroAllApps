@@ -1,5 +1,5 @@
 import { isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
-import { createSupabaseAdminClient, createSupabaseServerClient } from '@/lib/server/supabaseServer';
+import { createSupabaseAdminClient, createSupabasePublicClient } from '@/lib/server/supabaseServer';
 import {
   getWs45LiveCadenceMinutes,
   summarizeWs45LaunchOperational,
@@ -29,6 +29,7 @@ export type Ws45PlanningForecast = {
   document_family?: string | null;
   parse_status?: string | null;
   parse_confidence?: number | null;
+  publish_eligible?: boolean | null;
 };
 
 export type Ws45OperationalWeather = {
@@ -59,7 +60,7 @@ type LaunchWeatherContext = Ws45LaunchBoardContext & {
 const WEEKLY_PLANNING_LOOKAHEAD_MS = 7 * 24 * 60 * 60 * 1000;
 
 function getWeatherClient() {
-  return isSupabaseAdminConfigured() ? createSupabaseAdminClient() : createSupabaseServerClient();
+  return isSupabaseAdminConfigured() ? createSupabaseAdminClient() : createSupabasePublicClient();
 }
 
 export async function fetchWs45LiveWeatherSnapshotForLaunch(
@@ -149,12 +150,17 @@ export async function fetchWs45PlanningForecastsForLaunch(
   const client = getWeatherClient();
   const { data, error } = await client
     .from('ws45_planning_forecasts')
-    .select('id, product_kind, source_label, pdf_url, issued_at, valid_start, valid_end, headline, summary, highlights, document_family, parse_status, parse_confidence')
-    .eq('publish_eligible', true)
+    .select(
+      'id, product_kind, source_label, pdf_url, issued_at, valid_start, valid_end, headline, summary, highlights, document_family, parse_status, parse_confidence, publish_eligible'
+    )
     .in('product_kind', ['planning_24h', 'weekly_planning'])
+    .neq('parse_status', 'failed')
+    .not('valid_start', 'is', null)
+    .not('valid_end', 'is', null)
+    .order('publish_eligible', { ascending: false })
     .order('issued_at', { ascending: false })
     .order('fetched_at', { ascending: false })
-    .limit(12);
+    .limit(20);
 
   if (error || !data) {
     return {
@@ -163,7 +169,7 @@ export async function fetchWs45PlanningForecastsForLaunch(
     };
   }
 
-  const rows = (data as Ws45PlanningForecast[]).filter(Boolean);
+  const rows = (data as Ws45PlanningForecast[]).filter(isUsablePlanningForecast).map(normalizePlanningForecastForDisplay);
   const planning24h = pickPlanning24hForecast(rows.filter((row) => row.product_kind === 'planning_24h'), launch);
   const weekly = shouldShowWeeklyPlanningForLaunch(launch)
     ? rows.find((row) => row.product_kind === 'weekly_planning') ?? null
@@ -197,6 +203,27 @@ function pickPlanning24hForecast(rows: Ws45PlanningForecast[], launch: LaunchWea
   }
 
   return rows[0] ?? null;
+}
+
+function isUsablePlanningForecast(row: Ws45PlanningForecast | null | undefined): row is Ws45PlanningForecast {
+  if (!row?.id || !row.product_kind || !row.pdf_url) return false;
+  if (row.parse_status === 'failed') return false;
+  if (!row.valid_start || !row.valid_end) return false;
+  return Boolean(row.summary || row.headline || row.source_label);
+}
+
+function normalizePlanningForecastForDisplay(row: Ws45PlanningForecast): Ws45PlanningForecast {
+  const limitedExtract = row.parse_status !== 'parsed';
+  const headline = row.headline || row.source_label || null;
+  const summary =
+    row.summary ||
+    (limitedExtract ? 'Limited extract from the current WS45 planning product. Open the PDF for the full forecast text.' : null);
+
+  return {
+    ...row,
+    headline,
+    summary
+  };
 }
 
 function shouldShowWeeklyPlanningForLaunch(launch: LaunchWeatherContext) {

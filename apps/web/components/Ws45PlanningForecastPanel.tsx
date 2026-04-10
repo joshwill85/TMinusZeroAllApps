@@ -13,6 +13,7 @@ export function Ws45PlanningForecastPanel({
 }) {
   const title = kind === 'planning_24h' ? '45 WS planning forecast' : 'Cape weekly outlook';
   const subtitle = kind === 'planning_24h' ? 'Day-of range trend context' : 'Week-ahead Cape weather trend';
+  const limitedExtract = forecast?.parse_status !== 'parsed';
 
   return (
     <section className={className ?? 'rounded-2xl border border-stroke bg-surface-1 p-4'}>
@@ -23,14 +24,21 @@ export function Ws45PlanningForecastPanel({
           <p className="mt-1 max-w-2xl text-sm text-text3">{subtitle}</p>
         </div>
         {forecast?.pdf_url ? (
-          <a
-            href={forecast.pdf_url}
-            target="_blank"
-            rel="noreferrer"
-            className="btn-secondary rounded-lg border border-stroke px-3 py-2 text-xs text-text2 hover:border-primary"
-          >
-            View PDF
-          </a>
+          <div className="flex flex-wrap items-center gap-2">
+            {limitedExtract ? (
+              <span className="rounded-full border border-warning/40 bg-warning/10 px-3 py-1 text-[11px] uppercase tracking-[0.08em] text-warning">
+                Limited extract
+              </span>
+            ) : null}
+            <a
+              href={forecast.pdf_url}
+              target="_blank"
+              rel="noreferrer"
+              className="btn-secondary rounded-lg border border-stroke px-3 py-2 text-xs text-text2 hover:border-primary"
+            >
+              View PDF
+            </a>
+          </div>
         ) : null}
       </div>
 

@@ -33,7 +33,7 @@ export type StoredAppleSignInToken = {
 type AppleClientSecretConfig = {
   teamId: string;
   keyId: string;
-  privateKeyPath: string;
+  privateKeyPem: string;
 };
 
 type AppleTokenResponse = {
@@ -49,6 +49,15 @@ type AppleTokenResponse = {
 function readConfiguredValue(value: string | undefined) {
   const normalized = normalizeEnvText(value);
   return normalized || null;
+}
+
+function normalizePemValue(value: string | null | undefined) {
+  const normalized = readConfiguredValue(value ?? undefined);
+  if (!normalized) {
+    return null;
+  }
+
+  return normalized.replace(/\\n/g, '\n');
 }
 
 function base64UrlEncode(value: string | Buffer) {
@@ -126,15 +135,17 @@ function decryptStoredAppleToken(tokenValue: string | null | undefined) {
 function getAppleClientSecretConfig(): AppleClientSecretConfig | null {
   const teamId = readConfiguredValue(process.env.APPLE_SIGN_IN_TEAM_ID);
   const keyId = readConfiguredValue(process.env.APPLE_SIGN_IN_KEY_ID);
+  const inlinePrivateKey = normalizePemValue(process.env.APPLE_SIGN_IN_PRIVATE_KEY);
   const privateKeyPath = readConfiguredValue(process.env.APPLE_SIGN_IN_PRIVATE_KEY_PATH);
-  if (!teamId || !keyId || !privateKeyPath) {
+  const privateKeyPem = inlinePrivateKey || (privateKeyPath ? normalizePemValue(fs.readFileSync(path.resolve(privateKeyPath), 'utf8')) : null);
+  if (!teamId || !keyId || !privateKeyPem) {
     return null;
   }
 
   return {
     teamId,
     keyId,
-    privateKeyPath
+    privateKeyPem
   };
 }
 
@@ -156,8 +167,6 @@ function createAppleClientSecret(clientId: string) {
     throw new Error('Apple Sign In server credentials are not configured.');
   }
 
-  const resolvedPrivateKeyPath = path.resolve(config.privateKeyPath);
-  const privateKeyPem = fs.readFileSync(resolvedPrivateKeyPath, 'utf8');
   const now = Math.floor(Date.now() / 1000);
   const expiresAt = now + 5 * 60;
   const header = base64UrlEncode(
@@ -177,7 +186,7 @@ function createAppleClientSecret(clientId: string) {
     })
   );
   const signingInput = `${header}.${payload}`;
-  const signature = sign('sha256', Buffer.from(signingInput, 'utf8'), createPrivateKey(privateKeyPem));
+  const signature = sign('sha256', Buffer.from(signingInput, 'utf8'), createPrivateKey(config.privateKeyPem));
   return `${signingInput}.${base64UrlEncode(signature)}`;
 }
 

@@ -1,4 +1,5 @@
-import { createSupabaseServerClient } from '@/lib/server/supabaseServer';
+import { unstable_cache } from 'next/cache';
+import { createSupabasePublicClient } from '@/lib/server/supabaseServer';
 import { isSupabaseConfigured } from '@/lib/server/env';
 import type { NewsStreamItem, NewsStreamLaunch, NewsStreamPage, NewsType } from '@/lib/types/news';
 
@@ -13,6 +14,7 @@ const LAUNCH_SELECT =
 const CHUNK_SIZE = 200;
 const PROVIDER_SCAN_CHUNK = 96;
 const PROVIDER_SCAN_MAX_PAGES = 8;
+const NEWS_STREAM_CACHE_REVALIDATE_SECONDS = 60;
 
 type SnapiRow = {
   snapi_uid: string;
@@ -43,6 +45,29 @@ export type FetchNewsStreamResult = {
   errorMessage: string | null;
 };
 
+type NewsStreamQueryClient = ReturnType<typeof createSupabasePublicClient>;
+
+const fetchCachedNewsStreamPage = unstable_cache(
+  async ({
+    type,
+    providerName,
+    cursor,
+    limit
+  }: {
+    type: NewsType | 'all';
+    providerName: string | null;
+    cursor: number;
+    limit: number;
+  }): Promise<NewsStreamPage> => {
+    const supabase = createSupabasePublicClient();
+    return providerName
+      ? fetchNewsForProvider(supabase, providerName, type, cursor, limit)
+      : fetchNewsAll(supabase, type, cursor, limit);
+  },
+  ['news-stream-page-v2'],
+  { revalidate: NEWS_STREAM_CACHE_REVALIDATE_SECONDS }
+);
+
 export async function fetchNewsStreamPage({
   type,
   providerName,
@@ -58,22 +83,27 @@ export async function fetchNewsStreamPage({
     return { page: { items: [], nextCursor: 0, hasMore: false }, errorMessage: 'supabase_not_configured' };
   }
 
-  const supabase = createSupabaseServerClient();
+  const safeCursor = Number.isFinite(cursor) ? Math.max(0, Math.trunc(cursor)) : 0;
+  const safeLimit = Number.isFinite(limit) ? Math.min(80, Math.max(1, Math.trunc(limit))) : NEWS_STREAM_PAGE_SIZE;
+  const normalizedProviderName = providerName?.trim() ? providerName.trim() : null;
   try {
-    const page = providerName
-      ? await fetchNewsForProvider(supabase, providerName, type, cursor, limit)
-      : await fetchNewsAll(supabase, type, cursor, limit);
+    const page = await fetchCachedNewsStreamPage({
+      type,
+      providerName: normalizedProviderName,
+      cursor: safeCursor,
+      limit: safeLimit
+    });
     return { page, errorMessage: null };
   } catch (err: any) {
     return {
-      page: { items: [], nextCursor: cursor, hasMore: false },
+      page: { items: [], nextCursor: safeCursor, hasMore: false },
       errorMessage: err?.message || 'news_fetch_failed'
     };
   }
 }
 
 async function fetchNewsAll(
-  supabase: ReturnType<typeof createSupabaseServerClient>,
+  supabase: NewsStreamQueryClient,
   type: NewsType | 'all',
   cursor: number,
   limit: number
@@ -89,7 +119,7 @@ async function fetchNewsAll(
 }
 
 async function fetchNewsForProvider(
-  supabase: ReturnType<typeof createSupabaseServerClient>,
+  supabase: NewsStreamQueryClient,
   providerName: string,
   type: NewsType | 'all',
   cursor: number,
@@ -140,7 +170,7 @@ async function fetchNewsForProvider(
 }
 
 async function fetchSnapiRows(
-  supabase: ReturnType<typeof createSupabaseServerClient>,
+  supabase: NewsStreamQueryClient,
   type: NewsType | 'all',
   cursor: number,
   limit: number,
@@ -170,7 +200,7 @@ async function fetchSnapiRows(
 }
 
 async function hydrateLaunchContext(
-  supabase: ReturnType<typeof createSupabaseServerClient>,
+  supabase: NewsStreamQueryClient,
   rows: SnapiRow[]
 ): Promise<NewsStreamItem[]> {
   if (!rows.length) return [];
@@ -224,7 +254,7 @@ async function hydrateLaunchContext(
 }
 
 async function fetchLaunchLinks(
-  supabase: ReturnType<typeof createSupabaseServerClient>,
+  supabase: NewsStreamQueryClient,
   snapiUids: string[]
 ): Promise<{
   launchIdsByItem: Map<string, string[]>;
@@ -367,7 +397,7 @@ function extractLaunchMention(title: string, summary: string | null) {
 }
 
 async function resolveLaunchByMention(
-  supabase: ReturnType<typeof createSupabaseServerClient>,
+  supabase: NewsStreamQueryClient,
   mention: string,
   nowIso: string
 ): Promise<NewsStreamLaunch | null> {

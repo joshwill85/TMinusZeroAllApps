@@ -8,6 +8,9 @@ export type JepPresentationTone = 'primary' | 'neutral' | 'warning' | 'danger' |
 export type JepFactorAssessmentKey = 'illumination' | 'darkness' | 'lineOfSight' | 'weather';
 export type JepChangeOpportunityKey = 'timing' | 'weather' | 'lineOfSight';
 type WeatherMainBlocker = NonNullable<LaunchJepScoreV1['weatherDetails']>['mainBlocker'];
+export type JepVisibilityCall = NonNullable<LaunchJepScoreV1['visibilityCall']>;
+export type JepViewpoint = NonNullable<LaunchJepScoreV1['viewpoint']>;
+export type JepConfidenceLabel = NonNullable<LaunchJepScoreV1['confidenceLabel']>;
 
 export type JepFactorAssessment = {
   key: JepFactorAssessmentKey;
@@ -34,6 +37,36 @@ export type JepPresentation = {
   changeOpportunities: JepChangeOpportunity[];
 };
 
+type JepObserverLike = Pick<LaunchJepScoreV1['observer'], 'personalized' | 'usingPadFallback'>;
+
+export type JepObserverContext = {
+  isPersonalized: boolean;
+  launchAreaFallback: boolean;
+  locationBadgeLabel: string;
+  locationPhrase: string;
+  areaPhrase: string;
+  horizonPhrase: string;
+  observerMetricLabel: string;
+};
+
+export type JepVisibilityCallPresentation = {
+  key: JepVisibilityCall;
+  label: string;
+  detail: string;
+  tone: JepPresentationTone;
+};
+
+export type JepScenarioTimelineEntry = {
+  id: string;
+  label: string;
+  score: number;
+  visibilityCall: JepVisibilityCall;
+  tone: JepPresentationTone;
+  trend: 'better' | 'similar' | 'worse';
+  delta: number;
+  current: boolean;
+};
+
 type WeatherNarrative = {
   detail: string;
 };
@@ -47,16 +80,17 @@ type JepWeatherImpact = {
 };
 
 export function buildJepPresentation(score: LaunchJepScoreV1): JepPresentation {
+  const observerContext = buildJepObserverContext(score.observer);
   const factorAssessments = [
     buildTimingAssessment(score),
-    buildWeatherAssessment(score),
-    buildLineOfSightAssessment(score),
+    buildWeatherAssessment(score, observerContext),
+    buildLineOfSightAssessment(score, observerContext),
     buildIlluminationAssessment(score)
   ];
   const changeOpportunities = [
     buildTimingChangeOpportunity(score),
     buildWeatherChangeOpportunity(score),
-    buildLocationChangeOpportunity(score)
+    buildLocationChangeOpportunity(score, observerContext)
   ]
     .sort((a, b) => b.priority - a.priority)
     .map((item, index) => ({
@@ -65,13 +99,141 @@ export function buildJepPresentation(score: LaunchJepScoreV1): JepPresentation {
     }));
 
   return {
-    summary: buildJepSummary(score.score),
+    summary: buildJepSummary(score.score, observerContext),
     factorAssessments,
     changeOpportunities
   };
 }
 
-function buildJepSummary(score: number) {
+export function buildJepObserverContext(observer: JepObserverLike): JepObserverContext {
+  const isPersonalized = observer.personalized && !observer.usingPadFallback;
+  return {
+    isPersonalized,
+    launchAreaFallback: !isPersonalized,
+    locationBadgeLabel: isPersonalized ? 'Using your location' : 'Launch-area fallback',
+    locationPhrase: isPersonalized ? 'this location' : 'the launch-area reference viewpoint',
+    areaPhrase: isPersonalized ? 'your location' : 'the launch-area reference area',
+    horizonPhrase: isPersonalized ? 'your local horizon' : 'the launch-area reference horizon',
+    observerMetricLabel: isPersonalized ? 'Your location' : 'Launch-area reference'
+  };
+}
+
+export function buildJepViewpoint(score: LaunchJepScoreV1): JepViewpoint {
+  if (score.viewpoint === 'personal' || score.viewpoint === 'launch_site_reference') {
+    return score.viewpoint;
+  }
+  return buildJepObserverContext(score.observer).launchAreaFallback ? 'launch_site_reference' : 'personal';
+}
+
+export function buildJepVisibilityCall(score: LaunchJepScoreV1): JepVisibilityCall {
+  if (
+    score.visibilityCall === 'not_expected' ||
+    score.visibilityCall === 'possible' ||
+    score.visibilityCall === 'favorable' ||
+    score.visibilityCall === 'highly_favorable'
+  ) {
+    return score.visibilityCall;
+  }
+
+  return deriveVisibilityCallFromScore(score.score, {
+    darkness: score.factors.darkness,
+    illumination: score.factors.illumination,
+    lineOfSight: score.factors.lineOfSight
+  });
+}
+
+export function buildJepConfidenceLabel(score: LaunchJepScoreV1): JepConfidenceLabel {
+  if (score.confidenceLabel === 'low' || score.confidenceLabel === 'medium' || score.confidenceLabel === 'high') {
+    return score.confidenceLabel;
+  }
+
+  return score.source.geometryOnlyFallback ? 'low' : 'medium';
+}
+
+export function buildJepVisibilityCallPresentation(
+  score: LaunchJepScoreV1,
+  observerContext = buildJepObserverContext(score.observer)
+): JepVisibilityCallPresentation {
+  const key = buildJepVisibilityCall(score);
+  const referencePhrase = observerContext.launchAreaFallback ? 'near the launch site' : 'from your location';
+
+  switch (key) {
+    case 'not_expected':
+      return {
+        key,
+        label: 'Not expected',
+        tone: 'danger',
+        detail: observerContext.launchAreaFallback
+          ? 'No visible jellyfish-style plume is currently expected near the launch site.'
+          : 'No visible jellyfish-style plume is currently expected from your location.'
+      };
+    case 'possible':
+      return {
+        key,
+        label: 'Possible',
+        tone: 'warning',
+        detail: `A visible twilight plume is possible ${referencePhrase}, but it may be faint or easy to miss.`
+      };
+    case 'favorable':
+      return {
+        key,
+        label: 'Favorable',
+        tone: 'success',
+        detail: `Conditions are favorable for a visible jellyfish-style plume ${referencePhrase}.`
+      };
+    default:
+      return {
+        key,
+        label: 'Highly favorable',
+        tone: 'success',
+        detail: `Conditions are highly favorable for a strong visible jellyfish-style plume ${referencePhrase}.`
+      };
+  }
+}
+
+export function buildJepScenarioTimeline(score: LaunchJepScoreV1): JepScenarioTimelineEntry[] {
+  const currentEntry: JepScenarioTimelineEntry = {
+    id: 'net',
+    label: 'NET',
+    score: score.score,
+    visibilityCall: buildJepVisibilityCall(score),
+    tone: visibilityCallTone(buildJepVisibilityCall(score)),
+    trend: 'similar',
+    delta: 0,
+    current: true
+  };
+
+  const shiftedEntries = (score.scenarioWindows || []).map((scenario) => {
+    const visibilityCall = deriveVisibilityCallFromScore(scenario.score);
+    return {
+      id: `scenario-${scenario.offsetMinutes}`,
+      label: scenario.label,
+      score: scenario.score,
+      visibilityCall,
+      tone: visibilityCallTone(visibilityCall),
+      trend: scenario.trend,
+      delta: scenario.delta,
+      current: false
+    } satisfies JepScenarioTimelineEntry;
+  });
+
+  return [currentEntry, ...shiftedEntries];
+}
+
+function buildJepSummary(score: number, observerContext: JepObserverContext) {
+  if (observerContext.launchAreaFallback) {
+    if (score === 0) {
+      return 'The launch-area reference setup does not currently support a visible jellyfish plume.';
+    }
+    if (score < 30) {
+      return 'Launch-area conditions look weak right now because multiple parts of the visibility chain are underperforming.';
+    }
+    if (score < 70) {
+      return 'Launch-area conditions are mixed right now. This is a reference setup, not your personal visibility call.';
+    }
+    return 'Launch-area conditions look favorable right now, but this is still a reference setup rather than your personal visibility call.';
+  }
+
   if (score === 0) {
     return 'No visible jellyfish plume is currently expected from this location.';
   }
@@ -82,6 +244,33 @@ function buildJepSummary(score: number) {
     return 'The setup is mixed right now. Some parts of the visibility chain work, but important pieces are still limiting it.';
   }
   return 'The setup is favorable right now, but the score still depends on timing, geometry, and weather holding together.';
+}
+
+function deriveVisibilityCallFromScore(
+  score: number,
+  factors?: {
+    darkness?: number | null;
+    illumination?: number | null;
+    lineOfSight?: number | null;
+  }
+): JepVisibilityCall {
+  if (
+    score <= 0 ||
+    (factors?.darkness != null && factors.darkness <= 0) ||
+    (factors?.illumination != null && factors.illumination <= 0) ||
+    (factors?.lineOfSight != null && factors.lineOfSight <= 0)
+  ) {
+    return 'not_expected';
+  }
+  if (score >= 85) return 'highly_favorable';
+  if (score >= 65) return 'favorable';
+  return 'possible';
+}
+
+function visibilityCallTone(value: JepVisibilityCall): JepPresentationTone {
+  if (value === 'not_expected') return 'danger';
+  if (value === 'possible') return 'warning';
+  return 'success';
 }
 
 function buildTimingAssessment(score: LaunchJepScoreV1): JepFactorAssessment {
@@ -139,7 +328,7 @@ function buildTimingAssessment(score: LaunchJepScoreV1): JepFactorAssessment {
   };
 }
 
-function buildWeatherAssessment(score: LaunchJepScoreV1): JepFactorAssessment {
+function buildWeatherAssessment(score: LaunchJepScoreV1, observerContext: JepObserverContext): JepFactorAssessment {
   const factor = clampProbability(score.factors.weather) ?? 0;
   const cloudCover = toPctNumber(score.factors.cloudCoverPct);
   const lowClouds = toPctNumber(score.factors.cloudCoverLowPct);
@@ -152,7 +341,7 @@ function buildWeatherAssessment(score: LaunchJepScoreV1): JepFactorAssessment {
     cloudCoverHigh: score.factors.cloudCoverHighPct
   });
   const narrative =
-    buildDetailedWeatherNarrative(score.weatherDetails) ??
+    buildDetailedWeatherNarrative(score.weatherDetails, observerContext) ??
     (factor <= 0.15 || weatherImpact.blockerStrength === 'severe'
       ? primaryWeatherNarrative({
           cloudCover,
@@ -183,10 +372,10 @@ function buildWeatherAssessment(score: LaunchJepScoreV1): JepFactorAssessment {
   };
 }
 
-function buildLineOfSightAssessment(score: LaunchJepScoreV1): JepFactorAssessment {
+function buildLineOfSightAssessment(score: LaunchJepScoreV1, observerContext: JepObserverContext): JepFactorAssessment {
   const factor = clampProbability(score.factors.lineOfSight) ?? 0;
   const visibleFraction = clampProbability(score.losVisibleFraction) ?? factor;
-  const rangeNote = `Needed range: about ${JEP_LOS_ELEVATION_THRESHOLD_DEG}°+ above your local horizon.`;
+  const rangeNote = `Needed range: about ${JEP_LOS_ELEVATION_THRESHOLD_DEG}°+ above ${observerContext.horizonPhrase}.`;
 
   if (factor >= 0.85) {
     return {
@@ -195,7 +384,7 @@ function buildLineOfSightAssessment(score: LaunchJepScoreV1): JepFactorAssessmen
       value: formatFactor(factor),
       tone: 'success',
       status: 'Working',
-      detail: `About ${formatProbability(visibleFraction)} of the useful sunlit path clears the viewing threshold from this location.`,
+      detail: `About ${formatProbability(visibleFraction)} of the useful sunlit path clears the viewing threshold from ${observerContext.locationPhrase}.`,
       rangeNote
     };
   }
@@ -207,7 +396,7 @@ function buildLineOfSightAssessment(score: LaunchJepScoreV1): JepFactorAssessmen
       value: formatFactor(factor),
       tone: 'danger',
       status: 'Blocked',
-      detail: 'The modeled sunlit path does not clear your local horizon enough to count as visible from this spot.',
+      detail: `The modeled sunlit path does not clear ${observerContext.horizonPhrase} enough to count as visible from ${observerContext.locationPhrase}.`,
       rangeNote
     };
   }
@@ -218,7 +407,7 @@ function buildLineOfSightAssessment(score: LaunchJepScoreV1): JepFactorAssessmen
     value: formatFactor(factor),
     tone: factor >= 0.45 ? 'warning' : 'danger',
     status: factor >= 0.45 ? 'Limited' : 'Low',
-    detail: `Only ${formatProbability(visibleFraction)} of the useful sunlit path clears the viewing threshold from this location.`,
+    detail: `Only ${formatProbability(visibleFraction)} of the useful sunlit path clears the viewing threshold from ${observerContext.locationPhrase}.`,
     rangeNote
   };
 }
@@ -359,14 +548,17 @@ function buildWeatherChangeOpportunity(score: LaunchJepScoreV1): Omit<JepChangeO
   };
 }
 
-function buildLocationChangeOpportunity(score: LaunchJepScoreV1): Omit<JepChangeOpportunity, 'rankLabel'> {
+function buildLocationChangeOpportunity(
+  score: LaunchJepScoreV1,
+  observerContext: JepObserverContext
+): Omit<JepChangeOpportunity, 'rankLabel'> {
   const factor = clampProbability(score.factors.lineOfSight) ?? 0;
 
   if (factor >= 0.85) {
     return {
       key: 'lineOfSight',
       title: 'Viewing geometry is already mostly working',
-      detail: 'From this location, enough of the useful path already clears the local horizon.',
+      detail: `From ${observerContext.locationPhrase}, enough of the useful path already clears ${observerContext.horizonPhrase}.`,
       tone: 'success',
       priority: 0.01
     };
@@ -376,7 +568,7 @@ function buildLocationChangeOpportunity(score: LaunchJepScoreV1): Omit<JepChange
     return {
       key: 'lineOfSight',
       title: 'You would need a clearer horizon or different viewing spot',
-      detail: `From this location the path never clears the usual ${JEP_LOS_ELEVATION_THRESHOLD_DEG}° visibility threshold high enough to count as visible.`,
+      detail: `From ${observerContext.locationPhrase} the path never clears the usual ${JEP_LOS_ELEVATION_THRESHOLD_DEG}° visibility threshold high enough to count as visible.`,
       tone: 'danger',
       priority: 0.25 * (1 - factor) + (score.factors.illumination > 0 ? 0.05 : 0)
     };
@@ -385,26 +577,29 @@ function buildLocationChangeOpportunity(score: LaunchJepScoreV1): Omit<JepChange
   return {
     key: 'lineOfSight',
     title: 'A lower, clearer horizon would improve the view',
-    detail: `This location only clears part of the useful path above the usual ${JEP_LOS_ELEVATION_THRESHOLD_DEG}° visibility threshold, so a cleaner horizon would help.`,
+    detail: `${observerContext.locationPhrase === 'this location' ? 'This location' : 'The launch-area reference viewpoint'} only clears part of the useful path above the usual ${JEP_LOS_ELEVATION_THRESHOLD_DEG}° visibility threshold, so a cleaner horizon would help.`,
     tone: factor >= 0.45 ? 'warning' : 'danger',
     priority: 0.25 * (1 - factor)
   };
 }
 
-function buildDetailedWeatherNarrative(weatherDetails: LaunchJepScoreV1['weatherDetails']): WeatherNarrative | null {
+function buildDetailedWeatherNarrative(
+  weatherDetails: LaunchJepScoreV1['weatherDetails'],
+  observerContext: JepObserverContext
+): WeatherNarrative | null {
   if (!weatherDetails) return null;
   switch (weatherDetails.mainBlocker) {
     case 'observer_low_ceiling':
       return {
         detail:
           weatherDetails.observer?.note ||
-          'The forecast puts a low cloud deck over your location, which is the strongest weather blocker in the current model.'
+          `The forecast puts a low cloud deck over ${observerContext.areaPhrase}, which is the strongest weather blocker in the current model.`
       };
     case 'observer_sky_cover':
       return {
         detail:
           weatherDetails.observer?.note ||
-          'The weather model expects heavy cloud cover over your location at launch time.'
+          `The weather model expects heavy cloud cover over ${observerContext.areaPhrase} at launch time.`
       };
     case 'path_low_ceiling':
       return {
@@ -422,13 +617,13 @@ function buildDetailedWeatherNarrative(weatherDetails: LaunchJepScoreV1['weather
       return {
         detail:
           weatherDetails.observer?.note ||
-          'Low clouds over your location are the largest weather penalty in the current model.'
+          `Low clouds over ${observerContext.areaPhrase} are the largest weather penalty in the current model.`
       };
     case 'observer_mid_clouds':
       return {
         detail:
           weatherDetails.observer?.note ||
-          'Mid-level cloud is currently the main weather drag over your location.'
+          `Mid-level cloud is currently the main weather drag over ${observerContext.areaPhrase}.`
       };
     case 'observer_high_clouds':
       return {

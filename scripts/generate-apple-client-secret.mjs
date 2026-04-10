@@ -19,6 +19,16 @@ function readRequiredEnv(name) {
   return value;
 }
 
+function readOptionalEnv(name) {
+  const value = process.env[name]?.trim();
+  return value || null;
+}
+
+function normalizePemValue(value) {
+  if (!value) return null;
+  return String(value).trim().replace(/\\n/g, '\n');
+}
+
 function readExpiryDays() {
   const raw = process.env.APPLE_SIGN_IN_EXPIRES_IN_DAYS?.trim();
   if (!raw) return 180;
@@ -36,9 +46,13 @@ function createAppleClientSecret() {
   const teamId = readRequiredEnv('APPLE_SIGN_IN_TEAM_ID');
   const clientId = readRequiredEnv('APPLE_SIGN_IN_CLIENT_ID');
   const keyId = readRequiredEnv('APPLE_SIGN_IN_KEY_ID');
-  const privateKeyPath = readRequiredEnv('APPLE_SIGN_IN_PRIVATE_KEY_PATH');
-  const resolvedPrivateKeyPath = path.resolve(privateKeyPath);
-  const privateKeyPem = fs.readFileSync(resolvedPrivateKeyPath, 'utf8');
+  const inlinePrivateKey = normalizePemValue(readOptionalEnv('APPLE_SIGN_IN_PRIVATE_KEY'));
+  const privateKeyPath = readOptionalEnv('APPLE_SIGN_IN_PRIVATE_KEY_PATH');
+  const resolvedPrivateKeyPath = privateKeyPath ? path.resolve(privateKeyPath) : null;
+  const privateKeyPem = inlinePrivateKey || (resolvedPrivateKeyPath ? normalizePemValue(fs.readFileSync(resolvedPrivateKeyPath, 'utf8')) : null);
+  if (!privateKeyPem) {
+    throw new Error('APPLE_SIGN_IN_PRIVATE_KEY or APPLE_SIGN_IN_PRIVATE_KEY_PATH is required.');
+  }
   const now = Math.floor(Date.now() / 1000);
   const expiresInDays = readExpiryDays();
   const expiresAt = now + expiresInDays * 24 * 60 * 60;

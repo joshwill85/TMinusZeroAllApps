@@ -41,6 +41,7 @@ import {
   useViewerSessionQuery,
   useWatchlistsQuery
 } from '@/src/api/queries';
+import { subscribeToMobileLaunchRefreshSignal } from '@/src/api/launchRefreshRealtime';
 import { EmptyStateCard, ErrorStateCard, SectionCard } from '@/src/components/SectionCard';
 import { useApiClient } from '@/src/api/client';
 import { LaunchAlertsPanel } from '@/src/components/LaunchAlertsPanel';
@@ -85,6 +86,7 @@ type FeedNotice = {
 };
 
 const FLOATING_FEED_BAR_HEIGHT = 52;
+const LIVE_FEED_REFRESH_SIGNAL_COOLDOWN_MS = 1500;
 
 export default function FeedScreen() {
   const router = useRouter();
@@ -128,6 +130,7 @@ export default function FeedScreen() {
   const [deferredMediaReady, setDeferredMediaReady] = useState(false);
   const didApplyInitialDefaultPresetRef = useRef(false);
   const lastSeenVersionRef = useRef<string | null>(null);
+  const lastRealtimeSignalAtRef = useRef(0);
   const canUseLaunchFilters = entitlementsQuery.data?.capabilities.canUseLaunchFilters ?? false;
   const canManageFilterPresets = entitlementsQuery.data?.capabilities.canManageFilterPresets ?? false;
   const canUseSavedItems = entitlementsQuery.data?.capabilities.canUseSavedItems ?? false;
@@ -776,6 +779,65 @@ export default function FeedScreen() {
     refreshIntervalSeconds
   ]);
 
+  useEffect(() => {
+    if (feedScope !== 'live' || !accessToken || isFollowingFeed) {
+      return;
+    }
+
+    let cancelled = false;
+    let cleanup: (() => void) | null = null;
+
+    const handleSignal = async () => {
+      if (cancelled || !canAutoRefreshFeed) {
+        return;
+      }
+
+      const now = Date.now();
+      if (now - lastRealtimeSignalAtRef.current < LIVE_FEED_REFRESH_SIGNAL_COOLDOWN_MS) {
+        return;
+      }
+      lastRealtimeSignalAtRef.current = now;
+
+      if (refreshApplying || launchFeedQuery.isPending || launchFeedQuery.isFetchingNextPage) {
+        return;
+      }
+
+      try {
+        lastSeenVersionRef.current = null;
+        setPendingRefresh(null);
+        await refetchLaunchFeed();
+      } catch (error) {
+        console.error('mobile feed realtime refresh failed', error);
+      }
+    };
+
+    void subscribeToMobileLaunchRefreshSignal({
+      accessToken,
+      scope: 'feed_live',
+      onSignal: handleSignal
+    }).then((nextCleanup) => {
+      if (cancelled) {
+        nextCleanup?.();
+        return;
+      }
+      cleanup = nextCleanup;
+    });
+
+    return () => {
+      cancelled = true;
+      cleanup?.();
+    };
+  }, [
+    accessToken,
+    canAutoRefreshFeed,
+    feedScope,
+    isFollowingFeed,
+    launchFeedQuery.isFetchingNextPage,
+    launchFeedQuery.isPending,
+    refetchLaunchFeed,
+    refreshApplying
+  ]);
+
   const applyResolvedFeedRefresh = useCallback(
     async (nextVersion: string) => {
       await refetchLaunchFeed();
@@ -1213,7 +1275,7 @@ export default function FeedScreen() {
     : null;
   const selectedBasicLaunchActive = Boolean(followLaunch && basicActiveLaunchRule?.launchId === followLaunch.id);
   const selectedBasicLaunchSlotOccupiedElsewhere = Boolean(followLaunch && basicActiveLaunchRule && !selectedBasicLaunchActive);
-  const basicFollowCapacityLabel = canUseSavedItems || !isAuthed ? undefined : `${basicActiveLaunchRule ? 1 : 0}/${singleLaunchFollowLimit}`;
+  const basicFollowCapacityLabel = canUseSavedItems ? undefined : `${basicActiveLaunchRule ? 1 : 0}/${singleLaunchFollowLimit}`;
   const followSheetOptions: LaunchFollowSheetOption[] = followLaunch
     ? canUseSavedItems
       ? [
@@ -1300,8 +1362,7 @@ export default function FeedScreen() {
             }
           }
         ]
-      : isAuthed
-        ? [
+      : [
           {
             key: 'launch_notifications',
             label: 'This launch',
@@ -1445,86 +1506,6 @@ export default function FeedScreen() {
             }
           }
         ]
-        : [
-            {
-              key: 'launch_locked',
-              label: 'This launch',
-              description: followLaunch.name ? `Premium unlocks launch reminders and follow tracking for ${followLaunch.name}.` : 'Premium unlocks launch reminders and follow tracking for this launch.',
-              icon: 'launch',
-              active: false,
-              disabled: false,
-              locked: true,
-              onPress: () => {
-                setFollowLaunch(null);
-                openPremiumGate();
-              }
-            },
-            {
-              key: 'state_locked',
-              label: 'This state',
-              description: 'Premium adds state-wide launch alerts.',
-              icon: 'state',
-              active: false,
-              disabled: false,
-              locked: true,
-              onPress: () => {
-                setFollowLaunch(null);
-                openPremiumGate();
-              }
-            },
-            {
-              key: 'provider_locked',
-              label: 'This provider',
-              description: 'Premium adds recurring provider follows.',
-              icon: 'provider',
-              active: false,
-              disabled: false,
-              locked: true,
-              onPress: () => {
-                setFollowLaunch(null);
-                openPremiumGate();
-              }
-            },
-            {
-              key: 'rocket_locked',
-              label: 'This rocket',
-              description: 'Premium adds recurring rocket follows.',
-              icon: 'rocket',
-              active: false,
-              disabled: false,
-              locked: true,
-              onPress: () => {
-                setFollowLaunch(null);
-                openPremiumGate();
-              }
-            },
-            {
-              key: 'pad_locked',
-              label: 'This pad',
-              description: 'Premium adds recurring pad follows.',
-              icon: 'pad',
-              active: false,
-              disabled: false,
-              locked: true,
-              onPress: () => {
-                setFollowLaunch(null);
-                openPremiumGate();
-              }
-            },
-            {
-              key: 'launch_site_locked',
-              label: 'This launch site',
-              description: 'Premium adds recurring launch-site follows.',
-              icon: 'launch_site',
-              active: false,
-              disabled: false,
-              locked: true,
-              onPress: () => {
-                setFollowLaunch(null);
-                openPremiumGate();
-              }
-            }
-          ]
     : [];
   const showFeedSkeletons = !snapshotHydrated || (launchFeedQuery.isPending && cachedLaunches.length === 0);
   const retainedLiveFeedWarningMessage =
@@ -2117,11 +2098,9 @@ export default function FeedScreen() {
         message={
           canUseSavedItems
             ? 'Following keeps matching launches in your saved list, and launch alerts live in the Notifications tab for this launch.'
-            : isAuthed && canUseAllUsLaunchAlerts
+            : canUseAllUsLaunchAlerts
               ? 'Public access keeps one launch reminder slot on this device. Manage this launch in the Notifications tab and All U.S. launches from Preferences. Premium adds synced follows across broader scopes.'
-              : isAuthed
-                ? 'Public access keeps one launch reminder slot on this device. Manage launch alerts from the Notifications tab here. Premium adds synced follows across broader scopes.'
-                : 'Premium unlocks launch reminders, followed-launch tracking, and broader follow scopes from this sheet.'
+              : 'Public access keeps one launch reminder slot on this device. Manage launch alerts from the Notifications tab here. Premium adds synced follows across broader scopes.'
         }
         onClose={() => setFollowLaunch(null)}
       />

@@ -16,13 +16,15 @@
         "CFBundleAllowMixedLocalizations": true,
         "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to use the camera for premium AR trajectory guidance.",
         "NSMotionUsageDescription": "Allow $(PRODUCT_NAME) to access motion sensors for premium AR trajectory tracking.",
-        "NSLocationWhenInUseUsageDescription": "Allow $(PRODUCT_NAME) to use your location to align premium AR trajectory guidance with the launch site."
+        "NSLocationWhenInUseUsageDescription": "Allow $(PRODUCT_NAME) to use your location for personal JEP visibility guidance and premium AR trajectory alignment."
       }
     },
     "android": {
       "package": "app.tminuszero.mobile",
       "permissions": [
-        "CAMERA"
+        "CAMERA",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
       ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/app-icon/adaptive-icon-foreground.png",

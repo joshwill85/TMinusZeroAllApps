@@ -121,6 +121,13 @@ export const fetchArtemisProgramIntel = cache(async (): Promise<ArtemisProgramIn
   }
 
   const supabase = createSupabasePublicClient();
+  const latestProcurementSourceDocumentIdPromise = fetchLatestProcurementSourceDocumentId(supabase);
+  const procurementLegacyPromise = latestProcurementSourceDocumentIdPromise.then((latestSourceDocumentId) =>
+    fetchProcurementRows(supabase, {
+      latestSourceDocumentId,
+      limit: MAX_PROCUREMENT_AWARDS
+    })
+  );
   const discoveryPagePromise = fetchProgramContractDiscoveryPage('artemis', { limit: 8 }).catch((error) => {
     console.error('artemis discovery query error', error);
     return {
@@ -132,7 +139,7 @@ export const fetchArtemisProgramIntel = cache(async (): Promise<ArtemisProgramIn
     };
   });
 
-  const [budgetRes, procurementCacheRes, discoveryPage] = await Promise.all([
+  const [budgetRes, procurementCacheRes, procurementLegacyRes, discoveryPage] = await Promise.all([
     supabase
       .from('artemis_budget_lines')
       .select('fiscal_year,agency,program,line_item,amount_requested,amount_enacted,announced_time,source_document_id,metadata,updated_at')
@@ -141,35 +148,18 @@ export const fetchArtemisProgramIntel = cache(async (): Promise<ArtemisProgramIn
       .order('fiscal_year', { ascending: false, nullsFirst: false })
       .limit(1000),
     fetchProcurementCacheRows(supabase, MAX_PROCUREMENT_AWARDS),
+    procurementLegacyPromise,
     discoveryPagePromise
   ]);
-
-  let procurementRowsRaw: ProcurementRow[] = [];
-  let procurementError = procurementCacheRes.error;
 
   if (procurementCacheRes.error) {
     console.error('artemis procurement cache query error', procurementCacheRes.error);
   }
 
-  if (procurementCacheRes.data.length > 0) {
-    procurementRowsRaw = procurementCacheRes.data;
-    procurementError = null;
-  } else {
-    const latestProcurementSourceDocumentId = await fetchLatestProcurementSourceDocumentId(supabase);
-    const procurementLegacyRes = await fetchProcurementRows(supabase, {
-      latestSourceDocumentId: latestProcurementSourceDocumentId,
-      limit: MAX_PROCUREMENT_AWARDS
-    });
-    procurementError = procurementLegacyRes.error;
-    procurementRowsRaw = procurementLegacyRes.error
-      ? []
-      : procurementLegacyRes.data.filter((row) => isExactArtemisProcurementRow(row));
-  }
-
-  if (budgetRes.error || procurementError) {
+  if (budgetRes.error || procurementLegacyRes.error) {
     console.error('artemis program intel query error', {
       budget: budgetRes.error,
-      procurement: procurementError
+      procurement: procurementLegacyRes.error
     });
     return {
       generatedAt,
@@ -182,6 +172,13 @@ export const fetchArtemisProgramIntel = cache(async (): Promise<ArtemisProgramIn
   }
 
   const budgetRowsRaw = (budgetRes.data || []) as BudgetLineRow[];
+  const procurementLegacyRowsRaw = procurementLegacyRes.data.filter((row) =>
+    isExactArtemisProcurementRow(row)
+  );
+  const procurementRowsRaw = [
+    ...procurementCacheRes.data,
+    ...procurementLegacyRowsRaw
+  ];
 
   const budgetRows = dedupeByKey(
     budgetRowsRaw,

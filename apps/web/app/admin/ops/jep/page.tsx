@@ -74,6 +74,8 @@ type ShadowReviewData = {
   minAbsDelta: number | null;
   gate: GateFilter;
   sort: SortFilter;
+  limit: number;
+  returnedLaunches: number;
   summary: {
     targetLaunches: number;
     baselineRows: number;
@@ -96,6 +98,8 @@ const EMPTY_DATA: ShadowReviewData = {
   minAbsDelta: null,
   gate: 'all',
   sort: 'abs_delta',
+  limit: 60,
+  returnedLaunches: 0,
   summary: {
     targetLaunches: 0,
     baselineRows: 0,
@@ -248,6 +252,8 @@ function parseShadowReviewData(json: unknown): ShadowReviewData {
       record.sort === 'net' || record.sort === 'delta_desc' || record.sort === 'delta_asc'
         ? record.sort
         : 'abs_delta',
+    limit: normalizeNumber(record.limit) ?? EMPTY_DATA.limit,
+    returnedLaunches: normalizeNumber(record.returnedLaunches) ?? launches.length,
     summary: {
       targetLaunches: normalizeNumber(summaryRecord.targetLaunches) ?? 0,
       baselineRows: normalizeNumber(summaryRecord.baselineRows) ?? 0,
@@ -454,6 +460,11 @@ export default function AdminJepShadowPage() {
         {status === 'loading' && <div className="text-sm text-text3">Loading JEP shadow review…</div>}
         {status === 'ready' && data.launches.length === 0 && (
           <div className="text-sm text-text3">No launches matched the current filter set.</div>
+        )}
+        {status === 'ready' && data.launches.length > 0 && data.returnedLaunches < data.summary.targetLaunches && (
+          <div className="text-sm text-text3">
+            Showing the first {data.returnedLaunches} of {data.summary.targetLaunches} filtered launches. Increase `limit` in the route if you need a larger review slice.
+          </div>
         )}
         {status === 'ready' && data.launches.length > 0 && (
           <div className="overflow-x-auto">
