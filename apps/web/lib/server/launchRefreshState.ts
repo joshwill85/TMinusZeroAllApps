@@ -14,6 +14,11 @@ type LaunchRefreshStateRow = {
   revision?: number | null;
 };
 
+type LaunchRefreshStateQueryError = {
+  code?: string | null;
+  message?: string | null;
+};
+
 export type LaunchRefreshStateSeed = {
   cacheKey: string;
   scope: LaunchRefreshStateScope;
@@ -28,6 +33,8 @@ export async function loadLaunchRefreshStateSeed(
   options: { launchId?: string | null; fallbackUpdatedAt?: string | null } = {}
 ): Promise<LaunchRefreshStateSeed> {
   const cacheKey = buildLaunchRefreshStateKey(scope, options.launchId);
+  const fallbackLaunchId = normalizeText(options.launchId) ?? null;
+  const fallbackUpdatedAt = normalizeText(options.fallbackUpdatedAt) ?? null;
   const { data, error } = await client
     .from('launch_refresh_state')
     .select('cache_key, scope, launch_id, updated_at, revision')
@@ -35,6 +42,16 @@ export async function loadLaunchRefreshStateSeed(
     .maybeSingle();
 
   if (error) {
+    if (isMissingLaunchRefreshStateRelationError(error)) {
+      console.warn('launch refresh state unavailable, using fallback seed', { cacheKey, scope, error });
+      return {
+        cacheKey,
+        scope,
+        launchId: fallbackLaunchId,
+        updatedAt: fallbackUpdatedAt,
+        revision: 0
+      };
+    }
     console.error('launch refresh state lookup failed', { cacheKey, scope, error });
     throw error;
   }
@@ -46,8 +63,8 @@ export async function loadLaunchRefreshStateSeed(
   return {
     cacheKey,
     scope: resolvedScope,
-    launchId: normalizeText(row?.launch_id) ?? normalizeText(options.launchId) ?? null,
-    updatedAt: normalizeText(row?.updated_at) ?? normalizeText(options.fallbackUpdatedAt) ?? null,
+    launchId: normalizeText(row?.launch_id) ?? fallbackLaunchId,
+    updatedAt: normalizeText(row?.updated_at) ?? fallbackUpdatedAt,
     revision
   };
 }
@@ -68,4 +85,18 @@ function normalizeRevision(value: number | null | undefined) {
 function normalizeText(value: string | null | undefined) {
   const normalized = typeof value === 'string' ? value.trim() : '';
   return normalized.length > 0 ? normalized : null;
+}
+
+function isMissingLaunchRefreshStateRelationError(error: unknown) {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  const { code, message } = error as LaunchRefreshStateQueryError;
+  if (code === 'PGRST205' || code === '42P01') {
+    return true;
+  }
+
+  const normalizedMessage = typeof message === 'string' ? message.toLowerCase() : '';
+  return normalizedMessage.includes('launch_refresh_state') && normalizedMessage.includes('schema cache');
 }
