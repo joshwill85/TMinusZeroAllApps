@@ -28,6 +28,7 @@ export function DockingBay({ profile, viewerTier, onOpenCalendar, onOpenSearch, 
   const [open, setOpen] = useState(false);
   const closeTimeoutRef = useRef<number | null>(null);
   const { facebookUrl, xUrl } = getPublicSocialLinks();
+  const isAdmin = profile?.role === 'admin';
 
   const accountHref = profile ? buildProfileHref() : buildAuthHref('sign-in');
   const accountLabel = profile?.first_name?.trim() || 'Account';
@@ -46,10 +47,11 @@ export function DockingBay({ profile, viewerTier, onOpenCalendar, onOpenSearch, 
         { label: 'FAQ', href: '/docs/faq' },
         { label: 'Support', href: '/support' },
         { label: 'Notifications', href: '/preferences' },
+        isAdmin ? { label: 'Admin', href: '/admin' } : null,
         viewerTier && viewerTier !== 'premium' ? { label: 'Premium · $3.99/mo', href: buildUpgradeHref() } : null,
         { label: accountLabel, href: accountHref }
       ].filter(Boolean) as Array<{ label: string; href: string }>,
-    [accountHref, accountLabel, viewerTier]
+    [accountHref, accountLabel, isAdmin, viewerTier]
   );
 
   const legalLinks = useMemo(
