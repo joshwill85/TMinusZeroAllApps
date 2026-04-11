@@ -85,7 +85,9 @@ export function resolveWebLaunchMapPolicy({
 
   return {
     isSafari,
-    allowGoogleStaticPadPreview: !isSafari && hasGoogleStaticApiKey && Boolean(googlePadHref),
+    // The preview image is served by our route handler, so Safari can still
+    // show the satellite snapshot even when the click-through target is Apple Maps.
+    allowGoogleStaticPadPreview: hasGoogleStaticApiKey && Boolean(googlePadHref),
     faaMapMode,
     padMapsHref,
     padMapsProviderLabel,

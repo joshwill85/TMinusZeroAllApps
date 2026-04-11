@@ -89,6 +89,10 @@ type AdminUserSummary = {
   }>;
 };
 
+function mapProfileRoleToAuthRole(role: 'user' | 'admin') {
+  return role === 'admin' ? 'admin' : 'member';
+}
+
 function isMissingRelationError(error: unknown) {
   const message = String((error as { message?: unknown })?.message || '').toLowerCase();
   return message.includes('relation') && message.includes('does not exist');
@@ -536,7 +540,7 @@ export async function POST(request: Request) {
   }
 
   const { data: userData, error: userError } = await admin.auth.admin.getUserById(parsed.data.userId);
-  if (userError) {
+  if (userError || !userData?.user) {
     console.error('admin get user error', userError);
     return NextResponse.json({ error: 'user_not_found' }, { status: 404 });
   }
@@ -552,6 +556,23 @@ export async function POST(request: Request) {
   if (error) {
     console.error('admin role update error', error);
     return NextResponse.json({ error: 'failed_to_update' }, { status: 500 });
+  }
+
+  // Keep auth metadata aligned so viewer-session fallback still recognizes admins if profile reads fail.
+  const currentAppMetadata =
+    userData.user.app_metadata && typeof userData.user.app_metadata === 'object'
+      ? (userData.user.app_metadata as Record<string, unknown>)
+      : {};
+  const { error: authMetadataError } = await admin.auth.admin.updateUserById(parsed.data.userId, {
+    app_metadata: {
+      ...currentAppMetadata,
+      role: mapProfileRoleToAuthRole(parsed.data.role)
+    }
+  });
+
+  if (authMetadataError) {
+    console.error('admin auth metadata role sync error', authMetadataError);
+    return NextResponse.json({ error: 'failed_to_update_auth_metadata' }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });
