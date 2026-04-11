@@ -2467,6 +2467,101 @@ export const premiumClaimAttachResponseSchemaV1 = z
   })
   .strict();
 
+export const premiumOnboardingPlatformSchemaV1 = z.enum(['web', 'ios', 'android']);
+
+export const premiumOnboardingProviderSchemaV1 = z.enum(['google', 'apple']);
+
+export const premiumLegalFlowSchemaV1 = z.enum(['premium_onboarding', 'legacy_claim']);
+
+export const premiumLegalStatusSchemaV1 = z
+  .object({
+    termsVersion: z.string().trim().min(1),
+    privacyVersion: z.string().trim().min(1),
+    termsAcceptedAt: z.string().nullable(),
+    privacyAcceptedAt: z.string().nullable(),
+    requiresAcceptance: z.boolean()
+  })
+  .strict();
+
+export const premiumOnboardingIntentSchemaV1 = z
+  .object({
+    intentId: z.string().uuid(),
+    platform: premiumOnboardingPlatformSchemaV1,
+    returnTo: z.string(),
+    createdAt: z.string(),
+    expiresAt: z.string()
+  })
+  .strict();
+
+export const premiumOnboardingIntentRequestSchemaV1 = z
+  .object({
+    intentId: z.string().uuid().optional(),
+    platform: premiumOnboardingPlatformSchemaV1,
+    returnTo: z.string().optional()
+  })
+  .strict();
+
+export const premiumOnboardingIntentResponseSchemaV1 = z
+  .object({
+    intent: premiumOnboardingIntentSchemaV1,
+    viewerId: z.string().uuid().nullable(),
+    legal: premiumLegalStatusSchemaV1
+  })
+  .strict();
+
+export const premiumOnboardingProviderPreflightSchemaV1 = z
+  .object({
+    intentId: z.string().uuid().nullable().optional(),
+    provider: premiumOnboardingProviderSchemaV1,
+    email: z.string().trim().email()
+  })
+  .strict();
+
+export const premiumOnboardingProviderPreflightResponseSchemaV1 = z
+  .object({
+    provider: premiumOnboardingProviderSchemaV1,
+    email: z.string().trim().email(),
+    mode: z.enum(['sign_in', 'create']),
+    createAllowed: z.boolean(),
+    onboardingRequired: z.boolean(),
+    allowCreateExpiresAt: z.string().nullable()
+  })
+  .strict();
+
+export const premiumOnboardingEmailAccountCreateSchemaV1 = z
+  .object({
+    intentId: z.string().uuid(),
+    email: z.string().trim().email(),
+    password: z.string().min(1).max(4096)
+  })
+  .strict();
+
+export const premiumOnboardingEmailAccountCreateResponseSchemaV1 = z
+  .object({
+    session: z.lazy(() => mobileAuthSessionSchemaV1),
+    returnTo: z.string()
+  })
+  .strict();
+
+export const premiumOnboardingLegalAcceptanceSchemaV1 = z
+  .object({
+    intentId: z.string().uuid().nullable().optional(),
+    platform: premiumOnboardingPlatformSchemaV1,
+    flow: premiumLegalFlowSchemaV1,
+    termsVersion: z.string().trim().min(1),
+    privacyVersion: z.string().trim().min(1),
+    returnTo: z.string().optional()
+  })
+  .strict();
+
+export const premiumOnboardingLegalAcceptanceResponseSchemaV1 = z
+  .object({
+    ok: z.literal(true),
+    legal: premiumLegalStatusSchemaV1,
+    returnTo: z.string()
+  })
+  .strict();
+
 export const launchFilterValueSchemaV1 = z
   .object({
     range: z.enum(['today', '7d', 'month', 'year', 'past', 'all']).optional(),
@@ -3039,7 +3134,7 @@ export const appleAuthCaptureResponseSchemaV1 = z
   })
   .strict();
 
-export const authMethodProviderSchemaV1 = z.enum(['email_password', 'apple']);
+export const authMethodProviderSchemaV1 = z.enum(['email_password', 'google', 'apple']);
 
 export const authMethodSchemaV1 = z
   .object({
@@ -3058,7 +3153,7 @@ export const authMethodsSchemaV1 = z
   .object({
     viewerId: z.string().uuid(),
     email: z.string().trim().email().nullable(),
-    methods: z.array(authMethodSchemaV1).length(2)
+    methods: z.array(authMethodSchemaV1).length(3)
   })
   .strict();
 
@@ -4205,6 +4300,19 @@ export type PremiumClaimEnvelopeV1 = z.infer<typeof premiumClaimEnvelopeSchemaV1
 export type PremiumClaimPasswordSignUpV1 = z.infer<typeof premiumClaimPasswordSignUpSchemaV1>;
 export type PremiumClaimPasswordSignUpResponseV1 = z.infer<typeof premiumClaimPasswordSignUpResponseSchemaV1>;
 export type PremiumClaimAttachResponseV1 = z.infer<typeof premiumClaimAttachResponseSchemaV1>;
+export type PremiumOnboardingPlatformV1 = z.infer<typeof premiumOnboardingPlatformSchemaV1>;
+export type PremiumOnboardingProviderV1 = z.infer<typeof premiumOnboardingProviderSchemaV1>;
+export type PremiumLegalFlowV1 = z.infer<typeof premiumLegalFlowSchemaV1>;
+export type PremiumLegalStatusV1 = z.infer<typeof premiumLegalStatusSchemaV1>;
+export type PremiumOnboardingIntentV1 = z.infer<typeof premiumOnboardingIntentSchemaV1>;
+export type PremiumOnboardingIntentRequestV1 = z.infer<typeof premiumOnboardingIntentRequestSchemaV1>;
+export type PremiumOnboardingIntentResponseV1 = z.infer<typeof premiumOnboardingIntentResponseSchemaV1>;
+export type PremiumOnboardingProviderPreflightV1 = z.infer<typeof premiumOnboardingProviderPreflightSchemaV1>;
+export type PremiumOnboardingProviderPreflightResponseV1 = z.infer<typeof premiumOnboardingProviderPreflightResponseSchemaV1>;
+export type PremiumOnboardingEmailAccountCreateV1 = z.infer<typeof premiumOnboardingEmailAccountCreateSchemaV1>;
+export type PremiumOnboardingEmailAccountCreateResponseV1 = z.infer<typeof premiumOnboardingEmailAccountCreateResponseSchemaV1>;
+export type PremiumOnboardingLegalAcceptanceV1 = z.infer<typeof premiumOnboardingLegalAcceptanceSchemaV1>;
+export type PremiumOnboardingLegalAcceptanceResponseV1 = z.infer<typeof premiumOnboardingLegalAcceptanceResponseSchemaV1>;
 export type LaunchFilterValueV1 = z.infer<typeof launchFilterValueSchemaV1>;
 export type LaunchFilterOptionsV1 = z.infer<typeof launchFilterOptionsSchemaV1>;
 export type PushDeviceRegistrationV1 = z.infer<typeof pushDeviceRegistrationSchemaV1>;

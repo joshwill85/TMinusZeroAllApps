@@ -56,6 +56,24 @@ function appendClaimToken(href: string, claimToken: string | null) {
   return `${href}${separator}claim_token=${encodeURIComponent(claimToken)}`;
 }
 
+function buildUpgradeCheckoutReturnTo(path: string) {
+  const safePath = sanitizeReturnToPath(path, '/account');
+  return `/upgrade?${new URLSearchParams({
+    autostart: '1',
+    return_to: safePath
+  }).toString()}`;
+}
+
+function buildPremiumOnboardingLegalHref(returnTo: string, intentId?: string | null) {
+  const params = new URLSearchParams({
+    return_to: returnTo
+  });
+  if (intentId) {
+    params.set('intent_id', intentId);
+  }
+  return `/premium-onboarding/legal?${params.toString()}`;
+}
+
 export function UpgradePageContent() {
   const searchParams = useSearchParams();
   const { data: viewerSession, isPending: viewerSessionPending } = useViewerSessionQuery();
@@ -78,7 +96,10 @@ export function UpgradePageContent() {
   const [claimError, setClaimError] = useState<string | null>(null);
   const [claimLoading, setClaimLoading] = useState(Boolean(claimToken));
   const [attachingClaim, setAttachingClaim] = useState(false);
-  const signInHref = buildAuthHref('sign-in', { returnTo, intent: 'upgrade' });
+  const [premiumOnboardingIntentId, setPremiumOnboardingIntentId] = useState<string | null>(null);
+  const [premiumLegalRequired, setPremiumLegalRequired] = useState(false);
+  const postAuthUpgradeReturnTo = useMemo(() => buildUpgradeCheckoutReturnTo(returnTo), [returnTo]);
+  const signInHref = buildAuthHref('sign-in', { returnTo: postAuthUpgradeReturnTo, intent: 'upgrade' });
   const claimSignInHref = useMemo(
     () =>
       appendClaimToken(
@@ -142,6 +163,11 @@ export function UpgradePageContent() {
     if (busy) return;
     setError(null);
 
+    if (premiumLegalRequired) {
+      window.location.assign(buildPremiumOnboardingLegalHref(postAuthUpgradeReturnTo, premiumOnboardingIntentId));
+      return;
+    }
+
     try {
       const payload = await startBillingCheckoutMutation.mutateAsync({
         returnTo,
@@ -157,6 +183,14 @@ export function UpgradePageContent() {
           window.location.replace(err.returnTo || returnTo);
           return;
         }
+        if (err.code === 'auth_required') {
+          window.location.assign(signInHref);
+          return;
+        }
+        if (err.code === 'legal_acceptance_required') {
+          window.location.assign(buildPremiumOnboardingLegalHref(postAuthUpgradeReturnTo, premiumOnboardingIntentId));
+          return;
+        }
         if (err.code === 'payment_issue') {
           window.location.replace(paymentIssueReturnTo);
           return;
@@ -166,7 +200,16 @@ export function UpgradePageContent() {
       console.error('checkout error', err);
       setError('Unable to start checkout.');
     }
-  }, [busy, paymentIssueReturnTo, returnTo, startBillingCheckoutMutation]);
+  }, [
+    busy,
+    paymentIssueReturnTo,
+    postAuthUpgradeReturnTo,
+    premiumLegalRequired,
+    premiumOnboardingIntentId,
+    returnTo,
+    signInHref,
+    startBillingCheckoutMutation
+  ]);
 
   const attachClaim = useCallback(async () => {
     if (!claimToken || attachingClaim) return;
@@ -216,6 +259,35 @@ export function UpgradePageContent() {
       if (timeoutId) window.clearTimeout(timeoutId);
     };
   }, [claimToken, refreshClaim, succeeded]);
+
+  useEffect(() => {
+    if (authStatus !== 'authed' || claimToken) {
+      setPremiumOnboardingIntentId(null);
+      setPremiumLegalRequired(false);
+      return;
+    }
+
+    let cancelled = false;
+    void browserApiClient
+      .createOrResumePremiumOnboardingIntent({
+        platform: 'web',
+        returnTo
+      })
+      .then((payload) => {
+        if (cancelled) return;
+        setPremiumOnboardingIntentId(payload.intent.intentId);
+        setPremiumLegalRequired(payload.legal.requiresAcceptance);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setPremiumOnboardingIntentId(null);
+        setPremiumLegalRequired(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authStatus, claimToken, returnTo]);
 
   useEffect(() => {
     if (authStatus !== 'authed') {
@@ -280,11 +352,29 @@ export function UpgradePageContent() {
     if (canceled || succeeded) return;
     if (claimToken) return;
     if (authStatus === 'loading') return;
+    if (authStatus === 'guest') return;
     if (authStatus === 'authed' && subscriptionState === 'paid') return;
+    if (authStatus === 'authed' && premiumLegalRequired) {
+      setAutostarted(true);
+      window.location.replace(buildPremiumOnboardingLegalHref(postAuthUpgradeReturnTo, premiumOnboardingIntentId));
+      return;
+    }
     setAutostarted(true);
 
     void startCheckout();
-  }, [authStatus, autostart, autostarted, canceled, claimToken, startCheckout, subscriptionState, succeeded]);
+  }, [
+    authStatus,
+    autostart,
+    autostarted,
+    canceled,
+    claimToken,
+    postAuthUpgradeReturnTo,
+    premiumLegalRequired,
+    premiumOnboardingIntentId,
+    startCheckout,
+    subscriptionState,
+    succeeded
+  ]);
 
   const showVerifiedGuestClaim = claim?.status === 'verified' && authStatus === 'guest';
   const showVerifiedAuthedClaim = claim?.status === 'verified' && authStatus === 'authed' && !isPaid;
@@ -408,15 +498,11 @@ export function UpgradePageContent() {
             </button>
           ) : (
             <div className="mt-5 flex flex-col gap-2">
-              <button
-                className="btn w-full rounded-lg px-4 py-2 text-sm"
-                onClick={() => void startCheckout(webOffers.length === 1 ? webOffers[0]?.promotionCode ?? null : null)}
-                disabled={busy}
-              >
-                {busy ? 'Starting checkout…' : 'Start Premium'}
-              </button>
-              <Link className="btn-secondary w-full rounded-lg px-4 py-2 text-sm" href={signInHref}>
-                Sign in to existing account
+              <Link className="btn w-full rounded-lg px-4 py-2 text-sm text-center" href={signInHref}>
+                Sign in to continue
+              </Link>
+              <Link className="btn-secondary w-full rounded-lg px-4 py-2 text-sm text-center" href={returnTo || '/'}>
+                Keep browsing free
               </Link>
             </div>
           )}
@@ -435,6 +521,11 @@ export function UpgradePageContent() {
             </Link>
             .
           </p>
+          {premiumLegalRequired && authStatus === 'authed' ? (
+            <div className="mt-3 rounded-lg border border-primary/30 bg-[rgba(34,211,238,0.08)] px-3 py-2 text-xs text-text2">
+              Review the latest Terms and Privacy notice before checkout starts.
+            </div>
+          ) : null}
           {error && <div className="mt-3 text-xs text-danger">{error}</div>}
         </div>
         <div className="rounded-2xl border border-stroke bg-surface-1 p-5">
@@ -446,7 +537,7 @@ export function UpgradePageContent() {
             <li>• Weather forecast (NWS, when available)</li>
           </ul>
           <p className="mt-5 text-sm text-text3">
-            Keep browsing without an account. Sign in later for account ownership and billing access, or upgrade when you want Premium features.
+            Keep browsing without an account. Premium checkout on web now requires a signed-in account before billing starts.
           </p>
         </div>
       </div>

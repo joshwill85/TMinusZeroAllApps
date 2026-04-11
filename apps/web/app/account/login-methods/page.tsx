@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import type { AuthMethodV1 } from '@tminuszero/api-client';
+import { normalizeAuthSourceProvider } from '@tminuszero/domain';
 import type { UserIdentity } from '@supabase/supabase-js';
 import { buildAuthHref, buildProfileHref } from '@tminuszero/navigation';
 import { invalidateViewerScopedQueries, useAuthMethodsQuery, useViewerSessionQuery } from '@/lib/api/queries';
@@ -37,7 +38,7 @@ export default function LoginMethodsPage() {
   const viewerSessionQuery = useViewerSessionQuery();
   const authMethodsQuery = useAuthMethodsQuery();
   const [notice, setNotice] = useState<{ tone: NoticeTone; message: string } | null>(null);
-  const [busyAction, setBusyAction] = useState<'link' | 'unlink' | null>(null);
+  const [busyAction, setBusyAction] = useState<'link_apple' | 'unlink_apple' | 'link_google' | 'unlink_google' | null>(null);
 
   const status: 'loading' | 'authed' | 'guest' = viewerSessionQuery.isPending
     ? 'loading'
@@ -46,17 +47,18 @@ export default function LoginMethodsPage() {
       : 'guest';
 
   const emailMethod = findMethod(authMethodsQuery.data?.methods, 'email_password');
+  const googleMethod = findMethod(authMethodsQuery.data?.methods, 'google');
   const appleMethod = findMethod(authMethodsQuery.data?.methods, 'apple');
 
   useEffect(() => {
-    const appleState = searchParams.get('apple');
-    if (appleState !== 'linked') {
+    const linkedProvider = normalizeAuthSourceProvider(searchParams.get('linked_provider'));
+    if (linkedProvider !== 'apple' && linkedProvider !== 'google') {
       return;
     }
 
     setNotice({
       tone: 'success',
-      message: 'Sign in with Apple linked to this account.'
+      message: `${linkedProvider === 'google' ? 'Google' : 'Sign in with Apple'} linked to this account.`
     });
 
     if (typeof window === 'undefined') {
@@ -64,7 +66,7 @@ export default function LoginMethodsPage() {
     }
 
     const url = new URL(window.location.href);
-    url.searchParams.delete('apple');
+    url.searchParams.delete('linked_provider');
     try {
       window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
     } catch {
@@ -72,7 +74,7 @@ export default function LoginMethodsPage() {
     }
   }, [searchParams]);
 
-  async function handleLinkApple() {
+  async function handleLinkProvider(provider: 'apple' | 'google') {
     if (busyAction) {
       return;
     }
@@ -83,14 +85,14 @@ export default function LoginMethodsPage() {
       return;
     }
 
-    setBusyAction('link');
+    setBusyAction(provider === 'google' ? 'link_google' : 'link_apple');
     setNotice(null);
     try {
       const callbackUrl = new URL('/auth/callback', window.location.origin);
-      callbackUrl.searchParams.set('return_to', '/account/login-methods?apple=linked');
-      callbackUrl.searchParams.set('apple_action', 'link');
+      callbackUrl.searchParams.set('return_to', `/account/login-methods?linked_provider=${provider}`);
+      callbackUrl.searchParams.set('link_provider', provider);
       const { error } = await supabase.auth.linkIdentity({
-        provider: 'apple',
+        provider,
         options: {
           redirectTo: callbackUrl.toString()
         }
@@ -102,12 +104,12 @@ export default function LoginMethodsPage() {
       setBusyAction(null);
       setNotice({
         tone: 'error',
-        message: getErrorMessage(error, 'Unable to start Sign in with Apple linking.')
+        message: getErrorMessage(error, `Unable to start ${provider === 'google' ? 'Google' : 'Sign in with Apple'} linking.`)
       });
     }
   }
 
-  async function handleUnlinkApple() {
+  async function handleUnlinkProvider(provider: 'apple' | 'google') {
     if (busyAction) {
       return;
     }
@@ -118,35 +120,46 @@ export default function LoginMethodsPage() {
       return;
     }
 
-    setBusyAction('unlink');
+    setBusyAction(provider === 'google' ? 'unlink_google' : 'unlink_apple');
     setNotice(null);
     try {
       const identitiesResult = await supabase.auth.getUserIdentities();
       if (identitiesResult.error) {
         throw identitiesResult.error;
       }
-
-      const appleIdentity =
-        identitiesResult.data.identities.find((identity: UserIdentity) => String(identity?.provider || '').trim().toLowerCase() === 'apple') ?? null;
-      if (!appleIdentity) {
-        await browserApiClient.clearAppleAuthArtifacts().catch(() => undefined);
+      const linkedIdentity =
+        identitiesResult.data.identities.find(
+          (identity: UserIdentity) => normalizeAuthSourceProvider(identity?.provider) === provider
+        ) ?? null;
+      if (!linkedIdentity) {
+        if (provider === 'apple') {
+          await browserApiClient.clearAppleAuthArtifacts().catch(() => undefined);
+        }
         invalidateViewerScopedQueries(queryClient);
-        setNotice({ tone: 'success', message: 'Sign in with Apple was already removed from this account.' });
+        setNotice({
+          tone: 'success',
+          message: `${provider === 'google' ? 'Google' : 'Sign in with Apple'} was already removed from this account.`
+        });
         return;
       }
 
-      const unlinkResult = await supabase.auth.unlinkIdentity(appleIdentity);
+      const unlinkResult = await supabase.auth.unlinkIdentity(linkedIdentity);
       if (unlinkResult.error) {
         throw unlinkResult.error;
       }
 
-      await browserApiClient.clearAppleAuthArtifacts().catch(() => undefined);
+      if (provider === 'apple') {
+        await browserApiClient.clearAppleAuthArtifacts().catch(() => undefined);
+      }
       invalidateViewerScopedQueries(queryClient);
-      setNotice({ tone: 'success', message: 'Sign in with Apple removed from this account.' });
+      setNotice({
+        tone: 'success',
+        message: `${provider === 'google' ? 'Google' : 'Sign in with Apple'} removed from this account.`
+      });
     } catch (error) {
       setNotice({
         tone: 'error',
-        message: getErrorMessage(error, 'Unable to remove Sign in with Apple.')
+        message: getErrorMessage(error, `Unable to remove ${provider === 'google' ? 'Google' : 'Sign in with Apple'}.`)
       });
     } finally {
       setBusyAction(null);
@@ -189,9 +202,9 @@ export default function LoginMethodsPage() {
         <div className="mt-4 space-y-4">
           <div className="rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
             <div className="text-xs uppercase tracking-[0.1em] text-text3">Policy</div>
-            <div className="mt-1 text-base font-semibold text-text1">Use explicit linking for Apple identities</div>
+            <div className="mt-1 text-base font-semibold text-text1">Use explicit linking for provider identities</div>
             <p className="mt-2 text-text3">
-              Same-email Apple sign-ins may link automatically through Supabase. Apple private relay or different-email Apple identities stay separate until you link them from this page.
+              Same-email provider sign-ins may link automatically through Supabase. Apple private relay or different-email identities stay separate until you link them from this page.
             </p>
           </div>
 
@@ -210,6 +223,62 @@ export default function LoginMethodsPage() {
                 ) : null}
               </div>
               <span className="rounded-full border border-stroke px-3 py-1 text-xs text-text3">Primary</span>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="text-xs uppercase tracking-[0.1em] text-text3">Google</div>
+                <div className="mt-1 text-base font-semibold text-text1">
+                  {googleMethod?.linked ? 'Linked' : 'Not linked'}
+                </div>
+                <div className="mt-2 text-xs text-text3">
+                  {googleMethod?.linked ? googleMethod.email || 'Google identity linked' : 'Add Google as a login method for this account.'}
+                </div>
+                {googleMethod?.linkedAt ? (
+                  <div className="mt-1 text-xs text-text3">Linked on {formatDateTime(googleMethod.linkedAt)}</div>
+                ) : null}
+              </div>
+              <span
+                className={`rounded-full px-3 py-1 text-xs ${
+                  googleMethod?.linked
+                    ? 'border border-success/30 text-success'
+                    : 'border border-stroke text-text3'
+                }`}
+              >
+                {googleMethod?.linked ? 'Active' : 'Available'}
+              </span>
+            </div>
+
+            {googleMethod?.linked && !googleMethod.canUnlink ? (
+              <div className="mt-3 rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
+                Add another sign-in method before removing Google from this account.
+              </div>
+            ) : null}
+
+            <div className="mt-4 flex flex-wrap gap-3">
+              {!googleMethod?.linked ? (
+                <button
+                  type="button"
+                  className="btn rounded-lg px-4 py-2 text-xs"
+                  onClick={() => void handleLinkProvider('google')}
+                  disabled={busyAction !== null}
+                >
+                  {busyAction === 'link_google' ? 'Starting…' : 'Link Google'}
+                </button>
+              ) : null}
+
+              {googleMethod?.linked ? (
+                <button
+                  type="button"
+                  className="btn-secondary rounded-lg px-4 py-2 text-xs"
+                  onClick={() => void handleUnlinkProvider('google')}
+                  disabled={busyAction !== null || !googleMethod.canUnlink}
+                >
+                  {busyAction === 'unlink_google' ? 'Removing…' : 'Remove Google'}
+                </button>
+              ) : null}
             </div>
           </div>
 
@@ -252,8 +321,13 @@ export default function LoginMethodsPage() {
 
             <div className="mt-4 flex flex-wrap gap-3">
               {!appleMethod?.linked ? (
-                <button type="button" className="btn rounded-lg px-4 py-2 text-xs" onClick={() => void handleLinkApple()} disabled={busyAction !== null}>
-                  {busyAction === 'link' ? 'Starting…' : 'Link Sign in with Apple'}
+                <button
+                  type="button"
+                  className="btn rounded-lg px-4 py-2 text-xs"
+                  onClick={() => void handleLinkProvider('apple')}
+                  disabled={busyAction !== null}
+                >
+                  {busyAction === 'link_apple' ? 'Starting…' : 'Link Sign in with Apple'}
                 </button>
               ) : null}
 
@@ -261,10 +335,10 @@ export default function LoginMethodsPage() {
                 <button
                   type="button"
                   className="btn-secondary rounded-lg px-4 py-2 text-xs"
-                  onClick={() => void handleUnlinkApple()}
+                  onClick={() => void handleUnlinkProvider('apple')}
                   disabled={busyAction !== null || !appleMethod.canUnlink}
                 >
-                  {busyAction === 'unlink' ? 'Removing…' : 'Remove Sign in with Apple'}
+                  {busyAction === 'unlink_apple' ? 'Removing…' : 'Remove Sign in with Apple'}
                 </button>
               ) : null}
             </div>

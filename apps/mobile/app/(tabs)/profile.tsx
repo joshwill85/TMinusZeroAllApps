@@ -163,7 +163,7 @@ export default function ProfileScreen() {
               />
               <AccountNavRow
                 title="Login methods"
-                description="Email/password and Sign in with Apple management for this account."
+                description="Email/password, Google, and Sign in with Apple management for this account."
                 onPress={() => {
                   router.push('/account/login-methods' as Href);
                 }}

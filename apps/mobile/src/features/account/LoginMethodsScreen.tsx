@@ -5,7 +5,13 @@ import type { AuthMethodV1 } from '@tminuszero/api-client';
 import { sharedQueryKeys } from '@tminuszero/query';
 import { useAuthMethodsQuery } from '@/src/api/queries';
 import { isMobileAppleAuthEnabled } from '@/src/auth/appleAuth';
-import { linkAppleIdentityToCurrentSession, unlinkAppleIdentityFromCurrentSession } from '@/src/auth/supabaseAuth';
+import {
+  isSupabaseMobileAuthConfigured,
+  linkAppleIdentityToCurrentSession,
+  linkGoogleIdentityToCurrentSession,
+  unlinkAppleIdentityFromCurrentSession,
+  unlinkGoogleIdentityFromCurrentSession
+} from '@/src/auth/supabaseAuth';
 import { AppScreen } from '@/src/components/AppScreen';
 import {
   CustomerShellActionButton,
@@ -29,11 +35,13 @@ export function LoginMethodsScreen() {
   const { accessToken, refreshToken, persistSession, theme } = useMobileBootstrap();
   const authMethodsQuery = useAuthMethodsQuery();
   const [notice, setNotice] = useState<{ tone: 'success' | 'warning' | 'error'; message: string } | null>(null);
-  const [busyAction, setBusyAction] = useState<'link' | 'unlink' | null>(null);
+  const [busyAction, setBusyAction] = useState<'link_apple' | 'unlink_apple' | 'link_google' | 'unlink_google' | null>(null);
 
   const emailMethod = findMethod(authMethodsQuery.data?.methods, 'email_password');
+  const googleMethod = findMethod(authMethodsQuery.data?.methods, 'google');
   const appleMethod = findMethod(authMethodsQuery.data?.methods, 'apple');
   const canManageAppleOnDevice = Platform.OS === 'ios' && isMobileAppleAuthEnabled();
+  const canManageGoogleOnDevice = isSupabaseMobileAuthConfigured();
   const isAuthed = Boolean(accessToken);
   const isLoading = isAuthed && authMethodsQuery.isPending && !authMethodsQuery.data;
 
@@ -52,7 +60,7 @@ export function LoginMethodsScreen() {
       return;
     }
 
-    setBusyAction('link');
+    setBusyAction('link_apple');
     setNotice(null);
     try {
       const result = await linkAppleIdentityToCurrentSession({ accessToken, refreshToken });
@@ -78,7 +86,7 @@ export function LoginMethodsScreen() {
       return;
     }
 
-    setBusyAction('unlink');
+    setBusyAction('unlink_apple');
     setNotice(null);
     try {
       const result = await unlinkAppleIdentityFromCurrentSession({ accessToken, refreshToken });
@@ -92,6 +100,63 @@ export function LoginMethodsScreen() {
       setNotice({
         tone: 'error',
         message: getErrorMessage(error, 'Unable to remove Sign in with Apple.')
+      });
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function handleLinkGoogle() {
+    if (!accessToken) {
+      setNotice({ tone: 'warning', message: 'Sign in before linking another login method.' });
+      return;
+    }
+
+    if (!canManageGoogleOnDevice) {
+      setNotice({ tone: 'warning', message: 'Google linking is not available in this build.' });
+      return;
+    }
+
+    setBusyAction('link_google');
+    setNotice(null);
+    try {
+      const result = await linkGoogleIdentityToCurrentSession({ accessToken, refreshToken });
+      await persistSession({
+        accessToken: result.session.accessToken,
+        refreshToken: result.session.refreshToken
+      });
+      await refreshAuthMethods();
+      setNotice({ tone: 'success', message: 'Google linked to this account.' });
+    } catch (error) {
+      setNotice({
+        tone: 'error',
+        message: getErrorMessage(error, 'Unable to link Google.')
+      });
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function handleUnlinkGoogle() {
+    if (!accessToken) {
+      setNotice({ tone: 'warning', message: 'Sign in before changing login methods.' });
+      return;
+    }
+
+    setBusyAction('unlink_google');
+    setNotice(null);
+    try {
+      const result = await unlinkGoogleIdentityFromCurrentSession({ accessToken, refreshToken });
+      await persistSession({
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken
+      });
+      await refreshAuthMethods();
+      setNotice({ tone: 'success', message: 'Google removed from this account.' });
+    } catch (error) {
+      setNotice({
+        tone: 'error',
+        message: getErrorMessage(error, 'Unable to remove Google.')
       });
     } finally {
       setBusyAction(null);
@@ -118,7 +183,7 @@ export function LoginMethodsScreen() {
       {!isAuthed ? (
         <CustomerShellPanel title="Sign in required" description="A signed-in account is required before login methods can be managed on this device.">
           <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
-            Sign in first, then return here to link or remove Sign in with Apple.
+            Sign in first, then return here to link or remove Google or Sign in with Apple.
           </Text>
         </CustomerShellPanel>
       ) : null}
@@ -127,7 +192,7 @@ export function LoginMethodsScreen() {
         <>
           <CustomerShellPanel
             title="Policy"
-            description="Same-email Apple sign-ins may link automatically through Supabase. Apple private relay or different-email Apple identities stay separate until you link them explicitly here."
+            description="Same-email provider sign-ins may link automatically through Supabase. Apple private relay or different-email identities stay separate until you link them explicitly here."
           />
 
           <CustomerShellPanel title="Current methods" description="These rows show what is attached to the current customer account.">
@@ -136,6 +201,7 @@ export function LoginMethodsScreen() {
                 label="Email and password"
                 value={emailMethod?.linked ? emailMethod.email || 'Linked' : 'Not linked'}
               />
+              <AccountDetailRow label="Google" value={googleMethod?.linked ? googleMethod.email || 'Linked' : 'Not linked'} />
               <AccountDetailRow
                 label="Sign in with Apple"
                 value={
@@ -148,6 +214,41 @@ export function LoginMethodsScreen() {
                     : 'Not linked'
                 }
               />
+            </View>
+          </CustomerShellPanel>
+
+          <CustomerShellPanel title="Manage Google" description="Link Google to this account or remove it once another login method is available.">
+            <View style={{ gap: 10 }}>
+              {googleMethod?.linkedAt ? (
+                <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
+                  Linked on {formatDate(googleMethod.linkedAt)}.
+                </Text>
+              ) : null}
+
+              {googleMethod?.linked && !googleMethod.canUnlink ? (
+                <AccountNotice tone="warning" message="Add another sign-in method before removing Google." />
+              ) : null}
+
+              {!googleMethod?.linked ? (
+                <CustomerShellActionButton
+                  label={busyAction === 'link_google' ? 'Linking…' : 'Link Google'}
+                  disabled={busyAction !== null || !canManageGoogleOnDevice}
+                  onPress={() => {
+                    void handleLinkGoogle();
+                  }}
+                />
+              ) : null}
+
+              {googleMethod?.linked ? (
+                <CustomerShellActionButton
+                  label={busyAction === 'unlink_google' ? 'Removing…' : 'Remove Google'}
+                  variant="secondary"
+                  disabled={busyAction !== null || !googleMethod.canUnlink}
+                  onPress={() => {
+                    void handleUnlinkGoogle();
+                  }}
+                />
+              ) : null}
             </View>
           </CustomerShellPanel>
 
@@ -172,7 +273,7 @@ export function LoginMethodsScreen() {
 
               {!appleMethod?.linked ? (
                 <CustomerShellActionButton
-                  label={busyAction === 'link' ? 'Linking…' : 'Link Sign in with Apple'}
+                  label={busyAction === 'link_apple' ? 'Linking…' : 'Link Sign in with Apple'}
                   disabled={busyAction !== null || !canManageAppleOnDevice}
                   onPress={() => {
                     void handleLinkApple();
@@ -182,7 +283,7 @@ export function LoginMethodsScreen() {
 
               {appleMethod?.linked ? (
                 <CustomerShellActionButton
-                  label={busyAction === 'unlink' ? 'Removing…' : 'Remove Sign in with Apple'}
+                  label={busyAction === 'unlink_apple' ? 'Removing…' : 'Remove Sign in with Apple'}
                   variant="secondary"
                   disabled={busyAction !== null || !appleMethod.canUnlink}
                   onPress={() => {

@@ -5,6 +5,7 @@ Last updated: 2026-04-10
 This is the living master checklist for moving T-Minus Zero from a web-only product to a maintainable, high-performance web + iOS + Android product line.
 
 Related implementation plans:
+- `docs/2026-04-10-premium-onboarding-free-tier-unification-plan.md`
 - `docs/2026-04-10-safari-faa-apple-maps-web-plan.md`
 - `docs/2026-04-10-maps-cost-control-and-provider-routing-plan.md`
 - `docs/2026-04-08-ar-trajectory-v3-data-and-roadmap-plan.md`
@@ -79,6 +80,10 @@ Related implementation plans:
 
 ## Current Slice Tracker
 
+- 2026-04-10: Premium onboarding and free-tier unification implementation is in progress for `Web`, `iOS`, and `Android`, with `admin/internal impact: yes` and `shared API/backend impact: yes`.
+  - Source-of-truth plan: `docs/2026-04-10-premium-onboarding-free-tier-unification-plan.md`
+  - Scope: standardize premium onboarding around an account-first flow, expose Google where latent support already exists, keep Apple and email sign-in available for existing accounts, block new standalone free account creation, add normalized auth-source reporting in admin, and unify guest versus signed-in-free product behavior across surfaces while keeping web notifications retired.
+  - Guardrails: no breaking `/api/v1` changes, no new guest purchase claims on the primary path, no reintroduction of browser push on web, preserve legacy claim recovery only for already-issued claims, and keep the internal `anon` contract enum compatibility-safe while customer/admin copy shifts to `Free` or `Guest / Free`.
 - 2026-04-10: Safari FAA Apple Maps web implementation planning is in progress for `Web`.
   - Source-of-truth plan: `docs/2026-04-10-safari-faa-apple-maps-web-plan.md`
   - Scope: replace the current Safari advisory-only FAA fallback with an Apple-backed polygon map on both web launch-detail surfaces while keeping iOS native MapKit unchanged, Android unchanged, and non-Safari browsers on the current Google path.

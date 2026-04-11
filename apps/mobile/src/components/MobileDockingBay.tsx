@@ -2,6 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Animated, PanResponder, Pressable, ScrollView, Text, View } from 'react-native';
 import { type Href, usePathname, useRouter, useSegments } from 'expo-router';
 import { useProfileQuery, useViewerEntitlementsQuery, useViewerSessionQuery } from '@/src/api/queries';
+import {
+  buildMobilePremiumCheckoutReturnTo,
+  buildMobilePremiumLegalHref,
+  buildMobilePremiumUpgradeAuthHref
+} from '@/src/auth/premiumOnboarding';
 import { buildClaimAuthHref } from '@/src/billing/nativeBillingUi';
 import { useNativeBilling } from '@/src/billing/useNativeBilling';
 import { getPublicSiteUrl } from '@/src/config/api';
@@ -710,6 +715,16 @@ function ManifestPremiumCard({
 }) {
   const router = useRouter();
   const billing = useNativeBilling(viewerId);
+  const premiumCheckoutReturnTo = useMemo(() => buildMobilePremiumCheckoutReturnTo('/account/membership'), []);
+  const premiumUpgradeSignInHref = useMemo(
+    () =>
+      buildMobilePremiumUpgradeAuthHref('sign-in', {
+        returnTo: buildMobilePremiumLegalHref({
+          returnTo: premiumCheckoutReturnTo
+        })
+      }),
+    [premiumCheckoutReturnTo]
+  );
 
   return (
     <View
@@ -760,29 +775,26 @@ function ManifestPremiumCard({
           <>
             <CustomerShellActionButton
               testID="manifest-premium-purchase"
-              label={billing.isProcessingPurchase ? 'Working…' : 'Unlock Premium'}
-              disabled={billing.isProcessingPurchase || !billing.isStoreReady}
+              label={isAuthed ? (billing.isProcessingPurchase ? 'Working…' : 'Unlock Premium') : 'Sign in to continue'}
+              disabled={billing.isProcessingPurchase}
               onPress={() => {
-                void billing.requestSubscription();
+                onClose();
+                if (!isAuthed) {
+                  router.push(premiumUpgradeSignInHref as Href);
+                  return;
+                }
+                router.push(premiumCheckoutReturnTo as Href);
               }}
             />
-            <CustomerShellActionButton
-              testID="manifest-premium-restore"
-              label="Restore purchases"
-              variant="secondary"
-              disabled={billing.isProcessingPurchase || !billing.isStoreReady}
-              onPress={() => {
-                void billing.restorePurchases();
-              }}
-            />
-            {!isAuthed ? (
+            {isAuthed ? (
               <CustomerShellActionButton
-                testID="manifest-premium-sign-in"
-                label="Sign in"
+                testID="manifest-premium-restore"
+                label="Restore purchases"
                 variant="secondary"
+                disabled={billing.isProcessingPurchase}
                 onPress={() => {
                   onClose();
-                  router.push('/sign-in');
+                  router.push('/account/membership' as Href);
                 }}
               />
             ) : null}

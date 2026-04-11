@@ -1,4 +1,5 @@
 import { authMethodsSchemaV1, type AuthMethodV1 } from '@tminuszero/contracts';
+import { collectAuthSourceProviders, normalizeAuthSourceProvider } from '@tminuszero/domain';
 import type { User, UserIdentity } from '@supabase/supabase-js';
 import { getStoredAppleSignInToken, isApplePrivateRelayEmail } from '@/lib/server/appleAuth';
 import { isSupabaseAdminConfigured } from '@/lib/server/env';
@@ -8,46 +9,18 @@ import type { ResolvedViewerSession } from '@/lib/server/viewerSession';
 type SupportedAuthMethodProvider = AuthMethodV1['provider'];
 
 function normalizeSupportedProvider(value: unknown): SupportedAuthMethodProvider | null {
-  const normalized = String(value || '')
-    .trim()
-    .toLowerCase();
-
-  if (normalized === 'email') {
-    return 'email_password';
-  }
-  if (normalized === 'apple') {
-    return 'apple';
-  }
-
-  return null;
+  return normalizeAuthSourceProvider(value);
 }
 
 function collectSupportedProviders(user: User | null | undefined) {
-  const providers = new Set<SupportedAuthMethodProvider>();
   const appMetadata = ((user?.app_metadata || {}) as Record<string, unknown>) ?? {};
-  const identityList = Array.isArray(user?.identities) ? user.identities : [];
-
-  for (const identity of identityList) {
-    const provider = normalizeSupportedProvider(identity?.provider);
-    if (provider) {
-      providers.add(provider);
-    }
-  }
-
-  const appProvider = normalizeSupportedProvider(appMetadata.provider);
-  if (appProvider) {
-    providers.add(appProvider);
-  }
-
-  const appProviders = Array.isArray(appMetadata.providers) ? appMetadata.providers : [];
-  for (const provider of appProviders) {
-    const normalized = normalizeSupportedProvider(provider);
-    if (normalized) {
-      providers.add(normalized);
-    }
-  }
-
-  return providers;
+  return new Set<SupportedAuthMethodProvider>(
+    collectAuthSourceProviders({
+      identityProviders: (Array.isArray(user?.identities) ? user.identities : []).map((identity) => identity?.provider),
+      primaryProvider: appMetadata.provider,
+      appProviders: Array.isArray(appMetadata.providers) ? appMetadata.providers : []
+    })
+  );
 }
 
 function findIdentity(user: User | null | undefined, provider: SupportedAuthMethodProvider) {
@@ -84,6 +57,13 @@ function readIdentityLinkedAt(identity: UserIdentity | null) {
   return null;
 }
 
+function hasBackupMethod(
+  supportedProviders: Set<SupportedAuthMethodProvider>,
+  currentProvider: SupportedAuthMethodProvider
+) {
+  return [...supportedProviders].some((provider) => provider !== currentProvider);
+}
+
 export async function loadAuthMethodsPayload(session: ResolvedViewerSession) {
   if (!session.userId || !session.user) {
     return null;
@@ -91,15 +71,17 @@ export async function loadAuthMethodsPayload(session: ResolvedViewerSession) {
 
   const supportedProviders = collectSupportedProviders(session.user);
   const emailIdentity = findIdentity(session.user, 'email_password');
+  const googleIdentity = findIdentity(session.user, 'google');
   const appleIdentity = findIdentity(session.user, 'apple');
   const emailLinked = supportedProviders.has('email_password');
+  const googleLinked = supportedProviders.has('google');
   const appleLinked = supportedProviders.has('apple');
-  const hasBackupMethod = [...supportedProviders].some((provider) => provider !== 'apple');
   const storedAppleToken = appleLinked
     ? isSupabaseAdminConfigured()
       ? await getStoredAppleSignInToken(createSupabaseAdminClient(), session.userId).catch(() => null)
       : null
     : null;
+  const googleEmail = readIdentityEmail(googleIdentity) ?? session.email ?? null;
   const appleEmail = readIdentityEmail(appleIdentity) ?? storedAppleToken?.email ?? null;
 
   const methods: AuthMethodV1[] = [
@@ -113,14 +95,23 @@ export async function loadAuthMethodsPayload(session: ResolvedViewerSession) {
       unlinkBlockedReason: null
     },
     {
+      provider: 'google',
+      linked: googleLinked,
+      linkedAt: readIdentityLinkedAt(googleIdentity),
+      email: googleEmail,
+      canLink: !googleLinked,
+      canUnlink: googleLinked && hasBackupMethod(supportedProviders, 'google'),
+      unlinkBlockedReason: googleLinked && !hasBackupMethod(supportedProviders, 'google') ? 'backup_method_required' : null
+    },
+    {
       provider: 'apple',
       linked: appleLinked,
       linkedAt: readIdentityLinkedAt(appleIdentity) ?? storedAppleToken?.lastCapturedAt ?? null,
       email: appleEmail,
       emailIsPrivateRelay: isApplePrivateRelayEmail(appleEmail),
       canLink: !appleLinked,
-      canUnlink: appleLinked && hasBackupMethod,
-      unlinkBlockedReason: appleLinked && !hasBackupMethod ? 'backup_method_required' : null
+      canUnlink: appleLinked && hasBackupMethod(supportedProviders, 'apple'),
+      unlinkBlockedReason: appleLinked && !hasBackupMethod(supportedProviders, 'apple') ? 'backup_method_required' : null
     }
   ];
 

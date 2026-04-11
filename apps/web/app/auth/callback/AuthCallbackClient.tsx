@@ -4,6 +4,7 @@ import { ApiClientError } from '@tminuszero/api-client';
 import { useEffect, useState } from 'react';
 import { type QueryClient, useQueryClient } from '@tanstack/react-query';
 import type { AuthProviderV1 } from '@tminuszero/contracts';
+import { normalizeAuthSourceProvider } from '@tminuszero/domain';
 import { buildAuthHref, readAuthIntent, readReturnTo, sanitizeReturnTo } from '@tminuszero/navigation';
 import { sharedQueryKeys } from '@tminuszero/query';
 import Link from 'next/link';
@@ -21,17 +22,21 @@ const PENDING_PREMIUM_CLAIM_STORAGE_KEY = 'tmn_auth_pending_claim_token';
 const PENDING_PROFILE_STORAGE_KEY = 'tmn_auth_pending_profile';
 
 function normalizeAuthProvider(value: unknown): 'apple' | 'google' | 'email_link' | 'unknown' {
-  const normalized = String(value || '')
-    .trim()
-    .toLowerCase();
-
-  if (normalized === 'apple') return 'apple';
-  if (normalized === 'google') return 'google';
+  const normalized = normalizeAuthSourceProvider(value);
+  if (normalized === 'apple' || normalized === 'google') return normalized;
   return 'unknown';
 }
 
-function readAppleAction(searchParams: URLSearchParams) {
-  return searchParams.get('apple_action') === 'link' ? 'link' : null;
+function readLinkProviderAction(searchParams: URLSearchParams) {
+  const provider = normalizeAuthSourceProvider(searchParams.get('link_provider'));
+  if (provider === 'apple' || provider === 'google') {
+    return provider;
+  }
+  return null;
+}
+
+function formatLinkedProviderLabel(provider: 'apple' | 'google') {
+  return provider === 'google' ? 'Google' : 'Sign in with Apple';
 }
 
 function inferEmailLinkProvider(type: string | null) {
@@ -156,21 +161,23 @@ async function captureRequiredWebAppleAuth(session: Session | null | undefined) 
   }
 }
 
-async function rollbackLinkedAppleIdentity() {
+async function rollbackLinkedIdentity(provider: 'apple' | 'google') {
   const supabase = getBrowserClient();
   if (!supabase) {
     return;
   }
 
   const identitiesResult = await supabase.auth.getUserIdentities().catch(() => null);
-  const appleIdentity =
-    identitiesResult?.data?.identities?.find((identity: UserIdentity) => normalizeAuthProvider(identity?.provider) === 'apple') ?? null;
+  const identity =
+    identitiesResult?.data?.identities?.find((candidate: UserIdentity) => normalizeAuthProvider(candidate?.provider) === provider) ?? null;
 
-  if (appleIdentity) {
-    await supabase.auth.unlinkIdentity(appleIdentity).catch(() => undefined);
+  if (identity) {
+    await supabase.auth.unlinkIdentity(identity).catch(() => undefined);
   }
 
-  await browserApiClient.clearAppleAuthArtifacts().catch(() => undefined);
+  if (provider === 'apple') {
+    await browserApiClient.clearAppleAuthArtifacts().catch(() => undefined);
+  }
 }
 
 async function maybeAttachPendingPremiumClaim() {
@@ -258,7 +265,7 @@ async function finishSuccessfulAuth(queryClient: QueryClient, redirectTo: string
   window.location.replace(claimRedirectTo || redirectTo);
 }
 
-async function finishSuccessfulAppleLink(queryClient: QueryClient, redirectTo: string, session?: Session | null) {
+async function finishSuccessfulLinkedIdentity(queryClient: QueryClient, redirectTo: string, session?: Session | null) {
   await recordWebCallbackContext(null, session ?? null);
   try {
     window.localStorage.removeItem(POST_CONFIRM_NEXT_STORAGE_KEY);
@@ -343,7 +350,7 @@ export default function AuthCallbackClient() {
         }
       })();
       if (!cancelled) setPostAuthNextPath(redirectTo);
-      const appleAction = readAppleAction(params);
+      const linkProviderAction = readLinkProviderAction(params);
 
       const code = params.get('code') || confirmationParams.get('code');
       if (code) {
@@ -374,15 +381,15 @@ export default function AuthCallbackClient() {
         try {
           await captureRequiredWebAppleAuth(data.session ?? null);
         } catch (error) {
-          if (appleAction === 'link') {
-            await rollbackLinkedAppleIdentity().catch(() => undefined);
+          if (linkProviderAction) {
+            await rollbackLinkedIdentity(linkProviderAction).catch(() => undefined);
           } else {
             await supabase.auth.signOut().catch(() => undefined);
           }
           setStatus('error');
           setMessage(
-            appleAction === 'link'
-              ? 'We could not finish linking Sign in with Apple securely. Please try again.'
+            linkProviderAction
+              ? `We could not finish linking ${formatLinkedProviderLabel(linkProviderAction)} securely. Please try again.`
               : error instanceof Error
                 ? error.message
                 : 'Unable to sign you in.'
@@ -390,14 +397,18 @@ export default function AuthCallbackClient() {
           return;
         }
         try {
-          if (appleAction === 'link') {
-            await finishSuccessfulAppleLink(queryClient, redirectTo, data.session ?? null);
+          if (linkProviderAction) {
+            await finishSuccessfulLinkedIdentity(queryClient, redirectTo, data.session ?? null);
           } else {
             await finishSuccessfulAuth(queryClient, redirectTo, null, data.session ?? null);
           }
         } catch (error) {
           setStatus('error');
-          setMessage(appleAction === 'link' ? 'Sign in with Apple linked, but the account view did not refresh yet. Reload the page and try again.' : formatPendingPremiumClaimError(error));
+          setMessage(
+            linkProviderAction
+              ? `${formatLinkedProviderLabel(linkProviderAction)} linked, but the account view did not refresh yet. Reload the page and try again.`
+              : formatPendingPremiumClaimError(error)
+          );
         }
         return;
       }
@@ -439,15 +450,15 @@ export default function AuthCallbackClient() {
         try {
           await captureRequiredWebAppleAuth(data.session ?? null);
         } catch (error) {
-          if (appleAction === 'link') {
-            await rollbackLinkedAppleIdentity().catch(() => undefined);
+          if (linkProviderAction) {
+            await rollbackLinkedIdentity(linkProviderAction).catch(() => undefined);
           } else {
             await supabase.auth.signOut().catch(() => undefined);
           }
           setStatus('error');
           setMessage(
-            appleAction === 'link'
-              ? 'We could not finish linking Sign in with Apple securely. Please try again.'
+            linkProviderAction
+              ? `We could not finish linking ${formatLinkedProviderLabel(linkProviderAction)} securely. Please try again.`
               : error instanceof Error
                 ? error.message
                 : 'Unable to sign you in.'
@@ -455,14 +466,18 @@ export default function AuthCallbackClient() {
           return;
         }
         try {
-          if (appleAction === 'link') {
-            await finishSuccessfulAppleLink(queryClient, redirectTo, data.session ?? null);
+          if (linkProviderAction) {
+            await finishSuccessfulLinkedIdentity(queryClient, redirectTo, data.session ?? null);
           } else {
             await finishSuccessfulAuth(queryClient, redirectTo, null, data.session ?? null);
           }
         } catch (error) {
           setStatus('error');
-          setMessage(appleAction === 'link' ? 'Sign in with Apple linked, but the account view did not refresh yet. Reload the page and try again.' : formatPendingPremiumClaimError(error));
+          setMessage(
+            linkProviderAction
+              ? `${formatLinkedProviderLabel(linkProviderAction)} linked, but the account view did not refresh yet. Reload the page and try again.`
+              : formatPendingPremiumClaimError(error)
+          );
         }
         return;
       }

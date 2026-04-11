@@ -1,8 +1,15 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
-import { useRouter, type Href } from 'expo-router';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import type { BillingCatalogOfferV1 } from '@tminuszero/api-client';
 import { getMobileViewerTier } from '@tminuszero/domain';
 import { useViewerEntitlementsQuery, useViewerSessionQuery } from '@/src/api/queries';
+import {
+  buildMobilePremiumCheckoutReturnTo,
+  buildMobilePremiumLegalHref,
+  buildMobilePremiumUpgradeAuthHref
+} from '@/src/auth/premiumOnboarding';
+import { createOrResumePremiumOnboardingIntent } from '@/src/auth/supabaseAuth';
 import { buildClaimAuthHref } from '@/src/billing/nativeBillingUi';
 import { useNativeBilling } from '@/src/billing/useNativeBilling';
 import { AppScreen } from '@/src/components/AppScreen';
@@ -24,12 +31,24 @@ import {
 } from '@/src/features/account/ProfileScreenUi';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 
+function readParam(value: string | string[] | undefined) {
+  if (Array.isArray(value)) {
+    return value[0] ?? null;
+  }
+  return value ?? null;
+}
+
 export function AccountMembershipScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ autostart?: string | string[] }>();
   const { accessToken, theme } = useMobileBootstrap();
   const sessionQuery = useViewerSessionQuery();
   const entitlementsQuery = useViewerEntitlementsQuery();
   const billing = useNativeBilling(sessionQuery.data?.viewerId ?? null);
+  const [premiumOnboardingIntentId, setPremiumOnboardingIntentId] = useState<string | null>(null);
+  const [premiumLegalRequired, setPremiumLegalRequired] = useState(false);
+  const [premiumOnboardingLoaded, setPremiumOnboardingLoaded] = useState(false);
+  const autostartHandledRef = useRef(false);
 
   const billingSummary = billing.billingSummaryQuery.data ?? null;
   const catalogProduct = billing.catalogProduct ?? null;
@@ -59,6 +78,115 @@ export function AccountMembershipScreen() {
   );
   const showPurchaseAction = Boolean(billingSummary && !billingSummary.isPaid && !hasSeparateAccessState);
   const showRestoreAction = Boolean(billing.isStoreReady && !hasSeparateAccessState && (showStoreManagementAction || showPurchaseAction));
+  const autostart = useMemo(() => readParam(params.autostart) === '1', [params.autostart]);
+  const premiumCheckoutReturnTo = useMemo(() => buildMobilePremiumCheckoutReturnTo('/account/membership'), []);
+  const guestPremiumLegalHref = useMemo(
+    () =>
+      buildMobilePremiumLegalHref({
+        returnTo: premiumCheckoutReturnTo
+      }),
+    [premiumCheckoutReturnTo]
+  );
+  const premiumLegalHref = useMemo(
+    () =>
+      buildMobilePremiumLegalHref({
+        returnTo: premiumCheckoutReturnTo,
+        intentId: premiumOnboardingIntentId
+      }),
+    [premiumCheckoutReturnTo, premiumOnboardingIntentId]
+  );
+  const premiumUpgradeSignInHref = useMemo(
+    () =>
+      buildMobilePremiumUpgradeAuthHref('sign-in', {
+        returnTo: guestPremiumLegalHref
+      }),
+    [guestPremiumLegalHref]
+  );
+
+  useEffect(() => {
+    if (!autostart) {
+      autostartHandledRef.current = false;
+    }
+  }, [autostart]);
+
+  useEffect(() => {
+    if (!isAuthed || !accessToken || hasSeparateAccessState || tier === 'premium') {
+      setPremiumOnboardingIntentId(null);
+      setPremiumLegalRequired(false);
+      setPremiumOnboardingLoaded(false);
+      return;
+    }
+
+    let cancelled = false;
+    setPremiumOnboardingLoaded(false);
+
+    void createOrResumePremiumOnboardingIntent({
+      accessToken,
+      returnTo: '/account/membership'
+    })
+      .then((payload) => {
+        if (cancelled) return;
+        setPremiumOnboardingIntentId(payload.intent.intentId);
+        setPremiumLegalRequired(payload.legal.requiresAcceptance);
+        setPremiumOnboardingLoaded(true);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setPremiumOnboardingIntentId(null);
+        setPremiumLegalRequired(false);
+        setPremiumOnboardingLoaded(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, hasSeparateAccessState, isAuthed, tier]);
+
+  const beginPremiumPurchase = useCallback(() => {
+    if (!isAuthed) {
+      router.push(premiumUpgradeSignInHref as Href);
+      return;
+    }
+
+    if (premiumLegalRequired) {
+      router.push(premiumLegalHref as Href);
+      return;
+    }
+
+    void billing.requestSubscription();
+  }, [billing, isAuthed, premiumLegalHref, premiumLegalRequired, premiumUpgradeSignInHref, router]);
+
+  const beginRestorePurchases = useCallback(() => {
+    if (!isAuthed) {
+      router.push(premiumUpgradeSignInHref as Href);
+      return;
+    }
+
+    if (showPurchaseAction && premiumLegalRequired) {
+      router.push(premiumLegalHref as Href);
+      return;
+    }
+
+    void billing.restorePurchases();
+  }, [billing, isAuthed, premiumLegalHref, premiumLegalRequired, premiumUpgradeSignInHref, router, showPurchaseAction]);
+
+  useEffect(() => {
+    if (!autostart || autostartHandledRef.current) {
+      return;
+    }
+    if (!isAuthed || !showPurchaseAction || !premiumOnboardingLoaded || billing.isProcessingPurchase) {
+      return;
+    }
+
+    autostartHandledRef.current = true;
+
+    if (premiumLegalRequired) {
+      router.replace(premiumLegalHref as Href);
+      return;
+    }
+
+    void billing.requestSubscription();
+  }, [autostart, billing, isAuthed, premiumLegalHref, premiumLegalRequired, premiumOnboardingLoaded, router, showPurchaseAction]);
 
   return (
     <AppScreen testID="account-membership-screen">
@@ -105,19 +233,26 @@ export function AccountMembershipScreen() {
 
       {!isAuthed ? (
         <CustomerShellPanel
-          title={billing.claim ? 'Claim Premium' : 'Premium'}
+          title={billing.claim ? 'Claim Premium' : 'Premium requires account'}
           description={
             billing.claim
               ? 'Your store purchase is verified. Sign in to an existing account or create one now to claim Premium on this device.'
-              : 'Buy Premium first, then sign in or create an account to claim it on this device.'
+              : 'Sign in to an existing account before purchase or restore starts on this device.'
           }
         >
           <View style={{ gap: 10 }}>
             {billing.actionMessage ? <Text style={{ color: theme.accent, fontSize: 14, lineHeight: 21 }}>{billing.actionMessage}</Text> : null}
             {billing.actionError ? <Text style={{ color: '#ff9087', fontSize: 14, lineHeight: 21 }}>{billing.actionError}</Text> : null}
             <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
-              {billing.claim ? 'Claiming Premium links the verified purchase to a T-Minus Zero account for ownership, recovery, and restore.' : buildBillingMessage('none', false, billing.isStoreReady)}
+              {billing.claim
+                ? 'Claiming Premium links the verified purchase to a T-Minus Zero account for ownership, recovery, and restore.'
+                : 'Premium checkout now requires an authenticated account first, then legal acceptance, then the store flow begins.'}
             </Text>
+            {!billing.claim ? (
+              <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
+                After sign-in, this device returns to the Premium legal step before checkout starts.
+              </Text>
+            ) : null}
             {!billing.claim ? (
               <BillingPurchaseNotice
                 displayName={catalogProduct?.displayName}
@@ -183,25 +318,10 @@ export function AccountMembershipScreen() {
             ) : (
               <>
                 <CustomerShellActionButton
-                  label={billing.isProcessingPurchase ? 'Working…' : 'Unlock Premium'}
-                  onPress={() => {
-                    void billing.requestSubscription();
-                  }}
-                  disabled={billing.isProcessingPurchase || !billing.isStoreReady}
-                />
-                <CustomerShellActionButton
-                  label="Restore purchases"
+                  label="Sign in to continue"
                   variant="secondary"
                   onPress={() => {
-                    void billing.restorePurchases();
-                  }}
-                  disabled={billing.isProcessingPurchase || !billing.isStoreReady}
-                />
-                <CustomerShellActionButton
-                  label="Sign in"
-                  variant="secondary"
-                  onPress={() => {
-                    router.push('/sign-in');
+                    router.push(premiumUpgradeSignInHref as Href);
                   }}
                 />
               </>
@@ -233,6 +353,11 @@ export function AccountMembershipScreen() {
             {billingSummary.providerMessage ? <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>{billingSummary.providerMessage}</Text> : null}
             {billing.actionMessage ? <Text style={{ color: theme.accent, fontSize: 14, lineHeight: 21 }}>{billing.actionMessage}</Text> : null}
             {billing.actionError ? <Text style={{ color: '#ff9087', fontSize: 14, lineHeight: 21 }}>{billing.actionError}</Text> : null}
+            {showPurchaseAction && premiumOnboardingLoaded && premiumLegalRequired ? (
+              <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
+                Review the latest Terms of Service and Privacy Notice before Premium checkout can begin on this device.
+              </Text>
+            ) : null}
           </View>
 
           <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
@@ -303,7 +428,7 @@ export function AccountMembershipScreen() {
                   void billing.openManagementLink(billingSummary.managementUrl);
                   return;
                 }
-                void billing.requestSubscription();
+                beginPremiumPurchase();
               }}
               disabled={billing.isProcessingPurchase || (showStoreManagementAction ? !billingSummary.managementUrl : !billing.isStoreReady)}
             />
@@ -314,7 +439,7 @@ export function AccountMembershipScreen() {
               label="Restore purchases"
               variant="secondary"
               onPress={() => {
-                void billing.restorePurchases();
+                beginRestorePurchases();
               }}
               disabled={billing.isProcessingPurchase}
             />

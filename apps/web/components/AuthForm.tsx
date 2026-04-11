@@ -35,6 +35,7 @@ export function AuthForm({
   const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
   const [resendingVerification, setResendingVerification] = useState(false);
   const [termsPrompt, setTermsPrompt] = useState(false);
+  const [premiumOnboardingIntentId, setPremiumOnboardingIntentId] = useState<string | null>(null);
   const termsInputRef = useRef<HTMLInputElement | null>(null);
   const isSignUp = mode === 'sign-up';
   const passwordHint = useMemo(() => (isSignUp ? PASSWORD_POLICY_HINT : undefined), [isSignUp]);
@@ -76,12 +77,57 @@ export function AuthForm({
     return `${baseUrl}${buildAuthCallbackHref({ returnTo: redirectPath, intent: authIntent })}`;
   }, [authIntent, baseUrl, redirectPath]);
   const appleRedirectTo = emailRedirectTo;
+  const googleRedirectTo = emailRedirectTo;
+  const googleSignInEnabled = !isSignUp && Boolean(redirectPath);
   const appleSignInEnabled = !isSignUp && Boolean(appleRedirectTo);
+  const allowsPremiumEmailCreate = isSignUp && !claimToken && authIntent === 'upgrade';
+  const googleAuthStartHref = useMemo(() => {
+    if (!googleSignInEnabled) return '';
+    const params = new URLSearchParams({
+      platform: 'web',
+      return_to: redirectPath
+    });
+    if (authIntent) {
+      params.set('intent', authIntent);
+    }
+    if (premiumOnboardingIntentId) {
+      params.set('onboarding_intent_id', premiumOnboardingIntentId);
+    }
+    return `/api/auth/google/start?${params.toString()}`;
+  }, [authIntent, googleSignInEnabled, premiumOnboardingIntentId, redirectPath]);
 
   useEffect(() => {
     if (!lockedClaimEmail) return;
     setEmail((current) => (current.trim() ? current : lockedClaimEmail));
   }, [lockedClaimEmail]);
+
+  useEffect(() => {
+    if (claimToken || authIntent !== 'upgrade') {
+      setPremiumOnboardingIntentId(null);
+      return;
+    }
+
+    let cancelled = false;
+    void browserApiClient
+      .createOrResumePremiumOnboardingIntent({
+        platform: 'web',
+        returnTo: redirectPath
+      })
+      .then((payload) => {
+        if (!cancelled) {
+          setPremiumOnboardingIntentId(payload.intent.intentId);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPremiumOnboardingIntentId(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authIntent, claimToken, redirectPath]);
 
   function promptTermsAcceptance() {
     setTermsPrompt(true);
@@ -129,9 +175,6 @@ export function AuthForm({
       if (!supabase) throw new Error('Supabase not available');
 
       if (isSignUp) {
-        if (!claimToken) {
-          throw new Error('New account creation now starts after Premium checkout.');
-        }
         assertPasswordPolicy(password);
         if (password !== confirmPassword) throw new Error('Passwords do not match.');
         if (!acceptTerms) {
@@ -141,11 +184,21 @@ export function AuthForm({
         }
         if (captchaProvider && !captchaToken) throw new Error('Please complete the captcha verification.');
         const nextEmail = lockedClaimEmail ?? email.trim().toLowerCase();
-        const payload = await browserApiClient.createPremiumAccountFromClaim({
-          claimToken,
-          email: nextEmail,
-          password
-        });
+        const payload = claimToken
+          ? await browserApiClient.createPremiumAccountFromClaim({
+              claimToken,
+              email: nextEmail,
+              password
+            })
+          : allowsPremiumEmailCreate
+            ? await browserApiClient.createPremiumOnboardingEmailAccount({
+                intentId: premiumOnboardingIntentId || '',
+                email: nextEmail,
+                password
+              })
+            : (() => {
+                throw new Error('New account creation now starts from Premium onboarding.');
+              })();
 
         if (!payload.session.refreshToken) {
           throw new Error('The Premium claim session is missing a refresh token.');
@@ -218,13 +271,20 @@ export function AuthForm({
         });
       } else if (err instanceof ApiClientError) {
         if (err.code === 'account_exists') {
-          setMessage({ tone: 'error', text: 'An account with this email already exists. Sign in to claim Premium instead.' });
+          setMessage({
+            tone: 'error',
+            text: claimToken
+              ? 'An account with this email already exists. Sign in to claim Premium instead.'
+              : 'An account with this email already exists. Sign in to continue with Premium.'
+          });
         } else if (err.code === 'claim_pending') {
           setMessage({ tone: 'error', text: 'Your Premium purchase is still being verified. Return to Upgrade and try again in a moment.' });
         } else if (err.code === 'claim_email_mismatch') {
           setMessage({ tone: 'error', text: 'Use the same email address that was attached to this Premium purchase.' });
         } else if (err.code === 'claim_already_claimed') {
           setMessage({ tone: 'error', text: 'This Premium purchase is already linked to an account. Sign in to manage it.' });
+        } else if (err.code === 'onboarding_intent_expired' || err.code === 'onboarding_intent_not_found') {
+          setMessage({ tone: 'error', text: 'Premium onboarding expired. Return to Upgrade and start again.' });
         } else if (err.code === 'unauthorized' && claimToken && !isSignUp) {
           setMessage({ tone: 'error', text: 'Sign-in succeeded, but the Premium claim could not be attached yet. Open Account and try again in a moment.' });
         } else {
@@ -238,13 +298,10 @@ export function AuthForm({
     }
   }
 
-  async function handleAppleSignIn() {
+  async function handleOAuthSignIn(provider: 'google' | 'apple') {
     setMessage(null);
     setLoading(true);
     try {
-      const supabase = getBrowserClient();
-      if (!supabase) throw new Error('Supabase not available');
-      if (!appleRedirectTo) throw new Error('Apple sign-in is not configured for this origin.');
       if (typeof window !== 'undefined') {
         if (claimToken?.trim()) {
           window.localStorage.setItem(PENDING_PREMIUM_CLAIM_STORAGE_KEY, claimToken.trim());
@@ -252,8 +309,21 @@ export function AuthForm({
           window.localStorage.removeItem(PENDING_PREMIUM_CLAIM_STORAGE_KEY);
         }
       }
+      if (provider === 'google') {
+        if (!googleAuthStartHref) {
+          throw new Error('Google sign-in is not configured for this origin.');
+        }
+        window.location.assign(googleAuthStartHref);
+        return;
+      }
+
+      const supabase = getBrowserClient();
+      if (!supabase) throw new Error('Supabase not available');
+      if (!appleRedirectTo) {
+        throw new Error('Apple sign-in is not configured for this origin.');
+      }
       const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'apple',
+        provider,
         options: {
           redirectTo: appleRedirectTo
         }
@@ -262,7 +332,7 @@ export function AuthForm({
     } catch (err: any) {
       setMessage({
         tone: 'error',
-        text: err?.message || 'Unable to start Sign in with Apple.'
+        text: err?.message || `Unable to start Sign in with ${provider === 'google' ? 'Google' : 'Apple'}.`
       });
       setLoading(false);
     }
@@ -272,22 +342,38 @@ export function AuthForm({
     <form onSubmit={handleSubmit} className="space-y-3 rounded-2xl border border-stroke bg-surface-1 p-4">
       {isSignUp ? (
         <div className="rounded-lg border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-2 text-xs text-text3">
-          This account will be created from a verified Premium purchase. Until Premium is active, access stays on the public tier.
+          {claimToken
+            ? 'This account will be created from a verified Premium purchase. Until Premium is active, access stays on the public tier.'
+            : 'This account will be created for Premium onboarding. Billing still starts only after legal acceptance and checkout.'}
         </div>
       ) : null}
-      {appleSignInEnabled ? (
+      {googleSignInEnabled || appleSignInEnabled ? (
         <>
-          <button
-            type="button"
-            className="w-full rounded-lg border border-stroke bg-[#f5f5f7] px-4 py-3 text-sm font-semibold text-[#05060A] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-            onClick={() => void handleAppleSignIn()}
-            disabled={loading}
-          >
-            {loading ? 'Working...' : 'Continue with Apple'}
-          </button>
-          <div className="text-center text-xs text-text3">
-            Existing account with a different email or Apple private relay? Sign in first, then link Apple from Login Methods.
-          </div>
+          {googleSignInEnabled ? (
+            <button
+              type="button"
+              className="w-full rounded-lg border border-stroke bg-white px-4 py-3 text-sm font-semibold text-[#05060A] transition hover:bg-[#f5f5f7] disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => void handleOAuthSignIn('google')}
+              disabled={loading}
+            >
+              {loading ? 'Working...' : 'Continue with Google'}
+            </button>
+          ) : null}
+          {appleSignInEnabled ? (
+            <>
+              <button
+                type="button"
+                className="w-full rounded-lg border border-stroke bg-[#f5f5f7] px-4 py-3 text-sm font-semibold text-[#05060A] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={() => void handleOAuthSignIn('apple')}
+                disabled={loading}
+              >
+                {loading ? 'Working...' : 'Continue with Apple'}
+              </button>
+              <div className="text-center text-xs text-text3">
+                Existing account with a different email or Apple private relay? Sign in first, then link Apple from Login Methods.
+              </div>
+            </>
+          ) : null}
           <div className="text-center text-xs uppercase tracking-[0.08em] text-text3">Or use email</div>
         </>
       ) : null}

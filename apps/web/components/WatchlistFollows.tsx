@@ -325,75 +325,7 @@ export function WatchlistFollows({
       }
     }
   ];
-  const anonFollowOptions: FollowMenuOption[] = [
-    {
-      key: 'launch',
-      label: 'This launch',
-      description: launchName ? `Premium unlocks launch reminders and follow tracking for ${launchName}.` : 'Premium unlocks launch reminders and follow tracking for this launch.',
-      active: false,
-      disabled: false,
-      locked: true,
-      onPress: () => {
-        openFollowUpgrade();
-      }
-    },
-    {
-      key: 'provider',
-      label: 'This provider',
-      description: providerKey ? `All launches from ${providerKey}. Premium unlocks recurring provider follows.` : 'Provider follow unavailable for this card.',
-      active: false,
-      disabled: !providerKey,
-      locked: Boolean(providerKey),
-      onPress: () => {
-        openFollowUpgrade();
-      }
-    },
-    {
-      key: 'rocket',
-      label: 'This rocket',
-      description: rocketRuleValue ? `All launches for ${rocketDisplayLabel}. Premium unlocks recurring rocket follows.` : 'Rocket follow unavailable for this card.',
-      active: false,
-      disabled: !rocketRuleValue,
-      locked: Boolean(rocketRuleValue),
-      onPress: () => {
-        openFollowUpgrade();
-      }
-    },
-    {
-      key: 'pad',
-      label: 'This pad',
-      description: padRuleValue ? `Launches from ${resolvePadFollowTarget({ padLabel, padShortCode })}. Premium unlocks recurring pad follows.` : 'Pad follow unavailable for this card.',
-      active: false,
-      disabled: !padRuleValue,
-      locked: Boolean(padRuleValue),
-      onPress: () => {
-        openFollowUpgrade();
-      }
-    },
-    {
-      key: 'launch_site',
-      label: 'This launch site',
-      description: launchSiteRuleValue ? `Launches from ${launchSiteDisplayLabel}. Premium unlocks recurring launch-site follows.` : 'Launch-site follow unavailable for this card.',
-      active: false,
-      disabled: !launchSiteRuleValue,
-      locked: Boolean(launchSiteRuleValue),
-      onPress: () => {
-        openFollowUpgrade();
-      }
-    },
-    {
-      key: 'state',
-      label: 'This state',
-      description: stateRuleValue ? `Launches in ${stateRuleValue.toUpperCase()}. Premium unlocks state-wide follows.` : 'State follow unavailable for this card.',
-      active: false,
-      disabled: !stateRuleValue,
-      locked: Boolean(stateRuleValue),
-      onPress: () => {
-        openFollowUpgrade();
-      }
-    }
-  ];
-  const followOptions = canUseSavedItems ? premiumFollowOptions : isAnonViewer ? anonFollowOptions : basicFollowOptions;
+  const followOptions = canUseSavedItems ? premiumFollowOptions : basicFollowOptions;
 
   const availableOptionCount = followOptions.filter((option) => !option.disabled || option.locked || option.active).length;
   const activeFollowCount = followOptions.filter((option) => option.active).length;

@@ -1,3 +1,4 @@
+import { PREMIUM_PRIVACY_LAST_UPDATED_LABEL } from '@tminuszero/domain';
 import { LegalSummaryScreen } from '@/src/features/account/LegalSummaryScreen';
 import { getPublicSiteUrl } from '@/src/config/api';
 
@@ -10,7 +11,7 @@ export default function PrivacyNoticeScreen() {
       eyebrow="Legal"
       title="Privacy Notice"
       description="How T-Minus Zero collects, uses, and discloses account, authentication, billing, push, diagnostics, and support data."
-      lastUpdated="Apr 3, 2026"
+      lastUpdated={PREMIUM_PRIVACY_LAST_UPDATED_LABEL}
       actions={[
         { label: 'Privacy choices', href: '/legal/privacy-choices' },
         { label: 'Support', href: '/support', variant: 'secondary' },

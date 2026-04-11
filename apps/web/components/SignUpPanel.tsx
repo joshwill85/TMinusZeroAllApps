@@ -36,6 +36,7 @@ export function SignUpPanel() {
   const [claim, setClaim] = useState<PremiumClaimV1 | null>(null);
   const [claimError, setClaimError] = useState<string | null>(null);
   const [claimLoading, setClaimLoading] = useState(Boolean(claimToken));
+  const allowPremiumOnboarding = !claimToken && authIntent === 'upgrade';
 
   useEffect(() => {
     if (!claimToken) {
@@ -82,11 +83,13 @@ export function SignUpPanel() {
       <div>
         <h1 className="text-3xl font-semibold text-text1">Create account</h1>
         <p className="mt-1 text-sm text-text3">
-          Account creation now happens only after a verified Premium purchase. Accounts without Premium stay on the public tier.
+          {allowPremiumOnboarding
+            ? 'Create an account for Premium onboarding. Terms acceptance and billing still happen after sign-in.'
+            : 'Account creation now happens only after a verified Premium purchase. Accounts without Premium stay on the public tier.'}
         </p>
       </div>
 
-      {!claimToken ? (
+      {!claimToken && !allowPremiumOnboarding ? (
         <div className="space-y-3 rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
           <p>Standalone public sign-up has been removed. Start Premium first, then create an account to claim it.</p>
           <div className="flex flex-col gap-2 sm:flex-row">
@@ -98,6 +101,15 @@ export function SignUpPanel() {
             </Link>
           </div>
         </div>
+      ) : null}
+
+      {allowPremiumOnboarding ? (
+        <>
+          <div className="rounded-2xl border border-primary/30 bg-[rgba(34,211,238,0.08)] px-4 py-3 text-sm text-text2">
+            Premium onboarding is active. Create your account now, then review the latest Terms and Privacy notice before checkout starts.
+          </div>
+          <AuthForm mode="sign-up" />
+        </>
       ) : null}
 
       {claimToken && claimLoading ? <div className="rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text3">Checking your Premium claim…</div> : null}

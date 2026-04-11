@@ -333,7 +333,7 @@ export default function AccountPage() {
                 <AccountLinkCard
                   eyebrow="Login methods"
                   title="Manage login methods"
-                  description="Email/password and Sign in with Apple stay in a dedicated security destination."
+                  description="Email/password, Google, and Sign in with Apple stay in a dedicated security destination."
                   href="/account/login-methods"
                   ctaLabel="Manage login methods"
                 />

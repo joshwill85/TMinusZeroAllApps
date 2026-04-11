@@ -183,6 +183,23 @@ export function isStripeWebhookConfigured() {
   return !isPlaceholder(secret, ['whsec_placeholder']);
 }
 
+export function getGoogleAuthClientId() {
+  const raw = readConfiguredValue(process.env.SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID, ['SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID']);
+  if (!raw) return null;
+  return raw
+    .split(',')
+    .map((entry) => entry.trim())
+    .find(Boolean) ?? null;
+}
+
+export function getGoogleAuthClientSecret() {
+  return readConfiguredValue(process.env.SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET, ['SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET']);
+}
+
+export function isGoogleAuthServerConfigured() {
+  return Boolean(getGoogleAuthClientId() && getGoogleAuthClientSecret());
+}
+
 export function getAppleAppStoreAppId() {
   const raw = readConfiguredValue(process.env.APPLE_APP_STORE_APP_ID, ['APPLE_APP_STORE_APP_ID']);
   if (!raw) return null;

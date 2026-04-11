@@ -182,10 +182,12 @@ function normalizeNativeStaticCustomerHref(pathname: string, suffix: string) {
   if (pathname === '/support') return `/support${suffix}`;
   if (pathname === '/legal/data') return `/legal/data${suffix}`;
   if (pathname === '/account' || pathname === '/profile') return `/profile${suffix}`;
+  if (pathname === '/account/membership') return `/account/membership${suffix}`;
   if (pathname === '/account/login-methods') return `/account/login-methods${suffix}`;
   if (pathname === '/account/saved' || pathname === '/saved') return `/saved${suffix}`;
   if (pathname === '/me/preferences' || pathname === '/preferences') return `/preferences${suffix}`;
   if (pathname === '/account/integrations') return `/account/integrations${suffix}`;
+  if (pathname === '/premium-onboarding/legal') return `/premium-onboarding/legal${suffix}`;
   if (pathname === '/legal/privacy-choices') return `/legal/privacy-choices${suffix}`;
   if (pathname === '/legal/privacy') return `/legal/privacy${suffix}`;
   if (pathname === '/legal/terms') return `/legal/terms${suffix}`;

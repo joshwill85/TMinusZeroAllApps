@@ -1,12 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { ApiClientError } from '@tminuszero/api-client';
 import { assertPasswordPolicy, PASSWORD_POLICY_HINT } from '@tminuszero/domain';
 import { mobileColorTokens } from '@tminuszero/design-tokens';
-import { buildMobileRoute, resolveMobileAuthRedirectPath } from '@tminuszero/navigation';
+import { buildMobileRoute, readAuthIntent, resolveMobileAuthRedirectPath } from '@tminuszero/navigation';
 import { recordMobileAuthContext } from '@/src/auth/authContext';
-import { createPremiumAccountFromClaim } from '@/src/auth/supabaseAuth';
+import { createOrResumePremiumOnboardingIntent, createPremiumAccountFromClaim, createPremiumOnboardingEmailAccount } from '@/src/auth/supabaseAuth';
 import { Card, ScreenShell } from '@/src/components/ScreenShell';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 
@@ -21,10 +21,21 @@ export default function SignUpScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{
     return_to?: string | string[];
+    intent?: string | string[];
     claim_token?: string | string[];
   }>();
   const { persistSession } = useMobileBootstrap();
   const claimToken = readParam(params.claim_token);
+  const authIntent = useMemo(() => {
+    const queryReader = {
+      get(key: string) {
+        if (key === 'intent') return readParam(params.intent);
+        return null;
+      }
+    };
+    return readAuthIntent(queryReader);
+  }, [params.intent]);
+  const [premiumOnboardingIntentId, setPremiumOnboardingIntentId] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -44,11 +55,43 @@ export default function SignUpScreen() {
     [params.return_to]
   );
 
+  useEffect(() => {
+    if (claimToken || authIntent !== 'upgrade') {
+      setPremiumOnboardingIntentId(null);
+      return;
+    }
+
+    let cancelled = false;
+    void createOrResumePremiumOnboardingIntent({
+      returnTo: readParam(params.return_to)
+    })
+      .then((payload) => {
+        if (!cancelled) {
+          setPremiumOnboardingIntentId(payload.intent.intentId);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPremiumOnboardingIntentId(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authIntent, claimToken, params.return_to]);
+
   async function handleSignUp() {
     const normalizedEmail = email.trim();
     if (!claimToken) {
-      setStatus({ tone: 'error', text: 'Premium purchase verification is required before creating an account.' });
-      return;
+      if (authIntent !== 'upgrade') {
+        setStatus({ tone: 'error', text: 'Premium purchase verification is required before creating an account.' });
+        return;
+      }
+      if (!premiumOnboardingIntentId) {
+        setStatus({ tone: 'error', text: 'Premium onboarding is not ready yet. Return to Upgrade and try again.' });
+        return;
+      }
     }
     if (!normalizedEmail) {
       setStatus({ tone: 'error', text: 'Email is required.' });
@@ -74,7 +117,9 @@ export default function SignUpScreen() {
 
     setIsSubmitting(true);
     try {
-      const result = await createPremiumAccountFromClaim(claimToken, normalizedEmail, password);
+      const result = claimToken
+        ? await createPremiumAccountFromClaim(claimToken, normalizedEmail, password)
+        : await createPremiumOnboardingEmailAccount(premiumOnboardingIntentId || '', normalizedEmail, password);
       await persistSession({
         accessToken: result.session.accessToken,
         refreshToken: result.session.refreshToken
@@ -109,10 +154,12 @@ export default function SignUpScreen() {
       subtitle={
         claimToken
           ? 'Create an account from a verified Premium purchase.'
-          : 'Account creation now requires a verified Premium purchase. Buy Premium first, then create or link an account.'
+          : authIntent === 'upgrade'
+            ? 'Create an account for Premium onboarding on this device. Terms acceptance and billing happen after sign-in.'
+            : 'Account creation now requires a verified Premium purchase. Buy Premium first, then create or link an account.'
       }
     >
-      {!claimToken ? (
+      {!claimToken && authIntent !== 'upgrade' ? (
         <Card title="Premium required">
           <View style={styles.stack}>
             <Text style={styles.body}>
@@ -130,10 +177,14 @@ export default function SignUpScreen() {
         </Card>
       ) : null}
 
-      {claimToken ? (
+      {(claimToken || authIntent === 'upgrade') ? (
         <Card title="Set up account">
           <View style={styles.stack}>
-            <Text style={styles.body}>This account will be created from a verified Premium purchase and signed in on this device immediately.</Text>
+            <Text style={styles.body}>
+              {claimToken
+                ? 'This account will be created from a verified Premium purchase and signed in on this device immediately.'
+                : 'This account will be created for Premium onboarding and signed in on this device immediately.'}
+            </Text>
             <TextInput
               testID="sign-up-email"
               value={email}
@@ -202,7 +253,7 @@ export default function SignUpScreen() {
               {isSubmitting ? (
                 <ActivityIndicator color={mobileColorTokens.background} />
               ) : (
-                <Text style={styles.buttonLabel}>Create account to claim Premium</Text>
+                <Text style={styles.buttonLabel}>{claimToken ? 'Create account to claim Premium' : 'Create account to continue'}</Text>
               )}
             </Pressable>
           </View>
@@ -215,7 +266,16 @@ export default function SignUpScreen() {
         </Card>
       ) : null}
 
-      <Link href={claimToken ? `/sign-in?claim_token=${encodeURIComponent(claimToken)}&return_to=${encodeURIComponent(readParam(params.return_to) || '/profile')}` : '/sign-in'} asChild>
+      <Link
+        href={
+          claimToken
+            ? `/sign-in?claim_token=${encodeURIComponent(claimToken)}&return_to=${encodeURIComponent(readParam(params.return_to) || '/profile')}`
+            : authIntent === 'upgrade'
+              ? `/sign-in?intent=upgrade&return_to=${encodeURIComponent(readParam(params.return_to) || '/profile')}`
+              : '/sign-in'
+        }
+        asChild
+      >
         <Pressable style={styles.secondaryButton}>
           <Text style={styles.secondaryButtonLabel}>Already have an account? Sign in</Text>
         </Pressable>

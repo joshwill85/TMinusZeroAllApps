@@ -9,7 +9,9 @@ import { isNativeAppleSignInAvailable } from '@/src/auth/appleAuth';
 import { recordMobileAuthContext } from '@/src/auth/authContext';
 import {
   attachPremiumClaimToSession,
-  continueWithAppleSignIn,
+  continueWithOAuthProvider,
+  createOrResumePremiumOnboardingIntent,
+  getAvailableOAuthProviders,
   isSupabaseMobileAuthConfigured,
   signInWithPassword,
   signOut
@@ -36,7 +38,18 @@ export default function SignInScreen() {
   const { accessToken, persistSession, clearSession } = useMobileBootstrap();
   const { unregisterCurrentDevice } = useMobilePush();
   const claimToken = readParam(params.claim_token);
+  const authIntent = useMemo(() => {
+    const queryReader = {
+      get(key: string) {
+        if (key === 'intent') return readParam(params.intent);
+        return null;
+      }
+    };
+    return readAuthIntent(queryReader);
+  }, [params.intent]);
   const [appleSignInAvailable, setAppleSignInAvailable] = useState(false);
+  const [googleSignInAvailable, setGoogleSignInAvailable] = useState(false);
+  const [premiumOnboardingIntentId, setPremiumOnboardingIntentId] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [status, setStatus] = useState<{ tone: 'error' | 'success' | null; text: string }>({
@@ -62,7 +75,35 @@ export default function SignInScreen() {
   }, [params.intent, params.next, params.return_to]);
 
   useEffect(() => {
+    if (claimToken || authIntent !== 'upgrade') {
+      setPremiumOnboardingIntentId(null);
+      return;
+    }
+
     let cancelled = false;
+    void createOrResumePremiumOnboardingIntent({
+      returnTo: redirectHref
+    })
+      .then((payload) => {
+        if (!cancelled) {
+          setPremiumOnboardingIntentId(payload.intent.intentId);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPremiumOnboardingIntentId(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authIntent, claimToken, redirectHref]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const oauthProviders = getAvailableOAuthProviders();
+    setGoogleSignInAvailable(oauthProviders.includes('google'));
 
     void isNativeAppleSignInAvailable()
       .then((available) => {
@@ -135,7 +176,11 @@ export default function SignInScreen() {
 
     setIsSubmitting(true);
     try {
-      const result = await continueWithAppleSignIn();
+      const result = await continueWithOAuthProvider('apple', {
+        intent: authIntent,
+        returnTo: redirectHref,
+        onboardingIntentId: premiumOnboardingIntentId
+      });
       await persistSession({
         accessToken: result.session.accessToken,
         refreshToken: result.session.refreshToken
@@ -162,6 +207,55 @@ export default function SignInScreen() {
       setStatus({
         tone: 'error',
         text: error instanceof Error ? error.message : 'Unable to sign in with Apple.'
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleGoogleSignIn() {
+    if (isSubmitting) {
+      return;
+    }
+
+    if (!googleSignInAvailable) {
+      setStatus({ tone: 'error', text: 'Google sign-in is not available in this build.' });
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const result = await continueWithOAuthProvider('google', {
+        intent: authIntent,
+        returnTo: redirectHref,
+        onboardingIntentId: premiumOnboardingIntentId
+      });
+      await persistSession({
+        accessToken: result.session.accessToken,
+        refreshToken: result.session.refreshToken
+      });
+      await recordMobileAuthContext(result.session.accessToken, {
+        provider: result.provider,
+        eventType: 'sign_in',
+        displayName: result.displayName ?? null,
+        emailIsPrivateRelay: result.emailIsPrivateRelay === true
+      }).catch(() => {});
+      if (claimToken) {
+        const attachResult = await attachPremiumClaimToSession(result.session.accessToken, claimToken);
+        router.replace(
+          resolveMobileAuthRedirectPath({
+            returnTo: attachResult.returnTo,
+            intent: 'upgrade',
+            fallback: redirectHref
+          }) as Href
+        );
+        return;
+      }
+      router.replace(redirectHref as Href);
+    } catch (error) {
+      setStatus({
+        tone: 'error',
+        text: error instanceof Error ? error.message : 'Unable to sign in with Google.'
       });
     } finally {
       setIsSubmitting(false);
@@ -230,7 +324,9 @@ export default function SignInScreen() {
       subtitle={
         claimToken
           ? 'Sign in to attach this verified Premium purchase to an existing account.'
-          : 'Use your T-Minus Zero account for account management, purchase restore, and Premium ownership on this device.'
+          : authIntent === 'upgrade'
+            ? 'Sign in to an existing account or create a new one for Premium onboarding on this device.'
+            : 'Use your T-Minus Zero account for account management, purchase restore, and Premium ownership on this device.'
       }
     >
       {isSupabaseMobileAuthConfigured() ? (
@@ -251,6 +347,15 @@ export default function SignInScreen() {
             </View>
           ) : (
             <View style={styles.stack}>
+              {googleSignInAvailable ? (
+                <Pressable testID="sign-in-google" style={styles.oauthButton} onPress={() => void handleGoogleSignIn()} disabled={isSubmitting}>
+                  {isSubmitting ? (
+                    <ActivityIndicator color="#05060A" />
+                  ) : (
+                    <Text style={styles.oauthButtonLabel}>Continue with Google</Text>
+                  )}
+                </Pressable>
+              ) : null}
               {appleSignInAvailable ? (
                 <>
                   {isSubmitting ? (
@@ -270,9 +375,9 @@ export default function SignInScreen() {
                   <Text style={styles.helperText}>
                     Existing account with a different email or Apple private relay? Sign in first, then link Apple in Login Methods.
                   </Text>
-                  <Text style={styles.oauthDivider}>or continue with email</Text>
                 </>
               ) : null}
+              {googleSignInAvailable || appleSignInAvailable ? <Text style={styles.oauthDivider}>or continue with email</Text> : null}
               <TextInput
                 testID="sign-in-email"
                 value={email}
@@ -324,6 +429,12 @@ export default function SignInScreen() {
             <Text style={styles.secondaryButtonLabel}>Need a new account? Create one to claim Premium</Text>
           </Pressable>
         </Link>
+      ) : authIntent === 'upgrade' ? (
+        <Link href={`/sign-up?intent=upgrade&return_to=${encodeURIComponent(readParam(params.return_to) || redirectHref)}`} asChild>
+          <Pressable style={styles.secondaryButton}>
+            <Text style={styles.secondaryButtonLabel}>Need a new account? Create one for Premium</Text>
+          </Pressable>
+        </Link>
       ) : null}
 
       <Link href={buildMobileRoute('launchFeed') as Href} asChild>
@@ -360,6 +471,21 @@ const styles = StyleSheet.create({
   appleButton: {
     width: '100%',
     height: 50
+  },
+  oauthButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 24,
+    width: '100%',
+    height: 50,
+    borderWidth: 1,
+    borderColor: mobileColorTokens.stroke,
+    backgroundColor: '#f5f5f7'
+  },
+  oauthButtonLabel: {
+    color: '#05060A',
+    fontSize: 15,
+    fontWeight: '700'
   },
   appleButtonLoading: {
     alignItems: 'center',

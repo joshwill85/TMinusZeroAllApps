@@ -6,6 +6,7 @@ import * as SecureStore from 'expo-secure-store';
 import * as WebBrowser from 'expo-web-browser';
 import { createClient, type Session, type UserIdentity } from '@supabase/supabase-js';
 import type { AuthProviderV1 } from '@tminuszero/contracts';
+import { normalizeAuthSourceProvider, PREMIUM_PRIVACY_VERSION, PREMIUM_TERMS_VERSION } from '@tminuszero/domain';
 import {
   createApiClient,
   type MobileAuthPasswordSignUpResponseV1,
@@ -66,6 +67,12 @@ type MobilePasswordSignUpResult = {
 type MobilePasswordChallengeResult = {
   riskSessionId: string;
   challengeCode: string;
+};
+
+type PremiumOnboardingAuthOptions = {
+  intent?: 'upgrade' | null;
+  returnTo?: string | null;
+  onboardingIntentId?: string | null;
 };
 
 const AUTH_SECURE_STORE_OPTIONS: SecureStore.SecureStoreOptions = {
@@ -411,6 +418,27 @@ function getOAuthRedirectUrl(provider: MobileOAuthProvider) {
   });
 }
 
+function getPremiumOnboardingPlatform() {
+  return Platform.OS === 'ios' ? 'ios' : 'android';
+}
+
+function buildGoogleAuthStartUrl({
+  intent,
+  returnTo,
+  onboardingIntentId
+}: PremiumOnboardingAuthOptions) {
+  const url = new URL('/api/auth/google/start', getApiBaseUrl());
+  url.searchParams.set('platform', getPremiumOnboardingPlatform());
+  url.searchParams.set('return_to', returnTo?.trim() || '/profile');
+  if (intent === 'upgrade') {
+    url.searchParams.set('intent', intent);
+  }
+  if (onboardingIntentId?.trim()) {
+    url.searchParams.set('onboarding_intent_id', onboardingIntentId.trim());
+  }
+  return url.toString();
+}
+
 function buildParamMap(callbackUrl: string) {
   const parsed = ExpoLinking.parse(callbackUrl);
   const params = new Map<string, string>();
@@ -462,8 +490,11 @@ async function setAuthSession(accessToken: string, refreshToken: string) {
   return parseSupabaseSession(data.session);
 }
 
-function findIdentityByProvider(identities: UserIdentity[] | null | undefined, provider: 'apple' | 'email') {
-  return (identities ?? []).find((identity) => String(identity?.provider || '').trim().toLowerCase() === provider) ?? null;
+function findIdentityByProvider(
+  identities: UserIdentity[] | null | undefined,
+  provider: 'apple' | 'google' | 'email_password'
+) {
+  return (identities ?? []).find((identity) => normalizeAuthSourceProvider(identity?.provider) === provider) ?? null;
 }
 
 async function primeIdentityMutationSession(accessToken: string, refreshToken: string | null | undefined) {
@@ -491,28 +522,39 @@ async function clearLinkedAppleArtifacts(accessToken: string) {
   await clearStoredAppleAuthIdentity().catch(() => undefined);
 }
 
-async function unlinkCurrentAppleIdentity(options: { cleanupAccessToken: string; requireBackupMethod: boolean }) {
+async function unlinkCurrentIdentity(options: {
+  provider: 'apple' | 'google';
+  cleanupAccessToken: string;
+  requireBackupMethod: boolean;
+}) {
   const identities = await getCurrentUserIdentities();
-  const appleIdentity = findIdentityByProvider(identities, 'apple');
-  if (!appleIdentity) {
-    await clearLinkedAppleArtifacts(options.cleanupAccessToken);
+  const linkedIdentity = findIdentityByProvider(identities, options.provider);
+  if (!linkedIdentity) {
+    if (options.provider === 'apple') {
+      await clearLinkedAppleArtifacts(options.cleanupAccessToken);
+    }
     return false;
   }
 
   if (options.requireBackupMethod) {
-    const hasBackupMethod = identities.some((identity) => String(identity?.provider || '').trim().toLowerCase() !== 'apple');
+    const hasBackupMethod = identities.some((identity) => {
+      const normalized = normalizeAuthSourceProvider(identity?.provider);
+      return Boolean(normalized && normalized !== options.provider);
+    });
     if (!hasBackupMethod) {
-      throw new Error('Add another sign-in method before removing Sign in with Apple.');
+      throw new Error(`Add another sign-in method before removing ${options.provider === 'google' ? 'Google' : 'Sign in with Apple'}.`);
     }
   }
 
   const supabase = getMobileSupabaseClient();
-  const { error } = await supabase.auth.unlinkIdentity(appleIdentity);
+  const { error } = await supabase.auth.unlinkIdentity(linkedIdentity);
   if (error) {
     throw error;
   }
 
-  await clearLinkedAppleArtifacts(options.cleanupAccessToken);
+  if (options.provider === 'apple') {
+    await clearLinkedAppleArtifacts(options.cleanupAccessToken);
+  }
   return true;
 }
 
@@ -522,6 +564,77 @@ export async function continueWithAppleSignIn(): Promise<CompleteMobileAuthResul
   }
 
   const nativeCredential = await requestNativeAppleSignIn();
+  const normalizedEmail = String(nativeCredential.email || '').trim().toLowerCase();
+  if (normalizedEmail) {
+    const preflight = await createGuestMobileAuthClient().preflightPremiumOnboardingProvider({
+      intentId: null,
+      provider: 'apple',
+      email: normalizedEmail
+    });
+    if (preflight.mode === 'create' && !preflight.createAllowed) {
+      throw new Error('Start Premium before creating a new Apple account.');
+    }
+  }
+  const supabase = getMobileSupabaseClient();
+  const { data, error } = await supabase.auth.signInWithIdToken({
+    provider: 'apple',
+    token: nativeCredential.identityToken,
+    nonce: nativeCredential.nonce
+  });
+
+  if (error) {
+    throw error;
+  }
+  if (!data.session) {
+    throw new Error('Supabase auth callback did not return a session.');
+  }
+
+  const completed: CompleteMobileAuthResult = {
+    provider: 'apple',
+    session: parseSupabaseSession(data.session),
+    displayName: nativeCredential.displayName,
+    emailIsPrivateRelay: isApplePrivateRelayEmail(nativeCredential.email)
+  };
+
+  await maybeHydrateAppleProfile(
+    completed.session.accessToken,
+    nativeCredential.firstName,
+    nativeCredential.lastName
+  ).catch(() => undefined);
+  try {
+    await captureNativeAppleCredential(completed.session.accessToken, {
+      ...nativeCredential,
+      fallbackEmail: completed.session.email
+    });
+    await persistStoredAppleAuthUserId(nativeCredential.appleUserId).catch(() => undefined);
+  } catch (error) {
+    await supabase.auth.signOut().catch(() => undefined);
+    throw error;
+  }
+
+  return completed;
+}
+
+async function continueWithAppleSignInForContext(options?: PremiumOnboardingAuthOptions): Promise<CompleteMobileAuthResult> {
+  if (!isMobileAppleAuthEnabled()) {
+    throw new Error('Sign in with Apple is not enabled for this build.');
+  }
+
+  const nativeCredential = await requestNativeAppleSignIn();
+  const normalizedEmail = String(nativeCredential.email || '').trim().toLowerCase();
+  if (normalizedEmail) {
+    const preflight = await createGuestMobileAuthClient().preflightPremiumOnboardingProvider({
+      intentId: options?.intent === 'upgrade' ? options.onboardingIntentId ?? null : null,
+      provider: 'apple',
+      email: normalizedEmail
+    });
+    if (preflight.mode === 'create' && !preflight.createAllowed) {
+      throw new Error('Start Premium before creating a new Apple account.');
+    }
+  } else if (options?.intent === 'upgrade' && !options?.onboardingIntentId) {
+    throw new Error('Start Premium before creating a new Apple account.');
+  }
+
   const supabase = getMobileSupabaseClient();
   const { data, error } = await supabase.auth.signInWithIdToken({
     provider: 'apple',
@@ -601,7 +714,8 @@ export async function linkAppleIdentityToCurrentSession({
     });
     await persistStoredAppleAuthUserId(nativeCredential.appleUserId).catch(() => undefined);
   } catch (error) {
-    await unlinkCurrentAppleIdentity({
+    await unlinkCurrentIdentity({
+      provider: 'apple',
       cleanupAccessToken: linkedSession.accessToken,
       requireBackupMethod: false
     }).catch(() => undefined);
@@ -624,7 +738,8 @@ export async function unlinkAppleIdentityFromCurrentSession({
   refreshToken: string | null;
 }) {
   const activeSession = await primeIdentityMutationSession(accessToken, refreshToken);
-  await unlinkCurrentAppleIdentity({
+  await unlinkCurrentIdentity({
+    provider: 'apple',
     cleanupAccessToken: activeSession.accessToken,
     requireBackupMethod: true
   });
@@ -681,10 +796,98 @@ export function isSupabaseMobileAuthConfigured() {
 
 export function getAvailableOAuthProviders(): MobileOAuthProvider[] {
   const providers: MobileOAuthProvider[] = [];
+  if (isSupabaseMobileAuthConfigured()) {
+    providers.push('google');
+  }
   if (isMobileAppleAuthEnabled()) {
     providers.push('apple');
   }
   return providers;
+}
+
+async function linkOAuthIdentityToCurrentSession(
+  provider: MobileOAuthProvider,
+  {
+    accessToken,
+    refreshToken
+  }: {
+    accessToken: string;
+    refreshToken: string | null;
+  }
+): Promise<CompleteMobileAuthResult> {
+  const baseSession = await primeIdentityMutationSession(accessToken, refreshToken);
+  const currentIdentities = await getCurrentUserIdentities();
+  if (findIdentityByProvider(currentIdentities, provider)) {
+    throw new Error(`${provider === 'google' ? 'Google' : 'Sign in with Apple'} is already linked to this account.`);
+  }
+
+  const redirectTo = getOAuthRedirectUrl(provider);
+  const supabase = getMobileSupabaseClient();
+  const { data, error } = await supabase.auth.linkIdentity({
+    provider,
+    options: {
+      redirectTo,
+      skipBrowserRedirect: true
+    }
+  });
+
+  if (error) {
+    throw error;
+  }
+  if (!data.url) {
+    throw new Error(`Supabase did not return a ${provider === 'google' ? 'Google' : 'Apple'} linking URL.`);
+  }
+
+  try {
+    const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+
+    if (result.type === 'cancel' || result.type === 'dismiss') {
+      throw new Error('Authentication was cancelled before it completed.');
+    }
+
+    if (result.type !== 'success' || !('url' in result) || typeof result.url !== 'string') {
+      throw new Error('Authentication did not complete successfully.');
+    }
+
+    const linked = await completeMobileAuthCallbackUrl(result.url);
+    return {
+      ...linked,
+      session: linked.session ?? baseSession
+    };
+  } finally {
+    if (Platform.OS === 'android') {
+      void WebBrowser.coolDownAsync().catch(() => {});
+    }
+  }
+}
+
+export async function linkGoogleIdentityToCurrentSession({
+  accessToken,
+  refreshToken
+}: {
+  accessToken: string;
+  refreshToken: string | null;
+}) {
+  return linkOAuthIdentityToCurrentSession('google', {
+    accessToken,
+    refreshToken
+  });
+}
+
+export async function unlinkGoogleIdentityFromCurrentSession({
+  accessToken,
+  refreshToken
+}: {
+  accessToken: string;
+  refreshToken: string | null;
+}) {
+  const activeSession = await primeIdentityMutationSession(accessToken, refreshToken);
+  await unlinkCurrentIdentity({
+    provider: 'google',
+    cleanupAccessToken: activeSession.accessToken,
+    requireBackupMethod: true
+  });
+  return activeSession;
 }
 
 export async function completeMobileAuthCallbackUrl(callbackUrl: string): Promise<CompleteMobileAuthResult> {
@@ -725,33 +928,19 @@ export async function completeMobileAuthCallbackUrl(callbackUrl: string): Promis
   throw new Error('The callback did not include a valid auth payload.');
 }
 
-export async function continueWithOAuthProvider(provider: MobileOAuthProvider): Promise<CompleteMobileAuthResult> {
+export async function continueWithOAuthProvider(provider: MobileOAuthProvider, options?: PremiumOnboardingAuthOptions): Promise<CompleteMobileAuthResult> {
   if (provider === 'apple' && !isMobileAppleAuthEnabled()) {
     throw new Error('Sign in with Apple is not enabled for this build.');
   }
   if (provider === 'apple') {
-    return continueWithAppleSignIn();
+    return continueWithAppleSignInForContext(options);
   }
 
-  const redirectTo = getOAuthRedirectUrl(provider);
-  const supabase = getMobileSupabaseClient();
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider,
-    options: {
-      redirectTo,
-      skipBrowserRedirect: true
-    }
-  });
-
-  if (error) {
-    throw error;
-  }
-  if (!data.url) {
-    throw new Error('Supabase did not return an OAuth URL.');
-  }
+  const redirectTo = getOAuthRedirectUrl('google');
+  const startUrl = buildGoogleAuthStartUrl(options ?? {});
 
   try {
-    const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+    const result = await WebBrowser.openAuthSessionAsync(startUrl, redirectTo);
 
     if (result.type === 'cancel' || result.type === 'dismiss') {
       throw new Error('Authentication was cancelled before it completed.');
@@ -818,6 +1007,54 @@ export async function createPremiumAccountFromClaim(claimToken: string, email: s
 
   await clearStoredAppleAuthIdentity().catch(() => undefined);
   return payload;
+}
+
+export async function createOrResumePremiumOnboardingIntent({
+  accessToken,
+  intentId,
+  returnTo
+}: {
+  accessToken?: string | null;
+  intentId?: string | null;
+  returnTo?: string | null;
+}) {
+  const client = accessToken?.trim() ? createBearerMobileAuthClient(accessToken.trim()) : createGuestMobileAuthClient();
+  return client.createOrResumePremiumOnboardingIntent({
+    intentId: intentId?.trim() || undefined,
+    platform: getPremiumOnboardingPlatform(),
+    returnTo: returnTo?.trim() || undefined
+  });
+}
+
+export async function createPremiumOnboardingEmailAccount(intentId: string, email: string, password: string) {
+  const client = createGuestMobileAuthClient();
+  const payload = await client.createPremiumOnboardingEmailAccount({
+    intentId: intentId.trim(),
+    email,
+    password
+  });
+  await clearStoredAppleAuthIdentity().catch(() => undefined);
+  return payload;
+}
+
+export async function recordPremiumOnboardingLegalAcceptance({
+  accessToken,
+  intentId,
+  returnTo
+}: {
+  accessToken: string;
+  intentId?: string | null;
+  returnTo?: string | null;
+}) {
+  const client = createBearerMobileAuthClient(accessToken);
+  return client.recordPremiumOnboardingLegalAcceptance({
+    intentId: intentId?.trim() || undefined,
+    platform: getPremiumOnboardingPlatform(),
+    flow: 'premium_onboarding',
+    termsVersion: PREMIUM_TERMS_VERSION,
+    privacyVersion: PREMIUM_PRIVACY_VERSION,
+    returnTo: returnTo?.trim() || undefined
+  });
 }
 
 export async function signUpWithPassword(email: string, password: string, emailRedirectTo: string): Promise<MobilePasswordSignUpResult> {

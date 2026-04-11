@@ -16,6 +16,15 @@ type AdminUser = {
   banned_until: string | null;
   providers: string[];
   primary_provider: string | null;
+  auth_source:
+    | 'email_only'
+    | 'google_only'
+    | 'apple_only'
+    | 'email_google'
+    | 'email_apple'
+    | 'google_apple'
+    | 'email_google_apple'
+    | 'unknown';
   platforms: string[];
   last_sign_in_platform: string | null;
   last_mobile_sign_in_at: string | null;
@@ -277,6 +286,7 @@ export default function AdminUsersPage() {
                 <tr>
                   <th className="px-3 py-2">User</th>
                   <th className="px-3 py-2">Identity</th>
+                  <th className="px-3 py-2">Source</th>
                   <th className="px-3 py-2">Activity</th>
                   <th className="px-3 py-2">Status</th>
                   <th className="px-3 py-2 text-right">Actions</th>
@@ -285,7 +295,7 @@ export default function AdminUsersPage() {
               <tbody>
                 {users.length === 0 ? (
                   <tr>
-                    <td className="px-3 py-3 text-text3" colSpan={5}>
+                    <td className="px-3 py-3 text-text3" colSpan={6}>
                       No users found.
                     </td>
                   </tr>
@@ -324,6 +334,15 @@ export default function AdminUsersPage() {
                             ) : (
                               user.providers.map((provider) => <Badge key={`${user.user_id}-${provider}`} label={formatProviderLabel(provider)} />)
                             )}
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="px-3 py-3">
+                        <div className="space-y-2">
+                          <div className="font-medium text-text1">{formatAuthSourceLabel(user.auth_source)}</div>
+                          <div className="text-[11px] text-text3">
+                            {user.primary_provider ? `Primary: ${formatProviderLabel(user.primary_provider)}` : 'Primary unknown'}
                           </div>
                         </div>
                       </td>
@@ -535,7 +554,7 @@ function resolveUserStatus(user: AdminUser): 'anon' | 'paid' | 'admin' {
 function formatUserStatusLabel(status: 'anon' | 'paid' | 'admin') {
   if (status === 'admin') return 'Admin';
   if (status === 'paid') return 'Paid';
-  return 'Anon';
+  return 'Free';
 }
 
 function statusBadgeClass(status: 'anon' | 'paid' | 'admin') {
@@ -584,9 +603,21 @@ function formatProviderLabel(value: string) {
   if (value === 'apple_app_store') return 'App Store';
   if (value === 'google_play') return 'Google Play';
   if (value === 'email' || value === 'email_password') return 'Email';
+  if (value === 'google') return 'Google';
   if (value === 'twitter') return 'X';
   if (value === 'unknown') return 'Unknown';
   return value.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatAuthSourceLabel(value: AdminUser['auth_source']) {
+  if (value === 'email_only') return 'Email only';
+  if (value === 'google_only') return 'Google only';
+  if (value === 'apple_only') return 'Apple only';
+  if (value === 'email_google') return 'Email + Google';
+  if (value === 'email_apple') return 'Email + Apple';
+  if (value === 'google_apple') return 'Google + Apple';
+  if (value === 'email_google_apple') return 'Email + Google + Apple';
+  return 'Unknown';
 }
 
 function formatPlatformLabel(value: string) {

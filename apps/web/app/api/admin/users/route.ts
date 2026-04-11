@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { collectAuthSourceProviders, normalizeAuthSourceProvider, resolveAuthSource, type AuthSource } from '@tminuszero/domain';
 import { createSupabaseAdminClient } from '@/lib/server/supabaseServer';
 import { getSiteUrl, isStripeConfigured } from '@/lib/server/env';
 import { isSubscriptionActive } from '@/lib/server/subscription';
@@ -52,6 +53,9 @@ type AdminAuthUser = {
   banned_until?: string | null;
   app_metadata?: Record<string, unknown>;
   user_metadata?: Record<string, unknown>;
+  identities?: Array<{
+    provider?: string | null;
+  }> | null;
 };
 
 type AdminUserSummary = {
@@ -67,6 +71,7 @@ type AdminUserSummary = {
   banned_until: string | null;
   providers: string[];
   primary_provider: string | null;
+  auth_source: AuthSource;
   platforms: string[];
   last_sign_in_platform: string | null;
   last_mobile_sign_in_at: string | null;
@@ -99,29 +104,21 @@ function isMissingRelationError(error: unknown) {
 }
 
 function normalizeProviderLabel(value: unknown) {
-  const normalized = String(value || '')
-    .trim()
-    .toLowerCase();
-  if (!normalized) return null;
-  if (normalized === 'email' || normalized === 'email_password') return 'email_password';
-  return normalized;
+  return normalizeAuthSourceProvider(value) ?? (String(value || '').trim().toLowerCase() || null);
 }
 
 function extractProviders(user: AdminAuthUser) {
   const appMeta = ((user as { app_metadata?: Record<string, unknown> }).app_metadata || {}) as Record<string, unknown>;
-  const providerCandidates = [
-    normalizeProviderLabel(appMeta.provider),
-    ...(Array.isArray(appMeta.providers) ? appMeta.providers.map(normalizeProviderLabel) : [])
-  ].filter((value): value is string => Boolean(value));
-
-  if (providerCandidates.length === 0 && user.email) {
-    providerCandidates.push('email_password');
-  }
-
-  const providers = Array.from(new Set(providerCandidates));
+  const resolvedProviders = collectAuthSourceProviders({
+    identityProviders: (Array.isArray(user.identities) ? user.identities : []).map((identity) => identity?.provider),
+    primaryProvider: appMeta.provider,
+    appProviders: Array.isArray(appMeta.providers) ? appMeta.providers : []
+  });
+  const providers = resolvedProviders.length === 0 && user.email ? ['email_password'] : resolvedProviders;
   return {
     providers,
-    primaryProvider: providers[0] ?? null
+    primaryProvider: providers[0] ?? null,
+    authSource: resolveAuthSource(providers)
   };
 }
 
@@ -177,6 +174,7 @@ function matchesQueryFilter(user: AdminUserSummary, filters: z.infer<typeof quer
     user.identity_display_name,
     user.status,
     user.role,
+    user.auth_source,
     ...user.providers,
     ...user.platforms,
     user.billing.provider,
@@ -328,7 +326,7 @@ async function loadAdminUserBatch(admin: ReturnType<typeof createSupabaseAdminCl
     const providerEntitlement = providerEntitlementMap.get(user.id);
     const summary = summaryMap.get(user.id);
     const isPaid = typeof providerEntitlement?.is_active === 'boolean' ? providerEntitlement.is_active : isSubscriptionActive(subscription);
-    const { providers, primaryProvider } = extractProviders(user);
+    const { providers, primaryProvider, authSource } = extractProviders(user);
     const userMeta = (user.user_metadata || {}) as Record<string, unknown>;
     const role: AdminUserSummary['role'] = profile?.role === 'admin' ? 'admin' : 'user';
     const status = role === 'admin' ? 'admin' : isPaid ? 'paid' : 'anon';
@@ -356,6 +354,7 @@ async function loadAdminUserBatch(admin: ReturnType<typeof createSupabaseAdminCl
       status,
       providers,
       primary_provider: primaryProvider,
+      auth_source: authSource,
       platforms: extractPlatforms(summary),
       last_sign_in_platform: summary?.last_sign_in_platform ?? null,
       last_mobile_sign_in_at: summary?.last_mobile_sign_in_at ?? null,

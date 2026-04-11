@@ -1,3 +1,4 @@
+import { PREMIUM_TERMS_LAST_UPDATED_LABEL } from '@tminuszero/domain';
 import { LegalSummaryScreen } from '@/src/features/account/LegalSummaryScreen';
 import { getPublicSiteUrl } from '@/src/config/api';
 
@@ -10,7 +11,7 @@ export default function TermsScreen() {
       eyebrow="Legal"
       title="Terms of Service"
       description="Core customer terms for using T-Minus Zero, including subscriptions, push alerts, and acceptable use."
-      lastUpdated="Apr 3, 2026"
+      lastUpdated={PREMIUM_TERMS_LAST_UPDATED_LABEL}
       actions={[
         { label: 'Privacy notice', href: '/legal/privacy' },
         { label: 'Support', href: '/support', variant: 'secondary' },

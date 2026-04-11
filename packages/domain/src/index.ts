@@ -2,6 +2,8 @@ export { SharedTicker } from './ticker';
 export * from './calendar';
 export * from './countdown';
 export * from './adminAccessOverride';
+export * from './authSource';
+export * from './legal';
 export * from './launchRefresh';
 export * from './launchRefreshState';
 export * from './notificationPreferences';

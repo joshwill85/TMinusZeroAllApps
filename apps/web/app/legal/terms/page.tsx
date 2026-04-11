@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { PREMIUM_TERMS_LAST_UPDATED_LABEL } from '@tminuszero/domain';
 import { BRAND_NAME, SUPPORT_EMAIL } from '@/lib/brand';
 
 export const metadata: Metadata = {
@@ -11,7 +12,7 @@ export default function TermsPage() {
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 text-sm text-text2 md:px-6">
       <h1 className="text-3xl font-semibold text-text1">Terms of Service</h1>
-      <p className="mt-3 text-text3">Last updated: April 3, 2026</p>
+      <p className="mt-3 text-text3">Last updated: {PREMIUM_TERMS_LAST_UPDATED_LABEL}</p>
 
       <section className="mt-6 space-y-4">
         <p>

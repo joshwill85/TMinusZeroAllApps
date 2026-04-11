@@ -16,6 +16,14 @@ import {
   premiumClaimEnvelopeSchemaV1,
   premiumClaimPasswordSignUpResponseSchemaV1,
   premiumClaimPasswordSignUpSchemaV1,
+  premiumOnboardingEmailAccountCreateResponseSchemaV1,
+  premiumOnboardingEmailAccountCreateSchemaV1,
+  premiumOnboardingIntentRequestSchemaV1,
+  premiumOnboardingIntentResponseSchemaV1,
+  premiumOnboardingLegalAcceptanceResponseSchemaV1,
+  premiumOnboardingLegalAcceptanceSchemaV1,
+  premiumOnboardingProviderPreflightResponseSchemaV1,
+  premiumOnboardingProviderPreflightSchemaV1,
   billingSummarySchemaV1,
   billingSyncResponseSchemaV1,
   blueOriginContractsResponseSchemaV1,
@@ -145,6 +153,14 @@ import {
   type PremiumClaimEnvelopeV1,
   type PremiumClaimPasswordSignUpResponseV1,
   type PremiumClaimPasswordSignUpV1,
+  type PremiumOnboardingEmailAccountCreateResponseV1,
+  type PremiumOnboardingEmailAccountCreateV1,
+  type PremiumOnboardingIntentRequestV1,
+  type PremiumOnboardingIntentResponseV1,
+  type PremiumOnboardingLegalAcceptanceResponseV1,
+  type PremiumOnboardingLegalAcceptanceV1,
+  type PremiumOnboardingProviderPreflightResponseV1,
+  type PremiumOnboardingProviderPreflightV1,
   type BillingPlatformV1,
   type BillingSummaryV1,
   type BillingSyncResponseV1,
@@ -522,6 +538,34 @@ export class ApiClient {
     return this.request('/api/v1/billing/claims/sign-up', premiumClaimPasswordSignUpResponseSchemaV1, {
       method: 'POST',
       body: premiumClaimPasswordSignUpSchemaV1.parse(payload)
+    });
+  }
+
+  async createOrResumePremiumOnboardingIntent(payload: PremiumOnboardingIntentRequestV1) {
+    return this.request('/api/v1/premium-onboarding/intent', premiumOnboardingIntentResponseSchemaV1, {
+      method: 'POST',
+      body: premiumOnboardingIntentRequestSchemaV1.parse(payload)
+    });
+  }
+
+  async preflightPremiumOnboardingProvider(payload: PremiumOnboardingProviderPreflightV1) {
+    return this.request('/api/v1/premium-onboarding/provider-preflight', premiumOnboardingProviderPreflightResponseSchemaV1, {
+      method: 'POST',
+      body: premiumOnboardingProviderPreflightSchemaV1.parse(payload)
+    });
+  }
+
+  async createPremiumOnboardingEmailAccount(payload: PremiumOnboardingEmailAccountCreateV1) {
+    return this.request('/api/v1/premium-onboarding/email-account', premiumOnboardingEmailAccountCreateResponseSchemaV1, {
+      method: 'POST',
+      body: premiumOnboardingEmailAccountCreateSchemaV1.parse(payload)
+    });
+  }
+
+  async recordPremiumOnboardingLegalAcceptance(payload: PremiumOnboardingLegalAcceptanceV1) {
+    return this.request('/api/v1/premium-onboarding/legal-acceptance', premiumOnboardingLegalAcceptanceResponseSchemaV1, {
+      method: 'POST',
+      body: premiumOnboardingLegalAcceptanceSchemaV1.parse(payload)
     });
   }
 

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { BillingStripeRouteError, createStripeCheckoutSession } from '@/lib/server/billingStripe';
 import { BillingApiRouteError } from '@/lib/server/billingCore';
-import { createGuestPremiumCheckoutSession, PremiumClaimRouteError } from '@/lib/server/premiumClaims';
+import { resolvePremiumOnboardingLegalStatus } from '@/lib/server/premiumOnboarding';
 import { resolveViewerSession } from '@/lib/server/viewerSession';
 export const dynamic = 'force-dynamic';
 
@@ -22,18 +22,20 @@ export async function POST(request: Request) {
 
   try {
     const session = await resolveViewerSession(request);
-    const payload = session.userId
-      ? await createStripeCheckoutSession(session, {
-          returnTo: parsed.data?.returnTo,
-          promotionCode: parsed.data?.promotionCode
-        })
-      : await createGuestPremiumCheckoutSession({
-          returnTo: parsed.data?.returnTo,
-          promotionCode: parsed.data?.promotionCode
-        });
+    if (!session.userId) {
+      return NextResponse.json({ error: 'auth_required' }, { status: 401 });
+    }
+    const legalStatus = await resolvePremiumOnboardingLegalStatus(session);
+    if (legalStatus.requiresAcceptance) {
+      return NextResponse.json({ error: 'legal_acceptance_required' }, { status: 409 });
+    }
+    const payload = await createStripeCheckoutSession(session, {
+      returnTo: parsed.data?.returnTo,
+      promotionCode: parsed.data?.promotionCode
+    });
     return NextResponse.json(payload);
   } catch (error) {
-    if (error instanceof BillingStripeRouteError || error instanceof PremiumClaimRouteError || error instanceof BillingApiRouteError) {
+    if (error instanceof BillingStripeRouteError || error instanceof BillingApiRouteError) {
       const code = error.code === 'stripe_lookup_failed' ? 'failed_to_init_billing' : error.code;
       const details =
         error instanceof BillingStripeRouteError && 'details' in error
