@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { CANONICAL_HOST, COOKIE_DOMAIN, DOMAIN_APEX } from '@/lib/brand';
+import { normalizeEnvText, normalizeEnvUrl } from '@/lib/env/normalize';
 import { getAntiIngestionTokenSecret, isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
 import {
   APP_CLIENT_HEADER_NAME,
@@ -16,9 +17,9 @@ import {
 import { buildLegacyCatalogRedirectHref } from '@/lib/utils/catalog';
 import { toProviderSlug } from '@/lib/utils/launchLinks';
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_URL = normalizeEnvUrl(process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL);
+const SUPABASE_ANON_KEY = normalizeEnvText(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+const SUPABASE_SERVICE_ROLE_KEY = normalizeEnvText(process.env.SUPABASE_SERVICE_ROLE_KEY);
 const LEGACY_HOSTS = new Set(['tminusnow.space', 'www.tminusnow.space']);
 
 type MiddlewareRateLimitRule = {

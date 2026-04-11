@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { normalizeEnvText, normalizeEnvUrl } from '@/lib/env/normalize';
 import { ingestWs45LaunchForecasts } from '@/lib/server/ws45ForecastIngest';
 import { requireAdminRequest } from '../_lib/auth';
 export const dynamic = 'force-dynamic';
@@ -156,12 +157,12 @@ export async function POST(request: Request) {
   const jobToken = readStringSetting(settings.jobs_auth_token);
   if (!jobToken) return NextResponse.json({ error: 'jobs_auth_token_not_set' }, { status: 409 });
 
-  const apiKey = readStringSetting(settings.jobs_apikey) || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+  const apiKey = readStringSetting(settings.jobs_apikey) || normalizeEnvText(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) || '';
   if (!apiKey) return NextResponse.json({ error: 'jobs_apikey_not_set' }, { status: 409 });
 
   const baseUrl =
     readStringSetting(settings.jobs_base_url) ||
-    [process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL, 'functions', 'v1'].filter(Boolean).join('/');
+    [normalizeEnvUrl(process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL), 'functions', 'v1'].filter(Boolean).join('/');
   if (!baseUrl) return NextResponse.json({ error: 'jobs_base_url_not_set' }, { status: 409 });
 
   const url = `${baseUrl.replace(/\/+$/, '')}/${job.slug}`;
