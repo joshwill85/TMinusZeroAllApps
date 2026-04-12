@@ -17,10 +17,8 @@ import {
   View
 } from 'react-native';
 import { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { ArTrajectorySummaryV1, LaunchDetailV1, LaunchFaaAirspaceMapV1 } from '@tminuszero/contracts';
 import {
-  buildCountdownSnapshot,
   buildDetailVersionToken,
   canAutoRefreshActiveSurface,
   getDefaultMobilePushPrelaunchOffsets,
@@ -33,8 +31,11 @@ import {
 } from '@tminuszero/domain';
 import { normalizeNativeMobileCustomerHref, toProviderSlug } from '@tminuszero/navigation';
 import {
+  buildLaunchHeroSubtitleLine,
   buildLaunchVideoEmbed,
   buildLaunchInventoryStatusMessage,
+  normalizePrimaryLaunchStatus,
+  resolveLaunchPrimaryTitle,
   shouldShowLaunchInventoryCounts,
   shouldShowLaunchInventorySection
 } from '@tminuszero/launch-detail-ui';
@@ -84,13 +85,11 @@ import {
   usePrimaryWatchlist
 } from '@/src/watchlists/usePrimaryWatchlist';
 import { ParallaxHero, StaticHero } from '@/src/components/launch/ParallaxHero';
-import { InteractiveStatTiles, type StatTile } from '@/src/components/launch/InteractiveStatTiles';
 import { LiveBadge } from '@/src/components/launch/LiveDataPulse';
-import { LiveLaunchCountdownClock, LiveLaunchCountdownLabel } from '@/src/components/launch/LiveLaunchCountdown';
+import { LiveLaunchCountdownClock } from '@/src/components/launch/LiveLaunchCountdown';
 import { AnimationErrorBoundary } from '@/src/components/launch/AnimationErrorBoundary';
 import { CollapsibleSection } from '@/src/components/launch/CollapsibleSection';
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
-import { useSharedNow } from '@/src/hooks/useSharedNow';
 import { TmzLaunchMapView, getTmzLaunchMapCapabilitiesAsync, type TmzLaunchMapCapabilities } from '@/modules/tmz-launch-map';
 import { resolveNativeProgramHubOrCoreHref } from '@/src/features/programHubs/rollout';
 import { openExternalCustomerUrl } from '@/src/features/customerRoutes/shared';
@@ -98,6 +97,15 @@ import { formatRefreshTimeLabel } from '@/src/utils/launchRefresh';
 import { useAndroidGoogleMapsAccess } from '@/src/hooks/useAndroidGoogleMapsAccess';
 
 const LIVE_DETAIL_REFRESH_SIGNAL_COOLDOWN_MS = 1000;
+const MOBILE_SECTION_PILLS = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'timeline', label: 'Timeline' },
+  { id: 'viewing', label: 'Viewing' },
+  { id: 'vehicle', label: 'Vehicle' },
+  { id: 'coverage', label: 'Coverage' }
+] as const;
+
+type LaunchDetailSectionKey = (typeof MOBILE_SECTION_PILLS)[number]['id'];
 
 type LegacyLaunchSummary = LaunchDetailV1['launch'];
 type RichLaunchSummary = NonNullable<LaunchDetailV1['launchData']>;
@@ -126,18 +134,9 @@ export default function LaunchDetailScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const isFocused = useIsFocused();
-  const insets = useSafeAreaInsets();
   const { theme, accessToken } = useMobileBootstrap();
   const { showToast } = useMobileToast();
 
-  const handleBackToFeed = useCallback(() => {
-    if (router.canGoBack()) {
-      router.back();
-      return;
-    }
-
-    router.replace('/feed' as Href);
-  }, [router]);
   const openPremiumGate = useCallback(() => {
     router.push('/account/membership' as Href);
   }, [router]);
@@ -185,6 +184,7 @@ export default function LaunchDetailScreen() {
   const title = launch?.name ?? legacyLaunch?.name ?? 'Launch detail';
   const shouldReduceMotion = useReducedMotion();
   const scrollRef = useRef<ScrollView | null>(null);
+  const sectionOffsetsRef = useRef<Partial<Record<LaunchDetailSectionKey, number>>>({});
   const lastSeenVersionRef = useRef<string | null>(null);
   const lastRealtimeSignalAtRef = useRef(0);
   const refetchLaunchDetail = launchDetailQuery.refetch;
@@ -192,6 +192,7 @@ export default function LaunchDetailScreen() {
   const [scheduledRefreshIntervalSeconds, setScheduledRefreshIntervalSeconds] = useState<number>(fallbackRefreshIntervalSeconds);
   const [cadenceAnchorNet, setCadenceAnchorNet] = useState<string | null>(null);
   const [pendingDetailRefresh, setPendingDetailRefresh] = useState<{ version: string; updatedAt: string | null } | null>(null);
+  const [activeSectionId, setActiveSectionId] = useState<LaunchDetailSectionKey>('overview');
   const refreshIntervalSeconds = getRecommendedLaunchRefreshIntervalSeconds(
     scheduledRefreshIntervalSeconds,
     fallbackRefreshIntervalSeconds
@@ -199,6 +200,8 @@ export default function LaunchDetailScreen() {
 
   useEffect(() => {
     setExpandedFaaRawTextIds({});
+    setActiveSectionId('overview');
+    sectionOffsetsRef.current = {};
   }, [launchId]);
 
   const toggleFaaRawText = useCallback((matchId: string) => {
@@ -268,9 +271,26 @@ export default function LaunchDetailScreen() {
       Boolean(launchFaaAirspaceMap?.hasRenderableGeometry)
   });
 
+  const handleRegisterSection = useCallback((sectionId: LaunchDetailSectionKey, offsetY: number) => {
+    sectionOffsetsRef.current[sectionId] = offsetY;
+  }, []);
+
+  const handleJumpToSection = useCallback((sectionId: LaunchDetailSectionKey) => {
+    setActiveSectionId(sectionId);
+    const offset = sectionOffsetsRef.current[sectionId];
+    if (typeof offset !== 'number') {
+      return;
+    }
+    scrollRef.current?.scrollTo({
+      y: Math.max(offset - 12, 0),
+      animated: true
+    });
+  }, []);
+
   let content: JSX.Element;
   let followSheetNode: ReactNode = null;
-  let floatingTopBarNode: JSX.Element | null = null;
+  let headerTitle = title;
+  let headerRightNode: ReactNode = null;
 
   useEffect(() => {
     setSavedStatus(null);
@@ -604,10 +624,6 @@ export default function LaunchDetailScreen() {
     });
     const launchUpdates = detail.launchUpdates ?? [];
     const missionStats = detail.missionStats ?? null;
-    const weatherConcerns =
-      weatherModule?.concerns && weatherModule.concerns.length > 0
-        ? weatherModule.concerns
-        : launch.weatherConcerns || [];
     const weatherHeadline = operationalWeather?.summary || weatherModule?.summary || null;
     const watchLinks: WatchLinkView[] =
       resourcesModule?.watchLinks?.map((item) => ({
@@ -632,10 +648,22 @@ export default function LaunchDetailScreen() {
     const watchUrl = watchLinks[0]?.url ?? getPrimaryWatchUrl(launch);
     const primaryWatchLink = watchLinks[0] ?? null;
     const primaryWatchEmbed = primaryWatchLink ? buildLaunchVideoEmbed(primaryWatchLink.url) : null;
-    const heroTitle = launch.mission?.name || title;
-    const heroMeta = [launch.provider, launch.rocket?.fullName || launch.vehicle, launch.pad.shortCode || launch.pad.name]
-      .filter(Boolean)
-      .join(' • ');
+    const resourceMissionTimeline = resourcesModule?.missionTimeline ?? [];
+    const heroTitle = resolveLaunchPrimaryTitle(launch.mission?.name ?? null, title);
+    const heroMeta = buildLaunchHeroSubtitleLine({
+      provider: launch.provider,
+      vehicle: launch.rocket?.fullName || launch.vehicle,
+      padLabel: launch.pad.shortCode || launch.pad.name
+    });
+    const heroStatusLabel = normalizePrimaryLaunchStatus(launch.statusText);
+    const recoveryHeadline =
+      detail.enrichment.recovery[0]?.title ||
+      detail.enrichment.recovery[0]?.returnSite ||
+      detail.enrichment.recovery[0]?.landingLocationName ||
+      null;
+    const nextTimelineItem = resourceMissionTimeline[0] ?? null;
+    const localLaunchTimeLabel = formatTimestamp(launch.net);
+    const utcLaunchTimeLabel = formatUtcTimestamp(launch.net);
     const rocketPhotoUrl = launch.rocket?.imageUrl || launch.providerImageUrl || launch.image.full || launch.image.thumbnail || null;
     const hasPrograms = Array.isArray(launch.programs) && launch.programs.length > 0;
     const hasCrew = Array.isArray(launch.crew) && launch.crew.length > 0;
@@ -673,60 +701,6 @@ export default function LaunchDetailScreen() {
     const handleShareLaunch = () => {
       void shareLaunch(buildLaunchShareInput(launch));
     };
-    const handleOpenCalendar = () => {
-      setCalendarLaunch({
-        id: launch.id,
-        name: launch.name,
-        provider: launch.provider,
-        vehicle: launch.vehicle,
-        net: launch.net,
-        netPrecision: launch.netPrecision,
-        windowEnd: launch.windowEnd ?? null,
-        pad: {
-          name: launch.pad.name,
-          state: launch.pad.state
-        }
-      });
-    };
-    const handleOpenArTrajectory = () => {
-      if (!arTrajectory) {
-        return;
-      }
-      if (!canUseArTrajectory) {
-        router.push('/profile');
-        return;
-      }
-      if (arTrajectory.availabilityReason === 'not_eligible') {
-        setSavedStatus({
-          tone: 'error',
-          text: 'AR trajectory is unavailable for this launch.'
-        });
-        return;
-      }
-      if (arTrajectory.availabilityReason === 'trajectory_missing' || !arTrajectory.hasTrajectory) {
-        setSavedStatus({
-          tone: 'error',
-          text: 'AR trajectory is not ready for this launch yet.'
-        });
-        return;
-      }
-      router.push((`/launches/ar/${launch.id}`) as Href);
-    };
-    const canShowTopBarArButton = Boolean(arTrajectory);
-    const topBarArActive = Boolean(
-      arTrajectory &&
-        canUseArTrajectory &&
-        arTrajectory.hasTrajectory &&
-        arTrajectory.availabilityReason !== 'not_eligible' &&
-        arTrajectory.availabilityReason !== 'trajectory_missing'
-    );
-    const topBarArDisabled = Boolean(
-      arTrajectory &&
-        canUseArTrajectory &&
-        (arTrajectory.availabilityReason === 'not_eligible' || arTrajectory.availabilityReason === 'trajectory_missing' || !arTrajectory.hasTrajectory)
-    );
-    const floatingTopBarTop = Math.max(insets.top + 8, 14);
-    const floatingTopBarSpacerHeight = 52;
     const faaMapPayload = launchFaaAirspaceMap;
     const padMapPayload = buildPadSatelliteMapPayload(launch);
     const showNativePadMapPreview =
@@ -1180,6 +1154,19 @@ export default function LaunchDetailScreen() {
         ];
     const activeFollowCount = followOptions.filter((option) => option.active).length;
     const followButtonLabel = activeFollowCount > 0 ? 'Following' : 'Follow';
+    headerTitle = heroTitle;
+    headerRightNode = (
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+        <HeaderActionButton
+          label={followButtonLabel}
+          active={activeFollowCount > 0}
+          onPress={() => {
+            setFollowSheetOpen(true);
+          }}
+        />
+        <HeaderActionButton label="Share" onPress={handleShareLaunch} />
+      </View>
+    );
 
     followSheetNode = (
       <LaunchFollowSheet
@@ -1217,55 +1204,7 @@ export default function LaunchDetailScreen() {
       />
     );
 
-    const statTiles: StatTile[] = [
-      ...(weatherHeadline
-        ? [
-            {
-              id: 'weather',
-              label: 'Weather conditions',
-              value: weatherHeadline.split('.')[0] || 'Favorable',
-              description: weatherConcerns.length > 0 ? `Concerns: ${weatherConcerns.join(', ')}` : 'No weather concerns',
-              tone: operationalWeather?.tone === 'critical' || operationalWeather?.tone === 'warning' || weatherConcerns.length > 0 ? 'warning' : 'success'
-            } satisfies StatTile
-          ]
-        : []),
-      {
-        id: 'provider',
-        label: 'Launch provider',
-        value: launch.provider,
-        description: launch.providerCountryCode ? `Based in ${launch.providerCountryCode}` : 'Space launch provider',
-        tone: 'default',
-        onPress: launchInfoProviderHref
-          ? () => {
-              openTarget(launchInfoProviderHref);
-            }
-          : undefined
-      },
-      {
-        id: 'vehicle',
-        label: 'Launch vehicle',
-        value: launch.vehicle || launch.rocket?.fullName || 'TBD',
-        description: launch.pad?.name ? `From ${launch.pad.name}` : 'Launch vehicle',
-        tone: 'default',
-        onPress: launchInfoRocketHref
-          ? () => {
-              openTarget(launchInfoRocketHref);
-            }
-          : undefined
-      }
-    ];
-    const statTileFallbackItems: FactGridItem[] = [
-      ...(weatherHeadline
-        ? [['Weather conditions', weatherHeadline.split('.')[0] || 'Favorable'] satisfies FactGridItem]
-        : []),
-      ['Launch provider', launch.provider],
-      ['Launch vehicle', launch.vehicle || launch.rocket?.fullName || 'TBD']
-    ];
-    const resourceMissionTimeline = resourcesModule?.missionTimeline ?? [];
     const hasResourceMissionTimeline = resourceMissionTimeline.length > 0;
-    const officialMediaDescription = hasResourceMissionTimeline
-      ? 'Matched mission resources, SpaceX media assets, and mission timeline entries for this launch.'
-      : 'Matched mission resources and SpaceX media assets for this launch.';
     const vehicleTimeline = detail.vehicleTimeline ?? [];
     const advisoryCount = detail.enrichment.faaAdvisories.length;
     const hasForecastOutlook = Boolean(operationalWeather || standardWeatherCards.length || advancedWeatherCards.length || advisoryCount > 0);
@@ -1275,31 +1214,15 @@ export default function LaunchDetailScreen() {
         : 'Live range conditions and structured weather sources matched to this launch.'
       : `Launch-day FAA advisories matched to this launch. ${advisoryCount} match${advisoryCount === 1 ? '' : 'es'} found.`;
 
-    floatingTopBarNode = (
-      <LaunchDetailFloatingBar
-        top={floatingTopBarTop}
-        net={launch.net}
-        onBack={handleBackToFeed}
-        onShare={handleShareLaunch}
-        onOpenCalendar={handleOpenCalendar}
-        onOpenArTrajectory={canShowTopBarArButton ? handleOpenArTrajectory : undefined}
-        showArButton={canShowTopBarArButton}
-        arButtonActive={topBarArActive}
-        arButtonDisabled={topBarArDisabled}
-      />
-    );
-
     content = (
       <>
-        <View style={{ height: floatingTopBarSpacerHeight }} />
-
         <AnimationErrorBoundary
           fallback={
             <StaticHero
               backgroundImage={launch.image.full || launch.image.thumbnail || rocketPhotoUrl}
               title={heroTitle}
               subtitle={heroMeta || formatTimestamp(launch.net)}
-              status={launch.statusText || 'Status pending'}
+              status={heroStatusLabel || launch.statusText || 'Status pending'}
               statusTone={getStatusTone(launch.status)}
             >
               <View style={{ gap: 12 }}>
@@ -1310,12 +1233,6 @@ export default function LaunchDetailScreen() {
                     {launch.provider}
                   </Text>
                 )}
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-                  <DetailChip label={launch.tier.toUpperCase()} />
-                  {launch.providerCountryCode ? <DetailChip label={launch.providerCountryCode} /> : null}
-                  {launch.webcastLive ? <DetailChip label="LIVE" tone="accent" /> : null}
-                  {launch.hashtag ? <DetailChip label={launch.hashtag.startsWith('#') ? launch.hashtag : `#${launch.hashtag}`} /> : null}
-                </View>
                 {launch.missionSummary ? <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 22 }}>{launch.missionSummary}</Text> : null}
               </View>
             </StaticHero>
@@ -1326,7 +1243,7 @@ export default function LaunchDetailScreen() {
             title={heroTitle}
             subtitle={heroMeta || formatTimestamp(launch.net)}
             scrollY={scrollY}
-            status={launch.statusText || 'Status pending'}
+            status={heroStatusLabel || launch.statusText || 'Status pending'}
             statusTone={getStatusTone(launch.status)}
           >
             <View style={{ gap: 12 }}>
@@ -1337,12 +1254,6 @@ export default function LaunchDetailScreen() {
                   {launch.provider}
                 </Text>
               )}
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-                <DetailChip label={launch.tier.toUpperCase()} />
-                {launch.providerCountryCode ? <DetailChip label={launch.providerCountryCode} /> : null}
-                {launch.webcastLive ? <LiveBadge label="LIVE" /> : null}
-                {launch.hashtag ? <DetailChip label={launch.hashtag.startsWith('#') ? launch.hashtag : `#${launch.hashtag}`} /> : null}
-              </View>
               {launch.missionSummary ? <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 22 }}>{launch.missionSummary}</Text> : null}
               {launch.holdReason ? <Text style={{ color: '#ffd36e', fontSize: 13, lineHeight: 20 }}>Hold reason: {launch.holdReason}</Text> : null}
               {launch.failReason ? <Text style={{ color: '#ff9aab', fontSize: 13, lineHeight: 20 }}>Failure context: {launch.failReason}</Text> : null}
@@ -1405,45 +1316,65 @@ export default function LaunchDetailScreen() {
           </View>
         ) : null}
 
-        {arTrajectory && shouldShowArTrajectoryCard(arTrajectory, canUseArTrajectory) ? (
-          <ArTrajectoryCard launchId={launch.id} arTrajectory={arTrajectory} canUseArTrajectory={canUseArTrajectory} />
-        ) : null}
+        <MobileLaunchSectionPills
+          sections={MOBILE_SECTION_PILLS}
+          activeSectionId={activeSectionId}
+          onPress={handleJumpToSection}
+        />
 
+        <View
+          onLayout={(event) => {
+            handleRegisterSection('overview', event.nativeEvent.layout.y);
+          }}
+        >
         <DetailModuleSection
-          id="mission-control"
-          title="Mission control dashboard"
-          description="Countdown, launch actions, alerts, and live launch signals."
+          id="overview"
+          title="Overview"
+          description="What this launch is, when it goes, how to watch, and the quickest mission context."
+          collapsible={false}
         >
           <View style={{ gap: 16 }}>
-            {weatherHeadline || weatherConcerns.length ? (
-              <View
-                style={{
-                  borderRadius: 18,
-                  borderWidth: 1,
-                  borderColor: theme.stroke,
-                  backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                  padding: 14,
-                  gap: 8
-                }}
-              >
-                <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>Weather</Text>
-                {weatherHeadline ? <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>{weatherHeadline}</Text> : null}
-                {operationalWeather ? (
-                  <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
-                    {[operationalWeather.subtitle, operationalWeather.fetchedAt ? `Updated ${formatTimestamp(operationalWeather.fetchedAt)}` : null]
-                      .filter(Boolean)
-                      .join(' • ')}
+            <SectionCard title="Launch status" compact>
+              <View style={{ gap: 12 }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                  {heroStatusLabel ? <DetailChip label={heroStatusLabel} tone="accent" /> : null}
+                  {launch.webcastLive ? <LiveBadge label="LIVE" /> : null}
+                </View>
+                <View style={{ gap: 4 }}>
+                  <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>
+                    Countdown
                   </Text>
-                ) : null}
-                {weatherConcerns.length ? (
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                    {weatherConcerns.map((concern) => (
-                      <DetailChip key={concern} label={concern} />
-                    ))}
+                  <LiveLaunchCountdownClock net={launch.net} pastLabel="Launched" />
+                </View>
+                <View style={{ gap: 10 }}>
+                  <LaunchTimeRow label="Local time" value={localLaunchTimeLabel} />
+                  <LaunchTimeRow label="UTC" value={utcLaunchTimeLabel} />
+                </View>
+                {nextTimelineItem ? (
+                  <View
+                    style={{
+                      borderRadius: 16,
+                      borderWidth: 1,
+                      borderColor: theme.stroke,
+                      backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                      padding: 12,
+                      gap: 4
+                    }}
+                  >
+                    <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>
+                      Next event
+                    </Text>
+                    <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{nextTimelineItem.label}</Text>
+                    {nextTimelineItem.description ? (
+                      <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>{nextTimelineItem.description}</Text>
+                    ) : null}
+                    {nextTimelineItem.time ? (
+                      <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>{nextTimelineItem.time}</Text>
+                    ) : null}
                   </View>
                 ) : null}
               </View>
-            ) : null}
+            </SectionCard>
 
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
               {watchUrl ? (
@@ -1454,20 +1385,17 @@ export default function LaunchDetailScreen() {
                   }}
                 />
               ) : null}
+              <ActionButton label="Get alerts" onPress={() => setFollowSheetOpen(true)} variant="secondary" />
+              <ActionButton label="Share" onPress={handleShareLaunch} variant="secondary" />
+            </View>
+
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {detail.enrichment.hasJepScore ? <DetailChip label="Visibility / JEP" /> : null}
+              {weatherHeadline ? <DetailChip label={`Weather: ${weatherHeadline.split('.')[0] || weatherHeadline}`} /> : null}
+              {recoveryHeadline ? <DetailChip label={`Recovery: ${recoveryHeadline}`} /> : null}
             </View>
 
             <View style={{ gap: 10 }}>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                <DetailFollowChip
-                  label={followButtonLabel}
-                  active={activeFollowCount > 0}
-                  detail={basicFollowCapacityLabel}
-                  disabled={false}
-                  onPress={() => {
-                    setFollowSheetOpen(true);
-                  }}
-                />
-              </View>
               {!canUseSavedItems ? (
                 <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>
                   {canUseAllUsLaunchAlerts
@@ -1483,12 +1411,28 @@ export default function LaunchDetailScreen() {
               ) : null}
             </View>
 
-            <AnimationErrorBoundary fallback={<FactGrid items={statTileFallbackItems} />}>
-              <InteractiveStatTiles tiles={statTiles} />
-            </AnimationErrorBoundary>
+            <FactGrid
+              items={[
+                ['Pad', launch.pad.shortCode || launch.pad.name],
+                ['Orbit', launch.mission?.orbit || launch.payloads?.find((payload) => payload?.orbit)?.orbit || 'TBD'],
+                ['Mission type', launch.mission?.type || 'TBD'],
+                ['Recovery', recoveryHeadline || 'TBD']
+              ]}
+            />
+            {launch.missionSummary ? (
+              <SectionCard title={launch.mission?.name || 'Mission summary'} compact>
+                <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>{launch.missionSummary}</Text>
+              </SectionCard>
+            ) : null}
           </View>
         </DetailModuleSection>
+        </View>
 
+        <View
+          onLayout={(event) => {
+            handleRegisterSection('coverage', event.nativeEvent.layout.y);
+          }}
+        />
         {primaryWatchLink ? (
           <DetailModuleSection
             id="live-coverage"
@@ -1690,6 +1634,11 @@ export default function LaunchDetailScreen() {
           </DetailModuleSection>
         ) : null}
 
+        <View
+          onLayout={(event) => {
+            handleRegisterSection('vehicle', event.nativeEvent.layout.y);
+          }}
+        />
         {(launch.rocket?.fullName || launch.vehicle || rocketPhotoUrl) ? (
           <DetailModuleSection
             id="rocket-profile"
@@ -1891,6 +1840,11 @@ export default function LaunchDetailScreen() {
           ) : null}
         </DetailModuleSection>
 
+        <View
+          onLayout={(event) => {
+            handleRegisterSection('viewing', event.nativeEvent.layout.y);
+          }}
+        />
         {hasForecastOutlook ? (
           <DetailModuleSection
             id="forecast-outlook"
@@ -2158,6 +2112,10 @@ export default function LaunchDetailScreen() {
           <JepPanel launchId={launch.id} hasJepScore={detail.enrichment.hasJepScore} theme={theme} />
         </DetailModuleSection>
 
+        {arTrajectory && shouldShowArTrajectoryCard(arTrajectory, canUseArTrajectory) ? (
+          <ArTrajectoryCard launchId={launch.id} arTrajectory={arTrajectory} canUseArTrajectory={canUseArTrajectory} />
+        ) : null}
+
         {(detail.enrichment.firstStages.length > 0 || detail.enrichment.recovery.length > 0) ? (
           <DetailModuleSection
             id="stages-recovery"
@@ -2225,11 +2183,16 @@ export default function LaunchDetailScreen() {
           </DetailModuleSection>
         ) : null}
 
+        <View
+          onLayout={(event) => {
+            handleRegisterSection('timeline', event.nativeEvent.layout.y);
+          }}
+        />
         {(resourcesModule?.missionResources?.length || resourcesModule?.missionTimeline?.length || launch.launchVidUrls?.length || launch.launchInfoUrls?.length || detail.enrichment.externalContent.length) ? (
           <DetailModuleSection
             id="official-media"
-            title="Official media & timelines"
-            description={officialMediaDescription}
+            title="Timeline"
+            description="Next milestones, official resources, and mission timeline context tied to this launch."
           >
             <View style={{ gap: 10 }}>
               {resourcesModule?.missionResources?.filter((resource) => !isSpaceXWebsiteUrl(resource.url))?.map((resource) => (
@@ -2712,8 +2675,9 @@ export default function LaunchDetailScreen() {
         {vehicleTimeline.length > 0 ? (
           <DetailModuleSection
             id="vehicle-timeline"
-            title="Chrono-Helix vehicle timeline"
-            description="Recent and upcoming flights for the same launch vehicle."
+            title="Vehicle history"
+            description="Chrono-Helix view of recent and upcoming flights for the same launch vehicle."
+            defaultExpanded={false}
           >
             <View style={{ gap: 12 }}>
               {vehicleTimeline.map((item, index) => (
@@ -2829,7 +2793,16 @@ export default function LaunchDetailScreen() {
     <>
       <Stack.Screen
         options={{
-          headerShown: false
+          headerShown: true,
+          title: headerTitle,
+          headerShadowVisible: false,
+          headerTintColor: theme.foreground,
+          headerStyle: {
+            backgroundColor: theme.background
+          },
+          headerRight: headerRightNode
+            ? () => headerRightNode
+            : undefined
         }}
       />
       <AppScreen
@@ -2850,7 +2823,6 @@ export default function LaunchDetailScreen() {
       >
         {content}
       </AppScreen>
-      {floatingTopBarNode}
       {followSheetNode}
       <LaunchCalendarSheet launch={calendarLaunch} open={calendarLaunch != null} onClose={() => setCalendarLaunch(null)} />
     </>
@@ -3128,256 +3100,120 @@ function formatLaunchPlanningTemps(min: number | null | undefined, max: number |
   return 'Temps TBD';
 }
 
-function LaunchDetailFloatingBar({
-  top,
-  net,
-  onBack,
-  onShare,
-  onOpenCalendar,
-  onOpenArTrajectory,
-  showArButton,
-  arButtonActive,
-  arButtonDisabled
+function MobileLaunchSectionPills({
+  sections,
+  activeSectionId,
+  onPress
 }: {
-  top: number;
-  net: string | null;
-  onBack: () => void;
-  onShare: () => void;
-  onOpenCalendar: () => void;
-  onOpenArTrajectory?: () => void;
-  showArButton: boolean;
-  arButtonActive: boolean;
-  arButtonDisabled: boolean;
+  sections: readonly { id: LaunchDetailSectionKey; label: string }[];
+  activeSectionId: LaunchDetailSectionKey;
+  onPress: (sectionId: LaunchDetailSectionKey) => void;
 }) {
   const { theme } = useMobileBootstrap();
 
   return (
-    <View
-      pointerEvents="box-none"
-      style={{
-        position: 'absolute',
-        top,
-        left: 20,
-        right: 20,
-        zIndex: 30
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={{
+        gap: 8,
+        paddingRight: 4
       }}
     >
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 12,
-          borderRadius: 999,
-          borderWidth: 1,
-          borderColor: theme.stroke,
-          backgroundColor: 'rgba(7, 9, 19, 0.86)',
-          paddingLeft: 10,
-          paddingRight: 10,
-          paddingVertical: 8
-        }}
-      >
-        <LaunchToolbarIconButton accessibilityLabel="Back" onPress={onBack} testID="launch-detail-back-button">
-          <BackArrowGlyph color={theme.foreground} />
-        </LaunchToolbarIconButton>
-
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 1 }}>
-          <Text style={{ color: theme.accent, fontSize: 10, fontWeight: '800', letterSpacing: 1.1, textTransform: 'uppercase' }}>
-            <LiveLaunchCountdownPrefix net={net} /> countdown
-          </Text>
-          <Text
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            minimumFontScale={0.82}
-            style={{
-              color: theme.foreground,
-              fontSize: 15,
-              fontWeight: '800',
-              lineHeight: 18,
-              fontVariant: ['tabular-nums']
-            }}
+      {sections.map((section) => {
+        const isActive = activeSectionId === section.id;
+        return (
+          <Pressable
+            key={section.id}
+            onPress={() => onPress(section.id)}
+            style={({ pressed }) => ({
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: isActive ? theme.accent : theme.stroke,
+              backgroundColor: isActive ? 'rgba(34, 211, 238, 0.1)' : 'rgba(255, 255, 255, 0.03)',
+              paddingHorizontal: 14,
+              paddingVertical: 8,
+              opacity: pressed ? 0.88 : 1
+            })}
           >
-            <LiveLaunchCountdownClock net={net} />
-          </Text>
-          <Text numberOfLines={1} style={{ color: theme.muted, fontSize: 10, fontWeight: '700' }}>
-            <LiveLaunchCountdownLabel net={net} />
-          </Text>
-        </View>
-
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          {showArButton ? (
-            <LaunchToolbarIconButton
-              accessibilityLabel={arButtonActive ? 'Open AR trajectory' : 'AR trajectory'}
-              onPress={() => {
-                onOpenArTrajectory?.();
+            <Text
+              style={{
+                color: isActive ? theme.accent : theme.muted,
+                fontSize: 13,
+                fontWeight: '700'
               }}
-              active={arButtonActive}
-              disabled={arButtonDisabled}
             >
-              <ArToolbarGlyph color={arButtonActive ? theme.accent : theme.foreground} />
-            </LaunchToolbarIconButton>
-          ) : null}
-          <LaunchToolbarIconButton accessibilityLabel="Add to calendar" onPress={onOpenCalendar}>
-            <CalendarPlusGlyph color={theme.foreground} />
-          </LaunchToolbarIconButton>
-          <LaunchShareIconButton
-            onPress={onShare}
-            size={38}
-            iconColor={theme.foreground}
-            borderColor={theme.stroke}
-            backgroundColor="rgba(255, 255, 255, 0.03)"
-            pressedBackgroundColor="rgba(255, 255, 255, 0.08)"
-          />
-        </View>
-      </View>
-    </View>
+              {section.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </ScrollView>
   );
 }
 
-function LaunchToolbarIconButton({
-  accessibilityLabel,
+function HeaderActionButton({
+  label,
   onPress,
-  children,
-  active = false,
-  disabled = false,
-  testID
+  active = false
 }: {
-  accessibilityLabel: string;
+  label: string;
   onPress: () => void;
-  children: ReactNode;
   active?: boolean;
-  disabled?: boolean;
-  testID?: string;
 }) {
   const { theme } = useMobileBootstrap();
 
   return (
     <Pressable
-      testID={testID}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
-      disabled={disabled}
       onPress={onPress}
+      hitSlop={8}
       style={({ pressed }) => ({
-        width: 38,
-        height: 38,
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderRadius: 999,
-        borderWidth: 1,
-        borderColor: active ? `${theme.accent}66` : theme.stroke,
-        backgroundColor: active ? 'rgba(34, 211, 238, 0.12)' : 'rgba(255, 255, 255, 0.03)',
-        opacity: disabled ? 0.42 : pressed ? 0.86 : 1
+        opacity: pressed ? 0.75 : 1
       })}
     >
-      {children}
+      <Text
+        style={{
+          color: active ? theme.accent : theme.foreground,
+          fontSize: 13,
+          fontWeight: '700'
+        }}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }
 
-function LiveLaunchCountdownPrefix({ net }: { net: string | null }) {
-  const nowMs = useSharedNow();
-  const snapshot = buildCountdownSnapshot(net ?? null, nowMs);
+function LaunchTimeRow({ label, value }: { label: string; value: string }) {
+  const { theme } = useMobileBootstrap();
 
-  if (!snapshot) {
-    return 'NET';
+  return (
+    <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
+      <Text style={{ color: theme.muted, fontSize: 12, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' }}>{label}</Text>
+      <Text style={{ color: theme.foreground, fontSize: 13, fontWeight: '700', flexShrink: 1, textAlign: 'right' }}>{value}</Text>
+    </View>
+  );
+}
+
+function formatUtcTimestamp(value: string | null | undefined) {
+  if (!value) {
+    return 'TBD';
   }
 
-  return snapshot.isPast ? 'T+' : 'T-';
-}
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
 
-function BackArrowGlyph({ color }: { color: string }) {
-  return (
-    <View style={{ width: 16, height: 16, alignItems: 'center', justifyContent: 'center' }}>
-      <View
-        style={{
-          width: 7,
-          height: 7,
-          borderLeftWidth: 1.8,
-          borderBottomWidth: 1.8,
-          borderColor: color,
-          transform: [{ rotate: '45deg' }],
-          marginLeft: 3
-        }}
-      />
-    </View>
-  );
-}
-
-function CalendarPlusGlyph({ color }: { color: string }) {
-  return (
-    <View style={{ width: 18, height: 18 }}>
-      <View
-        style={{
-          position: 'absolute',
-          top: 2,
-          left: 2,
-          right: 2,
-          bottom: 2,
-          borderWidth: 1.6,
-          borderColor: color,
-          borderRadius: 4
-        }}
-      />
-      <View
-        style={{
-          position: 'absolute',
-          top: 2,
-          left: 2,
-          right: 2,
-          height: 4,
-          borderTopLeftRadius: 4,
-          borderTopRightRadius: 4,
-          backgroundColor: color
-        }}
-      />
-      <View
-        style={{
-          position: 'absolute',
-          top: 0.5,
-          left: 5,
-          width: 1.8,
-          height: 4,
-          borderRadius: 999,
-          backgroundColor: color
-        }}
-      />
-      <View
-        style={{
-          position: 'absolute',
-          top: 0.5,
-          right: 5,
-          width: 1.8,
-          height: 4,
-          borderRadius: 999,
-          backgroundColor: color
-        }}
-      />
-      <View
-        style={{
-          position: 'absolute',
-          right: -1,
-          top: -1,
-          width: 8,
-          height: 8,
-          borderRadius: 999,
-          backgroundColor: 'rgba(34, 211, 238, 0.18)',
-          alignItems: 'center',
-          justifyContent: 'center'
-        }}
-      >
-        <View style={{ position: 'absolute', width: 4.5, height: 1.4, borderRadius: 999, backgroundColor: color }} />
-        <View style={{ position: 'absolute', width: 1.4, height: 4.5, borderRadius: 999, backgroundColor: color }} />
-      </View>
-    </View>
-  );
-}
-
-function ArToolbarGlyph({ color }: { color: string }) {
-  return (
-    <View style={{ minWidth: 18, alignItems: 'center', justifyContent: 'center' }}>
-      <Text style={{ color, fontSize: 15, lineHeight: 16, fontWeight: '900', letterSpacing: 0.7 }}>AR</Text>
-    </View>
-  );
+  return date.toLocaleString(undefined, {
+    timeZone: 'UTC',
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short'
+  });
 }
 
 function LaunchPlanningDetailBlock({
@@ -3523,55 +3359,6 @@ function ActionButton({
       })}
     >
       <Text style={{ color: variant === 'primary' ? theme.accent : theme.foreground, fontSize: 14, fontWeight: '700' }}>{label}</Text>
-    </Pressable>
-  );
-}
-
-function DetailFollowChip({
-  label,
-  active,
-  detail,
-  disabled = false,
-  onPress
-}: {
-  label: string;
-  active: boolean;
-  detail?: string;
-  disabled?: boolean;
-  onPress: () => void;
-}) {
-  const { theme } = useMobileBootstrap();
-
-  return (
-    <Pressable
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => ({
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-        borderRadius: 999,
-        borderWidth: 1,
-        borderColor: active ? theme.accent : theme.stroke,
-        backgroundColor: active ? 'rgba(34, 211, 238, 0.12)' : 'rgba(255, 255, 255, 0.03)',
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        opacity: disabled ? 0.45 : pressed ? 0.86 : 1
-      })}
-    >
-      <Text style={{ color: active ? theme.accent : theme.foreground, fontSize: 11, fontWeight: '700' }}>{label}</Text>
-      {detail ? (
-        <View
-          style={{
-            borderRadius: 999,
-            backgroundColor: active ? 'rgba(34, 211, 238, 0.18)' : 'rgba(255, 255, 255, 0.08)',
-            paddingHorizontal: 7,
-            paddingVertical: 3
-          }}
-        >
-          <Text style={{ color: active ? theme.accent : theme.foreground, fontSize: 10, fontWeight: '800' }}>{detail}</Text>
-        </View>
-      ) : null}
     </Pressable>
   );
 }

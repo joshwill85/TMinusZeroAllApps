@@ -9,5 +9,6 @@ export * from './types';
 export * from './detailModel';
 export * from './tabLogic';
 export * from './contentOrganization';
+export * from './launchSections';
 export * from './externalResources';
 export * from './videoEmbeds';

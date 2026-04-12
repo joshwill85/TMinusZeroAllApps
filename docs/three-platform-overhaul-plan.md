@@ -83,6 +83,11 @@ Related implementation plans:
 
 ## Current Slice Tracker
 
+- 2026-04-12: Launch detail IA refactor implementation is in progress for `Web`, `iOS`, and `Android`, with `admin/internal impact: no` and `shared API/backend impact: no`.
+  - Source-of-truth plan: `docs/2026-04-12-launch-detail-ia-refactor-plan.md`
+  - Wireframes: `docs/2026-04-12-launch-detail-ia-wireframes.md`
+  - Scope: make mission name the primary title, standardize hero and section semantics, move AR into viewing, collapse vehicle history, keep weak empty states out of the main path, and refit the canonical web and native shells around the shared `Overview / Timeline / Viewing / Vehicle / Coverage / Details` IA.
+  - Guardrails: no breaking `/api/v1` changes, keep canonical routes as the shipping source of truth, preserve platform-native navigation patterns, and keep Live Activities / Android equivalents out of this slice.
 - 2026-04-11: News and info native excellence implementation is in progress for `Web`, `iOS`, and `Android`, with `admin/internal impact: no` and `shared API/backend impact: yes`.
   - Source-of-truth plan: `docs/2026-04-11-news-info-native-excellence-plan.md`
   - Scope: add native `/about` and `/news/[id]` routes, upgrade the mobile info hub into a command deck, ship native About/FAQ/Roadmap/Jellyfish content treatments, and move news discovery plus article detail onto premium native browse/detail surfaces while keeping publisher-body reading on source handoff.
@@ -120,6 +125,7 @@ Related implementation plans:
   - Source-of-truth plan: `docs/2026-04-05-launch-detail-three-surface-implementation-plan.md`
   - Scope: refactor launch detail chrome, move launch notifications into the follow flow, widen reminder options, gate notification controls on native push enablement, clean up entity linking, de-dup mission profile media, and make mission timelines explicitly `T-` or `T+`.
   - Guardrails: no breaking `/api/v1` changes, keep platform-native navigation and permission UX, preserve AR premium gating, and keep feed/detail shared notification behavior aligned where they share components.
+  - Status note: superseded by the 2026-04-12 launch-detail IA refactor plan for current implementation order.
 - 2026-04-04: Anti-ingestion hardening is in progress for `Web`, `iOS`, and `Android`.
   - Source-of-truth plan: `docs/2026-04-04-anti-ingestion-hardening-plan.md`
   - Scope: keep SEO HTML public, issue first-party browser proof for site-driven JSON, add a mobile guest bootstrap token, move server product-data reads onto server-owned Supabase clients, and revoke the highest-value external Supabase integration surfaces.
