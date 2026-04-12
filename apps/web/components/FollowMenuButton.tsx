@@ -103,7 +103,7 @@ export function FollowMenuButton({
       {open && (
         <div className="absolute right-0 z-20 mt-2 w-[min(24rem,calc(100vw-2rem))] rounded-2xl border border-stroke bg-[rgba(10,14,26,0.97)] p-2 shadow-[0_18px_60px_rgba(0,0,0,0.4)] backdrop-blur" data-no-card-nav="true">
           <div className="px-3 py-2">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-text3">Follow and notifications</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-text3">Follow and alerts</div>
             {notificationsContent ? (
               <div className="mt-3 flex rounded-xl border border-stroke bg-white/[0.03] p-1">
                 <TabButton
@@ -112,7 +112,7 @@ export function FollowMenuButton({
                   detail={capacityLabel ?? (activeCount > 0 ? String(activeCount) : undefined)}
                   onClick={() => setView('following')}
                 />
-                <TabButton label="Notifications" active={view === 'notifications'} detail={notificationsActive ? 'On' : undefined} onClick={() => setView('notifications')} />
+                <TabButton label="Alerts" active={view === 'notifications'} detail={notificationsActive ? 'On' : undefined} onClick={() => setView('notifications')} />
               </div>
             ) : null}
           </div>

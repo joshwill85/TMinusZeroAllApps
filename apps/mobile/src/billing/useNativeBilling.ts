@@ -125,39 +125,61 @@ export function useNativeBilling(viewerId: string | null): NativeBillingResult {
     setActionError(null);
 
     try {
-      if (!viewerId) {
-        throw new Error('Sign in before starting or restoring Premium on this device.');
-      }
-
       if (platform === 'ios') {
         const iosPurchase = purchase as PurchaseIOS;
         if (!iosPurchase.transactionId) {
           throw new Error('Missing App Store transaction id.');
         }
-        await client.syncAppleBilling({
-          transactionId: iosPurchase.transactionId,
-          productId: iosPurchase.productId,
-          originalTransactionId: iosPurchase.originalTransactionIdentifierIOS ?? undefined,
-          appAccountToken: viewerId,
-          environment:
-            iosPurchase.environmentIOS?.toLowerCase() === 'sandbox'
-              ? 'sandbox'
-              : iosPurchase.environmentIOS?.toLowerCase() === 'production'
-                ? 'production'
-                : undefined
-        });
+        if (viewerId) {
+          await client.syncAppleBilling({
+            transactionId: iosPurchase.transactionId,
+            productId: iosPurchase.productId,
+            originalTransactionId: iosPurchase.originalTransactionIdentifierIOS ?? undefined,
+            appAccountToken: viewerId,
+            environment:
+              iosPurchase.environmentIOS?.toLowerCase() === 'sandbox'
+                ? 'sandbox'
+                : iosPurchase.environmentIOS?.toLowerCase() === 'production'
+                  ? 'production'
+                  : undefined
+          });
+          setClaim(null);
+        } else {
+          const payload = await client.syncAppleBillingClaim({
+            transactionId: iosPurchase.transactionId,
+            productId: iosPurchase.productId,
+            originalTransactionId: iosPurchase.originalTransactionIdentifierIOS ?? undefined,
+            environment:
+              iosPurchase.environmentIOS?.toLowerCase() === 'sandbox'
+                ? 'sandbox'
+                : iosPurchase.environmentIOS?.toLowerCase() === 'production'
+                  ? 'production'
+                  : undefined
+          });
+          setClaim(payload.claim);
+        }
       } else {
         const androidPurchase = purchase as PurchaseAndroid;
         const purchaseToken = androidPurchase.purchaseToken ?? null;
         if (!purchaseToken) {
           throw new Error('Missing Google Play purchase token.');
         }
-        await client.syncGoogleBilling({
-          purchaseToken,
-          productId: androidPurchase.productId,
-          basePlanId: androidPurchase.currentPlanId ?? undefined,
-          obfuscatedAccountId: viewerId
-        });
+        if (viewerId) {
+          await client.syncGoogleBilling({
+            purchaseToken,
+            productId: androidPurchase.productId,
+            basePlanId: androidPurchase.currentPlanId ?? undefined,
+            obfuscatedAccountId: viewerId
+          });
+          setClaim(null);
+        } else {
+          const payload = await client.syncGoogleBillingClaim({
+            purchaseToken,
+            productId: androidPurchase.productId,
+            basePlanId: androidPurchase.currentPlanId ?? undefined
+          });
+          setClaim(payload.claim);
+        }
       }
 
       await iap.finishTransaction({
@@ -167,7 +189,7 @@ export function useNativeBilling(viewerId: string | null): NativeBillingResult {
 
       syncedPurchaseKeysRef.current.add(purchaseKey);
       await invalidateBillingState();
-      setActionMessage('Premium access updated.');
+      setActionMessage(viewerId ? 'Premium access updated.' : 'Premium purchase verified. Sign in or create an account to claim it on this device.');
     } catch (error) {
       handleBillingError(error, 'Unable to sync purchase.');
       throw error;
@@ -177,12 +199,6 @@ export function useNativeBilling(viewerId: string | null): NativeBillingResult {
   }
 
   async function requestSubscription() {
-    if (!viewerId) {
-      setActionMessage(null);
-      setActionError('Sign in before starting Premium checkout on this device.');
-      return;
-    }
-
     if (!catalogProduct?.available || !productId) {
       setActionError('Premium is not available on this platform yet.');
       return;
@@ -223,12 +239,6 @@ export function useNativeBilling(viewerId: string | null): NativeBillingResult {
   }
 
   async function restorePurchases() {
-    if (!viewerId) {
-      setActionMessage(null);
-      setActionError('Sign in before restoring Premium on this device.');
-      return;
-    }
-
     if (!productId) {
       setActionError('Premium is not configured for this platform.');
       return;
@@ -244,7 +254,7 @@ export function useNativeBilling(viewerId: string | null): NativeBillingResult {
 
       const restoredPurchase = (iap.availablePurchases ?? []).find((purchase) => purchase.productId === productId);
       if (!restoredPurchase) {
-        setActionMessage('No previous Premium purchase was found for this account.');
+        setActionMessage(viewerId ? 'No previous Premium purchase was found for this account.' : 'No previous Premium purchase was found on this store account.');
         setIsProcessingPurchase(false);
         return;
       }

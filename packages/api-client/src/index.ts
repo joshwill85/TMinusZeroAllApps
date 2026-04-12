@@ -110,6 +110,7 @@ import {
   mobileAuthPasswordSignUpSchemaV1,
   mobileAuthRiskDecisionSchemaV1,
   mobileAuthRiskStartSchemaV1,
+  newsArticleDetailSchemaV1,
   newsStreamSchemaV1,
   canonicalContractDetailSchemaV1,
   canonicalContractsResponseSchemaV1,
@@ -230,6 +231,7 @@ import {
   type MobileAuthPasswordSignUpV1,
   type MobileAuthRiskDecisionV1,
   type MobileAuthRiskStartV1,
+  type NewsArticleDetailV1,
   type NewsStreamV1,
   type CanonicalContractsResponseV1,
   type CanonicalContractDetailV1,
@@ -835,6 +837,10 @@ export class ApiClient {
       }),
       newsStreamSchemaV1
     );
+  }
+
+  async getNewsArticleDetail(id: string) {
+    return this.request(`/api/v1/news/${encodeURIComponent(id)}`, newsArticleDetailSchemaV1);
   }
 
   async getCanonicalContracts(options: CanonicalContractsRequest = {}) {
@@ -1459,6 +1465,7 @@ export type {
   MobileAuthPasswordSignUpV1,
   MobileAuthRiskDecisionV1,
   MobileAuthRiskStartV1,
+  NewsArticleDetailV1,
   NewsStreamV1,
   CanonicalContractsResponseV1,
   CanonicalContractDetailV1,

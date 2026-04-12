@@ -33,12 +33,7 @@ export default function SignInPage({
           return_to: returnTo,
           ...(authIntent ? { intent: authIntent } : {})
         }).toString()}`
-      : authIntent === 'upgrade'
-        ? `/auth/sign-up?${new URLSearchParams({
-            return_to: returnTo,
-            intent: authIntent
-          }).toString()}`
-        : null;
+      : null;
 
   return (
     <div className="space-y-4">
@@ -47,7 +42,7 @@ export default function SignInPage({
         <h1 className="text-3xl font-semibold text-text1">Sign in</h1>
         <p className="text-sm text-text2">
           {authIntent === 'upgrade'
-            ? 'Sign in to an existing account or continue into Premium onboarding. Billing starts only after legal acceptance and checkout.'
+            ? 'Sign in to an existing account to upgrade, or return to Premium checkout if you need a new account.'
             : 'Access your account for ownership, recovery, billing, and Premium attach flows.'}
         </p>
       </div>
@@ -56,9 +51,9 @@ export default function SignInPage({
       </Suspense>
       {signUpHref ? (
         <p className="text-sm text-text3">
-          {claimToken ? 'Need an account for this Premium purchase?' : 'Need a new account for Premium?'}{' '}
+          Need an account for this Premium purchase?{' '}
           <Link href={signUpHref} className="text-primary">
-            {claimToken ? 'Create one to claim Premium' : 'Create one to continue'}
+            Create one to claim Premium
           </Link>
         </p>
       ) : null}

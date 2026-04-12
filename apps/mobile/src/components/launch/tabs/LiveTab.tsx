@@ -605,6 +605,7 @@ function WeatherCard({
         </View>
       ) : null}
       {card.detail ? <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>{card.detail}</Text> : null}
+      {card.planningDetail ? <PlanningDetailCard detail={card.planningDetail} cardId={card.id} theme={theme} /> : null}
       {card.actionUrl && card.actionLabel ? (
         <Pressable
           onPress={() => {
@@ -614,6 +615,114 @@ function WeatherCard({
           <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700' }}>{card.actionLabel}</Text>
         </Pressable>
       ) : null}
+    </View>
+  );
+}
+
+function PlanningDetailCard({
+  detail,
+  cardId,
+  theme
+}: {
+  detail: NonNullable<NonNullable<LiveTabData['weatherDetail']>['cards'][number]['planningDetail']>;
+  cardId: string;
+  theme: MobileTheme;
+}) {
+  if (detail.kind === 'planning_24h') {
+    return (
+      <View style={{ gap: 10 }}>
+        {detail.periods.map((period) => (
+          <View
+            key={`${cardId}:${period.label}`}
+            style={{
+              gap: 6,
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: theme.stroke,
+              backgroundColor: 'rgba(255, 255, 255, 0.02)',
+              padding: 12
+            }}
+          >
+            <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' }}>
+              {[period.dayLabel, period.label].filter(Boolean).join(' • ')}
+            </Text>
+            {period.skyCondition ? <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>{period.skyCondition}</Text> : null}
+            <MetricRow label="Precip" value={formatPlanningPercent(period.precipitationProbabilityPct)} theme={theme} />
+            <MetricRow label="Lightning" value={formatPlanningPercent(period.lightningProbabilityPct)} theme={theme} />
+            <MetricRow label="Wind" value={period.wind || 'TBD'} theme={theme} />
+            <MetricRow
+              label="Temp"
+              value={formatPlanningTemp(period.temperatureMinF, period.temperatureMaxF, period.temperatureLabel)}
+              theme={theme}
+            />
+          </View>
+        ))}
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ gap: 10 }}>
+      {detail.days.map((day) => (
+        <View
+          key={`${cardId}:${day.dateLabel}`}
+          style={{
+            gap: 8,
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: theme.stroke,
+            backgroundColor: 'rgba(255, 255, 255, 0.02)',
+            padding: 12
+          }}
+        >
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' }}>
+                {day.dayLabel || 'Forecast day'}
+              </Text>
+              <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>{day.dateLabel}</Text>
+            </View>
+            <Text style={{ color: theme.muted, fontSize: 12 }}>{formatPlanningTemps(day.minTempF, day.maxTempF)}</Text>
+          </View>
+          <PlanningDayPart label="AM" sky={day.am.skyCondition} precip={day.am.precipitationProbabilityPct} lightning={day.am.lightningProbabilityPct} wind={day.am.wind} theme={theme} />
+          <PlanningDayPart label="PM" sky={day.pm.skyCondition} precip={day.pm.precipitationProbabilityPct} lightning={day.pm.lightningProbabilityPct} wind={day.pm.wind} theme={theme} />
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function PlanningDayPart({
+  label,
+  sky,
+  precip,
+  lightning,
+  wind,
+  theme
+}: {
+  label: string;
+  sky: string | null | undefined;
+  precip: number | null | undefined;
+  lightning: number | null | undefined;
+  wind: string | null | undefined;
+  theme: MobileTheme;
+}) {
+  return (
+    <View
+      style={{
+        gap: 6,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: theme.stroke,
+        backgroundColor: 'rgba(255, 255, 255, 0.02)',
+        padding: 10
+      }}
+    >
+      <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' }}>{label}</Text>
+      {sky ? <Text style={{ color: theme.foreground, fontSize: 13, fontWeight: '700' }}>{sky}</Text> : null}
+      <MetricRow label="Precip" value={formatPlanningPercent(precip)} theme={theme} />
+      <MetricRow label="Lightning" value={formatPlanningPercent(lightning)} theme={theme} />
+      <MetricRow label="Wind" value={wind || 'TBD'} theme={theme} />
     </View>
   );
 }
@@ -804,4 +913,20 @@ function buildFaaPreview(rawText: string | null | undefined) {
   const normalized = rawText.replace(/\s+/g, ' ').trim();
   if (!normalized) return null;
   return normalized.length > 220 ? `${normalized.slice(0, 217)}...` : normalized;
+}
+
+function formatPlanningPercent(value: number | null | undefined) {
+  return value == null ? 'TBD' : `${Math.round(value)}%`;
+}
+
+function formatPlanningTemp(min: number | null | undefined, max: number | null | undefined, label: string | null | undefined) {
+  if (min != null && max != null) return `${min}-${max}F`;
+  return label || 'TBD';
+}
+
+function formatPlanningTemps(min: number | null | undefined, max: number | null | undefined) {
+  if (min != null && max != null) return `${min}-${max}F`;
+  if (min != null) return `Low ${min}F`;
+  if (max != null) return `High ${max}F`;
+  return 'Temps TBD';
 }

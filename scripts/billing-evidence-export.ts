@@ -202,7 +202,7 @@ function buildEntitlementSnapshot({
       canManageFollows: tier === 'premium',
       canUseBasicAlertRules: true,
       canUseAdvancedAlertRules: tier === 'premium',
-      canUseBrowserLaunchAlerts: true,
+      canUseBrowserLaunchAlerts: false,
       canUseSingleLaunchFollow: true,
       canUseAllUsLaunchAlerts: true,
       canUseStateLaunchAlerts: tier === 'premium',
@@ -211,7 +211,7 @@ function buildEntitlementSnapshot({
       canUseEmbedWidgets: tier === 'premium',
       canUseArTrajectory: tier === 'premium',
       canUseEnhancedForecastInsights: tier === 'premium',
-      canUseLaunchDayEmail: tier === 'premium'
+      canUseLaunchDayEmail: false
     },
     limits: {
       presetLimit: tier === 'premium' ? 50 : 0,

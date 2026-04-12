@@ -4,8 +4,9 @@ import Link from 'next/link';
 import { useMemo, useState, type ReactNode } from 'react';
 import clsx from 'clsx';
 import type { FilterPresetV1, WatchlistRuleV1, WatchlistV1 } from '@tminuszero/api-client';
-import { getTierLimits, type ViewerTier } from '@tminuszero/domain';
+import { getTierLimits, isRecoveryOnlyViewer, type ViewerTier } from '@tminuszero/domain';
 import { buildAuthHref, buildProfileHref } from '@tminuszero/navigation';
+import { AccountRecoveryOnlyNotice } from '@/components/AccountRecoveryOnlyNotice';
 import {
   useAlertRulesQuery,
   useCreateAlertRuleMutation,
@@ -50,6 +51,10 @@ export default function AccountSavedPage() {
   const entitlementsLoading = status === 'authed' && entitlementsQuery.isPending && !entitlementsQuery.data;
 
   const viewerTier = resolveViewerTier(entitlementsQuery.data?.tier);
+  const isRecoveryOnly = isRecoveryOnlyViewer({
+    isAuthed: status === 'authed',
+    tier: viewerTier
+  });
   const savedItemLimits = entitlementsQuery.data?.limits ?? getTierLimits(viewerTier);
   const canUseSavedItems = entitlementsQuery.data?.capabilities.canUseSavedItems ?? false;
   const canUseAdvancedAlertRules = entitlementsQuery.data?.capabilities.canUseAdvancedAlertRules ?? false;
@@ -320,7 +325,14 @@ export default function AccountSavedPage() {
         </p>
       )}
 
-      {status === 'authed' && !entitlementsLoading && (
+      {status === 'authed' && !entitlementsLoading && isRecoveryOnly && (
+        <AccountRecoveryOnlyNotice
+          title="Saved items return when Premium is active"
+          description="This signed-in account is limited to membership recovery, privacy, support, and sign-out while it is on free access."
+        />
+      )}
+
+      {status === 'authed' && !entitlementsLoading && !isRecoveryOnly && (
         <div className="mt-4 rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
           <div className="text-xs uppercase tracking-[0.1em] text-text3">{viewerTier === 'premium' ? 'Enabled' : 'Public'}</div>
           <div className="mt-1 text-base font-semibold text-text1">
@@ -339,13 +351,13 @@ export default function AccountSavedPage() {
         </div>
       )}
 
-      {status === 'authed' && !entitlementsLoading && !canUseSavedItems && (
+      {status === 'authed' && !entitlementsLoading && !isRecoveryOnly && !canUseSavedItems && (
         <div className="mt-6 rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
           Saved items are unavailable on the public tier. Upgrade to Premium to manage saved/default filters, follows, and starred launches across your account.
         </div>
       )}
 
-      {status === 'authed' && !entitlementsLoading && canUseSavedItems && (
+      {status === 'authed' && !entitlementsLoading && !isRecoveryOnly && canUseSavedItems && (
         <>
           <Section
             title="Presets"

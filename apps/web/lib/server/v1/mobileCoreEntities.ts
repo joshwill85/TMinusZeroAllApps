@@ -9,6 +9,7 @@ import { isSupabaseConfigured } from '@/lib/server/env';
 import { fetchNewsStreamPage } from '@/lib/server/newsStream';
 import { fetchProviderBySlug, type ProviderSummary } from '@/lib/server/providers';
 import { mapPublicCacheRow } from '@/lib/server/transformers';
+import { buildNewsDetailHref } from '@/lib/server/v1/mobileNews';
 import { loadCatalogDetailPayload } from '@/lib/server/v1/mobileReference';
 import type { Launch } from '@/lib/types/launch';
 import { normalizeImageUrl } from '@/lib/utils/imageUrl';
@@ -238,8 +239,8 @@ function buildNewsPreviewItems(result: Awaited<ReturnType<typeof fetchNewsStream
     title: item.title,
     subtitle: [item.news_site || null, item.launch?.primary?.name || null].filter(Boolean).join(' • ') || null,
     publishedAt: item.published_at || null,
-    href: item.url,
-    external: true
+    href: buildNewsDetailHref(item.snapi_uid),
+    external: false
   }));
 }
 

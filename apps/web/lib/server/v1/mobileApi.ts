@@ -67,6 +67,7 @@ import { loadLaunchRefreshStateSeed } from '@/lib/server/launchRefreshState';
 import { buildStatusFilterOrClause, parseLaunchStatusFilter } from '@/lib/server/launchStatus';
 import { fetchLaunchDetailEnrichment } from '@/lib/server/launchDetailEnrichment';
 import { loadMobileHubRollout } from '@/lib/server/mobileHubRollout';
+import { buildNewsDetailHref } from '@/lib/server/v1/mobileNews';
 import {
   buildWs45OperationalWeather,
   fetchWs45LiveWeatherSnapshotForLaunch,
@@ -977,6 +978,7 @@ async function loadRelatedNewsItems(launchId: string) {
     id: string;
     title: string;
     url: string;
+    detailHref: string;
     newsSite: string | null;
     summary: string | null;
     imageUrl: string | null;
@@ -1006,6 +1008,7 @@ async function loadRelatedNewsItems(launchId: string) {
     id: String(row.snapi_uid || ''),
     title: String(row.title || 'Untitled article'),
     url: String(row.url || ''),
+    detailHref: buildNewsDetailHref(String(row.snapi_uid || '')),
     newsSite: normalizeText(row.news_site),
     summary: normalizeText(row.summary),
     imageUrl: normalizeText(row.image_url),
@@ -1117,6 +1120,7 @@ function buildWeatherModule(
     detail: string | null;
     badges: string[];
     metrics: Array<{ label: string; value: string }>;
+    planningDetail?: Ws45PlanningForecast['structured_payload'] | null;
     actionLabel: string | null;
     actionUrl: string | null;
   }> = [];
@@ -1194,6 +1198,7 @@ function buildWeatherModule(
       detail: planning24h.summary || null,
       badges,
       metrics: [],
+      planningDetail: planning24h.structured_payload ?? null,
       actionLabel: normalizeUrlString(planning24h.pdf_url) ? 'View PDF' : null,
       actionUrl: normalizeUrlString(planning24h.pdf_url)
     });
@@ -1218,6 +1223,7 @@ function buildWeatherModule(
       detail: weeklyPlanning.summary || null,
       badges,
       metrics: [],
+      planningDetail: weeklyPlanning.structured_payload ?? null,
       actionLabel: normalizeUrlString(weeklyPlanning.pdf_url) ? 'View PDF' : null,
       actionUrl: normalizeUrlString(weeklyPlanning.pdf_url)
     });
@@ -3331,7 +3337,7 @@ async function loadRelatedLaunchResults(launchId: string) {
     title: String(row.title || 'Untitled article'),
     subtitle: normalizeText(row.news_site),
     summary: normalizeText(row.summary),
-    href: String(row.url || '/news'),
+    href: buildNewsDetailHref(String(row.snapi_uid || '')),
     imageUrl: normalizeText(row.image_url),
     badge: 'News',
     publishedAt: normalizeText(row.published_at)
@@ -3542,7 +3548,7 @@ type LaunchDetailRecord = ReturnType<typeof mapPublicCacheRow>;
 
 async function buildLaunchDetailPublicCore(
   launch: LaunchDetailRecord,
-  options: { viewerIsAdmin: boolean }
+  options: { viewerIsAdmin: boolean; includeEnhancedForecast: boolean }
 ): Promise<LaunchDetailPublicCore> {
   const netMs = Date.parse(launch.net);
   const nowMs = Date.now();
@@ -3555,6 +3561,7 @@ async function buildLaunchDetailPublicCore(
     netMs <= nowMs + 14 * 24 * 60 * 60 * 1000;
   const ws45LaunchContext = buildWs45LaunchContext(launch);
   const blueOriginMissionKey = isBlueOriginProgramLaunch(launch) ? getBlueOriginMissionKeyFromLaunch(launch) || 'all' : null;
+  const includeEnhancedForecast = options.includeEnhancedForecast;
 
   const [
     related,
@@ -3586,9 +3593,16 @@ async function buildLaunchDetailPublicCore(
     loadArTrajectorySummary(launch.id),
     loadRelatedNewsItems(launch.id),
     loadRelatedEventItems(launch.id),
-    fetchWs45Forecast(launch.id, isEasternRange),
-    fetchWs45LiveWeatherSnapshotForLaunch(ws45LaunchContext, isEasternRange),
-    fetchWs45PlanningForecastsForLaunch(ws45LaunchContext, isEasternRange),
+    includeEnhancedForecast ? fetchWs45Forecast(launch.id, isEasternRange) : Promise.resolve(null),
+    includeEnhancedForecast
+      ? fetchWs45LiveWeatherSnapshotForLaunch(ws45LaunchContext, isEasternRange)
+      : Promise.resolve(null),
+    includeEnhancedForecast
+      ? fetchWs45PlanningForecastsForLaunch(ws45LaunchContext, isEasternRange)
+      : Promise.resolve({
+          planning24h: null as Ws45PlanningForecast | null,
+          weekly: null as Ws45PlanningForecast | null
+        }),
     fetchNwsForecast(launch.id, isUsPad, within14Days),
     fetchPayloadManifest(launch.ll2Id),
     fetchLaunchObjectInventory(launch.ll2Id),
@@ -3703,13 +3717,43 @@ async function buildLaunchDetailPublicCore(
   });
 }
 
+function filterLaunchDetailWeatherForEntitlements(
+  weather: LaunchDetailPublicCore['weather'],
+  entitlements: ReturnType<typeof buildViewerEntitlementEnvelope>
+) {
+  if (!weather) {
+    return undefined;
+  }
+
+  if (entitlements.capabilities.canUseEnhancedForecastInsights) {
+    return weather;
+  }
+
+  const nextWeather = {
+    ...weather,
+    operational: null,
+    cards: weather.cards.filter((card) => card.source === 'nws')
+  };
+
+  if (!nextWeather.cards.length && nextWeather.concerns.length === 0) {
+    return undefined;
+  }
+
+  return nextWeather;
+}
+
 function buildLaunchDetailPayloadFromCore(
   core: LaunchDetailPublicCore,
   entitlements: ReturnType<typeof buildViewerEntitlementEnvelope>,
   options: { hasJepScore?: boolean } = {}
 ) {
+  const { weather: _weather, launchUpdates: _launchUpdates, ...coreWithoutGatedModules } = core;
+  const weather = filterLaunchDetailWeatherForEntitlements(core.weather, entitlements);
+
   return launchDetailSchemaV1.parse({
-    ...core,
+    ...coreWithoutGatedModules,
+    ...(weather ? { weather } : {}),
+    launchUpdates: entitlements.capabilities.canUseChangeLog ? core.launchUpdates : [],
     entitlements,
     enrichment:
       typeof options.hasJepScore === 'boolean'
@@ -3744,9 +3788,12 @@ const loadCachedPublicLaunchDetailCore = unstable_cache(
       return null;
     }
 
-    return buildLaunchDetailPublicCore(mapPublicCacheRow(data), { viewerIsAdmin: false });
+    return buildLaunchDetailPublicCore(mapPublicCacheRow(data), {
+      viewerIsAdmin: false,
+      includeEnhancedForecast: false
+    });
   },
-  ['public-launch-detail-core-v1'],
+  ['public-launch-detail-core-v2'],
   { revalidate: PUBLIC_LAUNCH_DETAIL_CACHE_REVALIDATE_SECONDS }
 );
 
@@ -3800,7 +3847,10 @@ export async function loadLaunchDetailPayload(id: string, session: ResolvedViewe
   }
 
   const launch = mapLiveLaunchRow(data);
-  const core = await buildLaunchDetailPublicCore(launch, { viewerIsAdmin: session.role === 'admin' });
+  const core = await buildLaunchDetailPublicCore(launch, {
+    viewerIsAdmin: session.role === 'admin',
+    includeEnhancedForecast: entitlements.capabilities.canUseEnhancedForecastInsights
+  });
   return buildLaunchDetailPayloadFromCore(core, entitlements);
 }
 
@@ -3855,7 +3905,10 @@ export async function searchPayload(request: Request) {
     title: String(row.title || ''),
     subtitle: normalizeText(row.subtitle),
     summary: normalizeText(row.summary),
-    href: String(row.url || '/search'),
+    href:
+      String(row.type || 'page') === 'news' && String(row.id || '').trim()
+        ? buildNewsDetailHref(String(row.id || ''))
+        : String(row.url || '/search'),
     imageUrl: normalizeText(row.image_url),
     badge: normalizeText(row.badge),
     publishedAt: normalizeText(row.published_at)

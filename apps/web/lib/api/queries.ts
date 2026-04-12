@@ -74,7 +74,13 @@ import {
   viewerSessionQueryOptions,
   watchlistsQueryOptions
 } from '@tminuszero/query';
-import { applyAdminAccessOverrideToEntitlements } from '@tminuszero/domain';
+import {
+  applyAdminAccessOverrideToEntitlements,
+  getTierCapabilities,
+  getTierLimits,
+  getTierRefreshSeconds,
+  tierToMode
+} from '@tminuszero/domain';
 import { browserApiClient } from '@/lib/api/client';
 import {
   cancelBillingSubscription,
@@ -186,40 +192,12 @@ export const guestViewerEntitlements: EntitlementsV1 = {
   billingIsPaid: false,
   isAdmin: false,
   isAuthed: false,
-  mode: 'public',
+  mode: tierToMode('anon'),
   effectiveTierSource: 'guest',
   adminAccessOverride: null,
-  refreshIntervalSeconds: 7200,
-  capabilities: {
-    canUseSavedItems: false,
-    canUseLaunchFilters: true,
-    canUseLaunchCalendar: true,
-    canUseOneOffCalendar: true,
-    canUseLiveFeed: false,
-    canUseChangeLog: false,
-    canUseInstantAlerts: false,
-    canManageFilterPresets: false,
-    canManageFollows: false,
-    canUseBasicAlertRules: true,
-    canUseAdvancedAlertRules: false,
-    canUseBrowserLaunchAlerts: false,
-    canUseSingleLaunchFollow: true,
-    canUseAllUsLaunchAlerts: true,
-    canUseStateLaunchAlerts: false,
-    canUseRecurringCalendarFeeds: false,
-    canUseRssFeeds: false,
-    canUseEmbedWidgets: false,
-    canUseArTrajectory: false,
-    canUseEnhancedForecastInsights: false,
-    canUseLaunchDayEmail: false
-  },
-  limits: {
-    presetLimit: 0,
-    filterPresetLimit: 0,
-    watchlistLimit: 0,
-    watchlistRuleLimit: 0,
-    singleLaunchFollowLimit: 1
-  },
+  refreshIntervalSeconds: getTierRefreshSeconds('anon'),
+  capabilities: getTierCapabilities('anon'),
+  limits: getTierLimits('anon'),
   cancelAtPeriodEnd: false,
   currentPeriodEnd: null,
   stripePriceId: null,

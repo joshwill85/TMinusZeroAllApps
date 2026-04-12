@@ -231,6 +231,9 @@ export function normalizeNativeMobileCustomerHref(value: string | null | undefin
     const contractUid = readSingleSegment(pathname, '/contracts/');
     if (contractUid) return `/contracts/${contractUid}${suffix}`;
 
+    const newsArticleId = readSingleSegment(pathname, '/news/');
+    if (newsArticleId) return `/news/${newsArticleId}${suffix}`;
+
     const satelliteNorad = readSingleSegment(pathname, '/satellites/');
     if (satelliteNorad) return `/satellites/${satelliteNorad}${suffix}`;
 

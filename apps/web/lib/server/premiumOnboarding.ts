@@ -1,7 +1,6 @@
-import { assertPasswordPolicy, getPremiumLegalVersions } from '@tminuszero/domain';
+import { getPremiumLegalVersions } from '@tminuszero/domain';
 import {
   premiumLegalStatusSchemaV1,
-  premiumOnboardingEmailAccountCreateResponseSchemaV1,
   premiumOnboardingIntentResponseSchemaV1,
   premiumOnboardingProviderPreflightResponseSchemaV1,
   premiumOnboardingLegalAcceptanceResponseSchemaV1,
@@ -10,12 +9,13 @@ import {
   type PremiumLegalFlowV1
 } from '@tminuszero/contracts';
 import { sanitizeReturnToPath } from '@/lib/billing/shared';
+import { readPremiumClaimProviderCreateReservation } from '@/lib/server/premiumClaimProviderCreate';
 import { isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
-import { createSupabaseAdminClient, createSupabaseAuthClient } from '@/lib/server/supabaseServer';
+import { createSupabaseAdminClient } from '@/lib/server/supabaseServer';
 import type { ResolvedViewerSession } from '@/lib/server/viewerSession';
 
 const PREMIUM_ONBOARDING_INTENT_TTL_MS = 24 * 60 * 60 * 1000;
-const PREMIUM_ONBOARDING_ALLOW_CREATE_TTL_MS = 10 * 60 * 1000;
+const PREMIUM_PROVIDER_ALLOW_CREATE_TTL_MS = 15 * 60 * 1000;
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
@@ -27,6 +27,14 @@ type PremiumOnboardingIntentRow = {
   created_at: string;
   updated_at: string;
   expires_at: string;
+};
+
+type PremiumClaimProviderCreateRow = {
+  id: string;
+  status: 'pending' | 'verified' | 'claimed';
+  user_id: string | null;
+  email: string | null;
+  metadata: Record<string, unknown> | null;
 };
 
 export class PremiumOnboardingRouteError extends Error {
@@ -233,61 +241,105 @@ async function findExistingProfileByEmail(admin: AdminClient, email: string) {
   return data?.user_id ? String(data.user_id) : null;
 }
 
-async function authorizePremiumOnboardingProviderCreate(admin: AdminClient, input: {
-  intentId: string;
-  provider: PremiumOnboardingProviderV1;
-  email: string;
-}) {
-  const intent = await loadPremiumOnboardingIntent(admin, input.intentId);
-  if (!intent) {
-    throw new PremiumOnboardingRouteError(404, 'onboarding_intent_not_found');
-  }
-  if (Date.parse(intent.expires_at) <= Date.now()) {
-    throw new PremiumOnboardingRouteError(409, 'onboarding_intent_expired');
+async function loadClaimForProviderCreate(admin: AdminClient, claimToken: string) {
+  const { data, error } = await admin
+    .from('premium_claims')
+    .select('id, status, user_id, email, metadata')
+    .eq('claim_token', claimToken)
+    .maybeSingle();
+
+  if (error) {
+    console.error('premium onboarding claim lookup error', error);
+    throw new PremiumOnboardingRouteError(500, 'failed_to_check_account_state');
   }
 
+  return (data as PremiumClaimProviderCreateRow | null) ?? null;
+}
+
+async function authorizeClaimBackedProviderCreate(
+  admin: AdminClient,
+  {
+    intentId,
+    claimToken,
+    provider,
+    normalizedEmail
+  }: {
+    intentId?: string | null;
+    claimToken?: string | null;
+    provider: PremiumOnboardingProviderV1;
+    normalizedEmail: string;
+  }
+) {
+  const normalizedClaimToken = String(claimToken || '').trim();
+  if (!normalizedClaimToken) {
+    return null;
+  }
+
+  const claim = await loadClaimForProviderCreate(admin, normalizedClaimToken);
+  if (!claim) {
+    throw new PremiumOnboardingRouteError(404, 'claim_not_found', 'This Premium purchase could not be found.');
+  }
+  if (claim.status === 'pending') {
+    throw new PremiumOnboardingRouteError(409, 'claim_pending', 'This Premium purchase is still being verified.');
+  }
+  if (claim.user_id || claim.status === 'claimed') {
+    throw new PremiumOnboardingRouteError(
+      409,
+      'claim_already_claimed',
+      'This Premium purchase is already linked to an account. Sign in to manage it.'
+    );
+  }
+
+  const claimEmail = normalizeEmail(claim.email || '');
+  if (claimEmail && claimEmail !== normalizedEmail) {
+    throw new PremiumOnboardingRouteError(
+      409,
+      'claim_email_mismatch',
+      'Use the same email address attached to this Premium purchase.'
+    );
+  }
+
+  const reservation = readPremiumClaimProviderCreateReservation(claim.metadata);
+  if (reservation && (reservation.provider !== provider || reservation.email !== normalizedEmail)) {
+    throw new PremiumOnboardingRouteError(
+      409,
+      'claim_sign_in_required',
+      'This Premium purchase already started account creation. Sign in with that account to finish claiming Premium.'
+    );
+  }
+
+  const expiresAt = addDurationIso(PREMIUM_PROVIDER_ALLOW_CREATE_TTL_MS);
   const currentTimestamp = nowIso();
-  const allowCreateExpiresAt = addDurationIso(PREMIUM_ONBOARDING_ALLOW_CREATE_TTL_MS);
-  const normalizedEmail = normalizeEmail(input.email);
-  const { error } = await admin.from('premium_onboarding_allow_creates').upsert(
+  const normalizedIntentId = String(intentId || '').trim() || null;
+
+  const { error: deleteError } = await admin.from('premium_onboarding_allow_creates').delete().eq('claim_id', claim.id);
+  if (deleteError) {
+    console.error('premium onboarding allow-create cleanup error', deleteError);
+    throw new PremiumOnboardingRouteError(500, 'failed_to_prepare_provider_create');
+  }
+
+  const { error: upsertError } = await admin.from('premium_onboarding_allow_creates').upsert(
     {
-      onboarding_intent_id: intent.id,
-      provider: input.provider,
+      onboarding_intent_id: normalizedIntentId,
+      claim_id: claim.id,
+      provider,
       email: normalizedEmail,
       email_normalized: normalizedEmail,
-      expires_at: allowCreateExpiresAt,
       used_at: null,
+      expires_at: expiresAt,
       updated_at: currentTimestamp
     },
     {
-      onConflict: 'provider,email_normalized',
-      ignoreDuplicates: false
+      onConflict: 'provider,email_normalized'
     }
   );
 
-  if (error) {
-    console.error('premium onboarding allow-create upsert error', error);
-    throw new PremiumOnboardingRouteError(500, 'failed_to_authorize_provider_create');
+  if (upsertError) {
+    console.error('premium onboarding allow-create upsert error', upsertError);
+    throw new PremiumOnboardingRouteError(500, 'failed_to_prepare_provider_create');
   }
 
-  return allowCreateExpiresAt;
-}
-
-async function upsertProfileRow(userId: string, email: string) {
-  const admin = getAdminClient();
-  const { error } = await admin.from('profiles').upsert(
-    {
-      user_id: userId,
-      email,
-      updated_at: nowIso()
-    },
-    { onConflict: 'user_id' }
-  );
-
-  if (error) {
-    console.error('premium onboarding profile upsert error', error);
-    throw new PremiumOnboardingRouteError(500, 'failed_to_upsert_profile');
-  }
+  return expiresAt;
 }
 
 export async function createOrResumePremiumOnboardingIntent(
@@ -320,10 +372,12 @@ export async function createOrResumePremiumOnboardingIntent(
 
 export async function preflightPremiumOnboardingProvider({
   intentId,
+  claimToken,
   provider,
   email
 }: {
   intentId?: string | null;
+  claimToken?: string | null;
   provider: PremiumOnboardingProviderV1;
   email: string;
 }) {
@@ -343,105 +397,37 @@ export async function preflightPremiumOnboardingProvider({
     });
   }
 
-  const normalizedIntentId = String(intentId || '').trim();
-  if (!normalizedIntentId) {
-    return premiumOnboardingProviderPreflightResponseSchemaV1.parse({
-      provider,
-      email: normalizedEmail,
-      mode,
-      createAllowed: false,
-      onboardingRequired: true,
-      allowCreateExpiresAt: null
-    });
-  }
-
-  const allowCreateExpiresAt = await authorizePremiumOnboardingProviderCreate(admin, {
-    intentId: normalizedIntentId,
+  const allowCreateExpiresAt = await authorizeClaimBackedProviderCreate(admin, {
+    intentId,
+    claimToken,
     provider,
-    email: normalizedEmail
+    normalizedEmail
   });
 
   return premiumOnboardingProviderPreflightResponseSchemaV1.parse({
     provider,
     email: normalizedEmail,
     mode,
-    createAllowed: true,
-    onboardingRequired: false,
-    allowCreateExpiresAt
+    createAllowed: Boolean(allowCreateExpiresAt),
+    onboardingRequired: !allowCreateExpiresAt,
+    allowCreateExpiresAt: allowCreateExpiresAt ?? null
   });
 }
 
 export async function createPremiumOnboardingEmailAccount({
-  intentId,
-  email,
-  password
+  intentId: _intentId,
+  email: _email,
+  password: _password
 }: {
   intentId: string;
   email: string;
   password: string;
 }) {
-  const admin = getAdminClient();
-  const intent = await loadPremiumOnboardingIntent(admin, intentId);
-  if (!intent) {
-    throw new PremiumOnboardingRouteError(404, 'onboarding_intent_not_found');
-  }
-  if (Date.parse(intent.expires_at) <= Date.now()) {
-    throw new PremiumOnboardingRouteError(409, 'onboarding_intent_expired');
-  }
-
-  const normalizedEmail = normalizeEmail(email);
-  if (!normalizedEmail) {
-    throw new PremiumOnboardingRouteError(400, 'invalid_email');
-  }
-
-  assertPasswordPolicy(password);
-
-  const { data: createdUserData, error: createUserError } = await admin.auth.admin.createUser({
-    email: normalizedEmail,
-    password,
-    email_confirm: true
-  });
-
-  if (createUserError || !createdUserData.user?.id) {
-    const message = String(createUserError?.message || '').toLowerCase();
-    if (message.includes('already') || message.includes('exists') || message.includes('registered')) {
-      throw new PremiumOnboardingRouteError(409, 'account_exists');
-    }
-    console.error('premium onboarding account create error', createUserError);
-    throw new PremiumOnboardingRouteError(500, 'failed_to_create_account');
-  }
-
-  await upsertProfileRow(createdUserData.user.id, normalizedEmail);
-  await admin
-    .from('premium_onboarding_intents')
-    .update({
-      viewer_id: createdUserData.user.id,
-      updated_at: nowIso()
-    })
-    .eq('id', intent.id);
-
-  const publicClient = createSupabaseAuthClient();
-  const { data: authData, error: authError } = await publicClient.auth.signInWithPassword({
-    email: normalizedEmail,
-    password
-  });
-
-  if (authError || !authData.session) {
-    console.error('premium onboarding sign-in after account create error', authError);
-    throw new PremiumOnboardingRouteError(500, 'failed_to_sign_in');
-  }
-
-  return premiumOnboardingEmailAccountCreateResponseSchemaV1.parse({
-    session: {
-      accessToken: authData.session.access_token,
-      refreshToken: authData.session.refresh_token,
-      expiresIn: typeof authData.session.expires_in === 'number' ? authData.session.expires_in : null,
-      expiresAt: authData.session.expires_at ? new Date(authData.session.expires_at * 1000).toISOString() : null,
-      userId: authData.session.user.id,
-      email: authData.session.user.email ?? null
-    },
-    returnTo: intent.return_to
-  });
+  throw new PremiumOnboardingRouteError(
+    410,
+    'premium_account_creation_disabled',
+    'Create an account only after Premium purchase verification.'
+  );
 }
 
 export async function recordPremiumOnboardingLegalAcceptance(

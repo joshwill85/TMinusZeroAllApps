@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import type { MobilePushRuleUpsertV1, MobilePushRuleV1, WatchlistRuleV1 } from '@tminuszero/api-client';
+import { getDefaultMobilePushPrelaunchOffsets, getMobilePushMaxPrelaunchOffsets, getMobilePushPrelaunchOptions } from '@tminuszero/domain';
 import {
   useDeleteMobilePushRuleMutation,
   useFilterPresetsQuery,
@@ -22,8 +23,6 @@ import {
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import { useMobilePush } from '@/src/providers/MobilePushProvider';
 
-const BASIC_OFFSET_OPTIONS = [10, 30, 60, 120] as const;
-const PREMIUM_OFFSET_OPTIONS = [10, 30, 60, 120, 360, 720, 1440] as const;
 const STATUS_OPTIONS = [
   { key: 'any', label: 'Any change' },
   { key: 'go', label: 'Go' },
@@ -111,7 +110,7 @@ export default function PreferencesScreen() {
       <CustomerShellHero
         eyebrow="Push alerts"
         title="Alerts"
-        description="Manage this device’s push registration and the mobile alert rules that should deliver to it."
+        description="Manage push on this device and the alert sources currently linked to it."
       >
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
           <CustomerShellBadge label={accessLabel} tone={isPremium ? 'accent' : 'default'} />
@@ -225,8 +224,8 @@ export default function PreferencesScreen() {
         title="Alert rules"
         description={
           isPremium
-            ? 'Manage broad launch alert rules for this device, including all launches, saved filters, follows, digests, and change alerts.'
-            : 'Public access can manage `All U.S.` launches here, and the single-launch public slot is handled from launch detail. State rules, saved presets, follows, digests, and change alerts stay Premium-only.'
+            ? 'Manage broad mobile alert sources here, including all launches, saved filters, follows, digests, and change alerts.'
+            : 'Public access can manage `All U.S.` launches here, and the single-launch starter slot stays on launch detail. State rules, saved presets, follows, digests, and change alerts stay Premium-only.'
         }
       >
         {!installationId ? (
@@ -471,7 +470,7 @@ export default function PreferencesScreen() {
       installationId: installationId ?? 'missing',
       deviceSecret,
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-      prelaunchOffsetsMinutes: [60],
+      prelaunchOffsetsMinutes: getDefaultMobilePushPrelaunchOffsets('broad'),
       dailyDigestLocalTime: null,
       statusChangeTypes: [],
       notifyNetChanges: false
@@ -600,8 +599,12 @@ function RuleEditorCard({
     (rule.settings.statusChangeTypes ?? []) as Array<(typeof STATUS_OPTIONS)[number]['key']>
   );
   const [notifyNetChanges, setNotifyNetChanges] = useState(rule.settings.notifyNetChanges === true);
-  const offsetOptions = readOnly || isPremium ? PREMIUM_OFFSET_OPTIONS : BASIC_OFFSET_OPTIONS;
-  const maxOffsets = readOnly || isPremium ? 3 : 2;
+  const advancedAllowed = readOnly || isPremium;
+  const offsetOptions = getMobilePushPrelaunchOptions(advancedAllowed);
+  const maxOffsets = getMobilePushMaxPrelaunchOffsets({
+    advancedAllowed,
+    scopeKind: 'broad'
+  });
   const canUseDailyDigest = isPremium || Boolean(rule.settings.dailyDigestLocalTime);
 
   return (
@@ -732,7 +735,7 @@ function RuleEditorCard({
       {readOnly ? (
         <View style={{ gap: 10 }}>
           <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
-            Stored on this account. Upgrade to Premium to edit or reactivate this rule.
+            Stored for this alert source. Upgrade to Premium to edit or reactivate it.
           </Text>
           <CustomerShellActionButton label="Upgrade to edit" onPress={onOpenUpgrade} disabled={busy} />
         </View>

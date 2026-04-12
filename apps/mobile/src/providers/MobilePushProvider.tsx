@@ -6,7 +6,7 @@ import * as Device from 'expo-device';
 import { ApiClientError } from '@tminuszero/api-client';
 import { useQueryClient } from '@tanstack/react-query';
 import { sharedQueryKeys } from '@tminuszero/query';
-import { useViewerEntitlementsQuery, useViewerSessionQuery } from '@/src/api/queries';
+import { useViewerSessionQuery } from '@/src/api/queries';
 import { useMobileApiClient } from '@/src/api/useMobileApiClient';
 import {
   readPushPermissionState,
@@ -81,10 +81,9 @@ function describePushError(error: unknown) {
 
 export function MobilePushProvider({ children }: MobilePushProviderProps) {
   const queryClient = useQueryClient();
-  const { isAuthHydrated } = useMobileBootstrap();
+  const { accessToken, isAuthHydrated } = useMobileBootstrap();
   const client = useMobileApiClient();
   const viewerSessionQuery = useViewerSessionQuery();
-  const entitlementsQuery = useViewerEntitlementsQuery();
   const [installationId, setInstallationId] = useState<string | null>(null);
   const [deviceSecret, setDeviceSecret] = useState<string | null>(null);
   const [permissionStatus, setPermissionStatus] = useState<PermissionState>('undetermined');
@@ -156,8 +155,7 @@ export function MobilePushProvider({ children }: MobilePushProviderProps) {
       }
 
       const token = await resolvePushRegistrationToken(getExpoProjectId());
-      const isPremium = entitlementsQuery.data?.tier === 'premium';
-      const ownerKey = isPremium ? `user:${viewerSessionQuery.data?.viewerId ?? 'authed'}` : `guest:${installationId}`;
+      const ownerKey = accessToken ? `user:${viewerSessionQuery.data?.viewerId ?? 'authed'}` : `guest:${installationId}`;
       if (!force && lastSyncedOwnerKeyRef.current === ownerKey && lastSyncedTokenRef.current === token) {
         setIsRegistered(true);
         return;
@@ -191,8 +189,8 @@ export function MobilePushProvider({ children }: MobilePushProviderProps) {
       await queryClient.invalidateQueries({ queryKey: sharedQueryKeys.mobilePushRules(installationId) });
     },
     [
+      accessToken,
       client,
-      entitlementsQuery.data?.tier,
       installationId,
       isAuthHydrated,
       queryClient,
@@ -329,7 +327,7 @@ export function MobilePushProvider({ children }: MobilePushProviderProps) {
         clearTimeout(timeout);
       }
     };
-  }, [entitlementsQuery.data?.tier, installationId, isAuthHydrated, syncCurrentDevice]);
+  }, [installationId, isAuthHydrated, syncCurrentDevice]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {

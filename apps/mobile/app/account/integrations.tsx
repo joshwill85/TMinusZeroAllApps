@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Share as NativeShare, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import type { CalendarFeedV1, EmbedWidgetV1, RssFeedV1 } from '@tminuszero/api-client';
+import { getMobileViewerTier, isRecoveryOnlyViewer } from '@tminuszero/domain';
 import {
   useCalendarFeedsQuery,
   useCreateCalendarFeedMutation,
@@ -29,6 +30,7 @@ import {
   CustomerShellPanel
 } from '@/src/components/CustomerShell';
 import { getPublicSiteUrl } from '@/src/config/api';
+import { AccountRecoveryOnlyScreen } from '@/src/features/account/AccountRecoveryOnlyScreen';
 import { AccountDetailRow, AccountNotice, AccountTextField } from '@/src/features/account/AccountUi';
 import { MOBILE_BRAND_NAME } from '@/src/features/account/constants';
 
@@ -41,6 +43,8 @@ export default function AccountIntegrationsScreen() {
   const viewerSessionQuery = useViewerSessionQuery();
   const entitlementsQuery = useViewerEntitlementsQuery();
   const isAuthed = Boolean(viewerSessionQuery.data?.viewerId);
+  const tier = getMobileViewerTier(entitlementsQuery.data?.tier ?? 'anon');
+  const isRecoveryOnly = isRecoveryOnlyViewer({ isAuthed, tier });
   const isPaid = entitlementsQuery.data?.isPaid === true;
   const baseUrl = useMemo(() => getPublicSiteUrl(), []);
   const calendarFeedsQuery = useCalendarFeedsQuery({ enabled: isPaid });
@@ -338,6 +342,15 @@ export default function AccountIntegrationsScreen() {
     await NativeShare.share({
       message: [urls.srcUrl, urls.iframeCode].filter(Boolean).join('\n\n')
     });
+  }
+
+  if (isRecoveryOnly) {
+    return (
+      <AccountRecoveryOnlyScreen
+        title="Integrations"
+        description="Calendar feeds, RSS feeds, and widgets return when Premium is active again. Membership recovery, privacy, and support stay available now."
+      />
+    );
   }
 
   return (

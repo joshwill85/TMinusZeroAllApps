@@ -4,9 +4,15 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 
 import { ApiClientError } from '@tminuszero/api-client';
 import { assertPasswordPolicy, PASSWORD_POLICY_HINT } from '@tminuszero/domain';
 import { mobileColorTokens } from '@tminuszero/design-tokens';
-import { buildMobileRoute, readAuthIntent, resolveMobileAuthRedirectPath } from '@tminuszero/navigation';
+import { buildMobileRoute, resolveMobileAuthRedirectPath } from '@tminuszero/navigation';
+import { isNativeAppleSignInAvailable } from '@/src/auth/appleAuth';
 import { recordMobileAuthContext } from '@/src/auth/authContext';
-import { createOrResumePremiumOnboardingIntent, createPremiumAccountFromClaim, createPremiumOnboardingEmailAccount } from '@/src/auth/supabaseAuth';
+import {
+  attachPremiumClaimToSession,
+  continueWithOAuthProvider,
+  createPremiumAccountFromClaim,
+  getAvailableOAuthProviders
+} from '@/src/auth/supabaseAuth';
 import { Card, ScreenShell } from '@/src/components/ScreenShell';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 
@@ -26,16 +32,8 @@ export default function SignUpScreen() {
   }>();
   const { persistSession } = useMobileBootstrap();
   const claimToken = readParam(params.claim_token);
-  const authIntent = useMemo(() => {
-    const queryReader = {
-      get(key: string) {
-        if (key === 'intent') return readParam(params.intent);
-        return null;
-      }
-    };
-    return readAuthIntent(queryReader);
-  }, [params.intent]);
-  const [premiumOnboardingIntentId, setPremiumOnboardingIntentId] = useState<string | null>(null);
+  const [appleSignInAvailable, setAppleSignInAvailable] = useState(false);
+  const [googleSignInAvailable, setGoogleSignInAvailable] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -56,42 +54,32 @@ export default function SignUpScreen() {
   );
 
   useEffect(() => {
-    if (claimToken || authIntent !== 'upgrade') {
-      setPremiumOnboardingIntentId(null);
-      return;
-    }
-
     let cancelled = false;
-    void createOrResumePremiumOnboardingIntent({
-      returnTo: readParam(params.return_to)
-    })
-      .then((payload) => {
+    const oauthProviders = getAvailableOAuthProviders();
+    setGoogleSignInAvailable(oauthProviders.includes('google'));
+
+    void isNativeAppleSignInAvailable()
+      .then((available) => {
         if (!cancelled) {
-          setPremiumOnboardingIntentId(payload.intent.intentId);
+          setAppleSignInAvailable(available);
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setPremiumOnboardingIntentId(null);
+          setAppleSignInAvailable(false);
         }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [authIntent, claimToken, params.return_to]);
+  }, []);
 
   async function handleSignUp() {
     const normalizedEmail = email.trim();
     if (!claimToken) {
-      if (authIntent !== 'upgrade') {
-        setStatus({ tone: 'error', text: 'Premium purchase verification is required before creating an account.' });
-        return;
-      }
-      if (!premiumOnboardingIntentId) {
-        setStatus({ tone: 'error', text: 'Premium onboarding is not ready yet. Return to Upgrade and try again.' });
-        return;
-      }
+      setStatus({ tone: 'error', text: 'Premium purchase verification is required before creating an account.' });
+      return;
     }
     if (!normalizedEmail) {
       setStatus({ tone: 'error', text: 'Email is required.' });
@@ -117,9 +105,7 @@ export default function SignUpScreen() {
 
     setIsSubmitting(true);
     try {
-      const result = claimToken
-        ? await createPremiumAccountFromClaim(claimToken, normalizedEmail, password)
-        : await createPremiumOnboardingEmailAccount(premiumOnboardingIntentId || '', normalizedEmail, password);
+      const result = await createPremiumAccountFromClaim(claimToken, normalizedEmail, password);
       await persistSession({
         accessToken: result.session.accessToken,
         refreshToken: result.session.refreshToken
@@ -147,6 +133,52 @@ export default function SignUpScreen() {
     }
   }
 
+  async function handleProviderSignUp(provider: 'apple' | 'google') {
+    if (!claimToken) {
+      setStatus({ tone: 'error', text: 'Premium purchase verification is required before creating an account.' });
+      return;
+    }
+    if (!acceptedTerms) {
+      setStatus({ tone: 'error', text: 'You must accept the Terms and Privacy Policy to create an account.' });
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const result = await continueWithOAuthProvider(provider, {
+        intent: 'upgrade',
+        returnTo: redirectHref,
+        claimToken,
+        expectedEmail: email.trim() || null
+      });
+      await persistSession({
+        accessToken: result.session.accessToken,
+        refreshToken: result.session.refreshToken
+      });
+      await recordMobileAuthContext(result.session.accessToken, {
+        provider: result.provider,
+        eventType: 'sign_up',
+        displayName: result.displayName ?? null,
+        emailIsPrivateRelay: result.emailIsPrivateRelay === true
+      }).catch(() => {});
+      const attachResult = await attachPremiumClaimToSession(result.session.accessToken, claimToken);
+      router.replace(
+        resolveMobileAuthRedirectPath({
+          returnTo: attachResult.returnTo,
+          intent: 'upgrade',
+          fallback: redirectHref
+        }) as Href
+      );
+    } catch (error) {
+      setStatus({
+        tone: 'error',
+        text: getClaimSignUpMessage(error)
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   return (
     <ScreenShell
       eyebrow="Account"
@@ -154,12 +186,10 @@ export default function SignUpScreen() {
       subtitle={
         claimToken
           ? 'Create an account from a verified Premium purchase.'
-          : authIntent === 'upgrade'
-            ? 'Create an account for Premium onboarding on this device. Terms acceptance and billing happen after sign-in.'
-            : 'Account creation now requires a verified Premium purchase. Buy Premium first, then create or link an account.'
+          : 'Account creation now requires a verified Premium purchase. Buy Premium first, then create or link an account.'
       }
     >
-      {!claimToken && authIntent !== 'upgrade' ? (
+      {!claimToken ? (
         <Card title="Premium required">
           <View style={styles.stack}>
             <Text style={styles.body}>
@@ -177,14 +207,41 @@ export default function SignUpScreen() {
         </Card>
       ) : null}
 
-      {(claimToken || authIntent === 'upgrade') ? (
+      {claimToken ? (
         <Card title="Set up account">
           <View style={styles.stack}>
             <Text style={styles.body}>
-              {claimToken
-                ? 'This account will be created from a verified Premium purchase and signed in on this device immediately.'
-                : 'This account will be created for Premium onboarding and signed in on this device immediately.'}
+              This account will be created from a verified Premium purchase and signed in on this device immediately.
             </Text>
+
+            {googleSignInAvailable || appleSignInAvailable ? (
+              <>
+                {googleSignInAvailable ? (
+                  <Pressable
+                    testID="sign-up-google"
+                    style={[styles.oauthButton, styles.googleButton]}
+                    onPress={() => void handleProviderSignUp('google')}
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? <ActivityIndicator color="#05060A" /> : <Text style={styles.googleButtonLabel}>Continue with Google</Text>}
+                  </Pressable>
+                ) : null}
+
+                {appleSignInAvailable ? (
+                  <Pressable
+                    testID="sign-up-apple"
+                    style={[styles.oauthButton, styles.appleButton]}
+                    onPress={() => void handleProviderSignUp('apple')}
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? <ActivityIndicator color="#05060A" /> : <Text style={styles.appleButtonLabel}>Continue with Apple</Text>}
+                  </Pressable>
+                ) : null}
+
+                <Text style={styles.oauthDivider}>Or use email</Text>
+              </>
+            ) : null}
+
             <TextInput
               testID="sign-up-email"
               value={email}
@@ -253,7 +310,7 @@ export default function SignUpScreen() {
               {isSubmitting ? (
                 <ActivityIndicator color={mobileColorTokens.background} />
               ) : (
-                <Text style={styles.buttonLabel}>{claimToken ? 'Create account to claim Premium' : 'Create account to continue'}</Text>
+                <Text style={styles.buttonLabel}>Create account to claim Premium</Text>
               )}
             </Pressable>
           </View>
@@ -270,9 +327,7 @@ export default function SignUpScreen() {
         href={
           claimToken
             ? `/sign-in?claim_token=${encodeURIComponent(claimToken)}&return_to=${encodeURIComponent(readParam(params.return_to) || '/profile')}`
-            : authIntent === 'upgrade'
-              ? `/sign-in?intent=upgrade&return_to=${encodeURIComponent(readParam(params.return_to) || '/profile')}`
-              : '/sign-in'
+            : '/sign-in'
         }
         asChild
       >
@@ -360,6 +415,41 @@ const styles = StyleSheet.create({
   },
   successText: {
     color: '#8de2b0'
+  },
+  oauthButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 999,
+    minHeight: 48,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderWidth: 1
+  },
+  googleButton: {
+    backgroundColor: '#ffffff',
+    borderColor: '#e5e7eb'
+  },
+  appleButton: {
+    backgroundColor: '#f5f5f7',
+    borderColor: '#d6d6db'
+  },
+  googleButtonLabel: {
+    color: '#05060A',
+    fontSize: 15,
+    fontWeight: '700'
+  },
+  appleButtonLabel: {
+    color: '#05060A',
+    fontSize: 15,
+    fontWeight: '700'
+  },
+  oauthDivider: {
+    color: mobileColorTokens.muted,
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 1.2,
+    textAlign: 'center',
+    textTransform: 'uppercase'
   }
 });
 
@@ -376,6 +466,9 @@ function getClaimSignUpMessage(error: unknown) {
     }
     if (error.code === 'claim_already_claimed') {
       return 'This Premium purchase is already linked to an account. Sign in to manage it.';
+    }
+    if (error.code === 'claim_sign_in_required') {
+      return 'This Premium purchase already started account creation. Sign in with that account to finish claiming Premium.';
     }
   }
 

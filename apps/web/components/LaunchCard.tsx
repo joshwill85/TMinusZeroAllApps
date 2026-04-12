@@ -452,14 +452,14 @@ export function LaunchCard({
   const detailsCueLabel = isPast ? 'Open report' : 'Open details';
   const notificationsContent = (
     <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.03)] p-3 text-sm text-text2">
-      <div className="text-xs uppercase tracking-[0.12em] text-text3">Launch notifications</div>
-      <div className="mt-1 text-sm text-text2">Launch alerts are managed in the native mobile app with push only.</div>
+      <div className="text-xs uppercase tracking-[0.12em] text-text3">Launch alerts</div>
+      <div className="mt-1 text-sm text-text2">Follow sources stay visible on your account here. Push alert delivery is managed in the native mobile app.</div>
       <div className="mt-3 rounded-lg border border-stroke bg-surface-1 p-2 text-xs text-text2">
-        Open the native app to manage push delivery, alert scopes, and device registration.
+        Open the native app to manage reminder timing, alert scopes, and device registration on each phone.
       </div>
       <div className="mt-3 flex items-center justify-end">
         <Link className="btn rounded-lg px-3 py-2 text-xs" href={buildPreferencesHref()}>
-          Open notification settings
+          Open alert settings
         </Link>
       </div>
     </div>

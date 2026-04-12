@@ -4,8 +4,9 @@ import { AppScreen } from '@/src/components/AppScreen';
 import { CustomerShellBadge, CustomerShellHero, CustomerShellPanel } from '@/src/components/CustomerShell';
 import { RouteListRow } from './shared';
 import {
+  ABOUT_FALLBACK_PAGE,
   ContentPageRouteScreen,
-  JELLYFISH_FALLBACK_PAGE,
+  FAQ_FALLBACK_PAGE,
   buildGenericDocsFallback,
   type CustomerRouteStaticPage
 } from './content';
@@ -54,8 +55,11 @@ export function DocsHubScreen() {
 
 export function DocsPageRouteScreen({ slug }: { slug: string }) {
   const normalized = normalizeDocsSlug(slug);
-  if (normalized === 'about' || normalized === 'faq') {
-    return <DocsHubScreen />;
+  if (normalized === 'about') {
+    return <ContentPageRouteScreen testID="docs-about-screen" slug="about" fallbackPage={ABOUT_FALLBACK_PAGE} />;
+  }
+  if (normalized === 'faq') {
+    return <ContentPageRouteScreen testID="docs-faq-screen" slug="faq" fallbackPage={FAQ_FALLBACK_PAGE} />;
   }
   const fallbackPage = resolveDocsFallbackPage(normalized);
 
@@ -63,37 +67,8 @@ export function DocsPageRouteScreen({ slug }: { slug: string }) {
 }
 
 function resolveDocsFallbackPage(slug: string): CustomerRouteStaticPage {
-  if (slug === 'roadmap') return ROADMAP_FALLBACK_PAGE;
-  if (slug === 'jellyfish-effect') return JELLYFISH_FALLBACK_PAGE;
   return buildGenericDocsFallback(slug);
 }
-
-const ROADMAP_FALLBACK_PAGE: CustomerRouteStaticPage = {
-  eyebrow: 'Docs',
-  title: 'Implementation Phases',
-  description: 'Native mobile rollout phases for shared customer surfaces and supporting infrastructure.',
-  lastUpdated: 'Jan 20, 2026',
-  sections: [
-    {
-      title: 'Phase 1 - Surface parity',
-      body: 'Finish the customer-facing browse surfaces and internal linking across the remaining mobile gaps.',
-      bullets: [
-        'News, contracts, satellites, and catalog browsing.',
-        'Docs, support, legal, and guide pages.',
-        'Native resolution for first-party customer links.'
-      ]
-    },
-    {
-      title: 'Phase 2 - Operational completeness',
-      body: 'Close the remaining account, privacy, and integration management flows.',
-      bullets: [
-        'Privacy choices and export flows.',
-        'Recurring calendar/RSS/embed management.',
-        'Account profile and notification preference parity.'
-      ]
-    }
-  ]
-};
 
 function normalizeDocsSlug(value: string) {
   return String(value || '')

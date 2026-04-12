@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { View } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
-import { getMobileViewerTier } from '@tminuszero/domain';
+import { getMobileViewerTier, isRecoveryOnlyViewer } from '@tminuszero/domain';
 import { useProfileQuery, useViewerEntitlementsQuery, useViewerSessionQuery } from '@/src/api/queries';
 import { signOut } from '@/src/auth/supabaseAuth';
 import { AppScreen } from '@/src/components/AppScreen';
@@ -27,6 +27,7 @@ export default function ProfileScreen() {
 
   const isAuthed = entitlementsQuery.data?.isAuthed ?? Boolean(accessToken);
   const tier = getMobileViewerTier(entitlementsQuery.data?.tier ?? 'anon');
+  const isRecoveryOnly = isRecoveryOnlyViewer({ isAuthed, tier });
   const effectiveTierSource = entitlementsQuery.data?.effectiveTierSource ?? 'guest';
   const billingIsPaid = entitlementsQuery.data?.billingIsPaid === true;
   const membershipStatusLabel = formatMembershipStatusLabel({
@@ -75,7 +76,9 @@ export default function ProfileScreen() {
         title="Account"
         description={
           isAuthed
-            ? 'Account, billing, alerts, privacy, and support now live in dedicated sections instead of one long mixed screen.'
+            ? isRecoveryOnly
+              ? 'Billing recovery, restore, privacy, support, and sign-out stay available while this account is on free access.'
+              : 'Account, billing, alerts, privacy, and support now live in dedicated sections instead of one long mixed screen.'
             : 'Browse freely, then sign in when you want to manage account details, claim Premium, or restore purchases.'
         }
       >
@@ -147,6 +150,48 @@ export default function ProfileScreen() {
             onPress={() => {
               router.push('/sign-in');
             }}
+          />
+        </>
+      ) : isRecoveryOnly ? (
+        <>
+          <CustomerShellPanel
+            title="Available now"
+            description="This signed-in account is limited to membership recovery, privacy, support, and sign-out until Premium is active again."
+          >
+            <View style={{ gap: 10 }}>
+              <AccountNavRow
+                title="Membership & billing"
+                description="Re-subscribe, restore purchases, or manage store billing from the dedicated membership screen."
+                value={membershipStatusLabel}
+                onPress={() => {
+                  router.push('/account/membership' as Href);
+                }}
+              />
+              <AccountNavRow
+                title="Privacy choices & data requests"
+                description="Export account data, delete your account, and manage media-loading privacy preferences."
+                value="Export + delete"
+                onPress={() => {
+                  router.push('/legal/privacy-choices' as Href);
+                }}
+              />
+              <AccountNavRow
+                title="Support"
+                description="Contact support for billing, restore, account recovery, or privacy help."
+                onPress={() => {
+                  router.push('/support' as Href);
+                }}
+              />
+            </View>
+          </CustomerShellPanel>
+          <AccountNotice message={signOutError} tone="error" />
+          <CustomerShellActionButton
+            label={isSigningOut ? 'Signing out…' : 'Sign out'}
+            variant="secondary"
+            onPress={() => {
+              void handleSignOut();
+            }}
+            disabled={isSigningOut}
           />
         </>
       ) : (

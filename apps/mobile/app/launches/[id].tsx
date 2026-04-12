@@ -23,6 +23,7 @@ import {
   buildCountdownSnapshot,
   buildDetailVersionToken,
   canAutoRefreshActiveSurface,
+  getDefaultMobilePushPrelaunchOffsets,
   getNextAdaptiveLaunchRefreshMs,
   getRecommendedLaunchRefreshIntervalSeconds,
   getVisibleDetailUpdatedAt,
@@ -843,7 +844,7 @@ export default function LaunchDetailScreen() {
               deviceSecret
             }
           });
-          setSavedStatus({ tone: 'success', text: 'Launch notifications turned off.' });
+          setSavedStatus({ tone: 'success', text: 'Launch alerts turned off.' });
           return;
         }
 
@@ -854,13 +855,13 @@ export default function LaunchDetailScreen() {
             deviceSecret,
             scopeKind: 'launch',
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-            prelaunchOffsetsMinutes: [10, 60],
+            prelaunchOffsetsMinutes: getDefaultMobilePushPrelaunchOffsets('launch'),
             dailyDigestLocalTime: null,
             statusChangeTypes: [],
             notifyNetChanges: false
           }
         });
-        setSavedStatus({ tone: 'success', text: 'Launch notifications turned on.' });
+        setSavedStatus({ tone: 'success', text: 'Launch alerts turned on.' });
       } catch (error) {
         if (error instanceof ApiClientError && error.code === 'limit_reached') {
           setSavedStatus({
@@ -873,7 +874,7 @@ export default function LaunchDetailScreen() {
         }
         setSavedStatus({
           tone: 'error',
-          text: error instanceof Error ? error.message : 'Unable to update launch notifications.'
+          text: error instanceof Error ? error.message : 'Unable to update launch alerts.'
         });
       }
     };
@@ -2049,6 +2050,7 @@ export default function LaunchDetailScreen() {
                         </View>
                       ) : null}
                       {card.detail ? <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>{card.detail}</Text> : null}
+                      {card.planningDetail ? <LaunchPlanningDetailBlock detail={card.planningDetail} cardId={card.id} theme={theme} /> : null}
                       {card.actionUrl && card.actionLabel ? (
                         <ActionButton
                           label={card.actionLabel}
@@ -2501,7 +2503,7 @@ export default function LaunchDetailScreen() {
                   }}
                   theme={theme}
                   onPress={() => {
-                    openTarget(item.url);
+                    openTarget(item.detailHref || item.url);
                   }}
                 />
               ))}
@@ -3122,6 +3124,22 @@ function isDateOnlyUtcWindow(validStart: string | null, validEnd: string | null)
   );
 }
 
+function formatLaunchPlanningPercent(value: number | null | undefined) {
+  return value == null ? 'TBD' : `${Math.round(value)}%`;
+}
+
+function formatLaunchPlanningTemp(min: number | null | undefined, max: number | null | undefined, label: string | null | undefined) {
+  if (min != null && max != null) return `${min}-${max}F`;
+  return label || 'TBD';
+}
+
+function formatLaunchPlanningTemps(min: number | null | undefined, max: number | null | undefined) {
+  if (min != null && max != null) return `${min}-${max}F`;
+  if (min != null) return `Low ${min}F`;
+  if (max != null) return `High ${max}F`;
+  return 'Temps TBD';
+}
+
 function LaunchDetailFloatingBar({
   top,
   net,
@@ -3370,6 +3388,120 @@ function ArToolbarGlyph({ color }: { color: string }) {
   return (
     <View style={{ minWidth: 18, alignItems: 'center', justifyContent: 'center' }}>
       <Text style={{ color, fontSize: 15, lineHeight: 16, fontWeight: '900', letterSpacing: 0.7 }}>AR</Text>
+    </View>
+  );
+}
+
+function LaunchPlanningDetailBlock({
+  detail,
+  cardId,
+  theme
+}: {
+  detail: NonNullable<NonNullable<LaunchDetailV1['weather']>['cards'][number]['planningDetail']>;
+  cardId: string;
+  theme: ReturnType<typeof useMobileBootstrap>['theme'];
+}) {
+  if (detail.kind === 'planning_24h') {
+    return (
+      <View style={{ gap: 8 }}>
+        {detail.periods.map((period) => (
+          <View
+            key={`${cardId}:${period.label}`}
+            style={{
+              gap: 6,
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: theme.stroke,
+              backgroundColor: 'rgba(255, 255, 255, 0.02)',
+              padding: 12
+            }}
+          >
+            <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' }}>
+              {[period.dayLabel, period.label].filter(Boolean).join(' • ')}
+            </Text>
+            {period.skyCondition ? <Text style={{ color: theme.foreground, fontSize: 13, fontWeight: '700' }}>{period.skyCondition}</Text> : null}
+            <FactRow label="Precip" value={formatLaunchPlanningPercent(period.precipitationProbabilityPct)} />
+            <FactRow label="Lightning" value={formatLaunchPlanningPercent(period.lightningProbabilityPct)} />
+            <FactRow label="Wind" value={period.wind || 'TBD'} />
+            <FactRow label="Temp" value={formatLaunchPlanningTemp(period.temperatureMinF, period.temperatureMaxF, period.temperatureLabel)} />
+          </View>
+        ))}
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ gap: 8 }}>
+      {detail.days.map((day) => (
+        <View
+          key={`${cardId}:${day.dateLabel}`}
+          style={{
+            gap: 8,
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: theme.stroke,
+            backgroundColor: 'rgba(255, 255, 255, 0.02)',
+            padding: 12
+          }}
+        >
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' }}>
+                {day.dayLabel || 'Forecast day'}
+              </Text>
+              <Text style={{ color: theme.foreground, fontSize: 13, fontWeight: '700' }}>{day.dateLabel}</Text>
+            </View>
+            <Text style={{ color: theme.muted, fontSize: 12 }}>{formatLaunchPlanningTemps(day.minTempF, day.maxTempF)}</Text>
+          </View>
+          <LaunchPlanningDayPart label="AM" sky={day.am.skyCondition} precip={day.am.precipitationProbabilityPct} lightning={day.am.lightningProbabilityPct} wind={day.am.wind} theme={theme} />
+          <LaunchPlanningDayPart label="PM" sky={day.pm.skyCondition} precip={day.pm.precipitationProbabilityPct} lightning={day.pm.lightningProbabilityPct} wind={day.pm.wind} theme={theme} />
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function LaunchPlanningDayPart({
+  label,
+  sky,
+  precip,
+  lightning,
+  wind,
+  theme
+}: {
+  label: string;
+  sky: string | null | undefined;
+  precip: number | null | undefined;
+  lightning: number | null | undefined;
+  wind: string | null | undefined;
+  theme: ReturnType<typeof useMobileBootstrap>['theme'];
+}) {
+  return (
+    <View
+      style={{
+        gap: 6,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: theme.stroke,
+        backgroundColor: 'rgba(255, 255, 255, 0.02)',
+        padding: 10
+      }}
+    >
+      <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' }}>{label}</Text>
+      {sky ? <Text style={{ color: theme.foreground, fontSize: 13, fontWeight: '700' }}>{sky}</Text> : null}
+      <FactRow label="Precip" value={formatLaunchPlanningPercent(precip)} />
+      <FactRow label="Lightning" value={formatLaunchPlanningPercent(lightning)} />
+      <FactRow label="Wind" value={wind || 'TBD'} />
+    </View>
+  );
+}
+
+function FactRow({ label, value }: { label: string; value: string }) {
+  const { theme } = useMobileBootstrap();
+  return (
+    <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
+      <Text style={{ color: theme.muted, fontSize: 12, flex: 1 }}>{label}</Text>
+      <Text style={{ color: theme.foreground, fontSize: 12, fontWeight: '700', flexShrink: 1, textAlign: 'right' }}>{value}</Text>
     </View>
   );
 }

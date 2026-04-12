@@ -8,15 +8,14 @@ export default function PreferencesPage() {
       <p className="text-xs uppercase tracking-[0.1em] text-text3">Account</p>
       <h1 className="text-3xl font-semibold text-text1">Launch Alerts</h1>
       <p className="mt-3 text-sm text-text2">
-        {BRAND_NAME} is moving to native mobile push only for launch alerts. Web no longer manages legacy notification subscriptions.
+        {BRAND_NAME} now uses native mobile push only for launch alerts. Web stays read-only here so alert delivery cannot drift away from the mobile setup.
       </p>
 
       <div className="mt-6 rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
         <div className="text-xs uppercase tracking-[0.1em] text-text3">Current setup</div>
-        <div className="mt-2 text-base font-semibold text-text1">Push alerts live in the mobile app</div>
+        <div className="mt-2 text-base font-semibold text-text1">Push alerts live on registered mobile devices</div>
         <p className="mt-2">
-          Use the native iOS or Android app to manage launch alerts, device registration, and alert rules. The web surface now stays read-only for this area so nothing legacy can be changed here by
-          accident.
+          Use the native iOS or Android app to manage reminder timing, device registration, and push delivery. Follow sources can still appear elsewhere on your account, but live alert delivery is mobile-only.
         </p>
       </div>
 

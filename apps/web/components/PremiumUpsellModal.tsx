@@ -9,15 +9,9 @@ import { BRAND_NAME } from '@/lib/brand';
 const PREMIUM_PRICE_LABEL = '$3.99/mo';
 
 const PREMIUM_FEATURES = [
-  'Adaptive live updates',
-  'Full change log (see what changed)',
-  'Saved/default filters + follows (“My Launches”)',
-  'Advanced alerts + native push notifications',
-  'Recurring calendar feeds (.ics) from presets, follows, or all future launches',
-  'RSS + Atom feeds for any filtered feed',
-  'Embeddable “Next launch” widget (token link)',
-  'Enhanced forecast insights (select launches)',
-  'AR trajectory overlay'
+  'See launch changes in seconds, not hours',
+  'Know exactly what changed with the full change log',
+  'Keep watchlists, recurring feeds, and widgets in one workflow'
 ];
 
 export function PremiumUpsellModal({
@@ -62,11 +56,19 @@ export function PremiumUpsellModal({
       <div className="relative w-full max-w-md overflow-y-auto rounded-2xl border border-stroke bg-surface-1 p-4 shadow-glow md:max-h-[90vh]">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="text-xs uppercase tracking-[0.1em] text-text3">Premium</div>
+            <div className="text-xs uppercase tracking-[0.1em] text-text3">
+              Premium
+            </div>
             <div className="text-base font-semibold text-text1">{title}</div>
-            <div className="mt-1 text-xs text-text3">Live updates, saved filters/follows, browser alerts, and recurring feed integrations.</div>
+            <div className="mt-1 text-xs text-text3">
+              Live data, change history, native mobile alerts, and saved launch
+              workflows.
+            </div>
           </div>
-          <button className="text-sm text-text3 hover:text-text1" onClick={onClose}>
+          <button
+            className="text-sm text-text3 hover:text-text1"
+            onClick={onClose}
+          >
             Close
           </button>
         </div>
@@ -74,8 +76,12 @@ export function PremiumUpsellModal({
         <div className="mt-4 rounded-xl border border-stroke bg-surface-0 p-4">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <div className="text-lg font-semibold text-text1">{BRAND_NAME} Premium</div>
-              <div className="mt-1 text-xs text-text3">Faster data, more context, recurring automation.</div>
+              <div className="text-lg font-semibold text-text1">
+                {BRAND_NAME} Premium
+              </div>
+              <div className="mt-1 text-xs text-text3">
+                Live updates, saved workflows, and recurring integrations.
+              </div>
             </div>
             <div className="text-sm text-text2">{PREMIUM_PRICE_LABEL}</div>
           </div>
@@ -87,11 +93,19 @@ export function PremiumUpsellModal({
         </div>
 
         <div className="mt-4 flex flex-col gap-2">
-          <Link href={upgradeHref} className="btn w-full rounded-lg px-4 py-2 text-sm" onClick={onClose}>
-            {isAuthed ? 'See Premium' : 'Start Premium'}
+          <Link
+            href={upgradeHref}
+            className="btn w-full rounded-lg px-4 py-2 text-sm"
+            onClick={onClose}
+          >
+            Upgrade to Premium
           </Link>
           {!isAuthed ? (
-            <Link href={signInHref} className="btn-secondary w-full rounded-lg px-4 py-2 text-sm" onClick={onClose}>
+            <Link
+              href={signInHref}
+              className="btn-secondary w-full rounded-lg px-4 py-2 text-sm"
+              onClick={onClose}
+            >
               Sign in to existing account
             </Link>
           ) : null}

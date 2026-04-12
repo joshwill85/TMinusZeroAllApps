@@ -13,7 +13,10 @@ import { WebQueryProvider } from '@/components/WebQueryProvider';
 export function RootFrame({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const isEmbed = pathname ? pathname.startsWith('/embed') : false;
-  const isCameraGuide = pathname ? /^\/launches\/[^/]+\/ar(?:\/|$)/.test(pathname) : false;
+  const isCameraGuide = pathname
+    ? /^\/launches\/[^/]+\/ar(?:\/|$)/.test(pathname)
+    : false;
+  const isUpgradePage = pathname === '/upgrade';
 
   return (
     <WebQueryProvider>
@@ -22,13 +25,26 @@ export function RootFrame({ children }: { children: ReactNode }) {
           <>
             <RecoveryRedirect />
             <PrivacySignals />
-            <div className="fixed inset-0 -z-10 grid-bg opacity-40" aria-hidden />
-            <div className="fixed inset-0 -z-20 bg-gradient-to-b from-[#070913] via-[#05060a] to-[#03040a]" aria-hidden />
+            <div
+              className="fixed inset-0 -z-10 grid-bg opacity-40"
+              aria-hidden
+            />
+            <div
+              className="fixed inset-0 -z-20 bg-gradient-to-b from-[#070913] via-[#05060a] to-[#03040a]"
+              aria-hidden
+            />
             <Starfield />
-            <SiteChrome />
+            {!isUpgradePage && <SiteChrome />}
           </>
         )}
-        <main id="main" tabIndex={-1} className={clsx('relative outline-none', !isEmbed && 'md:pl-[60px]')}>
+        <main
+          id="main"
+          tabIndex={-1}
+          className={clsx(
+            'relative outline-none',
+            !isEmbed && !isUpgradePage && 'md:pl-[60px]'
+          )}
+        >
           {children}
         </main>
       </ToastProvider>

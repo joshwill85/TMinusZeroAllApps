@@ -1,10 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useMarketingEmailQuery, useProfileQuery, useUpdateMarketingEmailMutation, useUpdateProfileMutation, useViewerSessionQuery } from '@/src/api/queries';
+import { getMobileViewerTier, isRecoveryOnlyViewer } from '@tminuszero/domain';
+import {
+  useMarketingEmailQuery,
+  useProfileQuery,
+  useUpdateMarketingEmailMutation,
+  useUpdateProfileMutation,
+  useViewerEntitlementsQuery,
+  useViewerSessionQuery
+} from '@/src/api/queries';
 import { resendSignupVerification } from '@/src/auth/supabaseAuth';
 import { AppScreen } from '@/src/components/AppScreen';
 import { CustomerShellActionButton, CustomerShellBadge, CustomerShellHero, CustomerShellPanel } from '@/src/components/CustomerShell';
+import { AccountRecoveryOnlyScreen } from '@/src/features/account/AccountRecoveryOnlyScreen';
 import { getPublicSiteUrl } from '@/src/config/api';
 import { AccountDetailRow, AccountNotice, AccountTextField, AccountToggleRow } from '@/src/features/account/AccountUi';
 import { formatDate } from '@/src/features/account/ProfileScreenUi';
@@ -19,12 +28,15 @@ export function AccountPersonalScreen() {
     return url.toString();
   }, []);
   const sessionQuery = useViewerSessionQuery();
+  const entitlementsQuery = useViewerEntitlementsQuery();
   const profileQuery = useProfileQuery();
   const marketingEmailQuery = useMarketingEmailQuery();
   const updateProfileMutation = useUpdateProfileMutation();
   const updateMarketingEmailMutation = useUpdateMarketingEmailMutation();
 
   const isAuthed = Boolean(sessionQuery.data?.viewerId ?? accessToken);
+  const tier = getMobileViewerTier(entitlementsQuery.data?.tier ?? 'anon');
+  const isRecoveryOnly = isRecoveryOnlyViewer({ isAuthed, tier });
   const profile = profileQuery.data ?? null;
   const email = profile?.email ?? sessionQuery.data?.email ?? null;
   const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ').trim();
@@ -134,6 +146,15 @@ export function AccountPersonalScreen() {
     } finally {
       setResendingEmail(false);
     }
+  }
+
+  if (isRecoveryOnly) {
+    return (
+      <AccountRecoveryOnlyScreen
+        title="Personal Info"
+        description="Profile editing returns when Premium is active again. Membership recovery, privacy, and support stay available now."
+      />
+    );
   }
 
   return (

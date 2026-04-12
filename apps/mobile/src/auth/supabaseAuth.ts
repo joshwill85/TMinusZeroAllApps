@@ -72,7 +72,8 @@ type MobilePasswordChallengeResult = {
 type PremiumOnboardingAuthOptions = {
   intent?: 'upgrade' | null;
   returnTo?: string | null;
-  onboardingIntentId?: string | null;
+  claimToken?: string | null;
+  expectedEmail?: string | null;
 };
 
 const AUTH_SECURE_STORE_OPTIONS: SecureStore.SecureStoreOptions = {
@@ -422,10 +423,15 @@ function getPremiumOnboardingPlatform() {
   return Platform.OS === 'ios' ? 'ios' : 'android';
 }
 
+function normalizeOptionalEmail(value: string | null | undefined) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized || null;
+}
+
 function buildGoogleAuthStartUrl({
   intent,
   returnTo,
-  onboardingIntentId
+  claimToken
 }: PremiumOnboardingAuthOptions) {
   const url = new URL('/api/auth/google/start', getApiBaseUrl());
   url.searchParams.set('platform', getPremiumOnboardingPlatform());
@@ -433,8 +439,8 @@ function buildGoogleAuthStartUrl({
   if (intent === 'upgrade') {
     url.searchParams.set('intent', intent);
   }
-  if (onboardingIntentId?.trim()) {
-    url.searchParams.set('onboarding_intent_id', onboardingIntentId.trim());
+  if (claimToken?.trim()) {
+    url.searchParams.set('claim_token', claimToken.trim());
   }
   return url.toString();
 }
@@ -558,23 +564,40 @@ async function unlinkCurrentIdentity(options: {
   return true;
 }
 
-export async function continueWithAppleSignIn(): Promise<CompleteMobileAuthResult> {
+async function preflightAppleProviderCreate({
+  email,
+  claimToken
+}: {
+  email: string | null;
+  claimToken?: string | null;
+}) {
+  const normalizedEmail = normalizeOptionalEmail(email);
+  if (!normalizedEmail) {
+    return;
+  }
+
+  const preflight = await createGuestMobileAuthClient().preflightPremiumOnboardingProvider({
+    intentId: null,
+    claimToken: claimToken?.trim() || null,
+    provider: 'apple',
+    email: normalizedEmail
+  });
+
+  if (preflight.mode === 'create' && !preflight.createAllowed) {
+    throw new Error('Complete Premium purchase verification before creating a new Apple account.');
+  }
+}
+
+async function completeAppleSignIn(options: PremiumOnboardingAuthOptions = {}): Promise<CompleteMobileAuthResult> {
   if (!isMobileAppleAuthEnabled()) {
     throw new Error('Sign in with Apple is not enabled for this build.');
   }
 
   const nativeCredential = await requestNativeAppleSignIn();
-  const normalizedEmail = String(nativeCredential.email || '').trim().toLowerCase();
-  if (normalizedEmail) {
-    const preflight = await createGuestMobileAuthClient().preflightPremiumOnboardingProvider({
-      intentId: null,
-      provider: 'apple',
-      email: normalizedEmail
-    });
-    if (preflight.mode === 'create' && !preflight.createAllowed) {
-      throw new Error('Start Premium before creating a new Apple account.');
-    }
-  }
+  await preflightAppleProviderCreate({
+    email: nativeCredential.email || options.expectedEmail || null,
+    claimToken: options.claimToken
+  });
   const supabase = getMobileSupabaseClient();
   const { data, error } = await supabase.auth.signInWithIdToken({
     provider: 'apple',
@@ -615,64 +638,12 @@ export async function continueWithAppleSignIn(): Promise<CompleteMobileAuthResul
   return completed;
 }
 
-async function continueWithAppleSignInForContext(options?: PremiumOnboardingAuthOptions): Promise<CompleteMobileAuthResult> {
-  if (!isMobileAppleAuthEnabled()) {
-    throw new Error('Sign in with Apple is not enabled for this build.');
-  }
+export async function continueWithAppleSignIn(options: PremiumOnboardingAuthOptions = {}): Promise<CompleteMobileAuthResult> {
+  return completeAppleSignIn(options);
+}
 
-  const nativeCredential = await requestNativeAppleSignIn();
-  const normalizedEmail = String(nativeCredential.email || '').trim().toLowerCase();
-  if (normalizedEmail) {
-    const preflight = await createGuestMobileAuthClient().preflightPremiumOnboardingProvider({
-      intentId: options?.intent === 'upgrade' ? options.onboardingIntentId ?? null : null,
-      provider: 'apple',
-      email: normalizedEmail
-    });
-    if (preflight.mode === 'create' && !preflight.createAllowed) {
-      throw new Error('Start Premium before creating a new Apple account.');
-    }
-  } else if (options?.intent === 'upgrade' && !options?.onboardingIntentId) {
-    throw new Error('Start Premium before creating a new Apple account.');
-  }
-
-  const supabase = getMobileSupabaseClient();
-  const { data, error } = await supabase.auth.signInWithIdToken({
-    provider: 'apple',
-    token: nativeCredential.identityToken,
-    nonce: nativeCredential.nonce
-  });
-
-  if (error) {
-    throw error;
-  }
-  if (!data.session) {
-    throw new Error('Supabase auth callback did not return a session.');
-  }
-
-  const completed: CompleteMobileAuthResult = {
-    provider: 'apple',
-    session: parseSupabaseSession(data.session),
-    displayName: nativeCredential.displayName,
-    emailIsPrivateRelay: isApplePrivateRelayEmail(nativeCredential.email)
-  };
-
-  await maybeHydrateAppleProfile(
-    completed.session.accessToken,
-    nativeCredential.firstName,
-    nativeCredential.lastName
-  ).catch(() => undefined);
-  try {
-    await captureNativeAppleCredential(completed.session.accessToken, {
-      ...nativeCredential,
-      fallbackEmail: completed.session.email
-    });
-    await persistStoredAppleAuthUserId(nativeCredential.appleUserId).catch(() => undefined);
-  } catch (error) {
-    await supabase.auth.signOut().catch(() => undefined);
-    throw error;
-  }
-
-  return completed;
+async function continueWithAppleSignInForContext(options: PremiumOnboardingAuthOptions = {}): Promise<CompleteMobileAuthResult> {
+  return completeAppleSignIn(options);
 }
 
 export async function linkAppleIdentityToCurrentSession({
@@ -933,7 +904,7 @@ export async function continueWithOAuthProvider(provider: MobileOAuthProvider, o
     throw new Error('Sign in with Apple is not enabled for this build.');
   }
   if (provider === 'apple') {
-    return continueWithAppleSignInForContext(options);
+    return continueWithAppleSignInForContext(options ?? {});
   }
 
   const redirectTo = getOAuthRedirectUrl('google');

@@ -4,7 +4,9 @@ import Link from 'next/link';
 import { useMemo, useState, type ReactNode } from 'react';
 import clsx from 'clsx';
 import type { CalendarFeedV1, EmbedWidgetV1, RssFeedV1 } from '@tminuszero/api-client';
+import { isRecoveryOnlyViewer } from '@tminuszero/domain';
 import { buildAuthHref, buildProfileHref } from '@tminuszero/navigation';
+import { AccountRecoveryOnlyNotice } from '@/components/AccountRecoveryOnlyNotice';
 import {
   useCalendarFeedsQuery,
   useDeleteCalendarFeedMutation,
@@ -32,6 +34,10 @@ export default function IntegrationsPage() {
     : viewerSessionQuery.data?.viewerId
       ? 'authed'
       : 'guest';
+  const isRecoveryOnly = isRecoveryOnlyViewer({
+    isAuthed: status === 'authed',
+    tier: entitlementsQuery.data?.tier === 'premium' ? 'premium' : 'anon'
+  });
   const isPaid = entitlementsQuery.data?.isPaid ?? false;
   const entitlementsLoading = status === 'authed' && entitlementsQuery.isPending && !entitlementsQuery.data;
   const calendarFeedsQuery = useCalendarFeedsQuery({ enabled: status === 'authed' && isPaid });
@@ -269,7 +275,14 @@ export default function IntegrationsPage() {
         </p>
       )}
 
-      {status === 'authed' && !entitlementsLoading && isPaid !== true && (
+      {status === 'authed' && !entitlementsLoading && isRecoveryOnly && (
+        <AccountRecoveryOnlyNotice
+          title="Integrations return when Premium is active"
+          description="Calendar feeds, RSS feeds, and widgets are hidden while this signed-in account is on free access."
+        />
+      )}
+
+      {status === 'authed' && !entitlementsLoading && !isRecoveryOnly && isPaid !== true && (
         <div className="mt-4 rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
           <div className="text-xs uppercase tracking-[0.1em] text-text3">Public</div>
           <div className="mt-1 text-base font-semibold text-text1">Integrations are Premium-only.</div>
@@ -280,7 +293,7 @@ export default function IntegrationsPage() {
         </div>
       )}
 
-      {status === 'authed' && !entitlementsLoading && isPaid === true && (
+      {status === 'authed' && !entitlementsLoading && !isRecoveryOnly && isPaid === true && (
         <>
           <Section
             title="Calendar feeds"

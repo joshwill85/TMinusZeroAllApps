@@ -5,10 +5,11 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import type { AuthMethodV1 } from '@tminuszero/api-client';
-import { normalizeAuthSourceProvider } from '@tminuszero/domain';
+import { isRecoveryOnlyViewer, normalizeAuthSourceProvider } from '@tminuszero/domain';
 import type { UserIdentity } from '@supabase/supabase-js';
 import { buildAuthHref, buildProfileHref } from '@tminuszero/navigation';
-import { invalidateViewerScopedQueries, useAuthMethodsQuery, useViewerSessionQuery } from '@/lib/api/queries';
+import { AccountRecoveryOnlyNotice } from '@/components/AccountRecoveryOnlyNotice';
+import { invalidateViewerScopedQueries, useAuthMethodsQuery, useViewerEntitlementsQuery, useViewerSessionQuery } from '@/lib/api/queries';
 import { browserApiClient } from '@/lib/api/client';
 import { getBrowserClient } from '@/lib/api/supabase';
 
@@ -36,6 +37,7 @@ export default function LoginMethodsPage() {
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const viewerSessionQuery = useViewerSessionQuery();
+  const entitlementsQuery = useViewerEntitlementsQuery();
   const authMethodsQuery = useAuthMethodsQuery();
   const [notice, setNotice] = useState<{ tone: NoticeTone; message: string } | null>(null);
   const [busyAction, setBusyAction] = useState<'link_apple' | 'unlink_apple' | 'link_google' | 'unlink_google' | null>(null);
@@ -45,6 +47,10 @@ export default function LoginMethodsPage() {
     : viewerSessionQuery.data?.viewerId
       ? 'authed'
       : 'guest';
+  const isRecoveryOnly = isRecoveryOnlyViewer({
+    isAuthed: status === 'authed',
+    tier: entitlementsQuery.data?.tier === 'premium' ? 'premium' : 'anon'
+  });
 
   const emailMethod = findMethod(authMethodsQuery.data?.methods, 'email_password');
   const googleMethod = findMethod(authMethodsQuery.data?.methods, 'google');
@@ -198,7 +204,14 @@ export default function LoginMethodsPage() {
         </p>
       ) : null}
 
-      {status === 'authed' && !isLoading ? (
+      {status === 'authed' && !isLoading && isRecoveryOnly ? (
+        <AccountRecoveryOnlyNotice
+          title="Login methods return when Premium is active"
+          description="Provider linking and unlinking are disabled while this signed-in account is on free access."
+        />
+      ) : null}
+
+      {status === 'authed' && !isLoading && !isRecoveryOnly ? (
         <div className="mt-4 space-y-4">
           <div className="rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
             <div className="text-xs uppercase tracking-[0.1em] text-text3">Policy</div>

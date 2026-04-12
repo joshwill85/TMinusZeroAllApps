@@ -37,6 +37,15 @@ type ContentPageDefinition = {
   lastUpdated: string;
   actions: readonly { label: string; href: string; external?: boolean }[];
   sections: readonly { title: string; body: string; bullets?: readonly string[] }[];
+  presentation?: {
+    style?: 'story' | 'faq' | 'timeline' | 'guide' | 'legal' | 'support';
+    heroImageUrl?: string | null;
+    heroCaption?: string | null;
+    chips?: readonly string[];
+    highlights?: readonly { label: string; value: string; detail?: string }[];
+    timeline?: readonly { title: string; body: string; status?: 'complete' | 'active' | 'up-next' }[];
+    searchPlaceholder?: string | null;
+  };
 };
 
 const CONTENT_PAGES: ContentPageDefinition[] = [
@@ -53,6 +62,15 @@ const CONTENT_PAGES: ContentPageDefinition[] = [
       { label: 'Catalog', href: '/catalog' },
       { label: 'Privacy', href: '/legal/privacy' }
     ],
+    presentation: {
+      style: 'story',
+      chips: ['Independent', 'Launch-native', 'Cross-platform'],
+      highlights: [
+        { label: 'Surfaces', value: '3', detail: 'Web, iOS, Android' },
+        { label: 'Core promise', value: 'Fast signal', detail: 'Launch truth, context, and handoff' },
+        { label: 'Model', value: 'Typed API', detail: 'Shared contracts power the native product' }
+      ]
+    },
     sections: [
       {
         title: 'Mission',
@@ -76,6 +94,11 @@ const CONTENT_PAGES: ContentPageDefinition[] = [
       { label: 'Roadmap', href: '/docs/roadmap' },
       { label: 'About', href: '/about' }
     ],
+    presentation: {
+      style: 'faq',
+      chips: ['Searchable', 'Launch data', 'Account help'],
+      searchPlaceholder: 'Search launch, billing, privacy, or alerts questions'
+    },
     sections: resolveDocsFaqEntries().map((entry) => ({
       title: entry.question,
       body: entry.answer,
@@ -94,6 +117,16 @@ const CONTENT_PAGES: ContentPageDefinition[] = [
       { label: 'Catalog', href: '/catalog' },
       { label: 'About', href: '/about' }
     ],
+    presentation: {
+      style: 'timeline',
+      chips: ['Foundation', 'Parity', 'Hardening'],
+      timeline: [
+        { title: 'Phase 0 - Foundations', body: 'Bootstrap the app shell, theming, and the public reference surfaces.', status: 'complete' },
+        { title: 'Phase 1 - Data plumbing', body: 'Build shared ingest, public cache derivation, and reliable server routes.', status: 'active' },
+        { title: 'Phase 2 - Notifications and billing', body: 'Keep account, alerts, and subscription flows aligned across surfaces.', status: 'up-next' },
+        { title: 'Phase 3 - Reliability', body: 'Background jobs and release hardening remain web-first and are excluded from the mobile parity work.', status: 'up-next' }
+      ]
+    },
     sections: [
       {
         title: 'Phase 0 - Foundations',
@@ -125,6 +158,14 @@ const CONTENT_PAGES: ContentPageDefinition[] = [
       { label: 'Launch feed', href: '/feed' },
       { label: 'FAQ', href: '/docs/faq' }
     ],
+    presentation: {
+      style: 'guide',
+      chips: ['Twilight', 'Visibility', 'Planning'],
+      highlights: [
+        { label: 'Best window', value: 'Sunrise/Sunset', detail: 'Twilight launches create the effect' },
+        { label: 'Key factor', value: 'Lighting geometry', detail: 'Sunlit plume against a darkening sky' }
+      ]
+    },
     sections: [
       {
         title: 'What it is',
@@ -152,6 +193,10 @@ const CONTENT_PAGES: ContentPageDefinition[] = [
       { label: 'Terms', href: '/legal/terms' },
       { label: 'Info hub', href: '/info' }
     ],
+    presentation: {
+      style: 'legal',
+      chips: ['Sources', 'Attribution', 'Public data']
+    },
     sections: [
       {
         title: 'Core sources',
@@ -179,6 +224,10 @@ const CONTENT_PAGES: ContentPageDefinition[] = [
       { label: 'Terms', href: '/legal/terms' },
       { label: 'Account', href: '/account' }
     ],
+    presentation: {
+      style: 'legal',
+      chips: ['Privacy', 'Account data', 'Notifications']
+    },
     sections: [
       {
         title: 'What we collect',
@@ -206,6 +255,10 @@ const CONTENT_PAGES: ContentPageDefinition[] = [
       { label: 'Account', href: '/account' },
       { label: 'Profile', href: '/profile' }
     ],
+    presentation: {
+      style: 'legal',
+      chips: ['Delete', 'Export', 'Opt-out']
+    },
     sections: [
       {
         title: 'Choices',
@@ -229,6 +282,10 @@ const CONTENT_PAGES: ContentPageDefinition[] = [
       { label: 'Preferences', href: '/preferences' },
       { label: 'Account', href: '/account' }
     ],
+    presentation: {
+      style: 'legal',
+      chips: ['Terms', 'Subscriptions', 'Alerts']
+    },
     sections: [
       {
         title: 'Service rules',
@@ -250,21 +307,71 @@ export function loadInfoHubPayload() {
   return infoHubSchemaV1.parse({
     generatedAt: new Date().toISOString(),
     title: 'Info',
-    description: 'Mission-control style navigation for public pages, catalog browsing, satellites, and account documentation.',
+    description: 'Command Deck for mission guides, browse hubs, support surfaces, and evergreen product context.',
     cards: [
-      { title: 'Command Deck', description: 'Open the public command deck and platform guide.', href: '/info', badge: 'Hub' },
-      { title: 'News', description: 'Mission coverage and launch-linked article feeds.', href: '/news', badge: 'Feed' },
-      { title: 'Contracts', description: 'Canonical government contract stories across supported programs.', href: '/contracts', badge: 'Browse' },
-      { title: 'Catalog', description: 'Browse Launch Library 2 catalog collections and detail pages.', href: '/catalog', badge: 'Browse' },
-      { title: 'Satellites', description: 'Search NORAD records and owner hubs.', href: '/satellites', badge: 'Browse' },
-      { title: 'About', description: 'Learn what the product is and why it exists.', href: '/about', badge: 'Docs' },
-      { title: 'FAQ', description: 'Read common questions about the service.', href: '/docs/faq', badge: 'Docs' },
-      { title: 'Roadmap', description: 'Review the public product roadmap.', href: '/docs/roadmap', badge: 'Docs' },
-      { title: 'Jellyfish Effect', description: 'Guide to the twilight rocket plume phenomenon and visibility planning.', href: '/jellyfish-effect', badge: 'Guide' },
-      { title: 'Data & Attribution', description: 'Review public sources and attribution notes.', href: '/legal/data', badge: 'Legal' },
-      { title: 'Privacy', description: 'Read how data is collected and used.', href: '/legal/privacy', badge: 'Legal' },
-      { title: 'Privacy Choices', description: 'Manage opt-outs, export, and delete flows.', href: '/legal/privacy-choices', badge: 'Legal' },
-      { title: 'Terms', description: 'Review the service terms and push notification guidance.', href: '/legal/terms', badge: 'Legal' }
+      { title: 'Command Deck', description: 'Open the public command deck and platform guide.', href: '/info', badge: 'Hub', kind: 'hero', eyebrow: 'Featured' },
+      { title: 'News', description: 'Mission coverage and launch-linked article feeds.', href: '/news', badge: 'Feed', kind: 'hero', eyebrow: 'Featured' },
+      { title: 'Contracts', description: 'Canonical government contract stories across supported programs.', href: '/contracts', badge: 'Browse', kind: 'utility', eyebrow: 'Browse' },
+      { title: 'Catalog', description: 'Browse Launch Library 2 catalog collections and detail pages.', href: '/catalog', badge: 'Browse', kind: 'utility', eyebrow: 'Browse' },
+      { title: 'Satellites', description: 'Search NORAD records and owner hubs.', href: '/satellites', badge: 'Browse', kind: 'utility', eyebrow: 'Browse' },
+      { title: 'About', description: 'Learn what the product is and why it exists.', href: '/about', badge: 'Docs', kind: 'utility', eyebrow: 'Docs' },
+      { title: 'FAQ', description: 'Read common questions about the service.', href: '/docs/faq', badge: 'Docs', kind: 'utility', eyebrow: 'Docs' },
+      { title: 'Roadmap', description: 'Review the public product roadmap.', href: '/docs/roadmap', badge: 'Docs', kind: 'utility', eyebrow: 'Docs' },
+      { title: 'Jellyfish Effect', description: 'Guide to the twilight rocket plume phenomenon and visibility planning.', href: '/jellyfish-effect', badge: 'Guide', kind: 'utility', eyebrow: 'Guides' },
+      { title: 'Support', description: 'Customer help, billing guidance, and privacy requests.', href: '/support', badge: 'Help', kind: 'utility', eyebrow: 'Legal / Support' },
+      { title: 'Data & Attribution', description: 'Review public sources and attribution notes.', href: '/legal/data', badge: 'Legal', kind: 'utility', eyebrow: 'Legal / Support' },
+      { title: 'Privacy', description: 'Read how data is collected and used.', href: '/legal/privacy', badge: 'Legal', kind: 'utility', eyebrow: 'Legal / Support' },
+      { title: 'Privacy Choices', description: 'Manage opt-outs, export, and delete flows.', href: '/legal/privacy-choices', badge: 'Legal', kind: 'utility', eyebrow: 'Legal / Support' },
+      { title: 'Terms', description: 'Review the service terms and push notification guidance.', href: '/legal/terms', badge: 'Legal', kind: 'utility', eyebrow: 'Legal / Support' }
+    ],
+    sections: [
+      {
+        key: 'featured',
+        title: 'Featured',
+        description: 'Start with the strongest native-first surfaces.',
+        items: [
+          { title: 'News', description: 'Mission coverage and launch-linked article feeds.', href: '/news', badge: 'Feed', kind: 'hero', eyebrow: 'Featured' },
+          { title: 'About', description: 'Product story, principles, and why the launch experience is structured this way.', href: '/about', badge: 'Story', kind: 'hero', eyebrow: 'Featured' }
+        ]
+      },
+      {
+        key: 'browse',
+        title: 'Browse',
+        description: 'Reference surfaces and discovery hubs.',
+        items: [
+          { title: 'Catalog', description: 'Launch Library 2 collections and detail pages.', href: '/catalog', badge: 'Browse', kind: 'utility', eyebrow: 'Browse' },
+          { title: 'Satellites', description: 'NORAD records and owner hubs.', href: '/satellites', badge: 'Browse', kind: 'utility', eyebrow: 'Browse' },
+          { title: 'Contracts', description: 'Canonical contract stories and program records.', href: '/contracts', badge: 'Browse', kind: 'utility', eyebrow: 'Browse' }
+        ]
+      },
+      {
+        key: 'docs',
+        title: 'Docs',
+        description: 'Native evergreen product pages.',
+        items: [
+          { title: 'About', description: 'What T-Minus Zero is and how the surfaces fit together.', href: '/about', badge: 'Docs', kind: 'utility', eyebrow: 'Docs' },
+          { title: 'FAQ', description: 'Answers to common launch, billing, and privacy questions.', href: '/docs/faq', badge: 'Docs', kind: 'utility', eyebrow: 'Docs' },
+          { title: 'Roadmap', description: 'Published product phases and current direction.', href: '/docs/roadmap', badge: 'Docs', kind: 'utility', eyebrow: 'Docs' }
+        ]
+      },
+      {
+        key: 'guides',
+        title: 'Guides',
+        description: 'Field guides and launch-adjacent explainers.',
+        items: [{ title: 'Jellyfish Effect', description: 'Twilight plume visibility guide and planning notes.', href: '/jellyfish-effect', badge: 'Guide', kind: 'utility', eyebrow: 'Guides' }]
+      },
+      {
+        key: 'legal-support',
+        title: 'Legal/Support',
+        description: 'Policy, attribution, and customer help.',
+        items: [
+          { title: 'Support', description: 'Customer help, billing guidance, and privacy requests.', href: '/support', badge: 'Help', kind: 'utility', eyebrow: 'Legal / Support' },
+          { title: 'Data & Attribution', description: 'Public source inventory and attribution notes.', href: '/legal/data', badge: 'Legal', kind: 'utility', eyebrow: 'Legal / Support' },
+          { title: 'Privacy', description: 'How data is collected and used.', href: '/legal/privacy', badge: 'Legal', kind: 'utility', eyebrow: 'Legal / Support' },
+          { title: 'Privacy Choices', description: 'Export, opt-out, and delete controls.', href: '/legal/privacy-choices', badge: 'Legal', kind: 'utility', eyebrow: 'Legal / Support' },
+          { title: 'Terms', description: 'Service rules, subscriptions, and alert guidance.', href: '/legal/terms', badge: 'Legal', kind: 'utility', eyebrow: 'Legal / Support' }
+        ]
+      }
     ]
   });
 }
@@ -288,7 +395,26 @@ export function loadContentPagePayload(slugValue: string | null | undefined) {
       title: section.title,
       body: section.body,
       bullets: [...(section.bullets ?? [])]
-    }))
+    })),
+    presentation: page.presentation
+      ? {
+          style: page.presentation.style ?? null,
+          heroImageUrl: page.presentation.heroImageUrl ?? null,
+          heroCaption: page.presentation.heroCaption ?? null,
+          chips: [...(page.presentation.chips ?? [])],
+          highlights: (page.presentation.highlights ?? []).map((item) => ({
+            label: item.label,
+            value: item.value,
+            detail: item.detail ?? null
+          })),
+          timeline: (page.presentation.timeline ?? []).map((item) => ({
+            title: item.title,
+            body: item.body,
+            status: item.status ?? null
+          })),
+          searchPlaceholder: page.presentation.searchPlaceholder ?? null
+        }
+      : undefined
   });
 }
 

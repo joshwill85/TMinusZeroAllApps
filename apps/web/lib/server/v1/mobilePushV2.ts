@@ -13,6 +13,7 @@ import {
   mobilePushTestSchemaV1,
   successResponseSchemaV1
 } from '@tminuszero/contracts';
+import { getDefaultMobilePushPrelaunchOffsets, getMobilePushMaxPrelaunchOffsets, getMobilePushPrelaunchOptions } from '@tminuszero/domain';
 import { isSupabaseAdminConfigured } from '@/lib/server/env';
 import { getViewerEntitlement } from '@/lib/server/entitlements';
 import {
@@ -176,12 +177,8 @@ export class MobilePushRouteError extends Error {
   }
 }
 
-const BASIC_PRELAUNCH_OPTIONS = new Set([1, 5, 10, 60]);
-const PREMIUM_PRELAUNCH_OPTIONS = new Set([1, 5, 10, 30, 60, 120, 360, 720, 1440]);
 const STATUS_CHANGE_OPTIONS = new Set(['any', 'go', 'hold', 'scrubbed', 'tbd']);
-const BASIC_MAX_PRELAUNCH_OFFSETS = 2;
-const PREMIUM_MAX_PRELAUNCH_OFFSETS = 3;
-const GUEST_SCOPE_LIMITS = {
+const BASIC_SCOPE_LIMITS = {
   launch: 1,
   all_us: 1
 } as const;
@@ -231,6 +228,54 @@ function normalizeStatusChangeTypes(values: unknown) {
   return normalized;
 }
 
+function getReminderScopeKind(scopeKind: string): 'launch' | 'broad' {
+  return scopeKind === 'launch' ? 'launch' : 'broad';
+}
+
+function normalizeRulePrelaunchOffsetsForAccess(
+  values: unknown,
+  {
+    advancedAllowed,
+    scopeKind
+  }: {
+    advancedAllowed: boolean;
+    scopeKind: string;
+  }
+) {
+  const reminderScopeKind = getReminderScopeKind(scopeKind);
+  const allowedOffsets = new Set<number>(getMobilePushPrelaunchOptions(advancedAllowed));
+  const maxOffsets = getMobilePushMaxPrelaunchOffsets({
+    advancedAllowed,
+    scopeKind: reminderScopeKind
+  });
+  const filteredOffsets = normalizeOffsets(values)
+    .filter((value) => allowedOffsets.has(value))
+    .slice(0, maxOffsets);
+
+  return filteredOffsets.length ? filteredOffsets : getDefaultMobilePushPrelaunchOffsets(reminderScopeKind);
+}
+
+function applyReadableRulePolicy(row: RuleRow, access: MobilePushAccess): RuleRow | null {
+  if (access.advancedAllowed) {
+    return row;
+  }
+
+  if (!isBasicScopeKind(row.scope_kind)) {
+    return null;
+  }
+
+  return {
+    ...row,
+    prelaunch_offsets_minutes: normalizeRulePrelaunchOffsetsForAccess(row.prelaunch_offsets_minutes, {
+      advancedAllowed: false,
+      scopeKind: row.scope_kind
+    }),
+    daily_digest_local_time: null,
+    status_change_types: [],
+    notify_net_change: false
+  };
+}
+
 function formatFollowLabel(ruleType: string | null | undefined, ruleValue: string | null | undefined) {
   const type = String(ruleType || '').trim();
   const value = String(ruleValue || '').trim();
@@ -266,7 +311,7 @@ async function resolveMobilePushAccess(session: ResolvedViewerSession) {
   const advancedAllowed = entitlement.tier === 'premium';
 
   return buildMobilePushAccess({
-    ownerKind: advancedAllowed ? 'user' : 'guest',
+    ownerKind: 'user',
     advancedAllowed
   });
 }
@@ -503,113 +548,23 @@ async function deactivateConflictingDevices(
   if (otherUserError) throw otherUserError;
 }
 
-async function copyGuestBasicRulesToUser(admin: AdminClient, installationId: string, userId: string, now: string) {
-  const guestOwner: NotificationOwner = { ownerKind: 'guest', installationId };
-  const userOwner: NotificationOwner = { ownerKind: 'user', userId };
-  const rows = await loadUnifiedRulesForOwner(admin, guestOwner);
-
-  for (const row of rows.filter((entry) => entry.scope_kind === 'launch' || entry.scope_kind === 'all_us')) {
-    await upsertUnifiedRule(admin, {
-      ...userOwner,
-      intent: 'notifications_only',
-      visibleInFollowing: false,
-      enabled: row.enabled !== false,
-      channels: ['push'],
-      scope: ruleRowToScope(row),
-      settings: {
-        timezone: normalizeText(row.timezone) ?? 'UTC',
-        prelaunchOffsetsMinutes: normalizeOffsets(row.prelaunch_offsets_minutes).slice(0, BASIC_MAX_PRELAUNCH_OFFSETS),
-        dailyDigestLocalTime: null,
-        statusChangeTypes: [],
-        notifyNetChanges: false
-      }
-    });
-  }
+function isBasicScopeKind(scopeKind: string): scopeKind is keyof typeof BASIC_SCOPE_LIMITS {
+  return scopeKind === 'launch' || scopeKind === 'all_us';
 }
 
-async function requireAuthorizedGuestDevice(admin: AdminClient, installationId: string, deviceSecret: string | null, activeOnly = false) {
-  const row = (await loadCurrentDevice(admin, {
-    ownerKind: 'guest',
-    installationId,
-    userId: null,
-    deviceSecret,
-    access: buildMobilePushAccess({ ownerKind: 'guest', advancedAllowed: false })
-  })) as (DeviceRow & {
-    device_secret_hash?: string | null;
-  }) | null;
-  if (!row) {
-    throw new MobilePushRouteError(409, 'push_not_registered');
-  }
-  if (!secretsMatch(row.device_secret_hash, deviceSecret)) {
-    throw new MobilePushRouteError(401, 'invalid_guest_device');
-  }
-  if (activeOnly && row.is_active !== true) {
-    throw new MobilePushRouteError(409, 'push_not_registered');
-  }
-  return row;
+function isPushEnabledRule(row: { enabled?: boolean | null; channels?: string[] | null }) {
+  return row.enabled !== false && Array.isArray(row.channels) && row.channels.includes('push');
 }
 
-async function requireActiveDevice(admin: AdminClient, principal: MobilePushPrincipal) {
-  if (principal.ownerKind === 'guest') {
-    return requireAuthorizedGuestDevice(admin, principal.installationId, principal.deviceSecret, true);
-  }
-
-  const row = await loadCurrentDevice(admin, principal);
-  if (!row || row.is_active !== true) {
-    throw new MobilePushRouteError(409, 'push_not_registered');
-  }
-  return row;
-}
-
-async function verifyGuestReadAccessIfNeeded(admin: AdminClient, principal: MobilePushPrincipal) {
-  if (principal.ownerKind !== 'guest') {
-    return;
-  }
-
-  const existingDevice = await loadCurrentDevice(admin, principal);
-  if (!existingDevice) {
-    return;
-  }
-  if (!secretsMatch(existingDevice.device_secret_hash, principal.deviceSecret)) {
-    throw new MobilePushRouteError(401, 'invalid_guest_device');
-  }
-}
-
-async function pruneGuestBasicRules(
+async function pruneStarterLaunchRules(
   admin: AdminClient,
-  principal: MobilePushPrincipal,
+  owner: NotificationOwner,
+  rows: RuleRow[],
   options: {
     preferredLaunchId?: string | null;
     nowMs?: number;
   } = {}
 ) {
-  if (principal.ownerKind !== 'guest') {
-    return { activeLaunchId: null as string | null };
-  }
-
-  const owner = toNotificationOwner(principal);
-  const rows = (await loadUnifiedRulesForOwner(admin, owner)).filter(
-    (row) => row.enabled !== false && Array.isArray(row.channels) && row.channels.includes('push')
-  ) as RuleRow[];
-
-  const stateRules = rows.filter((row) => row.scope_kind === 'state');
-  if (stateRules.length) {
-    await Promise.all(
-      stateRules.map((row) =>
-        removeChannelsFromUnifiedRule(
-          admin,
-          owner,
-          {
-            scopeKind: 'state',
-            scopeKey: String(row.scope_key || row.state || '').trim().toLowerCase(),
-            state: normalizeText(row.state) ?? ''
-          },
-          ['push']
-        )
-      )
-    );
-  }
-
   const launchRules = rows.filter((row) => row.scope_kind === 'launch' && normalizeText(row.launch_id));
   if (!launchRules.length) {
     return { activeLaunchId: null as string | null };
@@ -670,14 +625,140 @@ async function pruneGuestBasicRules(
   };
 }
 
+async function copyGuestBasicRulesToUser(admin: AdminClient, installationId: string, userId: string, now: string) {
+  const guestOwner: NotificationOwner = { ownerKind: 'guest', installationId };
+  const userOwner: NotificationOwner = { ownerKind: 'user', userId };
+  const rows = (await loadUnifiedRulesForOwner(admin, guestOwner)).filter(isPushEnabledRule) as RuleRow[];
+  const { activeLaunchId } = await pruneStarterLaunchRules(admin, guestOwner, rows, {
+    nowMs: Date.parse(now)
+  });
+
+  for (const row of rows.filter((entry) => {
+    if (entry.scope_kind === 'all_us') {
+      return true;
+    }
+    return entry.scope_kind === 'launch' && normalizeText(entry.launch_id)?.toLowerCase() === activeLaunchId;
+  })) {
+    await upsertUnifiedRule(admin, {
+      ...userOwner,
+      intent: 'notifications_only',
+      visibleInFollowing: false,
+      enabled: row.enabled !== false,
+      channels: ['push'],
+      scope: ruleScopeFromRow(row),
+      settings: {
+        timezone: normalizeText(row.timezone) ?? 'UTC',
+        prelaunchOffsetsMinutes: normalizeOffsets(row.prelaunch_offsets_minutes).slice(
+          0,
+          getMobilePushMaxPrelaunchOffsets({ advancedAllowed: false, scopeKind: 'launch' })
+        ),
+        dailyDigestLocalTime: null,
+        statusChangeTypes: [],
+        notifyNetChanges: false
+      }
+    });
+  }
+
+  return { preferredLaunchId: activeLaunchId };
+}
+
+async function requireAuthorizedGuestDevice(admin: AdminClient, installationId: string, deviceSecret: string | null, activeOnly = false) {
+  const row = (await loadCurrentDevice(admin, {
+    ownerKind: 'guest',
+    installationId,
+    userId: null,
+    deviceSecret,
+    access: buildMobilePushAccess({ ownerKind: 'guest', advancedAllowed: false })
+  })) as (DeviceRow & {
+    device_secret_hash?: string | null;
+  }) | null;
+  if (!row) {
+    throw new MobilePushRouteError(409, 'push_not_registered');
+  }
+  if (!secretsMatch(row.device_secret_hash, deviceSecret)) {
+    throw new MobilePushRouteError(401, 'invalid_guest_device');
+  }
+  if (activeOnly && row.is_active !== true) {
+    throw new MobilePushRouteError(409, 'push_not_registered');
+  }
+  return row;
+}
+
+async function requireActiveDevice(admin: AdminClient, principal: MobilePushPrincipal) {
+  if (principal.ownerKind === 'guest') {
+    return requireAuthorizedGuestDevice(admin, principal.installationId, principal.deviceSecret, true);
+  }
+
+  const row = await loadCurrentDevice(admin, principal);
+  if (!row || row.is_active !== true) {
+    throw new MobilePushRouteError(409, 'push_not_registered');
+  }
+  return row;
+}
+
+async function verifyGuestReadAccessIfNeeded(admin: AdminClient, principal: MobilePushPrincipal) {
+  if (principal.ownerKind !== 'guest') {
+    return;
+  }
+
+  const existingDevice = await loadCurrentDevice(admin, principal);
+  if (!existingDevice) {
+    return;
+  }
+  if (!secretsMatch(existingDevice.device_secret_hash, principal.deviceSecret)) {
+    throw new MobilePushRouteError(401, 'invalid_guest_device');
+  }
+}
+
+async function pruneBasicRules(
+  admin: AdminClient,
+  principal: MobilePushPrincipal,
+  options: {
+    preferredLaunchId?: string | null;
+    nowMs?: number;
+  } = {}
+) {
+  if (principal.access.advancedAllowed) {
+    return { activeLaunchId: null as string | null };
+  }
+
+  const owner = toNotificationOwner(principal);
+  const rows = (await loadUnifiedRulesForOwner(admin, owner)).filter(isPushEnabledRule) as RuleRow[];
+
+  if (principal.ownerKind === 'guest') {
+    const stateRules = rows.filter((row) => row.scope_kind === 'state');
+    if (stateRules.length) {
+      await Promise.all(
+        stateRules.map((row) =>
+          removeChannelsFromUnifiedRule(
+            admin,
+            owner,
+            {
+              scopeKind: 'state',
+              scopeKey: String(row.scope_key || row.state || '').trim().toLowerCase(),
+              state: normalizeText(row.state) ?? ''
+            },
+            ['push']
+          )
+        )
+      );
+    }
+  }
+
+  return pruneStarterLaunchRules(admin, owner, rows, options);
+}
+
 async function loadRules(admin: AdminClient, principal: MobilePushPrincipal) {
-  await pruneGuestBasicRules(admin, principal);
+  await pruneBasicRules(admin, principal);
   const rows = await loadUnifiedRulesForOwner(admin, toNotificationOwner(principal));
-  return rows.filter((row) => row.enabled !== false && Array.isArray(row.channels) && row.channels.includes('push')) as RuleRow[];
+  return rows
+    .filter(isPushEnabledRule)
+    .map((row) => applyReadableRulePolicy(row as RuleRow, principal.access))
+    .filter((row): row is RuleRow => row !== null);
 }
 
 async function loadLaunchRule(admin: AdminClient, principal: MobilePushPrincipal, launchId: string) {
-  await pruneGuestBasicRules(admin, principal, { preferredLaunchId: launchId });
+  await pruneBasicRules(admin, principal, { preferredLaunchId: launchId });
   const row = await loadUnifiedRuleByScope(admin, toNotificationOwner(principal), {
     scopeKind: 'launch',
     scopeKey: launchId.toLowerCase(),
@@ -686,7 +767,7 @@ async function loadLaunchRule(admin: AdminClient, principal: MobilePushPrincipal
   if (!row || !Array.isArray(row.channels) || !row.channels.includes('push')) {
     return null;
   }
-  return row as RuleRow;
+  return applyReadableRulePolicy(row as RuleRow, principal.access);
 }
 
 function normalizeWatchlistRule(ruleType: string, ruleValue: string) {
@@ -774,20 +855,25 @@ function normalizeScopeSettings(
   const dailyDigestLocalTime = normalizeLocalTime(payload.dailyDigestLocalTime);
   const statusChangeTypes = normalizeStatusChangeTypes(payload.statusChangeTypes);
   const notifyNetChange = payload.notifyNetChanges === true;
+  const reminderScopeKind = scopeKind === 'launch' ? 'launch' : 'broad';
+  const allowedOffsets = new Set<number>(getMobilePushPrelaunchOptions(access.advancedAllowed));
+  const maxPrelaunchOffsets = getMobilePushMaxPrelaunchOffsets({
+    advancedAllowed: access.advancedAllowed,
+    scopeKind: reminderScopeKind
+  });
 
-  const allowedOffsets = access.advancedAllowed ? PREMIUM_PRELAUNCH_OPTIONS : BASIC_PRELAUNCH_OPTIONS;
   if (prelaunchOffsetsMinutes.some((value) => !allowedOffsets.has(value))) {
     throw new MobilePushRouteError(400, 'invalid_prelaunch_offset');
   }
-  if (prelaunchOffsetsMinutes.length > access.maxPrelaunchOffsets) {
+  if (prelaunchOffsetsMinutes.length > maxPrelaunchOffsets) {
     throw new MobilePushRouteError(402, 'payment_required');
   }
   if (!access.advancedAllowed) {
     if (scopeKind === 'launch') {
-      if (prelaunchOffsetsMinutes.length < 1 || prelaunchOffsetsMinutes.length > BASIC_MAX_PRELAUNCH_OFFSETS) {
+      if (prelaunchOffsetsMinutes.length < 1 || prelaunchOffsetsMinutes.length > maxPrelaunchOffsets) {
         throw new MobilePushRouteError(402, 'payment_required');
       }
-    } else if (prelaunchOffsetsMinutes.length !== 1) {
+    } else if (prelaunchOffsetsMinutes.length !== maxPrelaunchOffsets) {
       throw new MobilePushRouteError(402, 'payment_required');
     }
   }
@@ -824,7 +910,10 @@ function buildMobilePushAccess({
     ownerKind,
     basicAllowed: true,
     advancedAllowed,
-    maxPrelaunchOffsets: advancedAllowed ? PREMIUM_MAX_PRELAUNCH_OFFSETS : BASIC_MAX_PRELAUNCH_OFFSETS,
+    maxPrelaunchOffsets: getMobilePushMaxPrelaunchOffsets({
+      advancedAllowed,
+      scopeKind: 'launch'
+    }),
     canUseDailyDigest: advancedAllowed,
     canUseStatusChangeTypes: advancedAllowed,
     canUseNetChangeAlerts: advancedAllowed
@@ -837,18 +926,18 @@ async function upsertRule(
   payload: ReturnType<typeof mobilePushRuleUpsertSchemaV1.parse>,
   launchIdOverride: string | null = null
 ) {
-  if (principal.ownerKind !== 'user') {
-    const allowedGuestScopes = new Set(['all_us', 'launch']);
-    const effectiveScope = launchIdOverride ? 'launch' : payload.scopeKind;
-    if (!allowedGuestScopes.has(effectiveScope)) {
-      throw new MobilePushRouteError(402, 'payment_required');
-    }
+  const scopeKind = launchIdOverride ? 'launch' : payload.scopeKind;
+  if (!principal.access.advancedAllowed && !isBasicScopeKind(scopeKind)) {
+    throw new MobilePushRouteError(402, 'payment_required');
+  }
+
+  if (!principal.userId && (scopeKind === 'preset' || scopeKind === 'follow')) {
+    throw new MobilePushRouteError(402, 'payment_required');
   }
 
   await requireActiveDevice(admin, principal);
-  await pruneGuestBasicRules(admin, principal, { preferredLaunchId: launchIdOverride });
+  await pruneBasicRules(admin, principal, { preferredLaunchId: launchIdOverride });
 
-  const scopeKind = launchIdOverride ? 'launch' : payload.scopeKind;
   if (!launchIdOverride && scopeKind === 'launch') {
     throw new MobilePushRouteError(400, 'invalid_scope');
   }
@@ -950,8 +1039,6 @@ async function upsertRule(
     } else {
       throw new MobilePushRouteError(400, 'invalid_scope');
     }
-  } else if (scopeKind === 'all_launches' && principal.ownerKind !== 'user') {
-    throw new MobilePushRouteError(402, 'payment_required');
   }
 
   const scope = normalizeNotificationScopeInput(scopeInput as any);
@@ -961,9 +1048,9 @@ async function upsertRule(
 
   const owner = toNotificationOwner(principal);
   const existing = await loadUnifiedRuleByScope(admin, owner, scope);
-  if (!existing && principal.ownerKind !== 'user' && (scope.scopeKind === 'launch' || scope.scopeKind === 'all_us')) {
+  if (!existing && !principal.access.advancedAllowed && isBasicScopeKind(scope.scopeKind)) {
     const count = await countUnifiedRulesByScopeKind(admin, owner, [scope.scopeKind]);
-    if (count >= GUEST_SCOPE_LIMITS[scope.scopeKind]) {
+    if (count >= BASIC_SCOPE_LIMITS[scope.scopeKind]) {
       throw new MobilePushRouteError(409, 'limit_reached');
     }
   }
@@ -1072,7 +1159,10 @@ export async function registerMobilePushDevicePayload(session: ResolvedViewerSes
     }
   )) as DeviceRow;
   if (principal.userId) {
-    await copyGuestBasicRulesToUser(admin, payload.installationId, principal.userId, now);
+    const { preferredLaunchId } = await copyGuestBasicRulesToUser(admin, payload.installationId, principal.userId, now);
+    if (!principal.access.advancedAllowed) {
+      await pruneBasicRules(admin, principal, { preferredLaunchId, nowMs: Date.parse(now) });
+    }
   }
   return mapDevice(data, principal, null);
 }

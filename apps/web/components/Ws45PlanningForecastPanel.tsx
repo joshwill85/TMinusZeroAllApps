@@ -1,3 +1,8 @@
+import type {
+  Ws45Planning24hStructuredPayload,
+  Ws45PlanningStructuredPayload,
+  Ws45PlanningWeeklyStructuredPayload
+} from '../../../shared/ws45PlanningParser';
 import type { Ws45PlanningForecast } from '@/lib/server/ws45RangeWeather';
 
 export function Ws45PlanningForecastPanel({
@@ -14,6 +19,7 @@ export function Ws45PlanningForecastPanel({
   const title = kind === 'planning_24h' ? '45 WS planning forecast' : 'Cape weekly outlook';
   const subtitle = kind === 'planning_24h' ? 'Day-of range trend context' : 'Week-ahead Cape weather trend';
   const limitedExtract = forecast?.parse_status !== 'parsed';
+  const detail = forecast?.structured_payload ?? null;
 
   return (
     <section className={className ?? 'rounded-2xl border border-stroke bg-surface-1 p-4'}>
@@ -70,9 +76,171 @@ export function Ws45PlanningForecastPanel({
               </div>
             </div>
           ) : null}
+
+          {detail ? <PlanningDetailSection detail={detail} /> : null}
         </div>
       )}
     </section>
+  );
+}
+
+function PlanningDetailSection({ detail }: { detail: Ws45PlanningStructuredPayload }) {
+  if (detail.kind === 'planning_24h') {
+    return <Planning24hSection detail={detail} />;
+  }
+  return <PlanningWeeklySection detail={detail} />;
+}
+
+function Planning24hSection({ detail }: { detail: Ws45Planning24hStructuredPayload }) {
+  return (
+    <>
+      <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-4">
+        <div className="text-[11px] uppercase tracking-[0.08em] text-text3">24-hour periods</div>
+        <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {detail.periods.map((period) => (
+            <article key={period.label} className="rounded-xl border border-stroke bg-surface-0 p-4">
+              <div className="text-[11px] uppercase tracking-[0.08em] text-text3">
+                {[period.dayLabel, period.label].filter(Boolean).join(' • ')}
+              </div>
+              {period.skyCondition ? <div className="mt-2 text-base font-semibold text-text1">{period.skyCondition}</div> : null}
+              <div className="mt-3 space-y-2">
+                <MetricRow label="Precip" value={formatPercent(period.precipitationProbabilityPct)} />
+                <MetricRow label="Lightning" value={formatPercent(period.lightningProbabilityPct)} />
+                <MetricRow label="Wind" value={period.wind || 'TBD'} />
+                <MetricRow
+                  label="Temp"
+                  value={formatTemperatureRange(period.temperatureMinF, period.temperatureMaxF, period.temperatureLabel)}
+                />
+                <MetricRow label="Severe" value={period.severeWeatherPotential || 'TBD'} />
+              </div>
+            </article>
+          ))}
+        </div>
+      </div>
+
+      {detail.sourceNotes.length || detail.contact || detail.preparedBy ? (
+        <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-4">
+          <div className="text-[11px] uppercase tracking-[0.08em] text-text3">Source notes</div>
+          <div className="mt-3 space-y-2 text-sm text-text2">
+            {detail.sourceNotes.map((note) => (
+              <p key={note}>{note}</p>
+            ))}
+            {detail.coverageNote ? <p>{detail.coverageNote}</p> : null}
+            {detail.contact ? <p>{detail.contact}</p> : null}
+            {detail.preparedBy ? <p>Prepared by {detail.preparedBy}</p> : null}
+            {(detail.sunriseZulu || detail.sunsetZulu) ? (
+              <p>
+                {[detail.sunriseZulu ? `Sunrise(Z) ${detail.sunriseZulu}` : null, detail.sunsetZulu ? `Sunset(Z) ${detail.sunsetZulu}` : null]
+                  .filter(Boolean)
+                  .join(' • ')}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function PlanningWeeklySection({ detail }: { detail: Ws45PlanningWeeklyStructuredPayload }) {
+  return (
+    <>
+      <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-4">
+        <div className="text-[11px] uppercase tracking-[0.08em] text-text3">Week-ahead daily detail</div>
+        <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {detail.days.map((day) => (
+            <article key={day.dateLabel} className="rounded-xl border border-stroke bg-surface-0 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-[11px] uppercase tracking-[0.08em] text-text3">{day.dayLabel || 'Forecast day'}</div>
+                  <div className="mt-1 text-base font-semibold text-text1">{day.dateLabel}</div>
+                </div>
+                <div className="text-right text-sm text-text2">{formatWeeklyTemps(day.minTempF, day.maxTempF)}</div>
+              </div>
+
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <DayPartCard label="AM" sky={day.am.skyCondition} precip={day.am.precipitationProbabilityPct} lightning={day.am.lightningProbabilityPct} wind={day.am.wind} />
+                <DayPartCard label="PM" sky={day.pm.skyCondition} precip={day.pm.precipitationProbabilityPct} lightning={day.pm.lightningProbabilityPct} wind={day.pm.wind} />
+              </div>
+
+              <div className="mt-3 text-xs text-text3">
+                Severe weather potential: <span className="text-text2">{day.severeWeatherPotential || 'TBD'}</span>
+              </div>
+            </article>
+          ))}
+        </div>
+      </div>
+
+      {detail.sourceNotes.length || detail.contact || detail.preparedBy || detail.climate ? (
+        <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-4">
+          <div className="text-[11px] uppercase tracking-[0.08em] text-text3">Source notes</div>
+          <div className="mt-3 space-y-2 text-sm text-text2">
+            {detail.sourceNotes.map((note) => (
+              <p key={note}>{note}</p>
+            ))}
+            {detail.contact ? <p>{detail.contact}</p> : null}
+            {detail.preparedBy ? <p>Prepared by {detail.preparedBy}</p> : null}
+            {detail.postedLabel ? <p>{detail.postedLabel}</p> : null}
+            {detail.climate ? (
+              <p>
+                Monthly averages:{' '}
+                {[
+                  detail.climate.rainProbabilityPct != null ? `rain ${detail.climate.rainProbabilityPct}%` : null,
+                  detail.climate.lightningProbabilityPct != null ? `lightning ${detail.climate.lightningProbabilityPct}%` : null,
+                  detail.climate.lowTempF != null ? `low ${detail.climate.lowTempF}F` : null,
+                  detail.climate.highTempF != null ? `high ${detail.climate.highTempF}F` : null
+                ]
+                  .filter(Boolean)
+                  .join(' • ')}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function DayPartCard({
+  label,
+  sky,
+  precip,
+  lightning,
+  wind
+}: {
+  label: string;
+  sky: string | null;
+  precip: number | null;
+  lightning: number | null;
+  wind: string | null;
+}) {
+  return (
+    <div className="rounded-lg border border-stroke/70 bg-[rgba(255,255,255,0.02)] p-3">
+      <div className="text-[11px] uppercase tracking-[0.08em] text-text3">{label}</div>
+      {sky ? <div className="mt-2 text-sm font-semibold text-text1">{sky}</div> : null}
+      <div className="mt-2 space-y-1">
+        <MetricRow label="Precip" value={formatPercent(precip)} compact />
+        <MetricRow label="Lightning" value={formatPercent(lightning)} compact />
+        <MetricRow label="Wind" value={wind || 'TBD'} compact />
+      </div>
+    </div>
+  );
+}
+
+function MetricRow({
+  label,
+  value,
+  compact = false
+}: {
+  label: string;
+  value: string;
+  compact?: boolean;
+}) {
+  return (
+    <div className={`flex items-center justify-between gap-3 ${compact ? '' : 'border-b border-stroke/50 py-1.5 last:border-0'}`}>
+      <span className="text-xs text-text3">{label}</span>
+      <span className="text-right text-sm font-semibold text-text1">{value}</span>
+    </div>
   );
 }
 
@@ -117,4 +285,20 @@ function formatRange(start: string, end: string, tz: string) {
 
 function formatDayKey(date: Date, tz: string) {
   return new Intl.DateTimeFormat('en-US', { year: 'numeric', month: '2-digit', day: '2-digit', timeZone: tz }).format(date);
+}
+
+function formatPercent(value: number | null | undefined) {
+  return value == null ? 'TBD' : `${Math.round(value)}%`;
+}
+
+function formatTemperatureRange(min: number | null | undefined, max: number | null | undefined, label: string | null | undefined) {
+  if (min != null && max != null) return `${min}-${max}F`;
+  return label || 'TBD';
+}
+
+function formatWeeklyTemps(min: number | null | undefined, max: number | null | undefined) {
+  if (min != null && max != null) return `${min}-${max}F`;
+  if (min != null) return `Low ${min}F`;
+  if (max != null) return `High ${max}F`;
+  return 'Temps TBD';
 }

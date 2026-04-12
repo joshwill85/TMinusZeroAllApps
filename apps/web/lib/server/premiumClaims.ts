@@ -1,5 +1,9 @@
 import { stripe, PRICE_PRO_MONTHLY } from '@/lib/api/stripe';
 import { sanitizeReturnToPath } from '@/lib/billing/shared';
+import {
+  readPremiumClaimProviderCreateReservation,
+  writePremiumClaimProviderCreateReservation
+} from '@/lib/server/premiumClaimProviderCreate';
 import { isStripeConfigured, isStripePriceConfigured, isSupabaseAdminConfigured, getSiteUrl } from '@/lib/server/env';
 import { getViewerEntitlement } from '@/lib/server/entitlements';
 import {
@@ -325,7 +329,8 @@ async function claimToUserId(claimToken: string, userId: string) {
   return updateClaim(row.id, {
     user_id: userId,
     status: 'claimed',
-    claimed_at: row.claimed_at ?? new Date().toISOString()
+    claimed_at: row.claimed_at ?? new Date().toISOString(),
+    metadata: writePremiumClaimProviderCreateReservation(row.metadata, null)
   });
 }
 
@@ -506,6 +511,9 @@ export async function createPremiumAccountFromClaim({
   }
   if (claim.user_id) {
     throw new PremiumClaimRouteError(409, 'claim_already_claimed');
+  }
+  if (readPremiumClaimProviderCreateReservation(claim.metadata)) {
+    throw new PremiumClaimRouteError(409, 'claim_sign_in_required');
   }
 
   const normalizedEmail = normalizeEmail(email);

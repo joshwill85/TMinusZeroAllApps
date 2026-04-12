@@ -1444,6 +1444,74 @@ const launchOperationalWeatherSchemaV1 = z.object({
   actionUrl: z.string().nullable().optional()
 });
 
+const launchPlanning24hPeriodSchemaV1 = z.object({
+  label: z.string(),
+  dayLabel: z.string().nullable().optional(),
+  skyCondition: z.string().nullable().optional(),
+  precipitationProbabilityPct: z.number().nullable().optional(),
+  lightningProbabilityPct: z.number().nullable().optional(),
+  wind: z.string().nullable().optional(),
+  temperatureLabel: z.string().nullable().optional(),
+  temperatureMinF: z.number().nullable().optional(),
+  temperatureMaxF: z.number().nullable().optional(),
+  severeWeatherPotential: z.string().nullable().optional()
+});
+
+const launchPlanningWeeklyDayPartSchemaV1 = z.object({
+  skyCondition: z.string().nullable().optional(),
+  precipitationProbabilityPct: z.number().nullable().optional(),
+  lightningProbabilityPct: z.number().nullable().optional(),
+  wind: z.string().nullable().optional()
+});
+
+const launchPlanningWeeklyDaySchemaV1 = z.object({
+  dateLabel: z.string(),
+  dayLabel: z.string().nullable().optional(),
+  am: launchPlanningWeeklyDayPartSchemaV1,
+  pm: launchPlanningWeeklyDayPartSchemaV1,
+  minTempF: z.number().nullable().optional(),
+  maxTempF: z.number().nullable().optional(),
+  severeWeatherPotential: z.string().nullable().optional()
+});
+
+const launchWeatherPlanningDetailSchemaV1 = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('planning_24h'),
+    title: z.string().nullable().optional(),
+    issueDateLabel: z.string().nullable().optional(),
+    location: z.string().nullable().optional(),
+    periods: z.array(launchPlanning24hPeriodSchemaV1).default([]),
+    remarks: z.array(z.string()).default([]),
+    sourceNotes: z.array(z.string()).default([]),
+    preparedBy: z.string().nullable().optional(),
+    sunriseZulu: z.string().nullable().optional(),
+    sunsetZulu: z.string().nullable().optional(),
+    coverageNote: z.string().nullable().optional(),
+    contact: z.string().nullable().optional()
+  }),
+  z.object({
+    kind: z.literal('weekly_planning'),
+    title: z.string().nullable().optional(),
+    issueDateLabel: z.string().nullable().optional(),
+    location: z.string().nullable().optional(),
+    postedLabel: z.string().nullable().optional(),
+    days: z.array(launchPlanningWeeklyDaySchemaV1).default([]),
+    remarks: z.array(z.string()).default([]),
+    sourceNotes: z.array(z.string()).default([]),
+    preparedBy: z.string().nullable().optional(),
+    contact: z.string().nullable().optional(),
+    climate: z
+      .object({
+        rainProbabilityPct: z.number().nullable().optional(),
+        lightningProbabilityPct: z.number().nullable().optional(),
+        lowTempF: z.number().nullable().optional(),
+        highTempF: z.number().nullable().optional()
+      })
+      .nullable()
+      .optional()
+  })
+]);
+
 const launchWeatherCardSchemaV1 = z.object({
   id: z.string(),
   source: z.enum(['ws45', 'nws', 'ws45_planning_24h', 'ws45_weekly']),
@@ -1456,6 +1524,7 @@ const launchWeatherCardSchemaV1 = z.object({
   detail: z.string().nullable().optional(),
   badges: z.array(z.string()).default([]),
   metrics: z.array(launchWeatherMetricSchemaV1).default([]),
+  planningDetail: launchWeatherPlanningDetailSchemaV1.nullable().optional(),
   actionLabel: z.string().nullable().optional(),
   actionUrl: z.string().nullable().optional()
 });
@@ -1519,6 +1588,7 @@ const launchRelatedNewsSchemaV1 = z.object({
   id: z.string(),
   title: z.string(),
   url: z.string(),
+  detailHref: z.string().nullable().optional(),
   newsSite: z.string().nullable().optional(),
   summary: z.string().nullable().optional(),
   imageUrl: z.string().nullable().optional(),
@@ -1896,6 +1966,7 @@ const newsItemSchemaV1 = z.object({
   title: z.string(),
   summary: z.string().nullable(),
   url: z.string(),
+  detailHref: z.string(),
   newsSite: z.string().nullable(),
   imageUrl: z.string().nullable(),
   publishedAt: z.string().nullable(),
@@ -1917,6 +1988,24 @@ export const newsStreamSchemaV1 = z.object({
   items: z.array(newsItemSchemaV1),
   nextCursor: z.number().int().nonnegative(),
   hasMore: z.boolean()
+});
+
+export const newsArticleDetailSchemaV1 = z.object({
+  generatedAt: z.string(),
+  id: z.string(),
+  itemType: z.enum(['article', 'blog', 'report']),
+  title: z.string(),
+  summary: z.string().nullable(),
+  excerpt: z.string().nullable(),
+  sourceUrl: z.string(),
+  sourceLabel: z.string().nullable(),
+  imageUrl: z.string().nullable(),
+  publishedAt: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+  authors: z.array(z.string()).default([]),
+  featured: z.boolean(),
+  relatedLaunches: z.array(customerRouteLaunchSummarySchemaV1).default([]),
+  relatedActions: z.array(customerRouteLinkSchemaV1).default([])
 });
 
 const canonicalContractProgramScopeSchemaV1 = z.enum(['spacex', 'blue-origin', 'artemis']);
@@ -2108,6 +2197,28 @@ const contentSectionSchemaV1 = z.object({
   bullets: z.array(z.string()).default([])
 });
 
+const contentPagePresentationHighlightSchemaV1 = z.object({
+  label: z.string(),
+  value: z.string(),
+  detail: z.string().nullable().optional()
+});
+
+const contentPagePresentationTimelineItemSchemaV1 = z.object({
+  title: z.string(),
+  body: z.string(),
+  status: z.enum(['complete', 'active', 'up-next']).nullable().optional()
+});
+
+const contentPagePresentationSchemaV1 = z.object({
+  style: z.enum(['story', 'faq', 'timeline', 'guide', 'legal', 'support']).nullable().optional(),
+  heroImageUrl: z.string().nullable().optional(),
+  heroCaption: z.string().nullable().optional(),
+  chips: z.array(z.string()).default([]),
+  highlights: z.array(contentPagePresentationHighlightSchemaV1).default([]),
+  timeline: z.array(contentPagePresentationTimelineItemSchemaV1).default([]),
+  searchPlaceholder: z.string().nullable().optional()
+});
+
 export const contentPageSchemaV1 = z.object({
   slug: z.string(),
   eyebrow: z.string(),
@@ -2115,21 +2226,32 @@ export const contentPageSchemaV1 = z.object({
   description: z.string(),
   lastUpdated: z.string(),
   actions: z.array(customerRouteLinkSchemaV1),
-  sections: z.array(contentSectionSchemaV1)
+  sections: z.array(contentSectionSchemaV1),
+  presentation: contentPagePresentationSchemaV1.optional()
 });
 
 const infoHubCardSchemaV1 = z.object({
   title: z.string(),
   description: z.string(),
   href: z.string(),
-  badge: z.string().nullable()
+  badge: z.string().nullable(),
+  kind: z.enum(['hero', 'utility']).default('utility'),
+  eyebrow: z.string().nullable().optional()
+});
+
+const infoHubSectionSchemaV1 = z.object({
+  key: z.string(),
+  title: z.string(),
+  description: z.string().nullable().optional(),
+  items: z.array(infoHubCardSchemaV1).default([])
 });
 
 export const infoHubSchemaV1 = z.object({
   generatedAt: z.string(),
   title: z.string(),
   description: z.string(),
-  cards: z.array(infoHubCardSchemaV1)
+  cards: z.array(infoHubCardSchemaV1),
+  sections: z.array(infoHubSectionSchemaV1).default([])
 });
 
 export const catalogEntityTypeSchemaV1 = z.enum([
@@ -2512,6 +2634,7 @@ export const premiumOnboardingIntentResponseSchemaV1 = z
 export const premiumOnboardingProviderPreflightSchemaV1 = z
   .object({
     intentId: z.string().uuid().nullable().optional(),
+    claimToken: z.string().uuid().nullable().optional(),
     provider: premiumOnboardingProviderSchemaV1,
     email: z.string().trim().email()
   })
@@ -4254,6 +4377,7 @@ export type TrajectoryPublicV2ResponseV1 = z.infer<typeof trajectoryPublicV2Resp
 export type ArTelemetrySessionEventV1 = z.infer<typeof arTelemetrySessionEventSchemaV1>;
 export type SearchResponseV1 = z.infer<typeof searchResponseSchemaV1>;
 export type NewsStreamV1 = z.infer<typeof newsStreamSchemaV1>;
+export type NewsArticleDetailV1 = z.infer<typeof newsArticleDetailSchemaV1>;
 export type CanonicalContractsResponseV1 = z.infer<typeof canonicalContractsResponseSchemaV1>;
 export type CanonicalContractsPageV1 = z.infer<typeof canonicalContractsPageSchemaV1>;
 export type CanonicalContractDetailV1 = z.infer<typeof canonicalContractDetailSchemaV1>;

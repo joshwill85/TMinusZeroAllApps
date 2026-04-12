@@ -9,9 +9,9 @@ export async function GET(request: Request) {
     platform: url.searchParams.get('platform') === 'ios' ? 'ios' : url.searchParams.get('platform') === 'android' ? 'android' : 'web',
     returnTo: url.searchParams.get('return_to'),
     intent: url.searchParams.get('intent'),
-    onboardingIntentId: url.searchParams.get('onboarding_intent_id')
+    onboardingIntentId: url.searchParams.get('onboarding_intent_id'),
+    claimToken: url.searchParams.get('claim_token')
   });
 
   return NextResponse.redirect(authUrl);
 }
-

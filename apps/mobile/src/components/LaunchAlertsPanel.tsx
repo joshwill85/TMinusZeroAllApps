@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Linking, Pressable, Text, View } from 'react-native';
 import { ApiClientError } from '@tminuszero/api-client';
+import { getDefaultMobilePushPrelaunchOffsets, getMobilePushMaxPrelaunchOffsets, getMobilePushPrelaunchOptions } from '@tminuszero/domain';
 import {
   useDeleteMobilePushRuleMutation,
   useMobilePushLaunchPreferenceQuery,
@@ -9,9 +10,6 @@ import {
 import { SectionCard } from '@/src/components/SectionCard';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 import { useMobilePush } from '@/src/providers/MobilePushProvider';
-
-const BASIC_OFFSET_OPTIONS = [1, 5, 10, 60] as const;
-const PREMIUM_OFFSET_OPTIONS = [1, 5, 10, 30, 60, 120, 360, 720, 1440] as const;
 
 type LaunchAlertsPanelProps = {
   launchId: string;
@@ -30,7 +28,7 @@ type LaunchAlertDraft = {
 };
 
 const DEFAULT_LAUNCH_ALERT_DRAFT: LaunchAlertDraft = {
-  prelaunchOffsetsMinutes: [60],
+  prelaunchOffsetsMinutes: getDefaultMobilePushPrelaunchOffsets('launch'),
   notifyStatusChanges: false,
   notifyNetChanges: false
 };
@@ -55,9 +53,14 @@ export function LaunchAlertsPanel({
   const rule = preferenceQuery.data?.rule ?? null;
   const access = preferenceQuery.data?.access ?? null;
   const canManageLaunchNotifications = access?.basicAllowed !== false;
-  const canUseAdvancedNotifications = access?.advancedAllowed === true;
-  const maxOffsets = access?.maxPrelaunchOffsets ?? (isPremium ? 3 : 1);
-  const offsetOptions = canUseAdvancedNotifications ? PREMIUM_OFFSET_OPTIONS : BASIC_OFFSET_OPTIONS;
+  const canUseAdvancedNotifications = access?.advancedAllowed ?? isPremium;
+  const maxOffsets =
+    access?.maxPrelaunchOffsets ??
+    getMobilePushMaxPrelaunchOffsets({
+      advancedAllowed: canUseAdvancedNotifications,
+      scopeKind: 'launch'
+    });
+  const offsetOptions = getMobilePushPrelaunchOptions(canUseAdvancedNotifications);
   const requiresPushGate = !isPushRegistered;
 
   useEffect(() => {
@@ -88,25 +91,25 @@ export function LaunchAlertsPanel({
 
   const helperText = canUseAdvancedNotifications
     ? 'Choose up to three push reminders before liftoff and decide whether launch or NET changes should trigger a push.'
-    : `Choose up to ${maxOffsets} push reminder${maxOffsets === 1 ? '' : 's'} before liftoff. Premium adds launch-change and NET-change alerts.`;
+    : `Choose up to ${maxOffsets} push reminder${maxOffsets === 1 ? '' : 's'} before liftoff on this device. Premium adds launch-change and NET-change alerts.`;
 
   return (
     <SectionCard
-      title="Launch notifications"
+      title="Launch alerts"
       description={
         requiresPushGate
           ? rule
-            ? 'Enable push on this device to resume or edit notifications for this launch.'
-            : 'Enable push on this device before you create launch notifications.'
+            ? 'Enable push on this device to resume or edit alerts for this launch.'
+            : 'Enable push on this device before you create launch alerts.'
           : canUseAdvancedNotifications
-            ? 'Customize reminder times and change alerts for this launch.'
-            : 'Set launch-specific reminder times on this device. Premium unlocks change alerts.'
+            ? 'Customize reminder times and change alerts for this launch on this device.'
+            : 'Set launch-specific reminder times for this device. Premium unlocks change alerts.'
       }
     >
       {!installationId ? (
         <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>Preparing device push settings…</Text>
       ) : preferenceQuery.isPending ? (
-        <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>Loading launch notification settings…</Text>
+        <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>Loading launch alert settings…</Text>
       ) : preferenceQuery.isError ? (
         <Text style={{ color: '#ff9087', fontSize: 14, lineHeight: 21 }}>{preferenceQuery.error.message}</Text>
       ) : requiresPushGate ? (
@@ -277,7 +280,7 @@ export function LaunchAlertsPanel({
 
     try {
       await enablePush();
-      setMessage({ tone: 'success', text: 'Push enabled. Launch notifications are ready on this device.' });
+      setMessage({ tone: 'success', text: 'Push enabled. Launch alerts are ready on this device.' });
     } catch (error) {
       const errorMessage =
         error instanceof Error && error.message === 'Notification permission was not granted.'
@@ -321,7 +324,7 @@ export function LaunchAlertsPanel({
           notifyNetChanges: canUseAdvancedNotifications ? draft.notifyNetChanges : false
         }
       });
-      setMessage({ tone: 'success', text: 'Launch notifications updated.' });
+      setMessage({ tone: 'success', text: 'Launch alerts updated.' });
     } catch (error) {
       setMessage({
         tone: 'error',
@@ -349,7 +352,7 @@ export function LaunchAlertsPanel({
         }
       });
       setDraft(DEFAULT_LAUNCH_ALERT_DRAFT);
-      setMessage({ tone: 'success', text: 'Launch notifications cleared.' });
+      setMessage({ tone: 'success', text: 'Launch alerts cleared.' });
     } catch (error) {
       setMessage({
         tone: 'error',
@@ -490,12 +493,12 @@ function describeLaunchAlertError(error: unknown) {
       return 'That notification setup needs Premium.';
     }
     if (error.code === 'push_not_registered') {
-      return 'Enable push on this device before saving launch notifications.';
+      return 'Enable push on this device before saving launch alerts.';
     }
     if (error.code === 'invalid_guest_device') {
       return 'This device push session expired. Enable push again to refresh it.';
     }
   }
 
-  return error instanceof Error ? error.message : 'Unable to update launch notifications.';
+  return error instanceof Error ? error.message : 'Unable to update launch alerts.';
 }

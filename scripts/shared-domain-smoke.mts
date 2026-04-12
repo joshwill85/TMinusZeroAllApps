@@ -8,6 +8,11 @@ import {
   tierToMode
 } from '../packages/domain/src/viewer.ts';
 import {
+  getDefaultMobilePushPrelaunchOffsets,
+  getMobilePushMaxPrelaunchOffsets,
+  getMobilePushPrelaunchOptions
+} from '../packages/domain/src/mobilePush.ts';
+import {
   parseSiteSearchInput,
   parseSiteSearchTypesParam
 } from '../packages/domain/src/search.ts';
@@ -62,6 +67,16 @@ assert.equal(tierToMode('premium'), 'live');
 assert.equal(getTierRefreshSeconds('premium'), 15);
 assert.equal(getTierLimits('anon').watchlistRuleLimit, 0);
 assert.equal(getTierCapabilities('anon').canUseSavedItems, false);
+assert.equal(getTierCapabilities('anon').canUseBrowserLaunchAlerts, false);
+assert.equal(getTierCapabilities('anon').canUseLaunchDayEmail, false);
+assert.equal(getTierCapabilities('premium').canUseBrowserLaunchAlerts, false);
+assert.equal(getTierCapabilities('premium').canUseLaunchDayEmail, false);
+assert.deepEqual(getMobilePushPrelaunchOptions(false), [1, 5, 10, 60]);
+assert.deepEqual(getDefaultMobilePushPrelaunchOffsets('launch'), [10, 60]);
+assert.deepEqual(getDefaultMobilePushPrelaunchOffsets('broad'), [60]);
+assert.equal(getMobilePushMaxPrelaunchOffsets({ advancedAllowed: false, scopeKind: 'launch' }), 2);
+assert.equal(getMobilePushMaxPrelaunchOffsets({ advancedAllowed: false, scopeKind: 'broad' }), 1);
+assert.equal(getMobilePushMaxPrelaunchOffsets({ advancedAllowed: true, scopeKind: 'broad' }), 3);
 
 const fallbackObserverContext = buildJepObserverContext({ personalized: false, usingPadFallback: true });
 assert.equal(fallbackObserverContext.launchAreaFallback, true);

@@ -52,6 +52,16 @@ export function resolveViewerTier({
   return 'anon';
 }
 
+export function isRecoveryOnlyViewer({
+  isAuthed,
+  tier
+}: {
+  isAuthed: boolean;
+  tier: ViewerTier;
+}) {
+  return isAuthed && tier !== 'premium';
+}
+
 export function tierToMode(tier: ViewerTier): ViewerMode {
   return tier === 'premium' ? 'live' : 'public';
 }
@@ -79,7 +89,7 @@ export function getTierCapabilities(tier: ViewerTier): ViewerCapabilities {
     canManageFollows: isPremium,
     canUseBasicAlertRules: true,
     canUseAdvancedAlertRules: isPremium,
-    canUseBrowserLaunchAlerts: true,
+    canUseBrowserLaunchAlerts: false,
     canUseSingleLaunchFollow: true,
     canUseAllUsLaunchAlerts: true,
     canUseStateLaunchAlerts: isPremium,
@@ -88,7 +98,7 @@ export function getTierCapabilities(tier: ViewerTier): ViewerCapabilities {
     canUseEmbedWidgets: isPremium,
     canUseArTrajectory: isPremium,
     canUseEnhancedForecastInsights: isPremium,
-    canUseLaunchDayEmail: isPremium
+    canUseLaunchDayEmail: false
   };
 }
 

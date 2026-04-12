@@ -14,6 +14,7 @@ import {
   formatLaunchFilterLocationOptionLabel,
   formatLaunchFilterStatusLabel,
   getNextAdaptiveLaunchRefreshMs,
+  getDefaultMobilePushPrelaunchOffsets,
   getRecommendedLaunchRefreshIntervalSeconds,
   getVisibleFeedUpdatedAt,
   normalizeLaunchFilterValue,
@@ -1409,7 +1410,7 @@ export default function FeedScreen() {
                     ruleId: selectedLaunchNotificationRule.id,
                     context: { installationId, deviceSecret }
                   });
-                  setNotice({ tone: 'info', message: 'Launch notifications turned off.' });
+                  setNotice({ tone: 'info', message: 'Launch alerts turned off.' });
                   return;
                 }
                 await upsertLaunchNotificationMutation.mutateAsync({
@@ -1419,13 +1420,13 @@ export default function FeedScreen() {
                     deviceSecret,
                     scopeKind: 'launch',
                     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-                    prelaunchOffsetsMinutes: [10, 60],
+                    prelaunchOffsetsMinutes: getDefaultMobilePushPrelaunchOffsets('launch'),
                     dailyDigestLocalTime: null,
                     statusChangeTypes: [],
                     notifyNetChanges: false
                   }
                 });
-                setNotice({ tone: 'info', message: 'Launch notifications turned on.' });
+                setNotice({ tone: 'info', message: 'Launch alerts turned on.' });
               } catch (error) {
                 if (error instanceof ApiClientError && error.code === 'limit_reached') {
                   setNotice({
@@ -1865,9 +1866,9 @@ export default function FeedScreen() {
                 ) : null}
               </Pressable>
               <Pressable
-                testID={isAuthed ? 'feed-search-button' : 'feed-sign-in-button'}
+                testID="feed-search-button"
                 onPress={() => {
-                  router.push(isAuthed ? '/search' : '/sign-in');
+                  router.push('/search');
                 }}
                 style={({ pressed }) => ({
                   minHeight: 32,
@@ -1882,9 +1883,7 @@ export default function FeedScreen() {
                 })}
                 hitSlop={8}
               >
-                <Text style={{ color: theme.foreground, fontSize: 12, fontWeight: '700' }}>
-                  {isAuthed ? 'Search' : 'Sign in'}
-                </Text>
+                <Text style={{ color: theme.foreground, fontSize: 12, fontWeight: '700' }}>Search</Text>
               </Pressable>
             </View>
           </View>

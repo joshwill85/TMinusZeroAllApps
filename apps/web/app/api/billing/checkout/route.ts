@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { BillingStripeRouteError, createStripeCheckoutSession } from '@/lib/server/billingStripe';
 import { BillingApiRouteError } from '@/lib/server/billingCore';
+import { createGuestPremiumCheckoutSession } from '@/lib/server/premiumClaims';
 import { resolvePremiumOnboardingLegalStatus } from '@/lib/server/premiumOnboarding';
 import { resolveViewerSession } from '@/lib/server/viewerSession';
 export const dynamic = 'force-dynamic';
@@ -23,7 +24,11 @@ export async function POST(request: Request) {
   try {
     const session = await resolveViewerSession(request);
     if (!session.userId) {
-      return NextResponse.json({ error: 'auth_required' }, { status: 401 });
+      const payload = await createGuestPremiumCheckoutSession({
+        returnTo: parsed.data?.returnTo,
+        promotionCode: parsed.data?.promotionCode
+      });
+      return NextResponse.json(payload);
     }
     const legalStatus = await resolvePremiumOnboardingLegalStatus(session);
     if (legalStatus.requiresAcceptance) {

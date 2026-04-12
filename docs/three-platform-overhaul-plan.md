@@ -5,6 +5,9 @@ Last updated: 2026-04-10
 This is the living master checklist for moving T-Minus Zero from a web-only product to a maintainable, high-performance web + iOS + Android product line.
 
 Related implementation plans:
+- `docs/2026-04-11-news-info-native-excellence-plan.md`
+- `docs/2026-04-11-anon-premium-alignment-and-retirement-plan.md`
+- `docs/2026-04-11-follow-notifications-hardening-and-ux-unification-plan.md`
 - `docs/2026-04-10-premium-onboarding-free-tier-unification-plan.md`
 - `docs/2026-04-10-safari-faa-apple-maps-web-plan.md`
 - `docs/2026-04-10-maps-cost-control-and-provider-routing-plan.md`
@@ -80,6 +83,18 @@ Related implementation plans:
 
 ## Current Slice Tracker
 
+- 2026-04-11: News and info native excellence implementation is in progress for `Web`, `iOS`, and `Android`, with `admin/internal impact: no` and `shared API/backend impact: yes`.
+  - Source-of-truth plan: `docs/2026-04-11-news-info-native-excellence-plan.md`
+  - Scope: add native `/about` and `/news/[id]` routes, upgrade the mobile info hub into a command deck, ship native About/FAQ/Roadmap/Jellyfish content treatments, and move news discovery plus article detail onto premium native browse/detail surfaces while keeping publisher-body reading on source handoff.
+  - Guardrails: no breaking `/api/v1` changes, no silent web-only fallbacks for first-party info/news destinations, no publisher-body ingestion or licensing expansion in this slice, and no admin/internal scope creep.
+- 2026-04-11: Anon versus premium alignment and retirement cleanup is in progress for `Web`, `iOS`, and `Android`, with `admin/internal impact: yes` and `shared API/backend impact: yes`.
+  - Source-of-truth plan: `docs/2026-04-11-anon-premium-alignment-and-retirement-plan.md`
+  - Scope: canonicalize entitlement capability projection, keep public browsing free, remove retired browser-alert and launch-day-email drift, harden premium weather and forecast enrichment, and align mobile alert ownership and reminder-window behavior with backend enforcement.
+  - Guardrails: no breaking `/api/v1` removals, no browser-alert revival, no launch-day-email UI restoration, and no silent widening of anon access.
+- 2026-04-11: Follow and notifications hardening and UX unification planning is in progress for `Web`, `iOS`, and `Android`, with `admin/internal impact: yes` and `shared API/backend impact: yes`.
+  - Source-of-truth plan: `docs/2026-04-11-follow-notifications-hardening-and-ux-unification-plan.md`
+  - Scope: align follow versus alert product semantics, move authenticated starter behavior to account ownership, consolidate live notification writes onto unified v3 rules and destinations, keep web read-only for live push delivery while preserving account-level source management, and add internal observability and lifecycle hardening for device registration and send failures.
+  - Guardrails: no browser-push or launch-alert-email revival, no destructive legacy notification drops in the first passes, no breaking `/api/v1` changes, and no silent scope drift between account-owned rules and current-device delivery.
 - 2026-04-10: Premium onboarding and free-tier unification implementation is in progress for `Web`, `iOS`, and `Android`, with `admin/internal impact: yes` and `shared API/backend impact: yes`.
   - Source-of-truth plan: `docs/2026-04-10-premium-onboarding-free-tier-unification-plan.md`
   - Scope: standardize premium onboarding around an account-first flow, expose Google where latent support already exists, keep Apple and email sign-in available for existing accounts, block new standalone free account creation, add normalized auth-source reporting in admin, and unify guest versus signed-in-free product behavior across surfaces while keeping web notifications retired.

@@ -17,8 +17,6 @@ export function SupportScreen() {
   const { theme } = useMobileBootstrap();
   const publicSiteUrl = getPublicSiteUrl();
   const supportUrl = `${publicSiteUrl}/support`;
-  const aboutUrl = `${publicSiteUrl}/about`;
-  const faqUrl = `${publicSiteUrl}/docs/faq`;
 
   async function openMail() {
     await Linking.openURL(`mailto:${MOBILE_SUPPORT_EMAIL}`);
@@ -33,7 +31,7 @@ export function SupportScreen() {
       >
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
           <CustomerShellBadge label="Customer support" tone="accent" />
-          <CustomerShellBadge label="Native + web" />
+          <CustomerShellBadge label="Native-first" />
         </View>
       </CustomerShellHero>
 
@@ -81,14 +79,14 @@ export function SupportScreen() {
             label="About T-Minus Zero"
             variant="secondary"
             onPress={() => {
-              void openExternalCustomerUrl(aboutUrl);
+              router.push('/about' as Href);
             }}
           />
           <CustomerShellActionButton
             label="FAQ"
             variant="secondary"
             onPress={() => {
-              void openExternalCustomerUrl(faqUrl);
+              router.push('/docs/faq' as Href);
             }}
           />
           <CustomerShellActionButton

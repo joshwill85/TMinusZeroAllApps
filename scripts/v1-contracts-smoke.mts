@@ -1042,7 +1042,7 @@ async function main() {
           canUseEmbedWidgets: true,
           canUseArTrajectory: true,
           canUseEnhancedForecastInsights: true,
-          canUseLaunchDayEmail: true
+          canUseLaunchDayEmail: false
         },
         limits: {
           presetLimit: 25,

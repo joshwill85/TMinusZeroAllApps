@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import type {
   CanonicalContractsRequest,
   CatalogCollectionRequest,
@@ -15,7 +15,10 @@ import {
   catalogHubQueryOptions,
   contentPageQueryOptions,
   infoHubQueryOptions,
+  newsArticleDetailQueryOptions,
   newsStreamQueryOptions,
+  sharedQueryKeys,
+  sharedQueryStaleTimes,
   satelliteDetailQueryOptions,
   satelliteOwnerProfileQueryOptions,
   satelliteOwnersQueryOptions,
@@ -29,6 +32,43 @@ export function useNewsStreamQuery(request: NewsStreamRequest = {}, options?: { 
   return useQuery({
     ...newsStreamQueryOptions(() => client.getNewsStream(request), request),
     enabled: options?.enabled ?? true
+  });
+}
+
+export function useInfiniteNewsStreamQuery(request: NewsStreamRequest = {}, options?: { enabled?: boolean }) {
+  const client = useMobileApiClient();
+  const limit = request.limit ?? 24;
+
+  return useInfiniteQuery({
+    queryKey: sharedQueryKeys.newsStreamVariant({
+      ...request,
+      cursor: null,
+      limit
+    }),
+    queryFn: ({ pageParam }) =>
+      client.getNewsStream({
+        ...request,
+        limit,
+        cursor: typeof pageParam === 'number' ? pageParam : request.cursor ?? 0
+      }),
+    enabled: options?.enabled ?? true,
+    initialPageParam: request.cursor ?? 0,
+    staleTime: sharedQueryStaleTimes.newsStream,
+    getNextPageParam: (lastPage) => {
+      if (!lastPage.hasMore) {
+        return undefined;
+      }
+      return lastPage.nextCursor;
+    }
+  });
+}
+
+export function useNewsArticleDetailQuery(id: string | null, options?: { enabled?: boolean }) {
+  const client = useMobileApiClient();
+
+  return useQuery({
+    ...newsArticleDetailQueryOptions(id || 'missing', () => client.getNewsArticleDetail(String(id))),
+    enabled: (options?.enabled ?? true) && Boolean(id)
   });
 }
 

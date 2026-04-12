@@ -144,7 +144,7 @@ export function AccountMembershipScreen() {
 
   const beginPremiumPurchase = useCallback(() => {
     if (!isAuthed) {
-      router.push(premiumUpgradeSignInHref as Href);
+      void billing.requestSubscription();
       return;
     }
 
@@ -154,11 +154,11 @@ export function AccountMembershipScreen() {
     }
 
     void billing.requestSubscription();
-  }, [billing, isAuthed, premiumLegalHref, premiumLegalRequired, premiumUpgradeSignInHref, router]);
+  }, [billing, isAuthed, premiumLegalHref, premiumLegalRequired, router]);
 
   const beginRestorePurchases = useCallback(() => {
     if (!isAuthed) {
-      router.push(premiumUpgradeSignInHref as Href);
+      void billing.restorePurchases();
       return;
     }
 
@@ -168,19 +168,22 @@ export function AccountMembershipScreen() {
     }
 
     void billing.restorePurchases();
-  }, [billing, isAuthed, premiumLegalHref, premiumLegalRequired, premiumUpgradeSignInHref, router, showPurchaseAction]);
+  }, [billing, isAuthed, premiumLegalHref, premiumLegalRequired, router, showPurchaseAction]);
 
   useEffect(() => {
     if (!autostart || autostartHandledRef.current) {
       return;
     }
-    if (!isAuthed || !showPurchaseAction || !premiumOnboardingLoaded || billing.isProcessingPurchase) {
+    if (!showPurchaseAction || billing.isProcessingPurchase) {
+      return;
+    }
+    if (isAuthed && !premiumOnboardingLoaded) {
       return;
     }
 
     autostartHandledRef.current = true;
 
-    if (premiumLegalRequired) {
+    if (isAuthed && premiumLegalRequired) {
       router.replace(premiumLegalHref as Href);
       return;
     }
@@ -233,11 +236,11 @@ export function AccountMembershipScreen() {
 
       {!isAuthed ? (
         <CustomerShellPanel
-          title={billing.claim ? 'Claim Premium' : 'Premium requires account'}
+          title={billing.claim ? 'Claim Premium' : 'Start Premium'}
           description={
             billing.claim
               ? 'Your store purchase is verified. Sign in to an existing account or create one now to claim Premium on this device.'
-              : 'Sign in to an existing account before purchase or restore starts on this device.'
+              : 'Start or restore Premium from this device first. Once purchase verification completes, sign in or create an account to claim it.'
           }
         >
           <View style={{ gap: 10 }}>
@@ -246,11 +249,11 @@ export function AccountMembershipScreen() {
             <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
               {billing.claim
                 ? 'Claiming Premium links the verified purchase to a T-Minus Zero account for ownership, recovery, and restore.'
-                : 'Premium checkout now requires an authenticated account first, then legal acceptance, then the store flow begins.'}
+                : 'Guest purchase and restore stay on this device until you sign in or create an account to claim ownership.'}
             </Text>
             {!billing.claim ? (
               <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
-                After sign-in, this device returns to the Premium legal step before checkout starts.
+                Existing account holders can still sign in first if they want the purchase bound to that account during checkout.
               </Text>
             ) : null}
             {!billing.claim ? (
@@ -318,7 +321,22 @@ export function AccountMembershipScreen() {
             ) : (
               <>
                 <CustomerShellActionButton
-                  label="Sign in to continue"
+                  label={billing.isProcessingPurchase ? 'Working…' : 'Start Premium'}
+                  onPress={() => {
+                    beginPremiumPurchase();
+                  }}
+                  disabled={billing.isProcessingPurchase || !billing.isStoreReady}
+                />
+                <CustomerShellActionButton
+                  label="Restore purchases"
+                  variant="secondary"
+                  onPress={() => {
+                    beginRestorePurchases();
+                  }}
+                  disabled={billing.isProcessingPurchase || !billing.isStoreReady}
+                />
+                <CustomerShellActionButton
+                  label="Sign in to existing account"
                   variant="secondary"
                   onPress={() => {
                     router.push(premiumUpgradeSignInHref as Href);

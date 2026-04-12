@@ -19,9 +19,10 @@ type LaunchNewsCardProps = {
   article: LaunchNewsCardArticle;
   theme: MobileTheme;
   onPress?: () => void;
+  actionLabel?: string;
 };
 
-export function LaunchNewsCard({ article, theme, onPress }: LaunchNewsCardProps) {
+export function LaunchNewsCard({ article, theme, onPress, actionLabel = 'Open source' }: LaunchNewsCardProps) {
   const source = formatNewsSourceLabel(article.source, article.url);
   const publishedAt = article.publishedAt ? formatTimestamp(article.publishedAt) : null;
   const authors = formatNewsAuthors(article.authors);
@@ -117,7 +118,7 @@ export function LaunchNewsCard({ article, theme, onPress }: LaunchNewsCardProps)
           <Text numberOfLines={1} style={{ flex: 1, color: theme.muted, fontSize: 12 }}>
             {source}
           </Text>
-          <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700', textTransform: 'uppercase' }}>Open source</Text>
+          <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '700', textTransform: 'uppercase' }}>{actionLabel}</Text>
         </View>
       </View>
     </Pressable>

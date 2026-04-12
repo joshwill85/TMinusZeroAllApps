@@ -14,10 +14,15 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     if (error instanceof PremiumOnboardingRouteError) {
-      return NextResponse.json({ error: error.code }, { status: error.status });
+      return NextResponse.json(
+        {
+          error: error.code,
+          message: error.message
+        },
+        { status: error.status }
+      );
     }
     console.error('premium onboarding provider preflight failed', error);
     return NextResponse.json({ error: 'failed_to_preflight_provider' }, { status: 500 });
   }
 }
-

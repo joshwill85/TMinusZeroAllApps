@@ -35,12 +35,12 @@ export function AuthForm({
   const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
   const [resendingVerification, setResendingVerification] = useState(false);
   const [termsPrompt, setTermsPrompt] = useState(false);
-  const [premiumOnboardingIntentId, setPremiumOnboardingIntentId] = useState<string | null>(null);
   const termsInputRef = useRef<HTMLInputElement | null>(null);
   const isSignUp = mode === 'sign-up';
   const passwordHint = useMemo(() => (isSignUp ? PASSWORD_POLICY_HINT : undefined), [isSignUp]);
   const redirectPath = useMemo(() => readReturnTo(searchParams), [searchParams]);
   const authIntent = useMemo(() => readAuthIntent(searchParams), [searchParams]);
+  const claimBackedProviderCreate = isSignUp && Boolean(claimToken);
   const lockedClaimEmail = useMemo(() => {
     if (!isSignUp) return null;
     const normalized = String(claimEmail || '')
@@ -48,6 +48,13 @@ export function AuthForm({
       .toLowerCase();
     return normalized || null;
   }, [claimEmail, isSignUp]);
+  const claimBackedProviderEmail = useMemo(() => {
+    if (!claimBackedProviderCreate) return null;
+    const normalized = String(lockedClaimEmail || email || '')
+      .trim()
+      .toLowerCase();
+    return normalized || null;
+  }, [claimBackedProviderCreate, email, lockedClaimEmail]);
   const turnstileSiteKey = useMemo(() => normalizeEnvText(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY), []);
   const hcaptchaSiteKey = useMemo(() => normalizeEnvText(process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY), []);
   const captchaProvider = useMemo(() => {
@@ -77,10 +84,8 @@ export function AuthForm({
     return `${baseUrl}${buildAuthCallbackHref({ returnTo: redirectPath, intent: authIntent })}`;
   }, [authIntent, baseUrl, redirectPath]);
   const appleRedirectTo = emailRedirectTo;
-  const googleRedirectTo = emailRedirectTo;
-  const googleSignInEnabled = !isSignUp && Boolean(redirectPath);
-  const appleSignInEnabled = !isSignUp && Boolean(appleRedirectTo);
-  const allowsPremiumEmailCreate = isSignUp && !claimToken && authIntent === 'upgrade';
+  const googleSignInEnabled = Boolean(redirectPath) && (!isSignUp || Boolean(claimToken));
+  const appleSignInEnabled = Boolean(appleRedirectTo) && (!isSignUp || Boolean(claimToken));
   const googleAuthStartHref = useMemo(() => {
     if (!googleSignInEnabled) return '';
     const params = new URLSearchParams({
@@ -90,44 +95,16 @@ export function AuthForm({
     if (authIntent) {
       params.set('intent', authIntent);
     }
-    if (premiumOnboardingIntentId) {
-      params.set('onboarding_intent_id', premiumOnboardingIntentId);
+    if (claimBackedProviderCreate && claimToken) {
+      params.set('claim_token', claimToken);
     }
     return `/api/auth/google/start?${params.toString()}`;
-  }, [authIntent, googleSignInEnabled, premiumOnboardingIntentId, redirectPath]);
+  }, [authIntent, claimBackedProviderCreate, claimToken, googleSignInEnabled, redirectPath]);
 
   useEffect(() => {
     if (!lockedClaimEmail) return;
     setEmail((current) => (current.trim() ? current : lockedClaimEmail));
   }, [lockedClaimEmail]);
-
-  useEffect(() => {
-    if (claimToken || authIntent !== 'upgrade') {
-      setPremiumOnboardingIntentId(null);
-      return;
-    }
-
-    let cancelled = false;
-    void browserApiClient
-      .createOrResumePremiumOnboardingIntent({
-        platform: 'web',
-        returnTo: redirectPath
-      })
-      .then((payload) => {
-        if (!cancelled) {
-          setPremiumOnboardingIntentId(payload.intent.intentId);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setPremiumOnboardingIntentId(null);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [authIntent, claimToken, redirectPath]);
 
   function promptTermsAcceptance() {
     setTermsPrompt(true);
@@ -190,15 +167,9 @@ export function AuthForm({
               email: nextEmail,
               password
             })
-          : allowsPremiumEmailCreate
-            ? await browserApiClient.createPremiumOnboardingEmailAccount({
-                intentId: premiumOnboardingIntentId || '',
-                email: nextEmail,
-                password
-              })
-            : (() => {
-                throw new Error('New account creation now starts from Premium onboarding.');
-              })();
+          : (() => {
+              throw new Error('Create a new account only after Premium purchase verification.');
+            })();
 
         if (!payload.session.refreshToken) {
           throw new Error('The Premium claim session is missing a refresh token.');
@@ -275,7 +246,7 @@ export function AuthForm({
             tone: 'error',
             text: claimToken
               ? 'An account with this email already exists. Sign in to claim Premium instead.'
-              : 'An account with this email already exists. Sign in to continue with Premium.'
+              : 'An account with this email already exists. Sign in to continue.'
           });
         } else if (err.code === 'claim_pending') {
           setMessage({ tone: 'error', text: 'Your Premium purchase is still being verified. Return to Upgrade and try again in a moment.' });
@@ -283,8 +254,11 @@ export function AuthForm({
           setMessage({ tone: 'error', text: 'Use the same email address that was attached to this Premium purchase.' });
         } else if (err.code === 'claim_already_claimed') {
           setMessage({ tone: 'error', text: 'This Premium purchase is already linked to an account. Sign in to manage it.' });
-        } else if (err.code === 'onboarding_intent_expired' || err.code === 'onboarding_intent_not_found') {
-          setMessage({ tone: 'error', text: 'Premium onboarding expired. Return to Upgrade and start again.' });
+        } else if (err.code === 'claim_sign_in_required') {
+          setMessage({
+            tone: 'error',
+            text: 'This Premium purchase already started account creation. Sign in with that account to finish claiming Premium.'
+          });
         } else if (err.code === 'unauthorized' && claimToken && !isSignUp) {
           setMessage({ tone: 'error', text: 'Sign-in succeeded, but the Premium claim could not be attached yet. Open Account and try again in a moment.' });
         } else {
@@ -302,6 +276,25 @@ export function AuthForm({
     setMessage(null);
     setLoading(true);
     try {
+      if (claimBackedProviderCreate && !acceptTerms) {
+        promptTermsAcceptance();
+        throw new Error('Please accept the Terms and Privacy Policy to continue.');
+      }
+
+      if (provider === 'apple' && claimBackedProviderCreate) {
+        if (!claimBackedProviderEmail) {
+          throw new Error('Enter the account email first, or use Google/email instead.');
+        }
+        const preflight = await browserApiClient.preflightPremiumOnboardingProvider({
+          claimToken,
+          provider: 'apple',
+          email: claimBackedProviderEmail
+        });
+        if (preflight.mode === 'create' && !preflight.createAllowed) {
+          throw new Error('Complete Premium purchase verification before creating a new Apple account.');
+        }
+      }
+
       if (typeof window !== 'undefined') {
         if (claimToken?.trim()) {
           window.localStorage.setItem(PENDING_PREMIUM_CLAIM_STORAGE_KEY, claimToken.trim());
@@ -344,7 +337,7 @@ export function AuthForm({
         <div className="rounded-lg border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-2 text-xs text-text3">
           {claimToken
             ? 'This account will be created from a verified Premium purchase. Until Premium is active, access stays on the public tier.'
-            : 'This account will be created for Premium onboarding. Billing still starts only after legal acceptance and checkout.'}
+            : 'New account creation is available only after Premium purchase verification.'}
         </div>
       ) : null}
       {googleSignInEnabled || appleSignInEnabled ? (

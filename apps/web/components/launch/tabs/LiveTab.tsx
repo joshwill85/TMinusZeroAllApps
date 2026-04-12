@@ -194,32 +194,7 @@ export function LiveTab({
                     </p>
                     <div className="mt-4 grid gap-3 md:grid-cols-2">
                       {advancedWeatherCards.map((card) => (
-                        <article
-                          key={card.id}
-                          className="rounded-xl border border-stroke bg-surface-0 p-4"
-                        >
-                          <div className="text-xs uppercase tracking-[0.08em] text-text3">{card.title}</div>
-                          {card.subtitle ? <div className="mt-1 text-sm text-text2">{card.subtitle}</div> : null}
-                          {card.headline ? <div className="mt-3 text-lg font-semibold text-text1">{card.headline}</div> : null}
-                          {card.badges.length ? (
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              {card.badges.map((badge) => (
-                                <Badge key={`${card.id}:${badge}`}>{badge}</Badge>
-                              ))}
-                            </div>
-                          ) : null}
-                          {card.detail ? <p className="mt-3 text-sm leading-relaxed text-text2">{card.detail}</p> : null}
-                          {card.actionUrl && card.actionLabel ? (
-                            <a
-                              className="mt-3 inline-flex text-sm font-semibold text-primary hover:text-primary/80"
-                              href={card.actionUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              {card.actionLabel}
-                            </a>
-                          ) : null}
-                        </article>
+                        <AdvancedWeatherCard key={card.id} card={card} />
                       ))}
                     </div>
                   </div>
@@ -650,6 +625,116 @@ function Badge({
   );
 }
 
+function AdvancedWeatherCard({ card }: { card: NonNullable<LiveTabData['weatherDetail']>['cards'][number] }) {
+  if (!card.planningDetail) {
+    return (
+      <article className="rounded-xl border border-stroke bg-surface-0 p-4">
+        <div className="text-xs uppercase tracking-[0.08em] text-text3">{card.title}</div>
+        {card.subtitle ? <div className="mt-1 text-sm text-text2">{card.subtitle}</div> : null}
+        {card.headline ? <div className="mt-3 text-lg font-semibold text-text1">{card.headline}</div> : null}
+        {card.badges.length ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {card.badges.map((badge) => (
+              <Badge key={`${card.id}:${badge}`}>{badge}</Badge>
+            ))}
+          </div>
+        ) : null}
+        {card.detail ? <p className="mt-3 text-sm leading-relaxed text-text2">{card.detail}</p> : null}
+        {card.actionUrl && card.actionLabel ? (
+          <a className="mt-3 inline-flex text-sm font-semibold text-primary hover:text-primary/80" href={card.actionUrl} target="_blank" rel="noreferrer">
+            {card.actionLabel}
+          </a>
+        ) : null}
+      </article>
+    );
+  }
+
+  return (
+    <article className="rounded-xl border border-stroke bg-surface-0 p-4">
+      <div className="text-xs uppercase tracking-[0.08em] text-text3">{card.title}</div>
+      {card.subtitle ? <div className="mt-1 text-sm text-text2">{card.subtitle}</div> : null}
+      {card.headline ? <div className="mt-3 text-lg font-semibold text-text1">{card.headline}</div> : null}
+      {card.badges.length ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {card.badges.map((badge) => (
+            <Badge key={`${card.id}:${badge}`}>{badge}</Badge>
+          ))}
+        </div>
+      ) : null}
+      {card.detail ? <p className="mt-3 text-sm leading-relaxed text-text2">{card.detail}</p> : null}
+
+      {card.planningDetail.kind === 'planning_24h' ? (
+        <div className="mt-4 grid gap-3">
+          {card.planningDetail.periods.map((period) => (
+            <div key={`${card.id}:${period.label}`} className="rounded-lg border border-stroke/70 bg-[rgba(255,255,255,0.02)] p-3">
+              <div className="text-[11px] uppercase tracking-[0.08em] text-text3">
+                {[period.dayLabel, period.label].filter(Boolean).join(' • ')}
+              </div>
+              {period.skyCondition ? <div className="mt-2 text-sm font-semibold text-text1">{period.skyCondition}</div> : null}
+              <div className="mt-2 space-y-1">
+                <MetricRow label="Precip" value={formatPercent(period.precipitationProbabilityPct)} />
+                <MetricRow label="Lightning" value={formatPercent(period.lightningProbabilityPct)} />
+                <MetricRow label="Wind" value={period.wind || 'TBD'} />
+                <MetricRow label="Temp" value={formatPlanningTemp(period.temperatureMinF, period.temperatureMaxF, period.temperatureLabel)} />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-4 grid gap-3">
+          {card.planningDetail.days.map((day) => (
+            <div key={`${card.id}:${day.dateLabel}`} className="rounded-lg border border-stroke/70 bg-[rgba(255,255,255,0.02)] p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-[11px] uppercase tracking-[0.08em] text-text3">{day.dayLabel || 'Forecast day'}</div>
+                  <div className="mt-1 text-sm font-semibold text-text1">{day.dateLabel}</div>
+                </div>
+                <div className="text-xs text-text2">{formatPlanningTemps(day.minTempF, day.maxTempF)}</div>
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <DayPartBlock label="AM" sky={day.am.skyCondition} precip={day.am.precipitationProbabilityPct} lightning={day.am.lightningProbabilityPct} wind={day.am.wind} />
+                <DayPartBlock label="PM" sky={day.pm.skyCondition} precip={day.pm.precipitationProbabilityPct} lightning={day.pm.lightningProbabilityPct} wind={day.pm.wind} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {card.actionUrl && card.actionLabel ? (
+        <a className="mt-3 inline-flex text-sm font-semibold text-primary hover:text-primary/80" href={card.actionUrl} target="_blank" rel="noreferrer">
+          {card.actionLabel}
+        </a>
+      ) : null}
+    </article>
+  );
+}
+
+function DayPartBlock({
+  label,
+  sky,
+  precip,
+  lightning,
+  wind
+}: {
+  label: string;
+  sky: string | null | undefined;
+  precip: number | null | undefined;
+  lightning: number | null | undefined;
+  wind: string | null | undefined;
+}) {
+  return (
+    <div className="rounded-lg border border-stroke/60 bg-surface-0 p-3">
+      <div className="text-[11px] uppercase tracking-[0.08em] text-text3">{label}</div>
+      {sky ? <div className="mt-2 text-sm font-semibold text-text1">{sky}</div> : null}
+      <div className="mt-2 space-y-1">
+        <MetricRow label="Precip" value={formatPercent(precip)} />
+        <MetricRow label="Lightning" value={formatPercent(lightning)} />
+        <MetricRow label="Wind" value={wind || 'TBD'} />
+      </div>
+    </div>
+  );
+}
+
 function isAdvancedWeatherSource(source: NonNullable<LiveTabData['weatherDetail']>['cards'][number]['source']) {
   return source === 'ws45_planning_24h' || source === 'ws45_weekly';
 }
@@ -709,4 +794,20 @@ function buildFaaPreview(rawText: string | null | undefined) {
   const normalized = rawText.replace(/\s+/g, ' ').trim();
   if (!normalized) return '';
   return normalized.length > 320 ? `${normalized.slice(0, 317)}...` : normalized;
+}
+
+function formatPercent(value: number | null | undefined) {
+  return value == null ? 'TBD' : `${Math.round(value)}%`;
+}
+
+function formatPlanningTemp(min: number | null | undefined, max: number | null | undefined, label: string | null | undefined) {
+  if (min != null && max != null) return `${min}-${max}F`;
+  return label || 'TBD';
+}
+
+function formatPlanningTemps(min: number | null | undefined, max: number | null | undefined) {
+  if (min != null && max != null) return `${min}-${max}F`;
+  if (min != null) return `Low ${min}F`;
+  if (max != null) return `High ${max}F`;
+  return 'Temps TBD';
 }

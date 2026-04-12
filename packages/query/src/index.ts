@@ -454,6 +454,7 @@ export const sharedQueryKeys = {
     const normalized = normalizeNewsStreamQueryOptions(options);
     return ['news-stream', normalized.type, normalized.provider, normalized.cursor, normalized.limit] as const;
   },
+  newsArticleDetail: (id: string) => ['news-article-detail', normalizeToken(id)] as const,
   canonicalContracts: ['canonical-contracts'] as const,
   canonicalContractsVariant: (options: CanonicalContractsQueryKeyOptions = {}) => {
     const normalized = normalizeCanonicalContractsQueryOptions(options);
@@ -547,6 +548,7 @@ export const sharedQueryStaleTimes = {
   artemisAwardeeDetail: 300_000,
   artemisContent: 120_000,
   newsStream: 120_000,
+  newsArticleDetail: 120_000,
   canonicalContracts: 300_000,
   canonicalContractDetail: 300_000,
   satellites: 300_000,
@@ -903,6 +905,14 @@ export function newsStreamQueryOptions<T>(queryFn: QueryLoader<T>, options: News
     queryKey: sharedQueryKeys.newsStreamVariant(options),
     queryFn,
     staleTime: sharedQueryStaleTimes.newsStream
+  });
+}
+
+export function newsArticleDetailQueryOptions<T>(id: string, queryFn: QueryLoader<T>) {
+  return queryOptions({
+    queryKey: sharedQueryKeys.newsArticleDetail(id),
+    queryFn,
+    staleTime: sharedQueryStaleTimes.newsArticleDetail
   });
 }
 

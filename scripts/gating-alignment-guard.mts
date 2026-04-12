@@ -28,6 +28,12 @@ async function main() {
   assert.equal(getTierCapabilities('premium').canUseOneOffCalendar, true);
   behaviorAssertions.push('one-off calendar is available for anon and premium entitlements');
 
+  assert.equal(getTierCapabilities('anon').canUseBrowserLaunchAlerts, false);
+  assert.equal(getTierCapabilities('premium').canUseBrowserLaunchAlerts, false);
+  assert.equal(getTierCapabilities('anon').canUseLaunchDayEmail, false);
+  assert.equal(getTierCapabilities('premium').canUseLaunchDayEmail, false);
+  behaviorAssertions.push('browser alerts and launch-day email stay retired for every entitlement tier');
+
   assert.equal(getMobileViewerTier('anon'), 'anon');
   assert.equal(getMobileViewerTier('premium'), 'premium');
   behaviorAssertions.push('mobile viewer tier projection stays anon-or-premium only');
@@ -41,17 +47,17 @@ async function main() {
 
   assertPattern(
     'apps/web/lib/api/queries.ts',
-    /canUseOneOffCalendar:\s*true/,
-    'guest viewer entitlements keep one-off calendar enabled'
+    /capabilities:\s*getTierCapabilities\('anon'\)/,
+    'guest viewer entitlements derive anon capabilities from shared domain helpers'
   );
-  sourceAssertions.push('guest web entitlements expose one-off calendar');
+  sourceAssertions.push('guest web entitlements derive capabilities from shared domain helpers');
 
   assertPattern(
     'apps/web/components/LaunchFeed.tsx',
-    /const canUseOneOffCalendar = Boolean\(viewerCapabilities\?\.canUseOneOffCalendar\);/,
-    'web feed no longer requires auth to expose one-off calendar access'
+    /Browse launches, filters, and the launch calendar on the public cadence\./,
+    'web feed keeps public launch browsing and calendar access available without Premium'
   );
-  sourceAssertions.push('web feed passes through open one-off calendar capability');
+  sourceAssertions.push('web feed keeps public browsing and launch-calendar access in the anon experience');
 
   assertPattern(
     'apps/web/app/api/launches/[id]/ics/route.ts',
@@ -62,10 +68,10 @@ async function main() {
 
   assertPattern(
     'apps/mobile/app/(tabs)/preferences.tsx',
-    /const tier = getMobileViewerTier\(entitlementsQuery\.data\?\.tier \?\? 'anon'\);/,
-    'mobile preferences normalizes shared entitlements to the native anon-premium model'
+    /getDefaultMobilePushPrelaunchOffsets\('broad'\)|getMobilePushMaxPrelaunchOffsets\(\{\s*advancedAllowed,\s*scopeKind: 'broad'/s,
+    'mobile preferences derives broad reminder defaults and limits from shared mobile-push helpers'
   );
-  sourceAssertions.push('mobile preferences uses the normalized mobile tier');
+  sourceAssertions.push('mobile preferences uses shared mobile-push reminder defaults and limits');
 
   assertNoPattern(
     'apps/mobile/app/(tabs)/preferences.tsx',
@@ -76,10 +82,17 @@ async function main() {
 
   assertPattern(
     'apps/web/lib/server/v1/mobileApi.ts',
-    /if \(session\.authMode === 'bearer' && hasLaunchDayEmailPreferenceInput\(parsedBody\)\) \{\s*throw new MobileApiRouteError\(400, 'unsupported_on_mobile'\);/s,
-    'shared notification preference route rejects launch-day email mutations from bearer-auth mobile clients'
+    /notificationPreferencesUpdateSchemaV1\.parse\(await request\.json\(\)\.catch\(\(\) => undefined\)\);\s*throwRetiredLegacyNotifications\(\);/s,
+    'shared notification preference route fully retires legacy launch-day email and browser-notification updates'
   );
-  sourceAssertions.push('shared notification route blocks mobile launch-day email mutations');
+  sourceAssertions.push('shared notification route fully retires legacy launch-day email and browser-notification updates');
+
+  assertPattern(
+    'supabase/functions/notifications-dispatch/index.ts',
+    /reason: 'launch_day_email_retired'/,
+    'notification dispatcher keeps launch-day email fully retired'
+  );
+  sourceAssertions.push('notification dispatcher reports launch-day email as retired instead of dispatching it');
 
   assertPattern(
     'scripts/mobile-query-guard.mts',

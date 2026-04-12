@@ -78,7 +78,7 @@ export function LaunchFollowSheet({
           <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
             <View style={{ flex: 1 }}>
               <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase' }}>
-                Follow and notifications
+                Follow and alerts
               </Text>
               <Text style={{ color: theme.foreground, fontSize: 21, fontWeight: '800', marginTop: 6 }}>{launchName || 'Launch'}</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
@@ -87,7 +87,7 @@ export function LaunchFollowSheet({
                   active={capacityLabel ? capacityLabel.startsWith('1/') : activeCount > 0}
                 />
                 <StatusBadge
-                  label={notificationsActive ? 'Notifications on' : 'Notifications off'}
+                  label={notificationsActive ? 'Alerts on' : 'Alerts off'}
                   active={notificationsActive}
                   tone={notificationsActive ? 'accent' : 'neutral'}
                 />

@@ -16,16 +16,30 @@ import {
 import { buildAuthHref, buildUpgradeHref } from '@tminuszero/navigation';
 import clsx from 'clsx';
 import { AddToCalendarButton } from '@/components/AddToCalendarButton';
-import { CalendarDayTile, CalendarStateLegend } from '@/components/CalendarDayTile';
+import {
+  CalendarDayTile,
+  CalendarStateLegend
+} from '@/components/CalendarDayTile';
 import { CalendarMonthYearPicker } from '@/components/CalendarMonthYearPicker';
-import { useLaunchFeedPageQuery, useViewerEntitlementsQuery } from '@/lib/api/queries';
+import {
+  useLaunchFeedPageQuery,
+  useViewerEntitlementsQuery
+} from '@/lib/api/queries';
 import type { LaunchStatus } from '@/lib/types/launch';
 import { formatDateOnly, formatNetLabel, isDateOnlyNet } from '@/lib/time';
 import { buildLaunchHref, buildProviderHref } from '@/lib/utils/launchLinks';
 import { resolveProviderLogoUrl } from '@/lib/utils/providerLogo';
 
 const MONTH_PARAM_PATTERN = /^(\d{4})-(\d{2})$/;
-const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+const WEEKDAY_LABELS = [
+  'Sun',
+  'Mon',
+  'Tue',
+  'Wed',
+  'Thu',
+  'Fri',
+  'Sat'
+] as const;
 const STATUS_OPTIONS: Array<{ value: LaunchStatus | 'all'; label: string }> = [
   { value: 'all', label: 'All statuses' },
   { value: 'go', label: 'Go' },
@@ -49,16 +63,25 @@ export function CalendarPageClient() {
   const searchParams = useSearchParams();
   const entitlementsQuery = useViewerEntitlementsQuery();
   const viewer = entitlementsQuery.data ?? null;
-  const month = useMemo(() => parseMonthParam(searchParams.get('month')), [searchParams]);
+  const month = useMemo(
+    () => parseMonthParam(searchParams.get('month')),
+    [searchParams]
+  );
   const statusFilter = parseStatusParam(searchParams.get('status'));
   const regionFilter = parseRegionParam(searchParams.get('region'));
   const providerFilter = String(searchParams.get('provider') || '').trim();
   const monthBounds = useMemo(() => getCalendarMonthBounds(month), [month]);
   const monthKey = useMemo(() => formatMonthKey(month), [month]);
-  const localTimeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', []);
+  const localTimeZone = useMemo(
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    []
+  );
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
-  const [pendingSelectedDay, setPendingSelectedDay] = useState<string | null>(null);
-  const canUseRecurringCalendarFeeds = viewer?.capabilities.canUseRecurringCalendarFeeds === true;
+  const [pendingSelectedDay, setPendingSelectedDay] = useState<string | null>(
+    null
+  );
+  const canUseRecurringCalendarFeeds =
+    viewer?.capabilities.canUseRecurringCalendarFeeds === true;
   const calendarScope = viewer?.capabilities.canUseLiveFeed ? 'live' : 'public';
 
   const monthQuery = useLaunchFeedPageQuery(
@@ -75,34 +98,61 @@ export function CalendarPageClient() {
     }
   );
 
-  const allMonthLaunches = useMemo(() => monthQuery.data?.launches ?? [], [monthQuery.data?.launches]);
+  const allMonthLaunches = useMemo(
+    () => monthQuery.data?.launches ?? [],
+    [monthQuery.data?.launches]
+  );
   const providerOptions = useMemo(
     () =>
-      [...new Set(allMonthLaunches.map((launch) => launch.provider.trim()).filter(Boolean))]
-        .sort((left, right) => left.localeCompare(right)),
+      [
+        ...new Set(
+          allMonthLaunches
+            .map((launch) => launch.provider.trim())
+            .filter(Boolean)
+        )
+      ].sort((left, right) => left.localeCompare(right)),
     [allMonthLaunches]
   );
 
   const filteredLaunches = useMemo(
     () =>
       allMonthLaunches.filter((launch) => {
-        if (statusFilter !== 'all' && launch.status !== statusFilter) return false;
+        if (statusFilter !== 'all' && launch.status !== statusFilter)
+          return false;
         if (providerFilter && launch.provider !== providerFilter) return false;
         if (regionFilter === 'all') return true;
-        const countryCode = String(launch.pad.countryCode || '').trim().toUpperCase();
+        const countryCode = String(launch.pad.countryCode || '')
+          .trim()
+          .toUpperCase();
         const isUs = US_COUNTRY_CODES.has(countryCode);
         return regionFilter === 'us' ? isUs : !isUs;
       }),
     [allMonthLaunches, providerFilter, regionFilter, statusFilter]
   );
 
-  const launchesByDay = useMemo(() => groupItemsByLocalDate(filteredLaunches, (launch) => launch.net), [filteredLaunches]);
-  const launchDayKeys = useMemo(() => [...launchesByDay.keys()].sort(), [launchesByDay]);
+  const launchesByDay = useMemo(
+    () => groupItemsByLocalDate(filteredLaunches, (launch) => launch.net),
+    [filteredLaunches]
+  );
+  const launchDayKeys = useMemo(
+    () => [...launchesByDay.keys()].sort(),
+    [launchesByDay]
+  );
   const calendarDays = useMemo(() => buildCalendarMonthDays(month), [month]);
-  const selectedLaunches = selectedDay ? launchesByDay.get(selectedDay) ?? [] : [];
-  const nearestLaunchDay = useMemo(() => getNearestLaunchDayKey(launchDayKeys, selectedDay), [launchDayKeys, selectedDay]);
+  const selectedLaunches = selectedDay
+    ? (launchesByDay.get(selectedDay) ?? [])
+    : [];
+  const nearestLaunchDay = useMemo(
+    () => getNearestLaunchDayKey(launchDayKeys, selectedDay),
+    [launchDayKeys, selectedDay]
+  );
   const exportHref = useMemo(
-    () => buildCalendarExportHref(monthBounds, { providerFilter, regionFilter, statusFilter }),
+    () =>
+      buildCalendarExportHref(monthBounds, {
+        providerFilter,
+        regionFilter,
+        statusFilter
+      }),
     [monthBounds, providerFilter, regionFilter, statusFilter]
   );
   const returnTo = useMemo(() => {
@@ -122,7 +172,8 @@ export function CalendarPageClient() {
     }
 
     const todayKey = toLocalDateKey(new Date());
-    const todayInMonth = todayKey && todayKey.startsWith(monthKey) ? todayKey : null;
+    const todayInMonth =
+      todayKey && todayKey.startsWith(monthKey) ? todayKey : null;
     const firstLaunchDay = launchDayKeys[0] ?? null;
     const nextSelectedDay =
       (todayInMonth && launchesByDay.has(todayInMonth) ? todayInMonth : null) ||
@@ -131,7 +182,14 @@ export function CalendarPageClient() {
       `${monthKey}-01`;
 
     setSelectedDay(nextSelectedDay);
-  }, [launchDayKeys, launchesByDay, monthKey, monthQuery.isError, monthQuery.isPending, pendingSelectedDay]);
+  }, [
+    launchDayKeys,
+    launchesByDay,
+    monthKey,
+    monthQuery.isError,
+    monthQuery.isPending,
+    pendingSelectedDay
+  ]);
 
   function openSelectedDay(dayKey: string) {
     const parsedDay = parseDayKey(dayKey);
@@ -139,10 +197,14 @@ export function CalendarPageClient() {
       return;
     }
 
-    const nextMonthKey = formatMonthKey(new Date(parsedDay.getFullYear(), parsedDay.getMonth(), 1));
+    const nextMonthKey = formatMonthKey(
+      new Date(parsedDay.getFullYear(), parsedDay.getMonth(), 1)
+    );
     if (nextMonthKey !== monthKey) {
       setPendingSelectedDay(dayKey);
-      updateCalendarQuery(router, pathname, searchParams, { month: nextMonthKey });
+      updateCalendarQuery(router, pathname, searchParams, {
+        month: nextMonthKey
+      });
       return;
     }
 
@@ -161,29 +223,46 @@ export function CalendarPageClient() {
   if (entitlementsQuery.isPending) {
     return (
       <div className="mx-auto max-w-6xl px-4 py-10 md:px-6">
-        <div className="rounded-3xl border border-stroke bg-surface-1 p-6 text-sm text-text3">Loading launch calendar…</div>
+        <div className="rounded-3xl border border-stroke bg-surface-1 p-6 text-sm text-text3">
+          Loading launch calendar…
+        </div>
       </div>
     );
   }
 
   if (!viewer?.capabilities.canUseLaunchCalendar) {
-    const signInHref = buildAuthHref('sign-in', { returnTo, intent: 'upgrade' });
+    const signInHref = buildAuthHref('sign-in', {
+      returnTo,
+      intent: 'upgrade'
+    });
     const upgradeHref = buildUpgradeHref({ returnTo });
 
     return (
       <div className="mx-auto max-w-4xl px-4 py-10 md:px-6">
         <div className="rounded-3xl border border-stroke bg-surface-1 p-6 shadow-glow">
-          <div className="text-xs uppercase tracking-[0.14em] text-text3">Premium</div>
-          <h1 className="mt-2 text-3xl font-semibold text-text1">Launch calendar</h1>
+          <div className="text-xs uppercase tracking-[0.14em] text-text3">
+            Premium
+          </div>
+          <h1 className="mt-2 text-3xl font-semibold text-text1">
+            Launch calendar
+          </h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-text2">
-            This build requires Premium for the full monthly launch calendar. Individual launch pages still let you add one launch at a time to your calendar.
+            This build requires Premium for the full monthly launch calendar.
+            Individual launch pages still let you add one launch at a time to
+            your calendar.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
-            <Link href={signInHref} className="btn rounded-xl px-4 py-2 text-sm">
+            <Link
+              href={signInHref}
+              className="btn rounded-xl px-4 py-2 text-sm"
+            >
               Sign in
             </Link>
-            <Link href={upgradeHref} className="btn-secondary rounded-xl px-4 py-2 text-sm">
-              See Premium
+            <Link
+              href={upgradeHref}
+              className="btn-secondary rounded-xl px-4 py-2 text-sm"
+            >
+              Upgrade to Premium
             </Link>
           </div>
         </div>
@@ -195,8 +274,12 @@ export function CalendarPageClient() {
     <div className="mx-auto max-w-6xl px-4 py-8 md:px-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
-          <div className="text-xs uppercase tracking-[0.14em] text-text3">Launch calendar</div>
-          <h1 className="mt-2 text-3xl font-semibold text-text1">{formatMonthLabel(month)}</h1>
+          <div className="text-xs uppercase tracking-[0.14em] text-text3">
+            Launch calendar
+          </div>
+          <h1 className="mt-2 text-3xl font-semibold text-text1">
+            {formatMonthLabel(month)}
+          </h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-text2">
             {canUseRecurringCalendarFeeds
               ? 'Read the monthly schedule at a glance, tap into any date, and export recurring calendar feeds.'
@@ -206,15 +289,24 @@ export function CalendarPageClient() {
         <div className="flex flex-wrap gap-2">
           {canUseRecurringCalendarFeeds ? (
             <>
-              <a href={exportHref} className="btn-secondary rounded-xl px-4 py-2 text-sm">
+              <a
+                href={exportHref}
+                className="btn-secondary rounded-xl px-4 py-2 text-sm"
+              >
                 Export month (.ics)
               </a>
-              <Link href="/account/integrations" className="btn-secondary rounded-xl px-4 py-2 text-sm">
+              <Link
+                href="/account/integrations"
+                className="btn-secondary rounded-xl px-4 py-2 text-sm"
+              >
                 Live feeds
               </Link>
             </>
           ) : (
-            <Link href={buildUpgradeHref({ returnTo })} className="btn-secondary rounded-xl px-4 py-2 text-sm">
+            <Link
+              href={buildUpgradeHref({ returnTo })}
+              className="btn-secondary rounded-xl px-4 py-2 text-sm"
+            >
               Premium feeds
             </Link>
           )}
@@ -228,14 +320,22 @@ export function CalendarPageClient() {
               <CalendarMonthYearPicker
                 value={month}
                 embedded
-                onChange={(nextMonth) => updateCalendarQuery(router, pathname, searchParams, { month: formatMonthKey(nextMonth) })}
+                onChange={(nextMonth) =>
+                  updateCalendarQuery(router, pathname, searchParams, {
+                    month: formatMonthKey(nextMonth)
+                  })
+                }
               />
               <div className="grid gap-2 sm:grid-cols-3">
                 <select
                   aria-label="Filter launch region"
                   className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
                   value={regionFilter}
-                  onChange={(event) => updateCalendarQuery(router, pathname, searchParams, { region: event.target.value })}
+                  onChange={(event) =>
+                    updateCalendarQuery(router, pathname, searchParams, {
+                      region: event.target.value
+                    })
+                  }
                 >
                   {REGION_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -247,7 +347,11 @@ export function CalendarPageClient() {
                   aria-label="Filter launch status"
                   className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
                   value={statusFilter}
-                  onChange={(event) => updateCalendarQuery(router, pathname, searchParams, { status: event.target.value })}
+                  onChange={(event) =>
+                    updateCalendarQuery(router, pathname, searchParams, {
+                      status: event.target.value
+                    })
+                  }
                 >
                   {STATUS_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -259,7 +363,11 @@ export function CalendarPageClient() {
                   aria-label="Filter launch provider"
                   className="rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1"
                   value={providerFilter}
-                  onChange={(event) => updateCalendarQuery(router, pathname, searchParams, { provider: event.target.value })}
+                  onChange={(event) =>
+                    updateCalendarQuery(router, pathname, searchParams, {
+                      provider: event.target.value
+                    })
+                  }
                 >
                   <option value="">All providers</option>
                   {providerOptions.map((provider) => (
@@ -270,7 +378,9 @@ export function CalendarPageClient() {
                 </select>
               </div>
             </div>
-            {monthQuery.isPending ? <div className="text-sm text-text3">Loading launches…</div> : null}
+            {monthQuery.isPending ? (
+              <div className="text-sm text-text3">Loading launches…</div>
+            ) : null}
             {monthQuery.isError ? (
               <div className="rounded-2xl border border-danger/30 bg-danger/10 p-4 text-sm text-danger">
                 Unable to load the launch calendar.
@@ -279,14 +389,19 @@ export function CalendarPageClient() {
 
             <div className="border-t border-stroke/70 pt-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="text-xs uppercase tracking-[0.08em] text-text3">Days with launches</div>
+                <div className="text-xs uppercase tracking-[0.08em] text-text3">
+                  Days with launches
+                </div>
                 <CalendarStateLegend />
               </div>
 
               <div className="mt-4 overflow-x-auto pb-2">
                 <div className="grid min-w-[680px] grid-cols-7 gap-3">
                   {WEEKDAY_LABELS.map((label) => (
-                    <div key={label} className="text-center text-xs uppercase tracking-[0.08em] text-text3">
+                    <div
+                      key={label}
+                      className="text-center text-xs uppercase tracking-[0.08em] text-text3"
+                    >
                       {label}
                     </div>
                   ))}
@@ -300,7 +415,11 @@ export function CalendarPageClient() {
                         launchCount={items.length}
                         isCurrentMonth={day.isCurrentMonth}
                         isSelected={selectedDay === day.key}
-                        ariaLabel={buildCalendarDayLabel(day.key, items.length, localTimeZone)}
+                        ariaLabel={buildCalendarDayLabel(
+                          day.key,
+                          items.length,
+                          localTimeZone
+                        )}
                         onClick={() => openSelectedDay(day.key)}
                       />
                     );
@@ -314,12 +433,19 @@ export function CalendarPageClient() {
         <div className="mt-4 rounded-2xl border border-stroke bg-surface-0/45 p-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <div className="text-xs uppercase tracking-[0.1em] text-text3">Month summary</div>
+              <div className="text-xs uppercase tracking-[0.1em] text-text3">
+                Month summary
+              </div>
               <div className="mt-1 text-lg font-semibold text-text1">
-                {filteredLaunches.length} launch{filteredLaunches.length === 1 ? '' : 'es'} across {launchDayKeys.length} active day{launchDayKeys.length === 1 ? '' : 's'}
+                {filteredLaunches.length} launch
+                {filteredLaunches.length === 1 ? '' : 'es'} across{' '}
+                {launchDayKeys.length} active day
+                {launchDayKeys.length === 1 ? '' : 's'}
               </div>
             </div>
-            <div className="text-sm text-text3">Times shown in {localTimeZone}</div>
+            <div className="text-sm text-text3">
+              Times shown in {localTimeZone}
+            </div>
           </div>
           <div className="mt-3 text-sm text-text2">
             {filteredLaunches[0]
@@ -330,7 +456,9 @@ export function CalendarPageClient() {
 
         {launchDayKeys.length > 0 ? (
           <div className="mt-4">
-            <div className="text-xs uppercase tracking-[0.1em] text-text3">Launch dates</div>
+            <div className="text-xs uppercase tracking-[0.1em] text-text3">
+              Launch dates
+            </div>
             <div className="mt-3 flex gap-2 overflow-x-auto pb-2">
               {launchDayKeys.map((dayKey) => (
                 <button
@@ -339,12 +467,17 @@ export function CalendarPageClient() {
                   onClick={() => openSelectedDay(dayKey)}
                   className={clsx(
                     'shrink-0 rounded-2xl border px-4 py-3 text-left transition',
-                    selectedDay === dayKey ? 'border-primary bg-primary/10 text-primary' : 'border-stroke bg-surface-0 text-text1 hover:border-primary/50'
+                    selectedDay === dayKey
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-stroke bg-surface-0 text-text1 hover:border-primary/50'
                   )}
                 >
-                  <div className="text-sm font-semibold">{formatCompactDay(dayKey)}</div>
+                  <div className="text-sm font-semibold">
+                    {formatCompactDay(dayKey)}
+                  </div>
                   <div className="mt-1 text-xs text-text3">
-                    {launchesByDay.get(dayKey)?.length ?? 0} launch{(launchesByDay.get(dayKey)?.length ?? 0) === 1 ? '' : 'es'}
+                    {launchesByDay.get(dayKey)?.length ?? 0} launch
+                    {(launchesByDay.get(dayKey)?.length ?? 0) === 1 ? '' : 'es'}
                   </div>
                 </button>
               ))}
@@ -356,21 +489,41 @@ export function CalendarPageClient() {
       <div className="mt-4 rounded-3xl border border-stroke bg-surface-1 p-4 md:p-5">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <div className="text-xs uppercase tracking-[0.1em] text-text3">Selected day</div>
-            <div className="mt-1 text-xl font-semibold text-text1">
-              {selectedDay ? formatSelectedDay(selectedDay, localTimeZone) : 'Select a day'}
+            <div className="text-xs uppercase tracking-[0.1em] text-text3">
+              Selected day
             </div>
-            <div className="mt-1 text-sm text-text3">{formatLaunchCountLabel(selectedLaunches.length)}</div>
+            <div className="mt-1 text-xl font-semibold text-text1">
+              {selectedDay
+                ? formatSelectedDay(selectedDay, localTimeZone)
+                : 'Select a day'}
+            </div>
+            <div className="mt-1 text-sm text-text3">
+              {formatLaunchCountLabel(selectedLaunches.length)}
+            </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" className="btn-secondary rounded-lg px-3 py-2 text-sm" onClick={() => navigateDay(-1)}>
+            <button
+              type="button"
+              className="btn-secondary rounded-lg px-3 py-2 text-sm"
+              onClick={() => navigateDay(-1)}
+            >
               Previous day
             </button>
-            <button type="button" className="btn-secondary rounded-lg px-3 py-2 text-sm" onClick={() => navigateDay(1)}>
+            <button
+              type="button"
+              className="btn-secondary rounded-lg px-3 py-2 text-sm"
+              onClick={() => navigateDay(1)}
+            >
               Next day
             </button>
-            {nearestLaunchDay && selectedLaunches.length === 0 && nearestLaunchDay !== selectedDay ? (
-              <button type="button" className="btn-secondary rounded-lg px-3 py-2 text-sm" onClick={() => openSelectedDay(nearestLaunchDay)}>
+            {nearestLaunchDay &&
+            selectedLaunches.length === 0 &&
+            nearestLaunchDay !== selectedDay ? (
+              <button
+                type="button"
+                className="btn-secondary rounded-lg px-3 py-2 text-sm"
+                onClick={() => openSelectedDay(nearestLaunchDay)}
+              >
                 Jump to {formatCompactDay(nearestLaunchDay)}
               </button>
             ) : null}
@@ -380,38 +533,64 @@ export function CalendarPageClient() {
         <div className="mt-4 space-y-3">
           {selectedLaunches.length === 0 ? (
             <div className="rounded-2xl border border-stroke bg-surface-0/70 p-4 text-sm text-text3">
-              No launches on this date. Keep stepping through past and future dates or jump to the nearest scheduled day.
+              No launches on this date. Keep stepping through past and future
+              dates or jump to the nearest scheduled day.
             </div>
           ) : (
             selectedLaunches.map((launch) => (
-              <CalendarAgendaCard key={launch.id} launch={launch} localTimeZone={localTimeZone} />
+              <CalendarAgendaCard
+                key={launch.id}
+                launch={launch}
+                localTimeZone={localTimeZone}
+              />
             ))
           )}
         </div>
 
         {monthQuery.data?.hasMore ? (
-          <p className="mt-4 text-xs text-text3">Showing the first 1000 launches returned for this month.</p>
+          <p className="mt-4 text-xs text-text3">
+            Showing the first 1000 launches returned for this month.
+          </p>
         ) : null}
       </div>
     </div>
   );
 }
 
-function CalendarAgendaCard({ launch, localTimeZone }: { launch: CalendarLaunch; localTimeZone: string }) {
+function CalendarAgendaCard({
+  launch,
+  localTimeZone
+}: {
+  launch: CalendarLaunch;
+  localTimeZone: string;
+}) {
   const providerHref = buildProviderHref(launch.provider);
-  const countdownLabel = buildLaunchCountdownLabel(launch.net, launch.netPrecision);
+  const countdownLabel = buildLaunchCountdownLabel(
+    launch.net,
+    launch.netPrecision
+  );
   const statusTone = getStatusTone(launch.status);
-  const windowLabel = buildWindowLabel(launch.net, launch.windowEnd ?? null, localTimeZone);
+  const windowLabel = buildWindowLabel(
+    launch.net,
+    launch.windowEnd ?? null,
+    localTimeZone
+  );
 
   return (
     <div className="rounded-2xl border border-stroke bg-surface-0/70 p-4">
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="flex min-w-0 flex-1 gap-3">
-          <ProviderLogo provider={launch.provider} logoUrl={resolveProviderLogoUrl(launch)} />
+          <ProviderLogo
+            provider={launch.provider}
+            logoUrl={resolveProviderLogoUrl(launch)}
+          />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-start gap-3">
               <div className="min-w-0 flex-1">
-                <Link href={buildLaunchHref(launch)} className="block truncate text-base font-semibold text-text1 hover:text-primary">
+                <Link
+                  href={buildLaunchHref(launch)}
+                  className="block truncate text-base font-semibold text-text1 hover:text-primary"
+                >
                   {launch.name}
                 </Link>
                 <div className="mt-1 text-xs text-text3">
@@ -438,12 +617,19 @@ function CalendarAgendaCard({ launch, localTimeZone }: { launch: CalendarLaunch;
             </div>
 
             <div className="mt-3 flex flex-wrap gap-2">
-              <InlinePill label={formatLaunchTiming(launch, localTimeZone)} emphasis />
+              <InlinePill
+                label={formatLaunchTiming(launch, localTimeZone)}
+                emphasis
+              />
               {countdownLabel ? <InlinePill label={countdownLabel} /> : null}
             </div>
 
-            <div className="mt-3 text-sm text-text2">{launch.pad.locationName || launch.pad.name}</div>
-            {windowLabel ? <div className="mt-1 text-sm text-text3">{windowLabel}</div> : null}
+            <div className="mt-3 text-sm text-text2">
+              {launch.pad.locationName || launch.pad.name}
+            </div>
+            {windowLabel ? (
+              <div className="mt-1 text-sm text-text3">{windowLabel}</div>
+            ) : null}
           </div>
         </div>
         <AddToCalendarButton launch={launch} variant="icon" isAuthed />
@@ -452,12 +638,20 @@ function CalendarAgendaCard({ launch, localTimeZone }: { launch: CalendarLaunch;
   );
 }
 
-function InlinePill({ label, emphasis = false }: { label: string; emphasis?: boolean }) {
+function InlinePill({
+  label,
+  emphasis = false
+}: {
+  label: string;
+  emphasis?: boolean;
+}) {
   return (
     <span
       className={clsx(
         'rounded-full border px-2.5 py-1 text-xs font-semibold',
-        emphasis ? 'border-primary/30 bg-primary/10 text-primary' : 'border-stroke bg-surface-1 text-text1'
+        emphasis
+          ? 'border-primary/30 bg-primary/10 text-primary'
+          : 'border-stroke bg-surface-1 text-text1'
       )}
     >
       {label}
@@ -465,7 +659,13 @@ function InlinePill({ label, emphasis = false }: { label: string; emphasis?: boo
   );
 }
 
-function ProviderLogo({ provider, logoUrl }: { provider: string; logoUrl?: string }) {
+function ProviderLogo({
+  provider,
+  logoUrl
+}: {
+  provider: string;
+  logoUrl?: string;
+}) {
   const initial = (provider || '?').trim().slice(0, 1).toUpperCase() || '?';
 
   return (
@@ -484,7 +684,9 @@ function ProviderLogo({ provider, logoUrl }: { provider: string; logoUrl?: strin
             decoding="async"
           />
         ) : (
-          <span className="text-[10px] font-semibold text-text2">{initial}</span>
+          <span className="text-[10px] font-semibold text-text2">
+            {initial}
+          </span>
         )}
       </span>
     </span>
@@ -500,7 +702,12 @@ function parseMonthParam(value: string | null) {
   const match = value.match(MONTH_PARAM_PATTERN);
   const year = Number(match?.[1]);
   const monthIndex = Number(match?.[2]) - 1;
-  if (!Number.isFinite(year) || !Number.isFinite(monthIndex) || monthIndex < 0 || monthIndex > 11) {
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(monthIndex) ||
+    monthIndex < 0 ||
+    monthIndex > 11
+  ) {
     const today = new Date();
     return new Date(today.getFullYear(), today.getMonth(), 1);
   }
@@ -518,11 +725,17 @@ function parseDayKey(value: string | null) {
 }
 
 function parseStatusParam(value: string | null): LaunchStatus | 'all' {
-  return STATUS_OPTIONS.some((option) => option.value === value) ? (value as LaunchStatus | 'all') : 'all';
+  return STATUS_OPTIONS.some((option) => option.value === value)
+    ? (value as LaunchStatus | 'all')
+    : 'all';
 }
 
-function parseRegionParam(value: string | null): (typeof REGION_OPTIONS)[number]['value'] {
-  return REGION_OPTIONS.some((option) => option.value === value) ? (value as (typeof REGION_OPTIONS)[number]['value']) : 'all';
+function parseRegionParam(
+  value: string | null
+): (typeof REGION_OPTIONS)[number]['value'] {
+  return REGION_OPTIONS.some((option) => option.value === value)
+    ? (value as (typeof REGION_OPTIONS)[number]['value'])
+    : 'all';
 }
 
 function formatMonthKey(value: Date) {
@@ -568,7 +781,11 @@ function updateCalendarQuery(
 
 function buildCalendarExportHref(
   bounds: { from: Date; to: Date },
-  options: { providerFilter: string; regionFilter: string; statusFilter: LaunchStatus | 'all' }
+  options: {
+    providerFilter: string;
+    regionFilter: string;
+    statusFilter: LaunchStatus | 'all';
+  }
 ) {
   const params = new URLSearchParams({
     from: bounds.from.toISOString(),
@@ -577,8 +794,10 @@ function buildCalendarExportHref(
   });
 
   if (options.providerFilter) params.set('provider', options.providerFilter);
-  if (options.regionFilter !== 'all') params.set('region', options.regionFilter);
-  if (options.statusFilter !== 'all') params.set('status', options.statusFilter);
+  if (options.regionFilter !== 'all')
+    params.set('region', options.regionFilter);
+  if (options.statusFilter !== 'all')
+    params.set('status', options.statusFilter);
 
   return `/api/launches/ics?${params.toString()}`;
 }
@@ -604,7 +823,11 @@ function formatLaunchCountLabel(count: number) {
   return `${count} launch${count === 1 ? '' : 'es'}`;
 }
 
-function buildCalendarDayLabel(dayKey: string, count: number, localTimeZone: string) {
+function buildCalendarDayLabel(
+  dayKey: string,
+  count: number,
+  localTimeZone: string
+) {
   const labels = [formatSelectedDay(dayKey, localTimeZone)];
   const dayState = getCalendarDayTemporalState(dayKey);
 
@@ -627,7 +850,11 @@ function formatLaunchTiming(launch: CalendarLaunch, localTimeZone: string) {
 }
 
 function buildLaunchCountdownLabel(net: string, netPrecision: string) {
-  if (netPrecision === 'day' || netPrecision === 'month' || netPrecision === 'tbd') {
+  if (
+    netPrecision === 'day' ||
+    netPrecision === 'month' ||
+    netPrecision === 'tbd'
+  ) {
     return null;
   }
 
@@ -635,7 +862,11 @@ function buildLaunchCountdownLabel(net: string, netPrecision: string) {
   return snapshot ? formatLaunchCountdownClock(snapshot.totalMs) : null;
 }
 
-function buildWindowLabel(net: string, windowEnd: string | null, localTimeZone: string) {
+function buildWindowLabel(
+  net: string,
+  windowEnd: string | null,
+  localTimeZone: string
+) {
   if (!windowEnd || windowEnd === net) {
     return null;
   }

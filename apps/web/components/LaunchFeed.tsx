@@ -17,7 +17,14 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { sharedQueryKeys } from '@tminuszero/query';
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState
+} from 'react';
 import {
   applyGuestViewerState,
   useCreateFilterPresetMutation,
@@ -62,10 +69,17 @@ import { useToast } from './ToastProvider';
 const PAGE_SIZE = LAUNCH_FEED_PAGE_SIZE;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const DEFAULT_LAUNCH_FILTERS: LaunchFilter = { range: 'year', sort: 'soonest', region: 'us' };
-const FILTER_SECTION_CLASS = 'rounded-xl border border-stroke bg-surface-0/50 p-3';
-const FILTER_GROUP_LABEL_CLASS = 'text-[11px] font-semibold uppercase tracking-[0.12em] text-text3';
-const FILTER_SELECT_CLASS = 'w-full rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1';
+const DEFAULT_LAUNCH_FILTERS: LaunchFilter = {
+  range: 'year',
+  sort: 'soonest',
+  region: 'us'
+};
+const FILTER_SECTION_CLASS =
+  'rounded-xl border border-stroke bg-surface-0/50 p-3';
+const FILTER_GROUP_LABEL_CLASS =
+  'text-[11px] font-semibold uppercase tracking-[0.12em] text-text3';
+const FILTER_SELECT_CLASS =
+  'w-full rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1';
 const HOME_UPSELL_KEYS = {
   onboardingDismissedAt: 'tminus.upsell.home_onboarding.dismissed_at'
 } as const;
@@ -128,12 +142,22 @@ function normalizeViewerTier(value: unknown): ViewerTier | null {
 }
 
 function isLaunchFeedDebugEnabled(searchParams: SearchParamsLike) {
-  const token = String(searchParams.get('debug') || '').trim().toLowerCase();
-  const enabledByParam = token === '1' || token === 'true' || token === 'launchfeed' || token === 'feed' || token === 'refresh';
-  const enabledByEnv = process.env.NODE_ENV !== 'production' && process.env.NEXT_PUBLIC_DEBUG_LAUNCH_FEED === '1';
+  const token = String(searchParams.get('debug') || '')
+    .trim()
+    .toLowerCase();
+  const enabledByParam =
+    token === '1' ||
+    token === 'true' ||
+    token === 'launchfeed' ||
+    token === 'feed' ||
+    token === 'refresh';
+  const enabledByEnv =
+    process.env.NODE_ENV !== 'production' &&
+    process.env.NEXT_PUBLIC_DEBUG_LAUNCH_FEED === '1';
   const enabledByStorage =
     typeof window !== 'undefined' &&
-    (window.localStorage.getItem('debug_launch_feed') === '1' || window.localStorage.getItem('tminus.debug_launch_feed') === '1');
+    (window.localStorage.getItem('debug_launch_feed') === '1' ||
+      window.localStorage.getItem('tminus.debug_launch_feed') === '1');
   return enabledByEnv || enabledByParam || enabledByStorage;
 }
 
@@ -141,18 +165,27 @@ function isHistoryReplaceRateLimitError(error: unknown) {
   if (!error || typeof error !== 'object') return false;
   const maybeError = error as { name?: unknown; message?: unknown };
   const name = typeof maybeError.name === 'string' ? maybeError.name : '';
-  const message = typeof maybeError.message === 'string' ? maybeError.message : '';
+  const message =
+    typeof maybeError.message === 'string' ? maybeError.message : '';
   return name === 'SecurityError' && message.includes('replaceState');
 }
 
-function useWhyDidYouUpdate(name: string, values: Record<string, unknown>, enabled: boolean) {
+function useWhyDidYouUpdate(
+  name: string,
+  values: Record<string, unknown>,
+  enabled: boolean
+) {
   const renderRef = useRef(0);
   const prevRef = useRef<Record<string, unknown>>(values);
   const startedAtRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (startedAtRef.current == null) {
-      startedAtRef.current = typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now();
+      startedAtRef.current =
+        typeof performance !== 'undefined' &&
+        typeof performance.now === 'function'
+          ? performance.now()
+          : Date.now();
     }
   }, []);
 
@@ -176,7 +209,11 @@ function useWhyDidYouUpdate(name: string, values: Record<string, unknown>, enabl
     if (!changeKeys.length) return;
 
     const startedAt = startedAtRef.current ?? 0;
-    const now = typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now();
+    const now =
+      typeof performance !== 'undefined' &&
+      typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now();
     const elapsedMs = startedAt ? Math.round(now - startedAt) : null;
 
     console.groupCollapsed(
@@ -223,29 +260,48 @@ export function LaunchFeed({
   const { pushToast } = useToast();
   const debug = isLaunchFeedDebugEnabled(searchParams);
   const debugSessionIdRef = useRef(Math.random().toString(36).slice(2));
-  const debugName = useMemo(() => `LaunchFeed:${debugSessionIdRef.current}`, []);
+  const debugName = useMemo(
+    () => `LaunchFeed:${debugSessionIdRef.current}`,
+    []
+  );
   const initialPage = getPageFromSearchParams(searchParams);
   const initialPageOffset = (initialPage - 1) * PAGE_SIZE;
-  const initialHasMoreValue = initialHasMore ?? initialLaunches.length === PAGE_SIZE;
+  const initialHasMoreValue =
+    initialHasMore ?? initialLaunches.length === PAGE_SIZE;
   const initialNowMsValue =
-    typeof initialNowMs === 'number' && Number.isFinite(initialNowMs) ? initialNowMs : undefined;
-  const initialMatchesPage = initialLaunches.length > 0 && initialOffset === initialPageOffset;
+    typeof initialNowMs === 'number' && Number.isFinite(initialNowMs)
+      ? initialNowMs
+      : undefined;
+  const initialMatchesPage =
+    initialLaunches.length > 0 && initialOffset === initialPageOffset;
 
   const [loading, setLoading] = useState(() => !initialMatchesPage);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [filters, setFilters] = useState<LaunchFilter>({ ...DEFAULT_LAUNCH_FILTERS });
+  const [filters, setFilters] = useState<LaunchFilter>({
+    ...DEFAULT_LAUNCH_FILTERS
+  });
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [presetSaving, setPresetSaving] = useState(false);
   const [presetDefaulting, setPresetDefaulting] = useState(false);
   const [activePresetId, setActivePresetId] = useState<string>('');
   const [myLaunchesEnabled, setMyLaunchesEnabled] = useState(false);
-  const [watchToggleBusy, setWatchToggleBusy] = useState<Record<string, boolean>>({});
-  const [followToggleBusy, setFollowToggleBusy] = useState<Record<string, boolean>>({});
-  const [launches, setLaunches] = useState<Launch[]>(() => (initialMatchesPage ? initialLaunches : []));
-  const [nextOffset, setNextOffset] = useState(() =>
-    initialMatchesPage ? initialOffset + initialLaunches.length : initialPageOffset
+  const [watchToggleBusy, setWatchToggleBusy] = useState<
+    Record<string, boolean>
+  >({});
+  const [followToggleBusy, setFollowToggleBusy] = useState<
+    Record<string, boolean>
+  >({});
+  const [launches, setLaunches] = useState<Launch[]>(() =>
+    initialMatchesPage ? initialLaunches : []
   );
-  const [hasMore, setHasMore] = useState(() => (initialMatchesPage ? initialHasMoreValue : true));
+  const [nextOffset, setNextOffset] = useState(() =>
+    initialMatchesPage
+      ? initialOffset + initialLaunches.length
+      : initialPageOffset
+  );
+  const [hasMore, setHasMore] = useState(() =>
+    initialMatchesPage ? initialHasMoreValue : true
+  );
   const [changed, setChanged] = useState<
     Array<{
       launchId: string;
@@ -262,23 +318,38 @@ export function LaunchFeed({
       }>;
     }>
   >([]);
-  const [expandedUpdates, setExpandedUpdates] = useState<Record<string, boolean>>({});
+  const [expandedUpdates, setExpandedUpdates] = useState<
+    Record<string, boolean>
+  >({});
   const [recentExpanded, setRecentExpanded] = useState(false);
   const [recentFlipIndex, setRecentFlipIndex] = useState(0);
-  const [notice, setNotice] = useState<{ message: string; tone: 'info' | 'warning' } | null>(null);
-  const [pendingRefresh, setPendingRefresh] = useState<PendingFeedRefresh | null>(null);
+  const [notice, setNotice] = useState<{
+    message: string;
+    tone: 'info' | 'warning';
+  } | null>(null);
+  const [pendingRefresh, setPendingRefresh] =
+    useState<PendingFeedRefresh | null>(null);
   const [refreshApplying, setRefreshApplying] = useState(false);
-  const [lastCheckedAtMs, setLastCheckedAtMs] = useState<number | null>(() => initialNowMsValue ?? null);
-  const [nextRefreshAt, setNextRefreshAt] = useState<number | null>(null);
-  const [scheduledRefreshIntervalSeconds, setScheduledRefreshIntervalSeconds] = useState(() =>
-    initialViewerTier === 'premium' ? PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS : getTierRefreshSeconds(initialViewerTier ?? 'anon')
+  const [lastCheckedAtMs, setLastCheckedAtMs] = useState<number | null>(
+    () => initialNowMsValue ?? null
   );
+  const [nextRefreshAt, setNextRefreshAt] = useState<number | null>(null);
+  const [scheduledRefreshIntervalSeconds, setScheduledRefreshIntervalSeconds] =
+    useState(() =>
+      initialViewerTier === 'premium'
+        ? PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS
+        : getTierRefreshSeconds(initialViewerTier ?? 'anon')
+    );
   const [cadenceAnchorNet, setCadenceAnchorNet] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => initialNowMsValue ?? Date.now());
   const [userTz, setUserTz] = useState('UTC');
   const [upsellOpen, setUpsellOpen] = useState(false);
-  const [upsellFeatureLabel, setUpsellFeatureLabel] = useState<string | undefined>(undefined);
-  const [blockThirdPartyEmbeds, setBlockThirdPartyEmbeds] = useState(() => Boolean(initialBlockThirdPartyEmbeds));
+  const [upsellFeatureLabel, setUpsellFeatureLabel] = useState<
+    string | undefined
+  >(undefined);
+  const [blockThirdPartyEmbeds, setBlockThirdPartyEmbeds] = useState(() =>
+    Boolean(initialBlockThirdPartyEmbeds)
+  );
   const [modeOverride, setModeOverride] = useState<'public' | null>(null);
   const [infiniteScrollArmed, setInfiniteScrollArmed] = useState(false);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
@@ -301,18 +372,33 @@ export function LaunchFeed({
   const createWatchlistRuleMutation = useCreateWatchlistRuleMutation();
   const deleteWatchlistRuleMutation = useDeleteWatchlistRuleMutation();
 
-  const { dismissed: unlocksDismissed, dismiss: dismissUnlocks } = useDismissed(HOME_UPSELL_KEYS.onboardingDismissedAt, 14 * DAY_MS);
+  const { dismissed: unlocksDismissed, dismiss: dismissUnlocks } = useDismissed(
+    HOME_UPSELL_KEYS.onboardingDismissedAt,
+    14 * DAY_MS
+  );
 
-  const query = useMemo(() => (searchParams.get('q') || '').trim(), [searchParams]);
-  const currentPage = useMemo(() => getPageFromSearchParams(searchParams), [searchParams]);
-  const pageOffset = useMemo(() => (currentPage - 1) * PAGE_SIZE, [currentPage]);
+  const query = useMemo(
+    () => (searchParams.get('q') || '').trim(),
+    [searchParams]
+  );
+  const currentPage = useMemo(
+    () => getPageFromSearchParams(searchParams),
+    [searchParams]
+  );
+  const pageOffset = useMemo(
+    () => (currentPage - 1) * PAGE_SIZE,
+    [currentPage]
+  );
   const authStatus: 'loading' | 'authed' | 'guest' =
     viewerSessionQuery.isPending && !viewerSessionQuery.data
       ? (initialAuthStatus ?? 'loading')
       : viewerSessionQuery.data?.viewerId
         ? 'authed'
         : 'guest';
-  const baseViewerTier = normalizeViewerTier(viewerEntitlementsQuery.data?.tier) ?? initialViewerTier ?? 'anon';
+  const baseViewerTier =
+    normalizeViewerTier(viewerEntitlementsQuery.data?.tier) ??
+    initialViewerTier ??
+    'anon';
   const viewerTier: ViewerTier =
     modeOverride === 'public' ? 'anon' : baseViewerTier;
   const openLaunchSearch = useCallback(() => {
@@ -321,20 +407,34 @@ export function LaunchFeed({
   }, []);
   const isPaid =
     modeOverride == null
-      ? (typeof viewerEntitlementsQuery.data?.isPaid === 'boolean'
-          ? viewerEntitlementsQuery.data.isPaid
-          : typeof initialIsPaid === 'boolean'
-            ? initialIsPaid
-            : initialViewerTier === 'premium')
+      ? typeof viewerEntitlementsQuery.data?.isPaid === 'boolean'
+        ? viewerEntitlementsQuery.data.isPaid
+        : typeof initialIsPaid === 'boolean'
+          ? initialIsPaid
+          : initialViewerTier === 'premium'
       : false;
   const isAuthed = authStatus === 'authed';
   const viewerCapabilities = viewerEntitlementsQuery.data?.capabilities;
-  const canUseSavedItems = isAuthed && Boolean(viewerCapabilities?.canUseSavedItems);
-  const canManageFilterPresets = isAuthed && Boolean(viewerCapabilities?.canManageFilterPresets);
-  const canUseBasicAlertRules = Boolean(viewerCapabilities?.canUseBasicAlertRules);
-  const singleLaunchFollowLimit = Math.max(1, viewerEntitlementsQuery.data?.limits.singleLaunchFollowLimit ?? 1);
-  const activeBasicLaunchFollow = basicFollowsQuery.data?.activeLaunchFollow ?? null;
-  const mode = useMemo(() => modeOverride ?? tierToMode(viewerTier), [modeOverride, viewerTier]);
+  const canUseLaunchFilters = Boolean(
+    viewerCapabilities?.canUseLaunchFilters ?? true
+  );
+  const canUseSavedItems =
+    isAuthed && Boolean(viewerCapabilities?.canUseSavedItems);
+  const canManageFilterPresets =
+    isAuthed && Boolean(viewerCapabilities?.canManageFilterPresets);
+  const canUseBasicAlertRules = Boolean(
+    viewerCapabilities?.canUseBasicAlertRules
+  );
+  const singleLaunchFollowLimit = Math.max(
+    1,
+    viewerEntitlementsQuery.data?.limits.singleLaunchFollowLimit ?? 1
+  );
+  const activeBasicLaunchFollow =
+    basicFollowsQuery.data?.activeLaunchFollow ?? null;
+  const mode = useMemo(
+    () => modeOverride ?? tierToMode(viewerTier),
+    [modeOverride, viewerTier]
+  );
   const arEligibleLaunchIdsQuery = useArEligibleLaunchIdsQuery({
     initialData: initialArEligibleLaunchIds
   });
@@ -353,7 +453,7 @@ export function LaunchFeed({
       provider: filters.provider ?? null,
       status: filters.status && filters.status !== 'all' ? filters.status : null
     },
-    { enabled: isAuthed }
+    { enabled: canUseLaunchFilters }
   );
   const filterOptions = useMemo<LaunchFilterOptions>(
     () =>
@@ -366,14 +466,23 @@ export function LaunchFeed({
       },
     [filterOptionsQuery.data]
   );
-  const filtersLoading = isAuthed ? filterOptionsQuery.isPending : false;
+  const filtersLoading = canUseLaunchFilters
+    ? filterOptionsQuery.isPending
+    : false;
   const filtersError =
-    isAuthed && filterOptionsQuery.isError
+    canUseLaunchFilters && filterOptionsQuery.isError
       ? filterOptionsQuery.error instanceof Error
         ? filterOptionsQuery.error.message
         : 'filters_failed'
       : null;
-  const presetList = useMemo<Array<{ id: string; name: string; filters: LaunchFilter; is_default: boolean }>>(() => {
+  const presetList = useMemo<
+    Array<{
+      id: string;
+      name: string;
+      filters: LaunchFilter;
+      is_default: boolean;
+    }>
+  >(() => {
     if (!canManageFilterPresets || !filterPresetsQuery.data) return [];
     return filterPresetsQuery.data.presets
       .map((preset) => {
@@ -387,7 +496,16 @@ export function LaunchFeed({
           is_default: preset.isDefault === true
         };
       })
-      .filter((preset): preset is { id: string; name: string; filters: LaunchFilter; is_default: boolean } => preset !== null);
+      .filter(
+        (
+          preset
+        ): preset is {
+          id: string;
+          name: string;
+          filters: LaunchFilter;
+          is_default: boolean;
+        } => preset !== null
+      );
   }, [canManageFilterPresets, filterPresetsQuery.data]);
   const presetsLoading = canManageFilterPresets && filterPresetsQuery.isPending;
   const presetsError =
@@ -404,26 +522,56 @@ export function LaunchFeed({
   const selectedWatchlist = useMemo(() => {
     if (!canUseSavedItems || !watchlistsQuery.data) return null;
     return (
-      watchlistsQuery.data.watchlists.find((watchlist) => String(watchlist.name || '').trim().toLowerCase() === 'my launches') ??
+      watchlistsQuery.data.watchlists.find(
+        (watchlist) =>
+          String(watchlist.name || '')
+            .trim()
+            .toLowerCase() === 'my launches'
+      ) ??
       watchlistsQuery.data.watchlists[0] ??
       null
     );
   }, [canUseSavedItems, watchlistsQuery.data]);
-  const watchlistsLoading = canUseSavedItems && (watchlistsQuery.isPending || createWatchlistMutation.isPending);
+  const watchlistsLoading =
+    canUseSavedItems &&
+    (watchlistsQuery.isPending || createWatchlistMutation.isPending);
   const watchlistsError =
     canUseSavedItems && watchlistsQuery.isError
       ? watchlistsQuery.error instanceof Error
         ? watchlistsQuery.error.message
         : 'failed_to_load'
       : null;
-  const myWatchlistId = selectedWatchlist?.id ? String(selectedWatchlist.id) : null;
-  const myLaunchRulesByLaunchId = useMemo(() => extractLaunchRuleMap(selectedWatchlist?.rules), [selectedWatchlist?.rules]);
-  const myProviderRulesByProvider = useMemo(() => extractProviderRuleMap(selectedWatchlist?.rules), [selectedWatchlist?.rules]);
-  const myPadRulesByValue = useMemo(() => extractPadRuleMap(selectedWatchlist?.rules), [selectedWatchlist?.rules]);
-  const myRocketRulesByValue = useMemo(() => extractRuleMap(selectedWatchlist?.rules, 'rocket'), [selectedWatchlist?.rules]);
-  const myLaunchSiteRulesByValue = useMemo(() => extractRuleMap(selectedWatchlist?.rules, 'launch_site'), [selectedWatchlist?.rules]);
-  const myStateRulesByValue = useMemo(() => extractRuleMap(selectedWatchlist?.rules, 'state'), [selectedWatchlist?.rules]);
-  const fallbackRefreshIntervalSeconds = viewerTier === 'premium' ? PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS : getTierRefreshSeconds(viewerTier);
+  const myWatchlistId = selectedWatchlist?.id
+    ? String(selectedWatchlist.id)
+    : null;
+  const myLaunchRulesByLaunchId = useMemo(
+    () => extractLaunchRuleMap(selectedWatchlist?.rules),
+    [selectedWatchlist?.rules]
+  );
+  const myProviderRulesByProvider = useMemo(
+    () => extractProviderRuleMap(selectedWatchlist?.rules),
+    [selectedWatchlist?.rules]
+  );
+  const myPadRulesByValue = useMemo(
+    () => extractPadRuleMap(selectedWatchlist?.rules),
+    [selectedWatchlist?.rules]
+  );
+  const myRocketRulesByValue = useMemo(
+    () => extractRuleMap(selectedWatchlist?.rules, 'rocket'),
+    [selectedWatchlist?.rules]
+  );
+  const myLaunchSiteRulesByValue = useMemo(
+    () => extractRuleMap(selectedWatchlist?.rules, 'launch_site'),
+    [selectedWatchlist?.rules]
+  );
+  const myStateRulesByValue = useMemo(
+    () => extractRuleMap(selectedWatchlist?.rules, 'state'),
+    [selectedWatchlist?.rules]
+  );
+  const fallbackRefreshIntervalSeconds =
+    viewerTier === 'premium'
+      ? PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS
+      : getTierRefreshSeconds(viewerTier);
   const refreshIntervalSeconds = getRecommendedLaunchRefreshIntervalSeconds(
     scheduledRefreshIntervalSeconds,
     fallbackRefreshIntervalSeconds
@@ -501,7 +649,10 @@ export function LaunchFeed({
     setUpsellOpen(true);
   }, []);
   const openFollowUpgrade = useCallback(() => {
-    const returnTo = typeof window !== 'undefined' ? `${window.location.pathname}${window.location.search}` : '/';
+    const returnTo =
+      typeof window !== 'undefined'
+        ? `${window.location.pathname}${window.location.search}`
+        : '/';
     router.push(buildUpgradeHref({ returnTo }));
   }, [router]);
 
@@ -519,7 +670,12 @@ export function LaunchFeed({
 
       const now = Date.now();
       const lastReplace = lastRouterReplaceRef.current;
-      if (lastReplace && lastReplace.url === targetUrl && now - lastReplace.at < 1_000) return;
+      if (
+        lastReplace &&
+        lastReplace.url === targetUrl &&
+        now - lastReplace.at < 1_000
+      )
+        return;
       lastRouterReplaceRef.current = { url: targetUrl, at: now };
 
       try {
@@ -565,7 +721,9 @@ export function LaunchFeed({
 
   useEffect(() => {
     setScheduledRefreshIntervalSeconds(
-      viewerTier === 'premium' ? PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS : getTierRefreshSeconds(viewerTier)
+      viewerTier === 'premium'
+        ? PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS
+        : getTierRefreshSeconds(viewerTier)
     );
     setCadenceAnchorNet(null);
   }, [viewerTier]);
@@ -582,17 +740,30 @@ export function LaunchFeed({
       initialLaunches: initialLaunches.length,
       initialNowMs: initialNowMsValue ?? null
     });
-  }, [debug, debugLog, initialLaunches.length, initialMatchesPage, initialNowMsValue, initialOffset, searchParams]);
+  }, [
+    debug,
+    debugLog,
+    initialLaunches.length,
+    initialMatchesPage,
+    initialNowMsValue,
+    initialOffset,
+    searchParams
+  ]);
 
   useEffect(() => {
     if (!debug) return;
-    const onVisibility = () => debugLog('visibilitychange', { visibilityState: document.visibilityState });
+    const onVisibility = () =>
+      debugLog('visibilitychange', {
+        visibilityState: document.visibilityState
+      });
     const onFocus = () => debugLog('window_focus');
     const onBlur = () => debugLog('window_blur');
     const onOnline = () => debugLog('window_online');
     const onOffline = () => debugLog('window_offline');
-    const onPageShow = (event: PageTransitionEvent) => debugLog('pageshow', { persisted: event.persisted });
-    const onPageHide = (event: PageTransitionEvent) => debugLog('pagehide', { persisted: event.persisted });
+    const onPageShow = (event: PageTransitionEvent) =>
+      debugLog('pageshow', { persisted: event.persisted });
+    const onPageHide = (event: PageTransitionEvent) =>
+      debugLog('pagehide', { persisted: event.persisted });
 
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('focus', onFocus);
@@ -637,7 +808,9 @@ export function LaunchFeed({
     });
   }, [launches, query]);
 
-  const launchFeedWatchlistDependency = myLaunchesEnabled ? myWatchlistId : null;
+  const launchFeedWatchlistDependency = myLaunchesEnabled
+    ? myWatchlistId
+    : null;
 
   useEffect(() => {
     if (authStatus !== 'guest') return;
@@ -707,13 +880,18 @@ export function LaunchFeed({
       didApplyInitialDefaultPresetRef.current = false;
       return;
     }
-    const defaultPreset = presetList.find((preset) => preset.is_default === true) ?? null;
+    const defaultPreset =
+      presetList.find((preset) => preset.is_default === true) ?? null;
     if (defaultPreset?.id) {
       setActivePresetId(defaultPreset.id);
     }
     if (!didApplyInitialDefaultPresetRef.current) {
       if (defaultPreset?.filters) {
-        setFilters((prev) => (areLaunchFiltersEqual(prev, defaultPreset.filters) ? prev : defaultPreset.filters));
+        setFilters((prev) =>
+          areLaunchFiltersEqual(prev, defaultPreset.filters)
+            ? prev
+            : defaultPreset.filters
+        );
       }
       didApplyInitialDefaultPresetRef.current = true;
     }
@@ -721,7 +899,9 @@ export function LaunchFeed({
 
   useEffect(() => {
     if (!activePresetId) return;
-    const preset = presetList.find((candidate) => candidate.id === activePresetId);
+    const preset = presetList.find(
+      (candidate) => candidate.id === activePresetId
+    );
     if (!preset) {
       setActivePresetId('');
       return;
@@ -734,19 +914,28 @@ export function LaunchFeed({
   useEffect(() => {
     if (!canUseSavedItems) {
       setMyLaunchesEnabled(false);
-      setFollowToggleBusy((prev) => (Object.keys(prev).length === 0 ? prev : {}));
+      setFollowToggleBusy((prev) =>
+        Object.keys(prev).length === 0 ? prev : {}
+      );
       didRequestMyWatchlistRef.current = false;
       return;
     }
 
     if (!selectedWatchlist) {
-      if (!didRequestMyWatchlistRef.current && !createWatchlistMutation.isPending) {
+      if (
+        !didRequestMyWatchlistRef.current &&
+        !createWatchlistMutation.isPending
+      ) {
         didRequestMyWatchlistRef.current = true;
         createWatchlistMutation.mutate(
           {},
           {
             onError: (error) => {
-              setNotice({ tone: 'warning', message: error instanceof Error ? error.message : 'failed_to_create' });
+              setNotice({
+                tone: 'warning',
+                message:
+                  error instanceof Error ? error.message : 'failed_to_create'
+              });
             }
           }
         );
@@ -758,7 +947,7 @@ export function LaunchFeed({
   }, [canUseSavedItems, createWatchlistMutation, selectedWatchlist]);
 
   useEffect(() => {
-    if (!isAuthed) {
+    if (!canUseLaunchFilters) {
       return;
     }
     if (!filterOptionsQuery.data) return;
@@ -783,23 +972,38 @@ export function LaunchFeed({
         next.provider = undefined;
         changed = true;
       }
-      if (prev.status && prev.status !== 'all' && !filterOptions.statuses.includes(prev.status)) {
+      if (
+        prev.status &&
+        prev.status !== 'all' &&
+        !filterOptions.statuses.includes(prev.status)
+      ) {
         next.status = 'all';
         changed = true;
       }
 
       return changed ? next : prev;
     });
-  }, [filterOptions, filterOptionsQuery.data, isAuthed]);
+  }, [canUseLaunchFilters, filterOptions, filterOptionsQuery.data]);
 
   const fetchPage = useCallback(
-    async ({ offset, replace, reason }: { offset: number; replace: boolean; reason: string }) => {
+    async ({
+      offset,
+      replace,
+      reason
+    }: {
+      offset: number;
+      replace: boolean;
+      reason: string;
+    }) => {
       fetchSeqRef.current += 1;
       const seq = fetchSeqRef.current;
       const snapshot = latestRef.current;
       const filtersNow = snapshot.filters;
       const modeNow = snapshot.mode;
-      const watchlistId = snapshot.myLaunchesEnabled && snapshot.viewerTier !== 'anon' ? snapshot.myWatchlistId : null;
+      const watchlistId =
+        snapshot.myLaunchesEnabled && snapshot.viewerTier !== 'anon'
+          ? snapshot.myWatchlistId
+          : null;
       debugLog('fetchPage_start', {
         reason,
         offset,
@@ -838,12 +1042,22 @@ export function LaunchFeed({
           state: filtersNow.state ?? null,
           pad: filtersNow.pad ?? null,
           provider: filtersNow.provider ?? null,
-          status: filtersNow.status && filtersNow.status !== 'all' ? filtersNow.status : null
+          status:
+            filtersNow.status && filtersNow.status !== 'all'
+              ? filtersNow.status
+              : null
         };
         debugLog('fetchPage_request', { reason, request });
-        const payload = await queryClient.fetchQuery(getLaunchFeedPageQueryOptions(request));
+        const payload = await queryClient.fetchQuery(
+          getLaunchFeedPageQueryOptions(request)
+        );
         const rows = payload.launches as Launch[];
-        debugLog('fetchPage_response', { reason, scope: payload.scope ?? request.scope, rows: rows.length, hasMore: payload.hasMore });
+        debugLog('fetchPage_response', {
+          reason,
+          scope: payload.scope ?? request.scope,
+          rows: rows.length,
+          hasMore: payload.hasMore
+        });
         setLastCheckedAtMs(Date.now());
         setLaunches((prev) => {
           if (replace) return rows;
@@ -855,36 +1069,56 @@ export function LaunchFeed({
           return merged;
         });
         setNextOffset(offset + rows.length);
-        const hasMoreValue = typeof payload?.hasMore === 'boolean' ? payload.hasMore : rows.length === PAGE_SIZE;
+        const hasMoreValue =
+          typeof payload?.hasMore === 'boolean'
+            ? payload.hasMore
+            : rows.length === PAGE_SIZE;
         setHasMore(hasMoreValue);
         if (modeNow === 'live' || watchlistId) {
           setNotice(null);
           setModeOverride(null);
         }
       } catch (err) {
-        const status = err instanceof ApiClientError ? err.status : typeof (err as any)?.status === 'number' ? (err as any).status : null;
-        const code = err instanceof ApiClientError ? err.code : typeof (err as any)?.code === 'string' ? (err as any).code : null;
+        const status =
+          err instanceof ApiClientError
+            ? err.status
+            : typeof (err as any)?.status === 'number'
+              ? (err as any).status
+              : null;
+        const code =
+          err instanceof ApiClientError
+            ? err.code
+            : typeof (err as any)?.code === 'string'
+              ? (err as any).code
+              : null;
         if (status === 401) {
           applyGuestViewerState(queryClient);
           setMyLaunchesEnabled(false);
           setModeOverride('public');
           setNotice({
             tone: 'warning',
-            message: watchlistId ? 'Sign in to keep using Following. Showing the public feed.' : 'Sign in to view the live feed. Showing the public cache.'
+            message: watchlistId
+              ? 'Sign in to keep using Following. Showing the public feed.'
+              : 'Sign in to view the live feed. Showing the public cache.'
           });
           debugLog('fetchPage_fallback_401', { reason, code });
           return;
         }
         if (status === 402) {
           if (snapshot.viewerTier === 'premium') {
-            console.warn('[LaunchFeed] entitlement_mismatch_402', { reason, code });
+            console.warn('[LaunchFeed] entitlement_mismatch_402', {
+              reason,
+              code
+            });
           }
           invalidateViewerScopedQueries(queryClient);
           setMyLaunchesEnabled(false);
           setModeOverride('public');
           setNotice({
             tone: 'warning',
-            message: watchlistId ? 'Following is not available on this plan. Showing the public feed.' : 'Live feed is a Premium feature. Showing the public cache.'
+            message: watchlistId
+              ? 'Following is not available on this plan. Showing the public feed.'
+              : 'Live feed is a Premium feature. Showing the public cache.'
           });
           debugLog('fetchPage_fallback_402', { reason, code });
           return;
@@ -913,7 +1147,8 @@ export function LaunchFeed({
 
   useEffect(() => {
     const hasInitialPage =
-      initialLaunchesRef.current.length > 0 && initialOffsetRef.current === pageOffset;
+      initialLaunchesRef.current.length > 0 &&
+      initialOffsetRef.current === pageOffset;
 
     if (!didInitialFetchRef.current && hasInitialPage) {
       didInitialFetchRef.current = true;
@@ -921,8 +1156,19 @@ export function LaunchFeed({
     }
 
     didInitialFetchRef.current = true;
-    void fetchPage({ offset: pageOffset, replace: true, reason: 'page_or_filters_change' });
-  }, [fetchPage, filters, mode, myLaunchesEnabled, launchFeedWatchlistDependency, pageOffset]);
+    void fetchPage({
+      offset: pageOffset,
+      replace: true,
+      reason: 'page_or_filters_change'
+    });
+  }, [
+    fetchPage,
+    filters,
+    mode,
+    myLaunchesEnabled,
+    launchFeedWatchlistDependency,
+    pageOffset
+  ]);
 
   const fetchRecentChanges = useCallback(async () => {
     if (viewerTier !== 'premium') {
@@ -938,22 +1184,42 @@ export function LaunchFeed({
       );
       setChanged(Array.isArray(payload.results) ? payload.results : []);
     } catch (err) {
-      const status = err instanceof ApiClientError ? err.status : typeof (err as any)?.status === 'number' ? (err as any).status : null;
-      const code = err instanceof ApiClientError ? err.code : typeof (err as any)?.code === 'string' ? (err as any).code : null;
+      const status =
+        err instanceof ApiClientError
+          ? err.status
+          : typeof (err as any)?.status === 'number'
+            ? (err as any).status
+            : null;
+      const code =
+        err instanceof ApiClientError
+          ? err.code
+          : typeof (err as any)?.code === 'string'
+            ? (err as any).code
+            : null;
       if (status === 401) {
         applyGuestViewerState(queryClient);
         setModeOverride('public');
-        setNotice({ tone: 'warning', message: 'Sign in to view live changes. Showing the public cache.' });
+        setNotice({
+          tone: 'warning',
+          message: 'Sign in to view live changes. Showing the public cache.'
+        });
         setChanged([]);
         return;
       }
       if (status === 402) {
         if (viewerTier === 'premium') {
-          console.warn('[LaunchFeed] entitlement_mismatch_402', { source: 'recent_changes', code });
+          console.warn('[LaunchFeed] entitlement_mismatch_402', {
+            source: 'recent_changes',
+            code
+          });
         }
         invalidateViewerScopedQueries(queryClient);
         setModeOverride('public');
-        setNotice({ tone: 'warning', message: 'Live changes are a Premium feature. Showing the public cache.' });
+        setNotice({
+          tone: 'warning',
+          message:
+            'Live changes are a Premium feature. Showing the public cache.'
+        });
         setChanged([]);
         return;
       }
@@ -986,10 +1252,17 @@ export function LaunchFeed({
     let cancelled = false;
 
     const canCheckForUpdates = () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+      if (
+        typeof document !== 'undefined' &&
+        document.visibilityState === 'hidden'
+      ) {
         return false;
       }
-      if (typeof navigator !== 'undefined' && 'onLine' in navigator && navigator.onLine === false) {
+      if (
+        typeof navigator !== 'undefined' &&
+        'onLine' in navigator &&
+        navigator.onLine === false
+      ) {
         return false;
       }
       return true;
@@ -1024,7 +1297,11 @@ export function LaunchFeed({
         return;
       }
       if (loading || loadingMore || refreshApplying) {
-        debugLog('refresh_tick_skipped_loading', { loading, loadingMore, refreshApplying });
+        debugLog('refresh_tick_skipped_loading', {
+          loading,
+          loadingMore,
+          refreshApplying
+        });
         return;
       }
 
@@ -1038,25 +1315,45 @@ export function LaunchFeed({
         state: versionFilters.state ?? null,
         pad: versionFilters.pad ?? null,
         provider: versionFilters.provider ?? null,
-        status: versionFilters.status && versionFilters.status !== 'all' ? versionFilters.status : null
+        status:
+          versionFilters.status && versionFilters.status !== 'all'
+            ? versionFilters.status
+            : null
       } as const;
       debugLog('refresh_tick_version_check', versionRequest);
 
       try {
-        const payload = await fetchLaunchFeedVersion(queryClient, versionRequest);
+        const payload = await fetchLaunchFeedVersion(
+          queryClient,
+          versionRequest
+        );
         setLastCheckedAtMs(Date.now());
         setScheduledRefreshIntervalSeconds(
-          getRecommendedLaunchRefreshIntervalSeconds(payload.recommendedIntervalSeconds, fallbackRefreshIntervalSeconds)
+          getRecommendedLaunchRefreshIntervalSeconds(
+            payload.recommendedIntervalSeconds,
+            fallbackRefreshIntervalSeconds
+          )
         );
-        setCadenceAnchorNet(typeof payload.cadenceAnchorNet === 'string' ? payload.cadenceAnchorNet : null);
-        const nextVersion = typeof payload?.version === 'string' ? payload.version : null;
-        const visibleUpdatedAt = getVisibleFeedUpdatedAt(launches, snapshot.mode);
+        setCadenceAnchorNet(
+          typeof payload.cadenceAnchorNet === 'string'
+            ? payload.cadenceAnchorNet
+            : null
+        );
+        const nextVersion =
+          typeof payload?.version === 'string' ? payload.version : null;
+        const visibleUpdatedAt = getVisibleFeedUpdatedAt(
+          launches,
+          snapshot.mode
+        );
         if (!nextVersion) {
           return;
         }
         if (!lastSeenLiveVersionRef.current) {
           lastSeenLiveVersionRef.current = nextVersion;
-          const shouldPrimePending = shouldPrimeVersionRefresh(payload.updatedAt, visibleUpdatedAt);
+          const shouldPrimePending = shouldPrimeVersionRefresh(
+            payload.updatedAt,
+            visibleUpdatedAt
+          );
           if (shouldPrimePending) {
             const summaries = await fetchPendingChangeSummaries();
             setPendingRefresh({
@@ -1081,10 +1378,19 @@ export function LaunchFeed({
           summaries
         });
       } catch (err) {
-        const status = err instanceof ApiClientError ? err.status : typeof (err as any)?.status === 'number' ? (err as any).status : null;
+        const status =
+          err instanceof ApiClientError
+            ? err.status
+            : typeof (err as any)?.status === 'number'
+              ? (err as any).status
+              : null;
         if (status === 401 || status === 402) {
           debugLog('refresh_tick_version_unauthorized', { status });
-          await fetchPage({ offset: latestRef.current.pageOffset, replace: true, reason: 'scheduled_refresh_version_unauthorized' });
+          await fetchPage({
+            offset: latestRef.current.pageOffset,
+            replace: true,
+            reason: 'scheduled_refresh_version_unauthorized'
+          });
           setPendingRefresh(null);
           return;
         }
@@ -1176,7 +1482,11 @@ export function LaunchFeed({
   ]);
 
   useEffect(() => {
-    if (viewerTier !== 'premium' || mode !== 'live' || launchFeedWatchlistDependency) {
+    if (
+      viewerTier !== 'premium' ||
+      mode !== 'live' ||
+      launchFeedWatchlistDependency
+    ) {
       return;
     }
 
@@ -1185,16 +1495,32 @@ export function LaunchFeed({
 
     const handleSignal = async () => {
       if (cancelled) return;
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-      if (typeof navigator !== 'undefined' && 'onLine' in navigator && navigator.onLine === false) return;
+      if (
+        typeof document !== 'undefined' &&
+        document.visibilityState === 'hidden'
+      )
+        return;
+      if (
+        typeof navigator !== 'undefined' &&
+        'onLine' in navigator &&
+        navigator.onLine === false
+      )
+        return;
 
       const now = Date.now();
-      if (now - lastLiveRefreshSignalAtRef.current < LIVE_REFRESH_SIGNAL_COOLDOWN_MS) {
+      if (
+        now - lastLiveRefreshSignalAtRef.current <
+        LIVE_REFRESH_SIGNAL_COOLDOWN_MS
+      ) {
         return;
       }
       lastLiveRefreshSignalAtRef.current = now;
 
-      if (latestRef.current.loading || latestRef.current.loadingMore || refreshApplying) {
+      if (
+        latestRef.current.loading ||
+        latestRef.current.loadingMore ||
+        refreshApplying
+      ) {
         return;
       }
 
@@ -1225,10 +1551,23 @@ export function LaunchFeed({
       cancelled = true;
       cleanup?.();
     };
-  }, [fetchPage, fetchRecentChanges, launchFeedWatchlistDependency, mode, refreshApplying, viewerTier]);
+  }, [
+    fetchPage,
+    fetchRecentChanges,
+    launchFeedWatchlistDependency,
+    mode,
+    refreshApplying,
+    viewerTier
+  ]);
 
-  const nextArtemis = useMemo(() => findNextProgramLaunch(launches, nowMs, isArtemisLaunch), [launches, nowMs]);
-  const nextStarship = useMemo(() => findNextProgramLaunch(launches, nowMs, isStarshipLaunch), [launches, nowMs]);
+  const nextArtemis = useMemo(
+    () => findNextProgramLaunch(launches, nowMs, isArtemisLaunch),
+    [launches, nowMs]
+  );
+  const nextStarship = useMemo(
+    () => findNextProgramLaunch(launches, nowMs, isStarshipLaunch),
+    [launches, nowMs]
+  );
 
   const nextArtemisHref = useMemo(() => {
     if (!nextArtemis) return null;
@@ -1249,7 +1588,8 @@ export function LaunchFeed({
   const artemisTicker = useMemo(() => {
     if (!nextArtemis) return null;
     const timeLabel = formatProgramTickerTime(nextArtemis, userTz);
-    const statusLabel = nextArtemis.statusText?.trim() || formatStatusLabel(nextArtemis.status);
+    const statusLabel =
+      nextArtemis.statusText?.trim() || formatStatusLabel(nextArtemis.status);
     return {
       text: `Next Artemis | ${nextArtemis.name} | ${timeLabel} | Status: ${statusLabel}`,
       label: `Next Artemis flight: ${nextArtemis.name}. ${timeLabel}. Status ${statusLabel}.`
@@ -1259,7 +1599,8 @@ export function LaunchFeed({
   const starshipTicker = useMemo(() => {
     if (!nextStarship) return null;
     const timeLabel = formatProgramTickerTime(nextStarship, userTz);
-    const statusLabel = nextStarship.statusText?.trim() || formatStatusLabel(nextStarship.status);
+    const statusLabel =
+      nextStarship.statusText?.trim() || formatStatusLabel(nextStarship.status);
     return {
       text: `Next Starship | ${nextStarship.name} | ${timeLabel} | Status: ${statusLabel}`,
       label: `Next Starship flight: ${nextStarship.name}. ${timeLabel}. Status ${statusLabel}.`
@@ -1297,7 +1638,14 @@ export function LaunchFeed({
 
     tickers.sort((a, b) => a.netMs - b.netMs);
     return tickers;
-  }, [artemisTicker, nextArtemis, nextArtemisHref, nextStarship, nextStarshipHref, starshipTicker]);
+  }, [
+    artemisTicker,
+    nextArtemis,
+    nextArtemisHref,
+    nextStarship,
+    nextStarshipHref,
+    starshipTicker
+  ]);
 
   const combinedProgramTicker = useMemo(() => {
     if (!programTickers.length) return null;
@@ -1319,7 +1667,9 @@ export function LaunchFeed({
   }, [launches, nowMs]);
 
   const activeRecentChange =
-    recentChanges.length > 0 ? recentChanges[recentFlipIndex % recentChanges.length] : null;
+    recentChanges.length > 0
+      ? recentChanges[recentFlipIndex % recentChanges.length]
+      : null;
   const followRuleCount =
     Object.keys(myLaunchRulesByLaunchId).length +
     Object.keys(myProviderRulesByProvider).length +
@@ -1330,9 +1680,21 @@ export function LaunchFeed({
   const hasAnyFollowRules = followRuleCount > 0;
   const activeFilterCount = useMemo(() => {
     let count = 0;
-    if ((filters.range ?? DEFAULT_LAUNCH_FILTERS.range) !== DEFAULT_LAUNCH_FILTERS.range) count += 1;
-    if ((filters.region ?? DEFAULT_LAUNCH_FILTERS.region) !== DEFAULT_LAUNCH_FILTERS.region) count += 1;
-    if ((filters.sort ?? DEFAULT_LAUNCH_FILTERS.sort) !== DEFAULT_LAUNCH_FILTERS.sort) count += 1;
+    if (
+      (filters.range ?? DEFAULT_LAUNCH_FILTERS.range) !==
+      DEFAULT_LAUNCH_FILTERS.range
+    )
+      count += 1;
+    if (
+      (filters.region ?? DEFAULT_LAUNCH_FILTERS.region) !==
+      DEFAULT_LAUNCH_FILTERS.region
+    )
+      count += 1;
+    if (
+      (filters.sort ?? DEFAULT_LAUNCH_FILTERS.sort) !==
+      DEFAULT_LAUNCH_FILTERS.sort
+    )
+      count += 1;
     if (filters.location) count += 1;
     if (filters.state) count += 1;
     if (filters.provider) count += 1;
@@ -1342,9 +1704,14 @@ export function LaunchFeed({
   }, [filters]);
   const hasActiveFilters = activeFilterCount > 0;
 
-  const includeSeconds = viewerTier === 'premium' && refreshIntervalSeconds < 60;
-  const lastCheckedLabel = lastCheckedAtMs ? formatRefreshTime(lastCheckedAtMs, includeSeconds) : null;
-  const nextCheckLabel = nextRefreshAt ? formatRefreshTime(nextRefreshAt, includeSeconds) : null;
+  const includeSeconds =
+    viewerTier === 'premium' && refreshIntervalSeconds < 60;
+  const lastCheckedLabel = lastCheckedAtMs
+    ? formatRefreshTime(lastCheckedAtMs, includeSeconds)
+    : null;
+  const nextCheckLabel = nextRefreshAt
+    ? formatRefreshTime(nextRefreshAt, includeSeconds)
+    : null;
   const premiumCadenceLabel =
     refreshIntervalSeconds <= 15
       ? 'Live checks every 15 seconds during the active launch window'
@@ -1356,19 +1723,24 @@ export function LaunchFeed({
   const nonPremiumPriceLine = 'Premium is $3.99/mo • cancel anytime';
   const homeSignInHref = buildAuthHref('sign-in', { returnTo: '/' });
   const homeUpgradeHref = buildUpgradeHref({ returnTo: '/' });
-  const showModeStatusCard = authStatus !== 'loading' && !query && !unlocksDismissed;
+  const showModeStatusCard =
+    authStatus !== 'loading' && !query && !unlocksDismissed;
   const showAlertsNudge = false;
-  const modeStatusEyebrow = viewerTier === 'premium' ? 'Live mode' : 'Public mode';
+  const modeStatusEyebrow =
+    viewerTier === 'premium' ? 'Live mode' : 'Public mode';
   const modeStatusTitle =
     viewerTier === 'premium'
       ? 'Live updates are active.'
       : 'Public browsing is active.';
   const modeStatusBody =
     viewerTier === 'premium'
-      ? premiumFreshnessLine || 'Premium keeps the feed on the live cadence while launches are active.'
-      : 'Browse launches, filters, and the launch calendar on the public cadence. Premium adds live data, saved items, browser alerts, recurring integrations, and the live change log.';
-  const modePrimaryHref = viewerTier === 'premium' ? '/account' : homeUpgradeHref;
-  const modePrimaryLabel = viewerTier === 'premium' ? 'Open account' : 'See Premium';
+      ? premiumFreshnessLine ||
+        'Premium keeps the feed on the live cadence while launches are active.'
+      : 'Browse launches, filters, and the launch calendar on the public cadence. Premium adds live data, saved items, advanced mobile alerts, recurring integrations, and the live change log.';
+  const modePrimaryHref =
+    viewerTier === 'premium' ? '/account' : homeUpgradeHref;
+  const modePrimaryLabel =
+    viewerTier === 'premium' ? 'Open account' : 'Upgrade to Premium';
 
   useEffect(() => {
     const id = setInterval(() => setNowMs(Date.now()), 10_000);
@@ -1397,14 +1769,29 @@ export function LaunchFeed({
       (entries) => {
         if (!entries[0]?.isIntersecting) return;
         debugLog('infinite_scroll_trigger', { nextOffset });
-        void fetchPage({ offset: nextOffset, replace: false, reason: 'infinite_scroll' });
+        void fetchPage({
+          offset: nextOffset,
+          replace: false,
+          reason: 'infinite_scroll'
+        });
       },
       { rootMargin: '300px' }
     );
 
     observer.observe(node);
     return () => observer.disconnect();
-  }, [debugLog, fetchPage, hasMore, infiniteScrollArmed, launches.length, loading, loadingMore, nextOffset, pageOffset, query]);
+  }, [
+    debugLog,
+    fetchPage,
+    hasMore,
+    infiniteScrollArmed,
+    launches.length,
+    loading,
+    loadingMore,
+    nextOffset,
+    pageOffset,
+    query
+  ]);
 
   const applyPendingRefresh = useCallback(async () => {
     if (!pendingRefresh || refreshApplying) {
@@ -1413,7 +1800,11 @@ export function LaunchFeed({
 
     setRefreshApplying(true);
     try {
-      await fetchPage({ offset: latestRef.current.pageOffset, replace: true, reason: 'pending_refresh_apply' });
+      await fetchPage({
+        offset: latestRef.current.pageOffset,
+        replace: true,
+        reason: 'pending_refresh_apply'
+      });
       if (latestRef.current.viewerTier === 'premium') {
         await fetchRecentChanges();
       }
@@ -1429,7 +1820,13 @@ export function LaunchFeed({
       return;
     }
     void applyPendingRefresh();
-  }, [applyPendingRefresh, loading, loadingMore, pendingRefresh, refreshApplying]);
+  }, [
+    applyPendingRefresh,
+    loading,
+    loadingMore,
+    pendingRefresh,
+    refreshApplying
+  ]);
 
   const applyPreset = useCallback(
     (presetId: string) => {
@@ -1453,7 +1850,8 @@ export function LaunchFeed({
     if (presetSaving) return;
 
     const suggested = activePresetId
-      ? presetList.find((preset) => preset.id === activePresetId)?.name || 'Preset'
+      ? presetList.find((preset) => preset.id === activePresetId)?.name ||
+        'Preset'
       : `Preset ${new Date().toLocaleDateString()}`;
     const name = window.prompt('Preset name', suggested)?.trim();
     if (!name) return;
@@ -1472,14 +1870,25 @@ export function LaunchFeed({
     } catch (error) {
       console.error('preset save error', error);
       if (error instanceof ApiClientError && error.code === 'limit_reached') {
-        setNotice({ tone: 'warning', message: 'Saved view limit reached. Remove an older saved view in Account first.' });
+        setNotice({
+          tone: 'warning',
+          message:
+            'Saved view limit reached. Remove an older saved view in Account first.'
+        });
         return;
       }
       setNotice({ tone: 'warning', message: 'Unable to save preset.' });
     } finally {
       setPresetSaving(false);
     }
-  }, [activePresetId, canManageFilterPresets, createFilterPresetMutation, filters, presetList, presetSaving]);
+  }, [
+    activePresetId,
+    canManageFilterPresets,
+    createFilterPresetMutation,
+    filters,
+    presetList,
+    presetSaving
+  ]);
 
   const setActivePresetAsDefault = useCallback(async () => {
     if (!canManageFilterPresets) return;
@@ -1502,15 +1911,23 @@ export function LaunchFeed({
     } finally {
       setPresetDefaulting(false);
     }
-  }, [activePresetId, canManageFilterPresets, presetDefaulting, updateFilterPresetMutation]);
+  }, [
+    activePresetId,
+    canManageFilterPresets,
+    presetDefaulting,
+    updateFilterPresetMutation
+  ]);
 
   const clearFiltersToDefault = useCallback(() => {
     setActivePresetId('');
     setFilters((prev) => {
       if (
-        (prev.range ?? DEFAULT_LAUNCH_FILTERS.range) === DEFAULT_LAUNCH_FILTERS.range &&
-        (prev.sort ?? DEFAULT_LAUNCH_FILTERS.sort) === DEFAULT_LAUNCH_FILTERS.sort &&
-        (prev.region ?? DEFAULT_LAUNCH_FILTERS.region) === DEFAULT_LAUNCH_FILTERS.region &&
+        (prev.range ?? DEFAULT_LAUNCH_FILTERS.range) ===
+          DEFAULT_LAUNCH_FILTERS.range &&
+        (prev.sort ?? DEFAULT_LAUNCH_FILTERS.sort) ===
+          DEFAULT_LAUNCH_FILTERS.sort &&
+        (prev.region ?? DEFAULT_LAUNCH_FILTERS.region) ===
+          DEFAULT_LAUNCH_FILTERS.region &&
         !prev.location &&
         !prev.state &&
         !prev.pad &&
@@ -1535,7 +1952,14 @@ export function LaunchFeed({
   const createWatchlistRule = useCallback(
     (
       watchlistId: string,
-      ruleType: 'launch' | 'pad' | 'provider' | 'rocket' | 'launch_site' | 'state' | 'tier',
+      ruleType:
+        | 'launch'
+        | 'pad'
+        | 'provider'
+        | 'rocket'
+        | 'launch_site'
+        | 'state'
+        | 'tier',
       ruleValue: string
     ) =>
       createWatchlistRuleMutation.mutateAsync({
@@ -1561,7 +1985,10 @@ export function LaunchFeed({
     async (launchId: string, options?: { skipToast?: boolean }) => {
       if (!canUseSavedItems) return;
       if (!myWatchlistId) {
-        setNotice({ tone: 'warning', message: 'My Launches is still loading.' });
+        setNotice({
+          tone: 'warning',
+          message: 'My Launches is still loading.'
+        });
         return;
       }
 
@@ -1577,12 +2004,23 @@ export function LaunchFeed({
           myLaunchesEnabled
         });
         if (existingRuleId) {
-          debugLog('watch_toggle_request', { method: 'DELETE', watchlistId: myWatchlistId, ruleId: existingRuleId });
+          debugLog('watch_toggle_request', {
+            method: 'DELETE',
+            watchlistId: myWatchlistId,
+            ruleId: existingRuleId
+          });
           await deleteWatchlistRule(myWatchlistId, existingRuleId);
-          debugLog('watch_toggle_response', { method: 'DELETE', watchlistId: myWatchlistId, ruleId: existingRuleId, ok: true });
+          debugLog('watch_toggle_response', {
+            method: 'DELETE',
+            watchlistId: myWatchlistId,
+            ruleId: existingRuleId,
+            ok: true
+          });
           invalidateLaunchFeedQueries(queryClient);
           if (myLaunchesEnabled) {
-            setLaunches((prev) => prev.filter((launch) => launch.id !== launchId));
+            setLaunches((prev) =>
+              prev.filter((launch) => launch.id !== launchId)
+            );
           }
           if (!options?.skipToast) {
             pushToast({
@@ -1595,10 +2033,20 @@ export function LaunchFeed({
                   await createWatchlistRule(watchlistId, 'launch', launchId);
                   invalidateLaunchFeedQueries(queryClient);
                   if (latestRef.current.myLaunchesEnabled) {
-                    void fetchPage({ offset: latestRef.current.pageOffset, replace: true, reason: 'watchlist_rule_undo_launch' });
+                    void fetchPage({
+                      offset: latestRef.current.pageOffset,
+                      replace: true,
+                      reason: 'watchlist_rule_undo_launch'
+                    });
                   }
                 } catch (error) {
-                  setNotice({ tone: 'warning', message: buildWatchlistRuleErrorMessage(error, 'My Launches') });
+                  setNotice({
+                    tone: 'warning',
+                    message: buildWatchlistRuleErrorMessage(
+                      error,
+                      'My Launches'
+                    )
+                  });
                   return;
                 }
               }
@@ -1608,14 +2056,31 @@ export function LaunchFeed({
           return;
         }
 
-        debugLog('watch_toggle_request', { method: 'POST', watchlistId: myWatchlistId, launchId });
-        const payload = await createWatchlistRule(myWatchlistId, 'launch', launchId);
-        debugLog('watch_toggle_response', { method: 'POST', watchlistId: myWatchlistId, launchId, ok: true });
+        debugLog('watch_toggle_request', {
+          method: 'POST',
+          watchlistId: myWatchlistId,
+          launchId
+        });
+        const payload = await createWatchlistRule(
+          myWatchlistId,
+          'launch',
+          launchId
+        );
+        debugLog('watch_toggle_response', {
+          method: 'POST',
+          watchlistId: myWatchlistId,
+          launchId,
+          ok: true
+        });
         const ruleId = payload.rule?.id ? String(payload.rule.id) : null;
         if (ruleId) {
           invalidateLaunchFeedQueries(queryClient);
           if (myLaunchesEnabled) {
-            void fetchPage({ offset: latestRef.current.pageOffset, replace: true, reason: 'watchlist_rule_change_launch' });
+            void fetchPage({
+              offset: latestRef.current.pageOffset,
+              replace: true,
+              reason: 'watchlist_rule_change_launch'
+            });
           }
           if (!options?.skipToast) {
             pushToast({
@@ -1629,23 +2094,38 @@ export function LaunchFeed({
                 } catch (error) {
                   setNotice({
                     tone: 'warning',
-                    message: buildWatchlistRuleErrorMessage(error, 'My Launches')
+                    message: buildWatchlistRuleErrorMessage(
+                      error,
+                      'My Launches'
+                    )
                   });
                   return;
                 }
                 invalidateLaunchFeedQueries(queryClient);
                 if (latestRef.current.myLaunchesEnabled) {
-                  setLaunches((prev) => prev.filter((launch) => launch.id !== launchId));
+                  setLaunches((prev) =>
+                    prev.filter((launch) => launch.id !== launchId)
+                  );
                 }
               }
             });
           }
-          debugLog('watch_toggle_success', { launchId, action: 'added', ruleId: `${ruleId.slice(0, 8)}…` });
+          debugLog('watch_toggle_success', {
+            launchId,
+            action: 'added',
+            ruleId: `${ruleId.slice(0, 8)}…`
+          });
         }
       } catch (err) {
         console.error('watch toggle error', err);
-        setNotice({ tone: 'warning', message: buildWatchlistRuleErrorMessage(err, 'My Launches') });
-        debugLog('watch_toggle_error', { launchId, error: String((err as any)?.message || err) });
+        setNotice({
+          tone: 'warning',
+          message: buildWatchlistRuleErrorMessage(err, 'My Launches')
+        });
+        debugLog('watch_toggle_error', {
+          launchId,
+          error: String((err as any)?.message || err)
+        });
       } finally {
         setWatchToggleBusy((prev) => ({ ...prev, [launchId]: false }));
       }
@@ -1671,7 +2151,10 @@ export function LaunchFeed({
       if (!normalizedProvider) return;
       if (!canUseSavedItems) return;
       if (!myWatchlistId) {
-        setNotice({ tone: 'warning', message: 'My Launches is still loading.' });
+        setNotice({
+          tone: 'warning',
+          message: 'My Launches is still loading.'
+        });
         return;
       }
 
@@ -1679,7 +2162,8 @@ export function LaunchFeed({
       if (followToggleBusy[busyKey]) return;
       setFollowToggleBusy((prev) => ({ ...prev, [busyKey]: true }));
 
-      const existingRuleId = myProviderRulesByProvider[normalizedProvider] || null;
+      const existingRuleId =
+        myProviderRulesByProvider[normalizedProvider] || null;
       try {
         debugLog('provider_follow_toggle_start', {
           provider: normalizedProvider,
@@ -1688,11 +2172,23 @@ export function LaunchFeed({
           myLaunchesEnabled
         });
         if (existingRuleId) {
-          debugLog('provider_follow_request', { method: 'DELETE', watchlistId: myWatchlistId, ruleId: existingRuleId });
+          debugLog('provider_follow_request', {
+            method: 'DELETE',
+            watchlistId: myWatchlistId,
+            ruleId: existingRuleId
+          });
           await deleteWatchlistRule(myWatchlistId, existingRuleId);
-          debugLog('provider_follow_response', { method: 'DELETE', watchlistId: myWatchlistId, ruleId: existingRuleId, ok: true });
+          debugLog('provider_follow_response', {
+            method: 'DELETE',
+            watchlistId: myWatchlistId,
+            ruleId: existingRuleId,
+            ok: true
+          });
           invalidateLaunchFeedQueries(queryClient);
-          debugLog('provider_follow_toggle_success', { provider: normalizedProvider, action: 'unfollowed' });
+          debugLog('provider_follow_toggle_success', {
+            provider: normalizedProvider,
+            action: 'unfollowed'
+          });
           if (!options?.skipToast) {
             pushToast({
               message: `Unfollowed ${normalizedProvider}.`,
@@ -1701,24 +2197,48 @@ export function LaunchFeed({
                 const watchlistId = latestRef.current.myWatchlistId;
                 if (!watchlistId) return;
                 try {
-                  await createWatchlistRule(watchlistId, 'provider', normalizedProvider);
+                  await createWatchlistRule(
+                    watchlistId,
+                    'provider',
+                    normalizedProvider
+                  );
                   invalidateLaunchFeedQueries(queryClient);
 
                   if (latestRef.current.myLaunchesEnabled) {
                     resetPageToFirst();
-                    void fetchPage({ offset: 0, replace: true, reason: 'watchlist_rule_undo_provider' });
+                    void fetchPage({
+                      offset: 0,
+                      replace: true,
+                      reason: 'watchlist_rule_undo_provider'
+                    });
                   }
                 } catch (error) {
-                  setNotice({ tone: 'warning', message: buildWatchlistRuleErrorMessage(error, 'Follow') });
+                  setNotice({
+                    tone: 'warning',
+                    message: buildWatchlistRuleErrorMessage(error, 'Follow')
+                  });
                   return;
                 }
               }
             });
           }
         } else {
-          debugLog('provider_follow_request', { method: 'POST', watchlistId: myWatchlistId, provider: normalizedProvider });
-          const payload = await createWatchlistRule(myWatchlistId, 'provider', normalizedProvider);
-          debugLog('provider_follow_response', { method: 'POST', watchlistId: myWatchlistId, provider: normalizedProvider, ok: true });
+          debugLog('provider_follow_request', {
+            method: 'POST',
+            watchlistId: myWatchlistId,
+            provider: normalizedProvider
+          });
+          const payload = await createWatchlistRule(
+            myWatchlistId,
+            'provider',
+            normalizedProvider
+          );
+          debugLog('provider_follow_response', {
+            method: 'POST',
+            watchlistId: myWatchlistId,
+            provider: normalizedProvider,
+            ok: true
+          });
           const ruleId = payload.rule?.id ? String(payload.rule.id) : null;
           if (ruleId) {
             invalidateLaunchFeedQueries(queryClient);
@@ -1729,11 +2249,11 @@ export function LaunchFeed({
             });
             if (!options?.skipToast) {
               pushToast({
-              message: `Following ${normalizedProvider}.`,
-              tone: 'success',
-              onUndo: async () => {
-                const watchlistId = latestRef.current.myWatchlistId;
-                if (!watchlistId) return;
+                message: `Following ${normalizedProvider}.`,
+                tone: 'success',
+                onUndo: async () => {
+                  const watchlistId = latestRef.current.myWatchlistId;
+                  if (!watchlistId) return;
                   try {
                     await deleteWatchlistRule(watchlistId, ruleId);
                   } catch (error) {
@@ -1747,7 +2267,11 @@ export function LaunchFeed({
 
                   if (latestRef.current.myLaunchesEnabled) {
                     resetPageToFirst();
-                    void fetchPage({ offset: 0, replace: true, reason: 'watchlist_rule_undo_provider' });
+                    void fetchPage({
+                      offset: 0,
+                      replace: true,
+                      reason: 'watchlist_rule_undo_provider'
+                    });
                   }
                 }
               });
@@ -1757,12 +2281,22 @@ export function LaunchFeed({
 
         if (myLaunchesEnabled) {
           resetPageToFirst();
-          void fetchPage({ offset: 0, replace: true, reason: 'watchlist_rule_change_provider' });
+          void fetchPage({
+            offset: 0,
+            replace: true,
+            reason: 'watchlist_rule_change_provider'
+          });
         }
       } catch (err) {
         console.error('provider follow toggle error', err);
-        setNotice({ tone: 'warning', message: buildWatchlistRuleErrorMessage(err, 'Follow') });
-        debugLog('provider_follow_toggle_error', { provider: normalizedProvider, error: String((err as any)?.message || err) });
+        setNotice({
+          tone: 'warning',
+          message: buildWatchlistRuleErrorMessage(err, 'Follow')
+        });
+        debugLog('provider_follow_toggle_error', {
+          provider: normalizedProvider,
+          error: String((err as any)?.message || err)
+        });
       } finally {
         setFollowToggleBusy((prev) => ({ ...prev, [busyKey]: false }));
       }
@@ -1789,7 +2323,10 @@ export function LaunchFeed({
       if (!normalized) return;
       if (!canUseSavedItems) return;
       if (!myWatchlistId) {
-        setNotice({ tone: 'warning', message: 'My Launches is still loading.' });
+        setNotice({
+          tone: 'warning',
+          message: 'My Launches is still loading.'
+        });
         return;
       }
 
@@ -1806,11 +2343,23 @@ export function LaunchFeed({
           myLaunchesEnabled
         });
         if (existingRuleId) {
-          debugLog('pad_follow_request', { method: 'DELETE', watchlistId: myWatchlistId, ruleId: existingRuleId });
+          debugLog('pad_follow_request', {
+            method: 'DELETE',
+            watchlistId: myWatchlistId,
+            ruleId: existingRuleId
+          });
           await deleteWatchlistRule(myWatchlistId, existingRuleId);
-          debugLog('pad_follow_response', { method: 'DELETE', watchlistId: myWatchlistId, ruleId: existingRuleId, ok: true });
+          debugLog('pad_follow_response', {
+            method: 'DELETE',
+            watchlistId: myWatchlistId,
+            ruleId: existingRuleId,
+            ok: true
+          });
           invalidateLaunchFeedQueries(queryClient);
-          debugLog('pad_follow_toggle_success', { padRuleValue: normalized, action: 'unfollowed' });
+          debugLog('pad_follow_toggle_success', {
+            padRuleValue: normalized,
+            action: 'unfollowed'
+          });
           if (!options?.skipToast) {
             pushToast({
               message: `Unfollowed ${formatPadRuleLabel(normalized)}.`,
@@ -1824,23 +2373,47 @@ export function LaunchFeed({
 
                   if (latestRef.current.myLaunchesEnabled) {
                     resetPageToFirst();
-                    void fetchPage({ offset: 0, replace: true, reason: 'watchlist_rule_undo_pad' });
+                    void fetchPage({
+                      offset: 0,
+                      replace: true,
+                      reason: 'watchlist_rule_undo_pad'
+                    });
                   }
                 } catch (error) {
-                  setNotice({ tone: 'warning', message: buildWatchlistRuleErrorMessage(error, 'Follow') });
+                  setNotice({
+                    tone: 'warning',
+                    message: buildWatchlistRuleErrorMessage(error, 'Follow')
+                  });
                   return;
                 }
               }
             });
           }
         } else {
-          debugLog('pad_follow_request', { method: 'POST', watchlistId: myWatchlistId, padRuleValue: normalized });
-          const payload = await createWatchlistRule(myWatchlistId, 'pad', normalized);
-          debugLog('pad_follow_response', { method: 'POST', watchlistId: myWatchlistId, padRuleValue: normalized, ok: true });
+          debugLog('pad_follow_request', {
+            method: 'POST',
+            watchlistId: myWatchlistId,
+            padRuleValue: normalized
+          });
+          const payload = await createWatchlistRule(
+            myWatchlistId,
+            'pad',
+            normalized
+          );
+          debugLog('pad_follow_response', {
+            method: 'POST',
+            watchlistId: myWatchlistId,
+            padRuleValue: normalized,
+            ok: true
+          });
           const ruleId = payload.rule?.id ? String(payload.rule.id) : null;
           if (ruleId) {
             invalidateLaunchFeedQueries(queryClient);
-            debugLog('pad_follow_toggle_success', { padRuleValue: normalized, action: 'followed', ruleId: `${ruleId.slice(0, 8)}…` });
+            debugLog('pad_follow_toggle_success', {
+              padRuleValue: normalized,
+              action: 'followed',
+              ruleId: `${ruleId.slice(0, 8)}…`
+            });
             if (!options?.skipToast) {
               pushToast({
                 message: `Following ${formatPadRuleLabel(normalized)}.`,
@@ -1861,7 +2434,11 @@ export function LaunchFeed({
 
                   if (latestRef.current.myLaunchesEnabled) {
                     resetPageToFirst();
-                    void fetchPage({ offset: 0, replace: true, reason: 'watchlist_rule_undo_pad' });
+                    void fetchPage({
+                      offset: 0,
+                      replace: true,
+                      reason: 'watchlist_rule_undo_pad'
+                    });
                   }
                 }
               });
@@ -1871,12 +2448,22 @@ export function LaunchFeed({
 
         if (myLaunchesEnabled) {
           resetPageToFirst();
-          void fetchPage({ offset: 0, replace: true, reason: 'watchlist_rule_change_pad' });
+          void fetchPage({
+            offset: 0,
+            replace: true,
+            reason: 'watchlist_rule_change_pad'
+          });
         }
       } catch (err) {
         console.error('pad follow toggle error', err);
-        setNotice({ tone: 'warning', message: buildWatchlistRuleErrorMessage(err, 'Follow') });
-        debugLog('pad_follow_toggle_error', { padRuleValue: normalized, error: String((err as any)?.message || err) });
+        setNotice({
+          tone: 'warning',
+          message: buildWatchlistRuleErrorMessage(err, 'Follow')
+        });
+        debugLog('pad_follow_toggle_error', {
+          padRuleValue: normalized,
+          error: String((err as any)?.message || err)
+        });
       } finally {
         setFollowToggleBusy((prev) => ({ ...prev, [busyKey]: false }));
       }
@@ -1898,12 +2485,19 @@ export function LaunchFeed({
   );
 
   const toggleFollowRule = useCallback(
-    async (ruleType: 'rocket' | 'launch_site' | 'state', ruleValue: string, label: string) => {
+    async (
+      ruleType: 'rocket' | 'launch_site' | 'state',
+      ruleValue: string,
+      label: string
+    ) => {
       const normalized = String(ruleValue || '').trim();
       if (!normalized) return;
       if (!canUseSavedItems) return;
       if (!myWatchlistId) {
-        setNotice({ tone: 'warning', message: 'My Launches is still loading.' });
+        setNotice({
+          tone: 'warning',
+          message: 'My Launches is still loading.'
+        });
         return;
       }
 
@@ -1927,7 +2521,11 @@ export function LaunchFeed({
           return;
         }
 
-        const payload = await createWatchlistRule(myWatchlistId, ruleType, normalized);
+        const payload = await createWatchlistRule(
+          myWatchlistId,
+          ruleType,
+          normalized
+        );
         const ruleId = payload.rule?.id ? String(payload.rule.id) : null;
         if (ruleId) {
           invalidateLaunchFeedQueries(queryClient);
@@ -1940,14 +2538,20 @@ export function LaunchFeed({
               try {
                 await deleteWatchlistRule(watchlistId, ruleId);
               } catch (error) {
-                setNotice({ tone: 'warning', message: buildWatchlistRuleErrorMessage(error, 'Follow') });
+                setNotice({
+                  tone: 'warning',
+                  message: buildWatchlistRuleErrorMessage(error, 'Follow')
+                });
               }
             }
           });
         }
       } catch (err) {
         console.error('follow toggle error', err);
-        setNotice({ tone: 'warning', message: buildWatchlistRuleErrorMessage(err, 'Follow') });
+        setNotice({
+          tone: 'warning',
+          message: buildWatchlistRuleErrorMessage(err, 'Follow')
+        });
       } finally {
         setFollowToggleBusy((prev) => ({ ...prev, [busyKey]: false }));
       }
@@ -1971,7 +2575,8 @@ export function LaunchFeed({
       void launch;
       setNotice({
         tone: 'info',
-        message: 'Launch alerts are managed in the native iOS or Android app. Open Notifications for the current setup.'
+        message:
+          'Launch alerts are managed in the native iOS or Android app. Open Alerts for the current mobile setup.'
       });
       router.push('/me/preferences');
     },
@@ -1985,11 +2590,15 @@ export function LaunchFeed({
       const rocketRuleValue = buildRocketRuleValue(launch);
       const launchSiteRuleValue = buildLaunchSiteRuleValue(launch);
       const stateRuleValue = buildStateRuleValue(launch);
-      const currentBasicLaunchActive = activeBasicLaunchFollow?.launchId === launch.id.toLowerCase();
-      const basicFollowCapacityLabel = !canUseSavedItems && isAuthed ? `${activeBasicLaunchFollow ? 1 : 0}/${singleLaunchFollowLimit}` : undefined;
+      const currentBasicLaunchActive =
+        activeBasicLaunchFollow?.launchId === launch.id.toLowerCase();
+      const basicFollowCapacityLabel =
+        !canUseSavedItems && isAuthed
+          ? `${activeBasicLaunchFollow ? 1 : 0}/${singleLaunchFollowLimit}`
+          : undefined;
       const basicLaunchDescription = currentBasicLaunchActive
-        ? 'This launch is already tracked on your account. Manage it in the native iOS or Android app.'
-        : 'Manage launch push reminders for this launch in the native iOS or Android app.';
+        ? 'This launch already has a starter alert source. Manage reminder timing and delivery in the native iOS or Android app.'
+        : 'Manage reminder timing and device delivery for this launch in the native iOS or Android app.';
       const providerLockedDescription = providerKey
         ? `All launches from ${providerKey}. Premium unlocks recurring provider follows.`
         : 'Provider follow unavailable for this card.';
@@ -2069,7 +2678,11 @@ export function LaunchFeed({
           label: 'This launch',
           description: 'Keep this exact launch in Following.',
           active: Boolean(myLaunchRulesByLaunchId[launch.id]),
-          disabled: Boolean(watchToggleBusy[launch.id]) || !myWatchlistId || watchlistsLoading || Boolean(watchlistsError),
+          disabled:
+            Boolean(watchToggleBusy[launch.id]) ||
+            !myWatchlistId ||
+            watchlistsLoading ||
+            Boolean(watchlistsError),
           locked: false,
           onPress: () => {
             void toggleWatchLaunch(launch.id);
@@ -2078,8 +2691,12 @@ export function LaunchFeed({
         {
           key: 'provider',
           label: 'This provider',
-          description: providerKey ? `All launches from ${providerKey}.` : 'Provider follow unavailable.',
-          active: providerKey ? Boolean(myProviderRulesByProvider[providerKey]) : false,
+          description: providerKey
+            ? `All launches from ${providerKey}.`
+            : 'Provider follow unavailable.',
+          active: providerKey
+            ? Boolean(myProviderRulesByProvider[providerKey])
+            : false,
           disabled: !providerKey,
           locked: false,
           onPress: () => {
@@ -2090,20 +2707,32 @@ export function LaunchFeed({
         {
           key: 'rocket',
           label: 'This rocket',
-          description: rocketRuleValue ? `All launches for ${formatRocketRuleLabel(rocketRuleValue)}.` : 'Rocket follow unavailable.',
-          active: Boolean(rocketRuleValue && myRocketRulesByValue[rocketRuleValue]),
+          description: rocketRuleValue
+            ? `All launches for ${formatRocketRuleLabel(rocketRuleValue)}.`
+            : 'Rocket follow unavailable.',
+          active: Boolean(
+            rocketRuleValue && myRocketRulesByValue[rocketRuleValue]
+          ),
           disabled: !rocketRuleValue,
           locked: false,
           onPress: () => {
             if (!rocketRuleValue) return;
-            void toggleFollowRule('rocket', rocketRuleValue, formatRocketRuleLabel(rocketRuleValue));
+            void toggleFollowRule(
+              'rocket',
+              rocketRuleValue,
+              formatRocketRuleLabel(rocketRuleValue)
+            );
           }
         },
         {
           key: 'pad',
           label: 'This pad',
-          description: padRuleValue ? `Launches from ${formatPadRuleLabel(padRuleValue)}.` : 'Pad follow unavailable.',
-          active: padRuleValue ? Boolean(myPadRulesByValue[padRuleValue]) : false,
+          description: padRuleValue
+            ? `Launches from ${formatPadRuleLabel(padRuleValue)}.`
+            : 'Pad follow unavailable.',
+          active: padRuleValue
+            ? Boolean(myPadRulesByValue[padRuleValue])
+            : false,
           disabled: !padRuleValue,
           locked: false,
           onPress: () => {
@@ -2114,30 +2743,50 @@ export function LaunchFeed({
         {
           key: 'launch_site',
           label: 'This launch site',
-          description: launchSiteRuleValue ? `Launches from ${launchSiteRuleValue}.` : 'Launch-site follow unavailable.',
-          active: launchSiteRuleValue ? Boolean(myLaunchSiteRulesByValue[launchSiteRuleValue]) : false,
+          description: launchSiteRuleValue
+            ? `Launches from ${launchSiteRuleValue}.`
+            : 'Launch-site follow unavailable.',
+          active: launchSiteRuleValue
+            ? Boolean(myLaunchSiteRulesByValue[launchSiteRuleValue])
+            : false,
           disabled: !launchSiteRuleValue,
           locked: false,
           onPress: () => {
             if (!launchSiteRuleValue) return;
-            void toggleFollowRule('launch_site', launchSiteRuleValue, launchSiteRuleValue);
+            void toggleFollowRule(
+              'launch_site',
+              launchSiteRuleValue,
+              launchSiteRuleValue
+            );
           }
         },
         {
           key: 'state',
           label: 'This state',
-          description: stateRuleValue ? `Launches in ${stateRuleValue.toUpperCase()}.` : 'State follow unavailable.',
-          active: stateRuleValue ? Boolean(myStateRulesByValue[stateRuleValue]) : false,
+          description: stateRuleValue
+            ? `Launches in ${stateRuleValue.toUpperCase()}.`
+            : 'State follow unavailable.',
+          active: stateRuleValue
+            ? Boolean(myStateRulesByValue[stateRuleValue])
+            : false,
           disabled: !stateRuleValue,
           locked: false,
           onPress: () => {
             if (!stateRuleValue) return;
-            void toggleFollowRule('state', stateRuleValue, stateRuleValue.toUpperCase());
+            void toggleFollowRule(
+              'state',
+              stateRuleValue,
+              stateRuleValue.toUpperCase()
+            );
           }
         }
       ];
-      const followOptions = canUseSavedItems ? premiumFollowOptions : basicFollowOptions;
-      const activeFollowCount = followOptions.filter((option) => option.active).length;
+      const followOptions = canUseSavedItems
+        ? premiumFollowOptions
+        : basicFollowOptions;
+      const activeFollowCount = followOptions.filter(
+        (option) => option.active
+      ).length;
       return (
         <LaunchCard
           launch={launch}
@@ -2194,24 +2843,17 @@ export function LaunchFeed({
         <div className="px-1">
           <div className="rounded-2xl border border-stroke bg-[rgba(7,9,19,0.78)] p-2 shadow-glow backdrop-blur-xl">
             <div className="flex items-center gap-2">
-              {isAuthed ? (
-                <button
-                  type="button"
-                  className="inline-flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-text1 transition hover:border-primary/50 hover:text-primary"
-                  onClick={openLaunchSearch}
-                >
-                  <SearchIcon className="h-4 w-4 shrink-0" />
-                  <span className="truncate">{query ? `Search: ${query}` : 'Search'}</span>
-                </button>
-              ) : (
-                <Link
-                  href={homeSignInHref}
-                  className="inline-flex min-w-0 flex-1 items-center justify-center rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-text1 transition hover:border-primary/50 hover:text-primary"
-                >
-                  <span className="truncate">Sign in</span>
-                </Link>
-              )}
-              {isAuthed ? (
+              <button
+                type="button"
+                className="inline-flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-text1 transition hover:border-primary/50 hover:text-primary"
+                onClick={openLaunchSearch}
+              >
+                <SearchIcon className="h-4 w-4 shrink-0" />
+                <span className="truncate">
+                  {query ? `Search: ${query}` : 'Search'}
+                </span>
+              </button>
+              {canUseLaunchFilters ? (
                 <button
                   type="button"
                   className={clsx(
@@ -2254,7 +2896,9 @@ export function LaunchFeed({
           title={combinedProgramTicker.text}
         >
           <div className="program-ticker__track">
-            <span className="program-ticker__item">{combinedProgramTicker.text}</span>
+            <span className="program-ticker__item">
+              {combinedProgramTicker.text}
+            </span>
             <span className="program-ticker__item" aria-hidden="true">
               {combinedProgramTicker.text}
             </span>
@@ -2265,10 +2909,12 @@ export function LaunchFeed({
         <div className="flex items-start justify-between gap-3 rounded-2xl border border-stroke bg-[rgba(234,240,255,0.04)] px-3 py-2 text-xs text-text2">
           <div className="min-w-0">
             <div className="truncate">
-              <span className="text-text3">Search:</span> <span className="font-semibold text-text1">{query}</span>
+              <span className="text-text3">Search:</span>{' '}
+              <span className="font-semibold text-text1">{query}</span>
             </div>
             <div className="mt-1 text-[11px] text-text3">
-              Showing {filteredLaunches.length} of {launches.length} loaded launches.
+              Showing {filteredLaunches.length} of {launches.length} loaded
+              launches.
             </div>
           </div>
           <button
@@ -2283,8 +2929,17 @@ export function LaunchFeed({
 
       {notice && (
         <div className="flex items-start justify-between gap-3 rounded-2xl border border-stroke bg-[rgba(234,240,255,0.04)] p-3 text-sm">
-          <span className={notice.tone === 'warning' ? 'text-warning' : 'text-text2'}>{notice.message}</span>
-          <button className="text-xs text-text3 hover:text-text1" onClick={() => setNotice(null)}>
+          <span
+            className={
+              notice.tone === 'warning' ? 'text-warning' : 'text-text2'
+            }
+          >
+            {notice.message}
+          </span>
+          <button
+            className="text-xs text-text3 hover:text-text1"
+            onClick={() => setNotice(null)}
+          >
             Dismiss
           </button>
         </div>
@@ -2294,24 +2949,44 @@ export function LaunchFeed({
         <div className="rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="text-xs uppercase tracking-[0.1em] text-text3">{modeStatusEyebrow}</div>
-              <div className="mt-1 text-sm font-semibold text-text1">{modeStatusTitle}</div>
-              <div className="mt-1 max-w-2xl text-xs text-text3">{modeStatusBody}</div>
+              <div className="text-xs uppercase tracking-[0.1em] text-text3">
+                {modeStatusEyebrow}
+              </div>
+              <div className="mt-1 text-sm font-semibold text-text1">
+                {modeStatusTitle}
+              </div>
+              <div className="mt-1 max-w-2xl text-xs text-text3">
+                {modeStatusBody}
+              </div>
               {!isAuthed && (
                 <div className="mt-2 text-xs text-text3">
                   Already have an account?{' '}
-                  <Link href={homeSignInHref} className="text-primary hover:text-primary/80">
+                  <Link
+                    href={homeSignInHref}
+                    className="text-primary hover:text-primary/80"
+                  >
                     Sign in
                   </Link>
                 </div>
               )}
-              {viewerTier !== 'premium' && <div className="mt-2 text-xs text-text3">{nonPremiumPriceLine}</div>}
+              {viewerTier !== 'premium' && (
+                <div className="mt-2 text-xs text-text3">
+                  {nonPremiumPriceLine}
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-3">
-              <Link href={modePrimaryHref} className="btn rounded-lg px-3 py-2 text-xs">
+              <Link
+                href={modePrimaryHref}
+                className="btn rounded-lg px-3 py-2 text-xs"
+              >
                 {modePrimaryLabel}
               </Link>
-              <button type="button" className="text-xs text-text3 hover:text-text1" onClick={dismissUnlocks}>
+              <button
+                type="button"
+                className="text-xs text-text3 hover:text-text1"
+                onClick={dismissUnlocks}
+              >
                 Hide
               </button>
             </div>
@@ -2326,7 +3001,9 @@ export function LaunchFeed({
               <div className="inline-flex items-center gap-1 rounded-xl border border-stroke bg-surface-0 p-1">
                 {!myLaunchesEnabled ? (
                   <div className="inline-flex items-center gap-1 rounded-lg bg-primary p-1 text-black">
-                    <span className="px-2.5 py-1.5 text-xs font-semibold uppercase tracking-[0.08em]">For You</span>
+                    <span className="px-2.5 py-1.5 text-xs font-semibold uppercase tracking-[0.08em]">
+                      For You
+                    </span>
                     <button
                       type="button"
                       className={clsx(
@@ -2363,11 +3040,20 @@ export function LaunchFeed({
                     type="button"
                     className={clsx(
                       'rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] transition',
-                      myLaunchesEnabled ? 'bg-primary text-black' : 'text-text2 hover:bg-[rgba(255,255,255,0.06)] hover:text-text1',
-                      (watchlistsLoading || Boolean(watchlistsError) || !myWatchlistId) && 'cursor-not-allowed opacity-60'
+                      myLaunchesEnabled
+                        ? 'bg-primary text-black'
+                        : 'text-text2 hover:bg-[rgba(255,255,255,0.06)] hover:text-text1',
+                      (watchlistsLoading ||
+                        Boolean(watchlistsError) ||
+                        !myWatchlistId) &&
+                        'cursor-not-allowed opacity-60'
                     )}
                     onClick={() => toggleMyLaunches(true)}
-                    disabled={watchlistsLoading || Boolean(watchlistsError) || !myWatchlistId}
+                    disabled={
+                      watchlistsLoading ||
+                      Boolean(watchlistsError) ||
+                      !myWatchlistId
+                    }
                     aria-pressed={myLaunchesEnabled}
                   >
                     Following
@@ -2400,27 +3086,36 @@ export function LaunchFeed({
                 </span>
               ) : null}
             </div>
-              <div className="text-xs text-text3">
-                {canUseSavedItems
-                  ? myLaunchesEnabled
-                    ? hasAnyFollowRules
-                      ? 'Showing launches from what you follow.'
-                      : 'Following is empty. Follow a launch, provider, or pad.'
-                    : 'For You shows all launches matching your filters.'
-                  : 'For You shows launches matching your filters. Following and saved items stay on Premium.'}
-              </div>
+            <div className="text-xs text-text3">
+              {canUseSavedItems
+                ? myLaunchesEnabled
+                  ? hasAnyFollowRules
+                    ? 'Showing launches from what you follow.'
+                    : 'Following is empty. Follow a launch, provider, or pad.'
+                  : 'For You shows all launches matching your filters.'
+                : 'For You shows launches matching your filters. Following and saved items stay on Premium.'}
+            </div>
           </div>
           {filtersOpen ? (
             <div className="mt-3 flex items-center justify-between gap-3">
-              <span className="text-xs uppercase tracking-[0.12em] text-text3">Filters</span>
+              <span className="text-xs uppercase tracking-[0.12em] text-text3">
+                Filters
+              </span>
               {hasActiveFilters ? (
-                <button type="button" className="text-xs text-text3 hover:text-text1" onClick={clearFiltersToDefault}>
+                <button
+                  type="button"
+                  className="text-xs text-text3 hover:text-text1"
+                  onClick={clearFiltersToDefault}
+                >
                   Reset
                 </button>
               ) : null}
             </div>
           ) : null}
-          <div id={filtersPanelId} className={clsx('mt-3 space-y-3', !filtersOpen && 'hidden')}>
+          <div
+            id={filtersPanelId}
+            className={clsx('mt-3 space-y-3', !filtersOpen && 'hidden')}
+          >
             <div className="grid gap-3 xl:grid-cols-3">
               <section className={FILTER_SECTION_CLASS}>
                 <div className={FILTER_GROUP_LABEL_CLASS}>Time</div>
@@ -2429,7 +3124,12 @@ export function LaunchFeed({
                     aria-label="Date range"
                     className={FILTER_SELECT_CLASS}
                     value={filters.range ?? 'year'}
-                    onChange={(e) => setFilters((f) => ({ ...f, range: e.target.value as LaunchFilter['range'] }))}
+                    onChange={(e) =>
+                      setFilters((f) => ({
+                        ...f,
+                        range: e.target.value as LaunchFilter['range']
+                      }))
+                    }
                   >
                     <option value="today">Today</option>
                     <option value="7d">Next 7 days</option>
@@ -2442,11 +3142,20 @@ export function LaunchFeed({
                     aria-label="Status"
                     className={FILTER_SELECT_CLASS}
                     value={filters.status ?? 'all'}
-                    onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value as Launch['status'] | 'all' }))}
+                    onChange={(e) =>
+                      setFilters((f) => ({
+                        ...f,
+                        status: e.target.value as Launch['status'] | 'all'
+                      }))
+                    }
                     disabled={filtersLoading || Boolean(filtersError)}
                   >
                     <option value="all">
-                      {filtersLoading ? 'Loading statuses...' : filtersError ? 'Status unavailable' : 'All Status'}
+                      {filtersLoading
+                        ? 'Loading statuses...'
+                        : filtersError
+                          ? 'Status unavailable'
+                          : 'All Status'}
                     </option>
                     {filterOptions.statuses.map((status) => (
                       <option key={status} value={status}>
@@ -2458,7 +3167,12 @@ export function LaunchFeed({
                     aria-label="Sort"
                     className={FILTER_SELECT_CLASS}
                     value={filters.sort ?? 'soonest'}
-                    onChange={(e) => setFilters((f) => ({ ...f, sort: e.target.value as LaunchFilter['sort'] }))}
+                    onChange={(e) =>
+                      setFilters((f) => ({
+                        ...f,
+                        sort: e.target.value as LaunchFilter['sort']
+                      }))
+                    }
                   >
                     <option value="soonest">Soonest</option>
                     <option value="latest">Newest first</option>
@@ -2474,7 +3188,12 @@ export function LaunchFeed({
                     aria-label="Location scope"
                     className={FILTER_SELECT_CLASS}
                     value={filters.region ?? 'us'}
-                    onChange={(e) => setFilters((f) => ({ ...f, region: e.target.value as LaunchFilter['region'] }))}
+                    onChange={(e) =>
+                      setFilters((f) => ({
+                        ...f,
+                        region: e.target.value as LaunchFilter['region']
+                      }))
+                    }
                   >
                     <option value="us">US only</option>
                     <option value="non-us">Non-US only</option>
@@ -2484,11 +3203,20 @@ export function LaunchFeed({
                     aria-label="Launch site"
                     className={FILTER_SELECT_CLASS}
                     value={filters.location ?? ''}
-                    onChange={(e) => setFilters((f) => ({ ...f, location: e.target.value || undefined }))}
+                    onChange={(e) =>
+                      setFilters((f) => ({
+                        ...f,
+                        location: e.target.value || undefined
+                      }))
+                    }
                     disabled={filtersLoading || Boolean(filtersError)}
                   >
                     <option value="">
-                      {filtersLoading ? 'Loading launch sites...' : filtersError ? 'Sites unavailable' : 'All Launch Sites'}
+                      {filtersLoading
+                        ? 'Loading launch sites...'
+                        : filtersError
+                          ? 'Sites unavailable'
+                          : 'All Launch Sites'}
                     </option>
                     {filterOptions.locations.map((location) => (
                       <option key={location} value={location}>
@@ -2500,11 +3228,20 @@ export function LaunchFeed({
                     aria-label="State"
                     className={FILTER_SELECT_CLASS}
                     value={filters.state ?? ''}
-                    onChange={(e) => setFilters((f) => ({ ...f, state: e.target.value || undefined }))}
+                    onChange={(e) =>
+                      setFilters((f) => ({
+                        ...f,
+                        state: e.target.value || undefined
+                      }))
+                    }
                     disabled={filtersLoading || Boolean(filtersError)}
                   >
                     <option value="">
-                      {filtersLoading ? 'Loading states...' : filtersError ? 'States unavailable' : 'All States'}
+                      {filtersLoading
+                        ? 'Loading states...'
+                        : filtersError
+                          ? 'States unavailable'
+                          : 'All States'}
                     </option>
                     {filterOptions.states.map((state) => (
                       <option key={state} value={state}>
@@ -2522,11 +3259,20 @@ export function LaunchFeed({
                     aria-label="Provider"
                     className={FILTER_SELECT_CLASS}
                     value={filters.provider ?? ''}
-                    onChange={(e) => setFilters((f) => ({ ...f, provider: e.target.value || undefined }))}
+                    onChange={(e) =>
+                      setFilters((f) => ({
+                        ...f,
+                        provider: e.target.value || undefined
+                      }))
+                    }
                     disabled={filtersLoading || Boolean(filtersError)}
                   >
                     <option value="">
-                      {filtersLoading ? 'Loading providers...' : filtersError ? 'Providers unavailable' : 'All Providers'}
+                      {filtersLoading
+                        ? 'Loading providers...'
+                        : filtersError
+                          ? 'Providers unavailable'
+                          : 'All Providers'}
                     </option>
                     {filterOptions.providers.map((provider) => (
                       <option key={provider} value={provider}>
@@ -2538,11 +3284,20 @@ export function LaunchFeed({
                     aria-label="Pad"
                     className={FILTER_SELECT_CLASS}
                     value={filters.pad ?? ''}
-                    onChange={(e) => setFilters((f) => ({ ...f, pad: e.target.value || undefined }))}
+                    onChange={(e) =>
+                      setFilters((f) => ({
+                        ...f,
+                        pad: e.target.value || undefined
+                      }))
+                    }
                     disabled={filtersLoading || Boolean(filtersError)}
                   >
                     <option value="">
-                      {filtersLoading ? 'Loading pads...' : filtersError ? 'Pads unavailable' : 'All Pads'}
+                      {filtersLoading
+                        ? 'Loading pads...'
+                        : filtersError
+                          ? 'Pads unavailable'
+                          : 'All Pads'}
                     </option>
                     {filterOptions.pads.map((pad) => (
                       <option key={pad} value={pad}>
@@ -2569,7 +3324,8 @@ export function LaunchFeed({
                       <option value="">Custom filters</option>
                       {presetList.map((preset) => (
                         <option key={preset.id} value={preset.id}>
-                          {preset.name}{preset.is_default ? ' (Default)' : ''}
+                          {preset.name}
+                          {preset.is_default ? ' (Default)' : ''}
                         </option>
                       ))}
                     </select>
@@ -2588,10 +3344,17 @@ export function LaunchFeed({
                       type="button"
                       className={clsx(
                         'btn-secondary h-10 w-full shrink-0 rounded-lg border border-stroke px-3 py-2 text-sm text-text2 hover:border-primary sm:w-auto',
-                        (presetDefaulting || !activePresetId || activePresetIsDefault) && 'opacity-70'
+                        (presetDefaulting ||
+                          !activePresetId ||
+                          activePresetIsDefault) &&
+                          'opacity-70'
                       )}
                       onClick={setActivePresetAsDefault}
-                      disabled={presetDefaulting || !activePresetId || activePresetIsDefault}
+                      disabled={
+                        presetDefaulting ||
+                        !activePresetId ||
+                        activePresetIsDefault
+                      }
                       title={
                         !activePresetId
                           ? 'Select a saved preset first.'
@@ -2600,7 +3363,11 @@ export function LaunchFeed({
                             : 'Set selected preset as your default view.'
                       }
                     >
-                      {presetDefaulting ? 'Setting...' : activePresetIsDefault ? 'Default view' : 'Set default'}
+                      {presetDefaulting
+                        ? 'Setting...'
+                        : activePresetIsDefault
+                          ? 'Default view'
+                          : 'Set default'}
                     </button>
                   </div>
                 </section>
@@ -2623,15 +3390,27 @@ export function LaunchFeed({
               <section className={clsx(FILTER_SECTION_CLASS, 'xl:w-auto')}>
                 <div className={FILTER_GROUP_LABEL_CLASS}>Integrations</div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <BulkCalendarExport filters={filters} isAuthed={isAuthed} isPremium={viewerTier === 'premium'} />
-                  <RssFeeds filters={filters} isAuthed={isAuthed} isPremium={viewerTier === 'premium'} />
+                  <BulkCalendarExport
+                    filters={filters}
+                    isAuthed={isAuthed}
+                    isPremium={viewerTier === 'premium'}
+                  />
+                  <RssFeeds
+                    filters={filters}
+                    isAuthed={isAuthed}
+                    isPremium={viewerTier === 'premium'}
+                  />
                   <EmbedNextLaunchCard
                     isAuthed={isAuthed}
                     isPremium={viewerTier === 'premium'}
                     filters={filters}
                     activePresetId={activePresetId || null}
                     activePresetName={
-                      activePresetId ? presetList.find((preset) => preset.id === activePresetId)?.name ?? null : null
+                      activePresetId
+                        ? (presetList.find(
+                            (preset) => preset.id === activePresetId
+                          )?.name ?? null)
+                        : null
                     }
                     myLaunchesEnabled={myLaunchesEnabled}
                     myWatchlistId={myWatchlistId}
@@ -2647,17 +3426,33 @@ export function LaunchFeed({
         <div className="space-y-2 rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <div className="text-xs uppercase tracking-[0.08em] text-text3">Recently changed (24h)</div>
-              <div className="text-base font-semibold text-text1">Scrubs, time shifts, status updates</div>
-              {premiumFreshnessLine && <div className="mt-1 text-xs text-text3">{premiumFreshnessLine}</div>}
+              <div className="text-xs uppercase tracking-[0.08em] text-text3">
+                Recently changed (24h)
+              </div>
+              <div className="text-base font-semibold text-text1">
+                Scrubs, time shifts, status updates
+              </div>
+              {premiumFreshnessLine && (
+                <div className="mt-1 text-xs text-text3">
+                  {premiumFreshnessLine}
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-3 text-xs text-text3">
               {recentExpanded ? (
-                <button type="button" className="hover:text-text1" onClick={() => setRecentExpanded(false)}>
+                <button
+                  type="button"
+                  className="hover:text-text1"
+                  onClick={() => setRecentExpanded(false)}
+                >
                   Collapse
                 </button>
               ) : (
-                <button type="button" className="hover:text-text1" onClick={() => setRecentExpanded(true)}>
+                <button
+                  type="button"
+                  className="hover:text-text1"
+                  onClick={() => setRecentExpanded(true)}
+                >
                   Expand
                 </button>
               )}
@@ -2674,17 +3469,27 @@ export function LaunchFeed({
                     className="overflow-hidden rounded-lg border border-stroke bg-[rgba(255,255,255,0.02)]"
                   >
                     <Link
-                      href={buildLaunchHref({ id: item.launchId, name: item.name })}
+                      href={buildLaunchHref({
+                        id: item.launchId,
+                        name: item.name
+                      })}
                       className="flex w-full items-center justify-between gap-3 px-3 py-2 hover:bg-[rgba(255,255,255,0.04)]"
                     >
                       <div className="min-w-0">
                         <div className="text-text1">{item.name}</div>
                         <div className="text-xs text-text3">
-                          {item.summary || item.lastUpdatedLabel || formatUpdateTime(item.lastUpdated) || 'Updated'}
+                          {item.summary ||
+                            item.lastUpdatedLabel ||
+                            formatUpdateTime(item.lastUpdated) ||
+                            'Updated'}
                         </div>
                       </div>
-                      <time dateTime={toIsoDateTime(item.lastUpdated)} className="shrink-0 text-xs text-text3">
-                        {item.lastUpdatedLabel || formatUpdateTime(item.lastUpdated)}
+                      <time
+                        dateTime={toIsoDateTime(item.lastUpdated)}
+                        className="shrink-0 text-xs text-text3"
+                      >
+                        {item.lastUpdatedLabel ||
+                          formatUpdateTime(item.lastUpdated)}
                       </time>
                     </Link>
                     {hasMultiple ? (
@@ -2693,28 +3498,47 @@ export function LaunchFeed({
                         className="w-full border-t border-stroke px-3 py-1.5 text-left text-xs text-text3 hover:bg-[rgba(255,255,255,0.04)] hover:text-text1"
                         aria-expanded={isExpanded}
                         aria-controls={`change-log-${item.launchId}`}
-                        onClick={() => setExpandedUpdates((prev) => ({ ...prev, [item.launchId]: !prev[item.launchId] }))}
+                        onClick={() =>
+                          setExpandedUpdates((prev) => ({
+                            ...prev,
+                            [item.launchId]: !prev[item.launchId]
+                          }))
+                        }
                       >
-                        {isExpanded ? 'Hide updates' : `Show ${item.entries.length} updates`}
+                        {isExpanded
+                          ? 'Hide updates'
+                          : `Show ${item.entries.length} updates`}
                       </button>
                     ) : null}
                     {hasMultiple && isExpanded && (
-                      <ul id={`change-log-${item.launchId}`} className="space-y-1 border-t border-stroke px-3 py-2 text-xs">
+                      <ul
+                        id={`change-log-${item.launchId}`}
+                        className="space-y-1 border-t border-stroke px-3 py-2 text-xs"
+                      >
                         {item.entries.map((entry) => (
                           <li key={entry.updateId}>
-                          <Link
-                            href={buildLaunchHref({ id: item.launchId, name: item.name })}
-                            className="flex w-full items-center justify-between rounded-md border border-stroke bg-[rgba(255,255,255,0.03)] px-2 py-1 text-text2 hover:border-primary"
-                          >
-                            <span>{entry.changeSummary || 'Updated'}</span>
-                            <time dateTime={toIsoDateTime(entry.detectedAt)} className="ml-2 shrink-0 text-text3">
-                              {entry.detectedLabel || formatUpdateTime(entry.detectedAt)}
-                            </time>
-                          </Link>
+                            <Link
+                              href={buildLaunchHref({
+                                id: item.launchId,
+                                name: item.name
+                              })}
+                              className="flex w-full items-center justify-between rounded-md border border-stroke bg-[rgba(255,255,255,0.03)] px-2 py-1 text-text2 hover:border-primary"
+                            >
+                              <span>{entry.changeSummary || 'Updated'}</span>
+                              <time
+                                dateTime={toIsoDateTime(entry.detectedAt)}
+                                className="ml-2 shrink-0 text-text3"
+                              >
+                                {entry.detectedLabel ||
+                                  formatUpdateTime(entry.detectedAt)}
+                              </time>
+                            </Link>
                             {entry.details && entry.details.length > 0 && (
                               <div className="mt-1 rounded-md border border-stroke bg-[rgba(255,255,255,0.02)] px-2 py-1 text-[11px] text-text3">
                                 {entry.details.map((detail, index) => (
-                                  <div key={`${entry.updateId}-${index}`}>{detail}</div>
+                                  <div key={`${entry.updateId}-${index}`}>
+                                    {detail}
+                                  </div>
                                 ))}
                               </div>
                             )}
@@ -2729,7 +3553,10 @@ export function LaunchFeed({
           ) : activeRecentChange ? (
             <div className="rounded-lg border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-2">
               <Link
-                href={buildLaunchHref({ id: activeRecentChange.launchId, name: activeRecentChange.name })}
+                href={buildLaunchHref({
+                  id: activeRecentChange.launchId,
+                  name: activeRecentChange.name
+                })}
                 className="block w-full"
                 aria-live="polite"
               >
@@ -2738,13 +3565,22 @@ export function LaunchFeed({
                   className="recent-change-flip flex w-full min-w-0 items-center justify-between gap-3"
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-text1">{activeRecentChange.name}</div>
+                    <div className="truncate text-text1">
+                      {activeRecentChange.name}
+                    </div>
                     <div className="truncate text-xs text-text3">
-                      {activeRecentChange.summary || activeRecentChange.lastUpdatedLabel || formatUpdateTime(activeRecentChange.lastUpdated) || 'Updated'}
+                      {activeRecentChange.summary ||
+                        activeRecentChange.lastUpdatedLabel ||
+                        formatUpdateTime(activeRecentChange.lastUpdated) ||
+                        'Updated'}
                     </div>
                   </div>
-                  <time dateTime={toIsoDateTime(activeRecentChange.lastUpdated)} className="shrink-0 whitespace-nowrap text-xs text-text3">
-                    {activeRecentChange.lastUpdatedLabel || formatUpdateTime(activeRecentChange.lastUpdated)}
+                  <time
+                    dateTime={toIsoDateTime(activeRecentChange.lastUpdated)}
+                    className="shrink-0 whitespace-nowrap text-xs text-text3"
+                  >
+                    {activeRecentChange.lastUpdatedLabel ||
+                      formatUpdateTime(activeRecentChange.lastUpdated)}
                   </time>
                 </div>
               </Link>
@@ -2773,7 +3609,9 @@ export function LaunchFeed({
             <>
               {filteredLaunches.map((launch) => (
                 <div key={launch.id} className="space-y-3">
-                  {renderLaunchCard(launch, { isNext: launch.id === nextLaunchId })}
+                  {renderLaunchCard(launch, {
+                    isNext: launch.id === nextLaunchId
+                  })}
                 </div>
               ))}
             </>
@@ -2801,7 +3639,11 @@ export function LaunchFeed({
                   return;
                 }
                 event.preventDefault();
-                void fetchPage({ offset: nextOffset, replace: false, reason: 'load_more_click' });
+                void fetchPage({
+                  offset: nextOffset,
+                  replace: false,
+                  reason: 'load_more_click'
+                });
               }}
             >
               Load More Launches
@@ -2811,27 +3653,61 @@ export function LaunchFeed({
         </div>
       )}
 
-      <PremiumUpsellModal open={upsellOpen} onClose={closeUpsell} isAuthed={isAuthed} featureLabel={upsellFeatureLabel} />
-
+      <PremiumUpsellModal
+        open={upsellOpen}
+        onClose={closeUpsell}
+        isAuthed={isAuthed}
+        featureLabel={upsellFeatureLabel}
+      />
     </section>
   );
 }
 
 function SearchIcon({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+      aria-hidden="true"
+    >
       <circle cx="11" cy="11" r="6.5" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M16 16 20 20" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path
+        d="M16 16 20 20"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
 
 function FilterIcon({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
-      <path d="M4 7h16" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <path d="M7 12h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <path d="M10 17h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+      aria-hidden="true"
+    >
+      <path
+        d="M4 7h16"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+      <path
+        d="M7 12h10"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+      <path
+        d="M10 17h4"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -2841,9 +3717,15 @@ function extractLaunchRuleMap(rules: unknown) {
   const map: Record<string, string> = {};
 
   for (const row of rows) {
-    const type = String((row as any)?.rule_type || (row as any)?.ruleType || '').trim().toLowerCase();
+    const type = String((row as any)?.rule_type || (row as any)?.ruleType || '')
+      .trim()
+      .toLowerCase();
     if (type !== 'launch') continue;
-    const launchId = String((row as any)?.rule_value || (row as any)?.ruleValue || '').trim().toLowerCase();
+    const launchId = String(
+      (row as any)?.rule_value || (row as any)?.ruleValue || ''
+    )
+      .trim()
+      .toLowerCase();
     const ruleId = String((row as any)?.id || '').trim();
     if (!isUuid(launchId) || !ruleId) continue;
     map[launchId] = ruleId;
@@ -2857,9 +3739,13 @@ function extractProviderRuleMap(rules: unknown) {
   const map: Record<string, string> = {};
 
   for (const row of rows) {
-    const type = String((row as any)?.rule_type || (row as any)?.ruleType || '').trim().toLowerCase();
+    const type = String((row as any)?.rule_type || (row as any)?.ruleType || '')
+      .trim()
+      .toLowerCase();
     if (type !== 'provider') continue;
-    const provider = String((row as any)?.rule_value || (row as any)?.ruleValue || '').trim();
+    const provider = String(
+      (row as any)?.rule_value || (row as any)?.ruleValue || ''
+    ).trim();
     const ruleId = String((row as any)?.id || '').trim();
     if (!provider || !ruleId) continue;
     map[provider] = ruleId;
@@ -2873,9 +3759,13 @@ function extractPadRuleMap(rules: unknown) {
   const map: Record<string, string> = {};
 
   for (const row of rows) {
-    const type = String((row as any)?.rule_type || (row as any)?.ruleType || '').trim().toLowerCase();
+    const type = String((row as any)?.rule_type || (row as any)?.ruleType || '')
+      .trim()
+      .toLowerCase();
     if (type !== 'pad') continue;
-    const value = String((row as any)?.rule_value || (row as any)?.ruleValue || '').trim();
+    const value = String(
+      (row as any)?.rule_value || (row as any)?.ruleValue || ''
+    ).trim();
     const ruleId = String((row as any)?.id || '').trim();
     if (!value || !ruleId) continue;
     map[value] = ruleId;
@@ -2889,9 +3779,15 @@ function extractRuleMap(rules: unknown, ruleType: string) {
   const map: Record<string, string> = {};
 
   for (const row of rows) {
-    const type = String((row as any)?.rule_type || (row as any)?.ruleType || '').trim().toLowerCase();
+    const type = String((row as any)?.rule_type || (row as any)?.ruleType || '')
+      .trim()
+      .toLowerCase();
     if (type !== ruleType) continue;
-    const value = String((row as any)?.rule_value || (row as any)?.ruleValue || '').trim().toLowerCase();
+    const value = String(
+      (row as any)?.rule_value || (row as any)?.ruleValue || ''
+    )
+      .trim()
+      .toLowerCase();
     const ruleId = String((row as any)?.id || '').trim();
     if (!value || !ruleId) continue;
     map[value] = ruleId;
@@ -2911,7 +3807,11 @@ function buildPadRuleValue(launch: Launch) {
 }
 
 function buildRocketRuleValue(launch: Launch) {
-  if (typeof launch.ll2RocketConfigId === 'number' && Number.isFinite(launch.ll2RocketConfigId) && launch.ll2RocketConfigId > 0) {
+  if (
+    typeof launch.ll2RocketConfigId === 'number' &&
+    Number.isFinite(launch.ll2RocketConfigId) &&
+    launch.ll2RocketConfigId > 0
+  ) {
     return `ll2:${String(Math.trunc(launch.ll2RocketConfigId))}`;
   }
   const label = String(launch.rocket?.fullName || launch.vehicle || '').trim();
@@ -2925,13 +3825,18 @@ function formatRocketRuleLabel(value: string) {
 }
 
 function buildLaunchSiteRuleValue(launch: Launch) {
-  const value = String(launch.pad?.locationName || launch.pad?.name || '').trim();
+  const value = String(
+    launch.pad?.locationName || launch.pad?.name || ''
+  ).trim();
   return value ? value.toLowerCase() : null;
 }
 
 function buildStateRuleValue(launch: Launch) {
-  const value = String(launch.pad?.state || '').trim().toLowerCase();
-  if (!value || value === 'na' || value === 'n/a' || value === 'unknown') return null;
+  const value = String(launch.pad?.state || '')
+    .trim()
+    .toLowerCase();
+  if (!value || value === 'na' || value === 'n/a' || value === 'unknown')
+    return null;
   return value;
 }
 
@@ -2947,7 +3852,9 @@ function formatPadRuleLabel(value: string) {
 }
 
 function isUuid(value: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value
+  );
 }
 
 function buildWatchlistRuleErrorMessage(error: unknown, label: string) {
@@ -2968,17 +3875,44 @@ function buildWatchlistRuleErrorMessage(error: unknown, label: string) {
 }
 
 function normalizeLaunchFilter(value: unknown): LaunchFilter {
-  const source = typeof value === 'object' && value ? (value as Record<string, unknown>) : {};
+  const source =
+    typeof value === 'object' && value
+      ? (value as Record<string, unknown>)
+      : {};
   const next: LaunchFilter = {};
 
-  const range = readAllowedValue(source.range, ['today', '7d', 'month', 'year', 'past', 'all'] as const);
-  const region = readAllowedValue(source.region, ['us', 'non-us', 'all'] as const);
-  const sort = readAllowedValue(source.sort, ['soonest', 'latest', 'changed'] as const);
-  const status = readAllowedValue(source.status, ['go', 'hold', 'scrubbed', 'tbd', 'unknown', 'all'] as const);
-  const location = typeof source.location === 'string' ? source.location.trim() : '';
+  const range = readAllowedValue(source.range, [
+    'today',
+    '7d',
+    'month',
+    'year',
+    'past',
+    'all'
+  ] as const);
+  const region = readAllowedValue(source.region, [
+    'us',
+    'non-us',
+    'all'
+  ] as const);
+  const sort = readAllowedValue(source.sort, [
+    'soonest',
+    'latest',
+    'changed'
+  ] as const);
+  const status = readAllowedValue(source.status, [
+    'go',
+    'hold',
+    'scrubbed',
+    'tbd',
+    'unknown',
+    'all'
+  ] as const);
+  const location =
+    typeof source.location === 'string' ? source.location.trim() : '';
   const state = typeof source.state === 'string' ? source.state.trim() : '';
   const pad = typeof source.pad === 'string' ? source.pad.trim() : '';
-  const provider = typeof source.provider === 'string' ? source.provider.trim() : '';
+  const provider =
+    typeof source.provider === 'string' ? source.provider.trim() : '';
 
   if (range) next.range = range;
   if (region) next.region = region;
@@ -2991,9 +3925,14 @@ function normalizeLaunchFilter(value: unknown): LaunchFilter {
   return next;
 }
 
-function readAllowedValue<T extends string>(value: unknown, allowed: readonly T[]): T | undefined {
+function readAllowedValue<T extends string>(
+  value: unknown,
+  allowed: readonly T[]
+): T | undefined {
   if (typeof value !== 'string') return undefined;
-  return (allowed as readonly string[]).includes(value) ? (value as T) : undefined;
+  return (allowed as readonly string[]).includes(value)
+    ? (value as T)
+    : undefined;
 }
 
 function areLaunchFiltersEqual(a: LaunchFilter, b: LaunchFilter) {
@@ -3052,12 +3991,23 @@ function parseLaunchNetMs(launch: Launch | null) {
   return Number.isFinite(netMs) ? netMs : Number.NaN;
 }
 
-function findNextProgramLaunch(launches: Launch[], nowMs: number, predicate: (launch: Launch) => boolean) {
-  return findActiveNextLaunch(launches, nowMs, NEXT_LAUNCH_RETENTION_MS, predicate);
+function findNextProgramLaunch(
+  launches: Launch[],
+  nowMs: number,
+  predicate: (launch: Launch) => boolean
+) {
+  return findActiveNextLaunch(
+    launches,
+    nowMs,
+    NEXT_LAUNCH_RETENTION_MS,
+    predicate
+  );
 }
 
 function findNextLaunchId(launches: Launch[], nowMs: number) {
-  return findActiveNextLaunch(launches, nowMs, NEXT_LAUNCH_RETENTION_MS)?.id ?? null;
+  return (
+    findActiveNextLaunch(launches, nowMs, NEXT_LAUNCH_RETENTION_MS)?.id ?? null
+  );
 }
 
 function findActiveNextLaunch(
@@ -3107,7 +4057,9 @@ function formatStatusLabel(value: string) {
   if (value === 'hold') return 'Hold';
   if (value === 'scrubbed') return 'Scrubbed';
   if (value === 'unknown') return 'Unknown';
-  return value.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+  return value
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function LockIcon({ className }: { className?: string }) {

@@ -10,7 +10,6 @@ import { recordMobileAuthContext } from '@/src/auth/authContext';
 import {
   attachPremiumClaimToSession,
   continueWithOAuthProvider,
-  createOrResumePremiumOnboardingIntent,
   getAvailableOAuthProviders,
   isSupabaseMobileAuthConfigured,
   signInWithPassword,
@@ -49,7 +48,6 @@ export default function SignInScreen() {
   }, [params.intent]);
   const [appleSignInAvailable, setAppleSignInAvailable] = useState(false);
   const [googleSignInAvailable, setGoogleSignInAvailable] = useState(false);
-  const [premiumOnboardingIntentId, setPremiumOnboardingIntentId] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [status, setStatus] = useState<{ tone: 'error' | 'success' | null; text: string }>({
@@ -73,32 +71,6 @@ export default function SignInScreen() {
       fallback: buildMobileRoute('profile')
     });
   }, [params.intent, params.next, params.return_to]);
-
-  useEffect(() => {
-    if (claimToken || authIntent !== 'upgrade') {
-      setPremiumOnboardingIntentId(null);
-      return;
-    }
-
-    let cancelled = false;
-    void createOrResumePremiumOnboardingIntent({
-      returnTo: redirectHref
-    })
-      .then((payload) => {
-        if (!cancelled) {
-          setPremiumOnboardingIntentId(payload.intent.intentId);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setPremiumOnboardingIntentId(null);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [authIntent, claimToken, redirectHref]);
 
   useEffect(() => {
     let cancelled = false;
@@ -178,8 +150,7 @@ export default function SignInScreen() {
     try {
       const result = await continueWithOAuthProvider('apple', {
         intent: authIntent,
-        returnTo: redirectHref,
-        onboardingIntentId: premiumOnboardingIntentId
+        returnTo: redirectHref
       });
       await persistSession({
         accessToken: result.session.accessToken,
@@ -227,8 +198,7 @@ export default function SignInScreen() {
     try {
       const result = await continueWithOAuthProvider('google', {
         intent: authIntent,
-        returnTo: redirectHref,
-        onboardingIntentId: premiumOnboardingIntentId
+        returnTo: redirectHref
       });
       await persistSession({
         accessToken: result.session.accessToken,
@@ -325,7 +295,7 @@ export default function SignInScreen() {
         claimToken
           ? 'Sign in to attach this verified Premium purchase to an existing account.'
           : authIntent === 'upgrade'
-            ? 'Sign in to an existing account or create a new one for Premium onboarding on this device.'
+            ? 'Sign in to an existing account to upgrade, or return to Premium checkout if you need a new account.'
             : 'Use your T-Minus Zero account for account management, purchase restore, and Premium ownership on this device.'
       }
     >
@@ -427,12 +397,6 @@ export default function SignInScreen() {
         <Link href={`/sign-up?claim_token=${encodeURIComponent(claimToken)}&return_to=${encodeURIComponent(readParam(params.return_to) || '/profile')}`} asChild>
           <Pressable style={styles.secondaryButton}>
             <Text style={styles.secondaryButtonLabel}>Need a new account? Create one to claim Premium</Text>
-          </Pressable>
-        </Link>
-      ) : authIntent === 'upgrade' ? (
-        <Link href={`/sign-up?intent=upgrade&return_to=${encodeURIComponent(readParam(params.return_to) || redirectHref)}`} asChild>
-          <Pressable style={styles.secondaryButton}>
-            <Text style={styles.secondaryButtonLabel}>Need a new account? Create one for Premium</Text>
           </Pressable>
         </Link>
       ) : null}

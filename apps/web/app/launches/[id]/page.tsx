@@ -62,10 +62,7 @@ import { resolveJepObserverFromHeaders } from '@/lib/server/jepObserver';
 import { buildLaunchDetailVersionSeed } from '@/lib/server/launchDetailVersion';
 import { resolveWebLaunchMapPolicy } from '@/lib/server/mapProviderPolicy';
 import { getAppleMapsWebAuthorizationTokenForRequest } from '@/lib/server/appleMapsWeb';
-import {
-  buildLaunchMissionTimeline,
-  type ViewerTier
-} from '@tminuszero/domain';
+import { buildLaunchMissionTimeline } from '@tminuszero/domain';
 import type { LaunchFaaMapRenderMode } from '@/lib/maps/providerTypes';
 import type { LaunchJepScore } from '@/lib/types/jep';
 import type {
@@ -2142,7 +2139,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
   if (!parsed) return notFound();
 
   const viewer = await getViewerTier();
-  const launch = viewer.tier === 'premium' ? await fetchLiveLaunch(parsed.launchId) : await fetchLaunch(parsed.launchId);
+  const launch = viewer.mode === 'live' ? await fetchLiveLaunch(parsed.launchId) : await fetchLaunch(parsed.launchId);
   if (!launch) return notFound();
 
   const canonicalPath = buildLaunchHref(launch);
@@ -2151,7 +2148,9 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
     permanentRedirect(canonicalPath);
   }
   const arHref = `${canonicalPath}/ar`;
-  const canUseArTrajectory = viewer.tier === 'premium';
+  const canUseArTrajectory = viewer.capabilities.canUseArTrajectory;
+  const canUseChangeLog = viewer.capabilities.canUseChangeLog;
+  const canUseEnhancedForecastInsights = viewer.capabilities.canUseEnhancedForecastInsights;
 
   const isAuthed = viewer.isAuthed;
   const isEasternRange = launch.pad?.state === 'FL';
@@ -2345,8 +2344,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
   const payloadManifestPromise = fetchPayloadManifest(launch.ll2Id);
   const launchObjectInventoryPromise = fetchLaunchObjectInventory(launch.ll2Id);
   const launchDetailEnrichmentPromise = fetchLaunchDetailEnrichment(launch.id, launch.ll2Id);
-  const launchUpdatesPromise =
-    viewer.tier === 'premium' ? fetchLaunchUpdates(launch.id) : Promise.resolve([] as LaunchUpdateRow[]);
+  const launchUpdatesPromise = canUseChangeLog ? fetchLaunchUpdates(launch.id) : Promise.resolve([] as LaunchUpdateRow[]);
   const rocketStatsPromise = fetchRocketOutcomeStats(rocket.fullName, launch.vehicle);
   const boosterStatsPromise = isSpaceXProvider(launch.provider)
     ? fetchLaunchBoosterStats(launch.id, launch.ll2Id)
@@ -2379,15 +2377,15 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
   const jepObserver = resolveJepObserverFromHeaders(requestHeaders);
   const ws45LaunchContext = buildWs45LaunchContext(launch);
 
-  const ws45ForecastPromise = viewer.tier === 'premium' ? fetchWs45Forecast(launch.id, isEasternRange) : Promise.resolve(null);
+  const ws45ForecastPromise = canUseEnhancedForecastInsights ? fetchWs45Forecast(launch.id, isEasternRange) : Promise.resolve(null);
   const ws45OperationalPromise =
-    viewer.tier === 'premium'
+    canUseEnhancedForecastInsights
       ? fetchWs45LiveWeatherSnapshotForLaunch(ws45LaunchContext, isEasternRange).then((snapshot) =>
           buildWs45OperationalWeather(snapshot, ws45LaunchContext)
         )
       : Promise.resolve(null as Ws45OperationalWeather | null);
   const ws45PlanningPromise =
-    viewer.tier === 'premium'
+    canUseEnhancedForecastInsights
       ? fetchWs45PlanningForecastsForLaunch(ws45LaunchContext, isEasternRange)
       : Promise.resolve({
           planning24h: null as Ws45PlanningForecast | null,
@@ -2397,10 +2395,10 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
   const jepScorePromise = fetchLaunchJepScore(launch.id, { observer: jepObserver, viewerIsAdmin: viewer.isAdmin });
   const faaAirspacePromise = fetchLaunchFaaAirspace({ launchId: launch.id, limit: 6 });
   const faaAirspaceMapPromise = fetchLaunchFaaAirspaceMap({ launchId: launch.id, limit: 8 });
-  const refreshVersion = (viewer.tier === 'premium' ? launch.lastUpdated : launch.cacheGeneratedAt) ?? null;
+  const refreshVersion = (viewer.mode === 'live' ? launch.lastUpdated : launch.cacheGeneratedAt) ?? null;
   const detailVersionSeed = await buildLaunchDetailVersionSeed({
     launchId: launch.id,
-    scope: viewer.tier === 'premium' ? 'live' : 'public',
+    scope: viewer.mode === 'live' ? 'live' : 'public',
     launchCoreUpdatedAt: refreshVersion,
     ll2LaunchId: launch.ll2Id ?? null
   });
@@ -2561,7 +2559,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
             </div>
             <div className="flex items-center gap-2">
               {isArEligible &&
-                (viewer.tier === 'premium' ? (
+                (canUseArTrajectory ? (
                   <CameraGuideButton
                     href={arHref}
                     launchId={launch.id}
@@ -2852,7 +2850,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
           isUsPad={isUsPad}
           within14Days={within14Days}
           padTimezone={padTimezone}
-          tier={viewer.tier}
+          canUseEnhancedForecastInsights={canUseEnhancedForecastInsights}
         />
       </Suspense>
 
@@ -3538,7 +3536,11 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
       </div>
 
       <Suspense fallback={<LoadingPanel label="Loading launch updates..." />}>
-        <LaunchUpdatesSection launchUpdatesPromise={launchUpdatesPromise} padTimezone={padTimezone} tier={viewer.tier} />
+        <LaunchUpdatesSection
+          launchUpdatesPromise={launchUpdatesPromise}
+          padTimezone={padTimezone}
+          canUseChangeLog={canUseChangeLog}
+        />
       </Suspense>
 
       <Suspense fallback={<LoadingPanel label="Loading launch stats..." />}>
@@ -4113,7 +4115,7 @@ async function ConsolidatedWeatherSection({
   isUsPad,
   within14Days,
   padTimezone,
-  tier
+  canUseEnhancedForecastInsights
 }: {
   ws45ForecastPromise: Promise<Ws45Forecast | null>;
   ws45OperationalPromise: Promise<Ws45OperationalWeather | null>;
@@ -4131,9 +4133,9 @@ async function ConsolidatedWeatherSection({
   isUsPad: boolean;
   within14Days: boolean;
   padTimezone: string;
-  tier: ViewerTier;
+  canUseEnhancedForecastInsights: boolean;
 }) {
-  const ws45Eligible = isEasternRange && tier === 'premium';
+  const ws45Eligible = isEasternRange && canUseEnhancedForecastInsights;
   const showNws = isUsPad && within14Days;
   const [ws45Forecast, ws45Operational, ws45Planning, nwsForecast, faaAirspace, faaAirspaceMap] = await Promise.all([
     ws45ForecastPromise,
@@ -5499,13 +5501,13 @@ async function RelatedNewsSection({ relatedNewsPromise }: { relatedNewsPromise: 
 async function LaunchUpdatesSection({
   launchUpdatesPromise,
   padTimezone,
-  tier
+  canUseChangeLog
 }: {
   launchUpdatesPromise: Promise<LaunchUpdateRow[]>;
   padTimezone: string | null;
-  tier: ViewerTier;
+  canUseChangeLog: boolean;
 }) {
-  if (tier !== 'premium') return null;
+  if (!canUseChangeLog) return null;
   const launchUpdates = await launchUpdatesPromise;
   const updateRows = launchUpdates
     .filter((update) => !shouldHideLaunchUpdate(update))

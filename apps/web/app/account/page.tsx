@@ -4,6 +4,7 @@ import { useEffect, useId, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
+import { isRecoveryOnlyViewer } from '@tminuszero/domain';
 import { buildAuthCallbackHref, buildAuthHref, buildProfileHref } from '@tminuszero/navigation';
 import { BillingPanel } from '@/components/BillingPanel';
 import { TipJarRecurringPanel } from '@/components/TipJarRecurringPanel';
@@ -71,6 +72,11 @@ export default function AccountPage() {
   const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ');
   const emailVerified = Boolean(profile?.emailConfirmedAt);
   const premiumStatus = searchParams.get('premium');
+  const viewerTier = entitlementsQuery.data?.tier ?? 'anon';
+  const isRecoveryOnly = isRecoveryOnlyViewer({
+    isAuthed: status === 'authed',
+    tier: viewerTier === 'premium' ? 'premium' : 'anon'
+  });
   const profileFirstName = String(profile?.firstName || '').trim();
   const profileLastName = String(profile?.lastName || '').trim();
   const profileTimezone = String(profile?.timezone || 'America/New_York').trim();
@@ -85,7 +91,7 @@ export default function AccountPage() {
     status === 'authed' && nextTimezone && hasProfileChanges && !hasBlankedExistingName && !updateProfileMutation.isPending
   );
   const showLoading = status === 'loading' || (status === 'authed' && profileQuery.isPending && !profile);
-  const membershipLabel = formatMembershipTierLabel(entitlementsQuery.data?.tier ?? 'anon', status === 'authed');
+  const membershipLabel = formatMembershipTierLabel(viewerTier, status === 'authed');
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -190,7 +196,9 @@ export default function AccountPage() {
       <h1 className="text-3xl font-semibold text-text1 text-balance">Account</h1>
       <p className="mt-3 max-w-2xl text-sm text-text2">
         {status === 'authed'
-          ? 'Account, billing, alerts, privacy, and launch tools now live in clearer owned sections instead of one mixed page.'
+          ? isRecoveryOnly
+            ? 'Billing recovery, restore, privacy, support, and sign-out stay available while this account is on free access.'
+            : 'Account, billing, alerts, privacy, and launch tools now live in clearer owned sections instead of one mixed page.'
           : 'Sign in to manage account details, restore purchases, and billing.'}
       </p>
 
@@ -214,7 +222,93 @@ export default function AccountPage() {
         </div>
       ) : null}
 
-      {status === 'authed' && !showLoading ? (
+      {status === 'authed' && !showLoading && isRecoveryOnly ? (
+        <>
+          <section
+            className="mt-6 rounded-3xl border border-stroke bg-surface-1 p-5 text-sm text-text2 md:p-6"
+            aria-labelledby="account-summary-heading"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-xs uppercase tracking-[0.1em] text-text3">Account summary</div>
+                <h2 id="account-summary-heading" className="mt-1 text-lg font-semibold text-text1">
+                  {profile?.email || 'Your account'}
+                </h2>
+                <div className="mt-1 text-xs text-text3">
+                  This shell is limited to membership recovery, privacy, support, and sign-out until Premium is active again.
+                </div>
+              </div>
+              <span className="whitespace-nowrap rounded-full border border-stroke px-3 py-1 text-xs font-semibold text-text2">
+                {membershipLabel}
+              </span>
+            </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <AccountOverviewItem label="Membership" value={membershipLabel} />
+              <AccountOverviewItem label="Email" value={profile?.email || '—'} className="sm:col-span-2 xl:col-span-2" />
+              <AccountOverviewItem
+                label="Renewal"
+                value={entitlementsQuery.data?.currentPeriodEnd ? formatDate(entitlementsQuery.data.currentPeriodEnd) : '—'}
+              />
+              <AccountOverviewItem label="Session" value="Signed in" />
+            </div>
+          </section>
+
+          <AccountSection
+            title="Membership & Billing"
+            description="Restart Premium, restore purchases, fix billing issues, or manage existing billing from here."
+          >
+            <BillingPanel />
+          </AccountSection>
+
+          <AccountSection
+            title="Privacy, Support & Session"
+            description="Only the recovery-safe account destinations remain available on the free state."
+          >
+            <div className="grid gap-4 md:grid-cols-2">
+              <AccountLinkCard
+                eyebrow="Privacy choices"
+                title="Privacy & data requests"
+                description="Export account data, delete your account, and manage embed privacy preferences."
+                href="/legal/privacy-choices"
+                ctaLabel="Open privacy & data"
+              />
+
+              <div className="rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
+                <div className="text-xs uppercase tracking-[0.1em] text-text3">Support</div>
+                <div className="mt-1 text-base font-semibold text-text1">Need billing or account help?</div>
+                <p className="mt-2 text-text3">
+                  Use Support for restore problems, billing issues, account recovery help, and customer requests.
+                </p>
+                <Link className="mt-3 inline-flex text-sm text-primary hover:underline" href="/support">
+                  Open support
+                </Link>
+              </div>
+
+              <div className="rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2 md:col-span-2">
+                <div className="text-xs uppercase tracking-[0.1em] text-text3">Session</div>
+                <div className="mt-1 text-base font-semibold text-text1">Sign out on this browser</div>
+                <p className="mt-2 text-text3">
+                  Signing out clears the current browser session. Billing records, privacy requests, and account ownership stay unchanged.
+                </p>
+                <button
+                  className="btn-secondary mt-3 rounded-lg px-4 py-2 text-xs"
+                  onClick={async () => {
+                    const supabase = getBrowserClient();
+                    if (!supabase) return;
+                    await supabase.auth.signOut();
+                    applyGuestViewerState(queryClient);
+                  }}
+                >
+                  Sign out
+                </button>
+              </div>
+            </div>
+          </AccountSection>
+        </>
+      ) : null}
+
+      {status === 'authed' && !showLoading && !isRecoveryOnly ? (
         <>
           <section className="mt-6 rounded-3xl border border-stroke bg-surface-1 p-5 text-sm text-text2 md:p-6" aria-labelledby="account-summary-heading">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -405,9 +499,9 @@ export default function AccountPage() {
 
               <div className="rounded-2xl border border-stroke bg-surface-1 p-4 text-sm text-text2">
                 <div className="text-xs uppercase tracking-[0.1em] text-text3">Launch alerts</div>
-                <div className="mt-1 text-base font-semibold text-text1">Push alerts live in the mobile app</div>
+                <div className="mt-1 text-base font-semibold text-text1">Push alert delivery lives in the mobile app</div>
                 <p className="mt-2 text-text3">
-                  Web no longer manages legacy notification subscriptions. Use the native iPhone or Android app to manage device registration, push permissions, and launch alert rules.
+                  Web no longer manages legacy notification subscriptions. Use the native iPhone or Android app to manage device registration, push permissions, reminder timing, and live alert delivery.
                 </p>
               </div>
             </div>

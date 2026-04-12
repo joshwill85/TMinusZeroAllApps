@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { Platform, Text, View } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import type { AuthMethodV1 } from '@tminuszero/api-client';
+import { getMobileViewerTier, isRecoveryOnlyViewer } from '@tminuszero/domain';
 import { sharedQueryKeys } from '@tminuszero/query';
-import { useAuthMethodsQuery } from '@/src/api/queries';
+import { useAuthMethodsQuery, useViewerEntitlementsQuery } from '@/src/api/queries';
 import { isMobileAppleAuthEnabled } from '@/src/auth/appleAuth';
 import {
   isSupabaseMobileAuthConfigured,
@@ -19,6 +20,7 @@ import {
   CustomerShellHero,
   CustomerShellPanel
 } from '@/src/components/CustomerShell';
+import { AccountRecoveryOnlyScreen } from '@/src/features/account/AccountRecoveryOnlyScreen';
 import { AccountDetailRow, AccountNotice } from '@/src/features/account/AccountUi';
 import { useMobileBootstrap } from '@/src/providers/mobileBootstrapContext';
 
@@ -33,6 +35,7 @@ function getErrorMessage(error: unknown, fallback: string) {
 export function LoginMethodsScreen() {
   const queryClient = useQueryClient();
   const { accessToken, refreshToken, persistSession, theme } = useMobileBootstrap();
+  const entitlementsQuery = useViewerEntitlementsQuery();
   const authMethodsQuery = useAuthMethodsQuery();
   const [notice, setNotice] = useState<{ tone: 'success' | 'warning' | 'error'; message: string } | null>(null);
   const [busyAction, setBusyAction] = useState<'link_apple' | 'unlink_apple' | 'link_google' | 'unlink_google' | null>(null);
@@ -43,6 +46,8 @@ export function LoginMethodsScreen() {
   const canManageAppleOnDevice = Platform.OS === 'ios' && isMobileAppleAuthEnabled();
   const canManageGoogleOnDevice = isSupabaseMobileAuthConfigured();
   const isAuthed = Boolean(accessToken);
+  const tier = getMobileViewerTier(entitlementsQuery.data?.tier ?? 'anon');
+  const isRecoveryOnly = isRecoveryOnlyViewer({ isAuthed, tier });
   const isLoading = isAuthed && authMethodsQuery.isPending && !authMethodsQuery.data;
 
   async function refreshAuthMethods() {
@@ -161,6 +166,15 @@ export function LoginMethodsScreen() {
     } finally {
       setBusyAction(null);
     }
+  }
+
+  if (isRecoveryOnly) {
+    return (
+      <AccountRecoveryOnlyScreen
+        title="Login Methods"
+        description="Login-method management returns when Premium is active again. Membership recovery, privacy, and support stay available now."
+      />
+    );
   }
 
   return (

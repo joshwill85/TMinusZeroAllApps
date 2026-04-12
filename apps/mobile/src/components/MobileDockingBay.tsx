@@ -9,7 +9,6 @@ import {
 } from '@/src/auth/premiumOnboarding';
 import { buildClaimAuthHref } from '@/src/billing/nativeBillingUi';
 import { useNativeBilling } from '@/src/billing/useNativeBilling';
-import { getPublicSiteUrl } from '@/src/config/api';
 import { getProgramHubEntryOrCoreHref } from '@/src/features/programHubs/rollout';
 import { openExternalCustomerUrl } from '@/src/features/customerRoutes/shared';
 import { MOBILE_BRAND_FACEBOOK_URL, MOBILE_BRAND_X_URL } from '@/src/features/account/constants';
@@ -52,7 +51,6 @@ export function MobileDockingBay() {
   const viewerTier = viewerEntitlementsQuery.data?.tier ?? 'anon';
   const isAuthed = Boolean(viewerSessionQuery.data?.viewerId);
   const isPremium = viewerTier === 'premium';
-  const publicSiteUrl = getPublicSiteUrl();
   const manifestSheetTranslateY = useRef(new Animated.Value(0)).current;
   const profileInitials = getProfileInitials({
     firstName: profileQuery.data?.firstName ?? null,
@@ -285,14 +283,14 @@ export function MobileDockingBay() {
             key: 'about',
             title: 'About',
             description: 'Why T-Minus Zero exists and how the customer product is framed.',
-            externalUrl: `${publicSiteUrl}/about`,
+            href: '/about' as Href,
             testID: 'manifest-link-about'
           },
           {
             key: 'faq',
             title: 'FAQ',
             description: 'Answers to the common product and launch-data questions.',
-            externalUrl: `${publicSiteUrl}/docs/faq`,
+            href: '/docs/faq' as Href,
             testID: 'manifest-link-faq'
           },
           {
@@ -371,7 +369,7 @@ export function MobileDockingBay() {
         ]
       }
     ];
-  }, [profileHref, publicSiteUrl, viewerSessionQuery.data]);
+  }, [profileHref, viewerSessionQuery.data]);
   const manifestDockClearance = insets.bottom + MOBILE_DOCK_HEIGHT + MOBILE_DOCK_BOTTOM_OFFSET + 8;
 
   if (!showDock) {
@@ -775,15 +773,20 @@ function ManifestPremiumCard({
           <>
             <CustomerShellActionButton
               testID="manifest-premium-purchase"
-              label={isAuthed ? (billing.isProcessingPurchase ? 'Working…' : 'Unlock Premium') : 'Sign in to continue'}
+              label={billing.isProcessingPurchase ? 'Working…' : 'Start Premium'}
               disabled={billing.isProcessingPurchase}
               onPress={() => {
                 onClose();
-                if (!isAuthed) {
-                  router.push(premiumUpgradeSignInHref as Href);
-                  return;
-                }
                 router.push(premiumCheckoutReturnTo as Href);
+              }}
+            />
+            <CustomerShellActionButton
+              testID="manifest-premium-sign-in"
+              label="Sign in to existing account"
+              variant="secondary"
+              onPress={() => {
+                onClose();
+                router.push(premiumUpgradeSignInHref as Href);
               }}
             />
             {isAuthed ? (

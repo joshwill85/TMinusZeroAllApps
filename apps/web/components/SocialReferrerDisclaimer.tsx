@@ -39,15 +39,29 @@ function hostMatches(host: string, domain: string) {
 function resolveSourceFromUtm(value: string): SocialSource | null {
   const normalized = value.trim().toLowerCase();
   if (!normalized) return null;
-  if (normalized === 'x' || normalized === 'twitter' || normalized === 't.co' || normalized === 'x.com' || normalized === 'twitter.com') return 'x';
+  if (
+    normalized === 'x' ||
+    normalized === 'twitter' ||
+    normalized === 't.co' ||
+    normalized === 'x.com' ||
+    normalized === 'twitter.com'
+  )
+    return 'x';
   return null;
 }
 
-function resolveSourceFromReferrerHost(host: string | null): SocialSource | null {
+function resolveSourceFromReferrerHost(
+  host: string | null
+): SocialSource | null {
   if (!host) return null;
   const normalized = host.trim().toLowerCase();
   if (!normalized) return null;
-  if (normalized === 't.co' || hostMatches(normalized, 'x.com') || hostMatches(normalized, 'twitter.com')) return 'x';
+  if (
+    normalized === 't.co' ||
+    hostMatches(normalized, 'x.com') ||
+    hostMatches(normalized, 'twitter.com')
+  )
+    return 'x';
   return null;
 }
 
@@ -76,7 +90,9 @@ export function SocialReferrerDisclaimer() {
   const pathname = usePathname();
   const [utmSource, setUtmSource] = useState('');
   const [open, setOpen] = useState(false);
-  const [resolvedSource, setResolvedSource] = useState<SocialSource | null>(null);
+  const [resolvedSource, setResolvedSource] = useState<SocialSource | null>(
+    null
+  );
   const [authReady, setAuthReady] = useState(false);
   const [isAuthed, setIsAuthed] = useState(false);
 
@@ -136,11 +152,13 @@ export function SocialReferrerDisclaimer() {
         setAuthReady(true);
       });
 
-    const { data } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
-      const authed = Boolean(session?.user);
-      setIsAuthed(authed);
-      if (authed) setOpen(false);
-    });
+    const { data } = supabase.auth.onAuthStateChange(
+      (_event: AuthChangeEvent, session: Session | null) => {
+        const authed = Boolean(session?.user);
+        setIsAuthed(authed);
+        if (authed) setOpen(false);
+      }
+    );
 
     return () => {
       cancelled = true;
@@ -164,7 +182,8 @@ export function SocialReferrerDisclaimer() {
     if (!resolvedSource) return;
 
     const dismissedAt = readDismissedAt();
-    if (dismissedAt != null && Date.now() - dismissedAt < DISMISS_TTL_MS) return;
+    if (dismissedAt != null && Date.now() - dismissedAt < DISMISS_TTL_MS)
+      return;
     setOpen(true);
   }, [authReady, isAuthed, resolvedSource, shouldConsider]);
 
@@ -189,26 +208,46 @@ export function SocialReferrerDisclaimer() {
       >
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="text-xs uppercase tracking-[0.1em] text-text3">Heads-up</div>
-            <div className="text-base font-semibold text-text1">Refresh speeds</div>
+            <div className="text-xs uppercase tracking-[0.1em] text-text3">
+              Heads-up
+            </div>
+            <div className="text-base font-semibold text-text1">
+              Refresh speeds
+            </div>
           </div>
-          <button type="button" className="text-sm text-text3 hover:text-text1" onClick={close} aria-label="Close">
+          <button
+            type="button"
+            className="text-sm text-text3 hover:text-text1"
+            onClick={close}
+            aria-label="Close"
+          >
             ×
           </button>
         </div>
 
         <p className="mt-2 text-sm text-text2">
-          Since you&apos;re visiting from {sourceLabel}: public (not signed in) data can be up to <span className="font-semibold text-text1">2 hours</span> behind.
+          Since you&apos;re visiting from {sourceLabel}: public (not signed in)
+          data can be up to{' '}
+          <span className="font-semibold text-text1">2 hours</span> behind.
         </p>
         <p className="mt-2 text-sm text-text2">
-          Sign in when you want account ownership and purchase restore. Premium uses the live refresh cadence and moves faster near active launches.
+          Sign in when you want account ownership and purchase restore. Premium
+          uses the live refresh cadence and moves faster near active launches.
         </p>
 
         <div className="mt-4 flex items-center justify-between gap-3">
-          <Link href={upgradeHref} className="btn rounded-lg px-4 py-2 text-sm" onClick={close}>
-            View Premium
+          <Link
+            href={upgradeHref}
+            className="btn rounded-lg px-4 py-2 text-sm"
+            onClick={close}
+          >
+            Upgrade to Premium
           </Link>
-          <button type="button" className="text-xs text-text3 hover:text-text1" onClick={close}>
+          <button
+            type="button"
+            className="text-xs text-text3 hover:text-text1"
+            onClick={close}
+          >
             Continue
           </button>
         </div>

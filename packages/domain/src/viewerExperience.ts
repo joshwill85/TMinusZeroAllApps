@@ -74,7 +74,7 @@ export const viewerFeatureManifest: Record<ViewerFeatureKey, ViewerFeatureManife
     title: 'Preferences',
     minimumTier: 'anon',
     blockedTitle: 'Preferences are available on mobile',
-    blockedDescription: 'Notification settings and device controls are available from this screen.',
+    blockedDescription: 'Alert settings and device controls are available from this screen.',
     ctaLabel: 'Open settings',
     ctaTarget: 'manage'
   },
@@ -128,7 +128,7 @@ export const viewerFeatureManifest: Record<ViewerFeatureKey, ViewerFeatureManife
     title: 'Instant alerts',
     minimumTier: 'premium',
     blockedTitle: 'Premium unlocks advanced alerts',
-    blockedDescription: 'Upgrade to enable launch reminders, follow scopes, preset-driven alerts, and status-change notifications on this account.',
+    blockedDescription: 'Upgrade to enable launch reminders, follow scopes, preset-driven alerts, and status-change alerts on registered mobile devices.',
     ctaLabel: 'Upgrade',
     ctaTarget: 'upgrade'
   },

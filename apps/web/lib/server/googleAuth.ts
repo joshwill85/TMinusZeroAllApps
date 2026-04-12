@@ -16,6 +16,7 @@ type GoogleAuthState = {
   returnTo: string;
   intent: 'upgrade' | null;
   onboardingIntentId: string | null;
+  claimToken: string | null;
   exp: number;
 };
 
@@ -91,6 +92,7 @@ function decodeState(value: string) {
     returnTo: parsed.returnTo,
     intent: parsed.intent === 'upgrade' ? 'upgrade' : null,
     onboardingIntentId: typeof parsed.onboardingIntentId === 'string' && parsed.onboardingIntentId.trim() ? parsed.onboardingIntentId.trim() : null,
+    claimToken: typeof parsed.claimToken === 'string' && parsed.claimToken.trim() ? parsed.claimToken.trim() : null,
     exp: parsed.exp
   } satisfies GoogleAuthState;
 }
@@ -230,18 +232,21 @@ export function startGoogleAuthFlow({
   platform,
   returnTo,
   intent,
-  onboardingIntentId
+  onboardingIntentId,
+  claimToken
 }: {
   platform: GoogleAuthPlatform;
   returnTo?: string | null;
   intent?: string | null;
   onboardingIntentId?: string | null;
+  claimToken?: string | null;
 }) {
   const state: GoogleAuthState = {
     platform,
     returnTo: sanitizeReturnToPath(returnTo, platform === 'web' ? '/account' : '/profile'),
     intent: intent === 'upgrade' ? 'upgrade' : null,
     onboardingIntentId: typeof onboardingIntentId === 'string' && onboardingIntentId.trim() ? onboardingIntentId.trim() : null,
+    claimToken: typeof claimToken === 'string' && claimToken.trim() ? claimToken.trim() : null,
     exp: Date.now() + GOOGLE_AUTH_STATE_TTL_MS
   };
 
@@ -278,12 +283,17 @@ export async function handleGoogleAuthCallback(request: Request) {
     const email = readGoogleIdTokenEmail(exchanged.idToken);
     const preflight = await preflightPremiumOnboardingProvider({
       intentId: state.onboardingIntentId,
+      claimToken: state.claimToken,
       provider: 'google',
       email
     });
 
     if (preflight.mode === 'create' && !preflight.createAllowed) {
-      throw new PremiumOnboardingRouteError(403, 'premium_onboarding_required', 'Start Premium before creating a new account.');
+      throw new PremiumOnboardingRouteError(
+        403,
+        'premium_onboarding_required',
+        'Complete Premium purchase verification before creating a new account.'
+      );
     }
 
     const supabase = createSupabaseAuthClient();
@@ -295,7 +305,11 @@ export async function handleGoogleAuthCallback(request: Request) {
     if (signInError || !data.session) {
       const lowerMessage = String(signInError?.message || '').toLowerCase();
       if (lowerMessage.includes('premium_onboarding_required')) {
-        throw new PremiumOnboardingRouteError(403, 'premium_onboarding_required', 'Start Premium before creating a new account.');
+        throw new PremiumOnboardingRouteError(
+          403,
+          'premium_onboarding_required',
+          'Complete Premium purchase verification before creating a new account.'
+        );
       }
       throw new GoogleAuthRouteError(502, 'google_supabase_sign_in_failed', signInError?.message || 'Unable to finish Google sign-in.');
     }

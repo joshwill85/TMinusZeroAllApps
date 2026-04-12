@@ -6,6 +6,7 @@ import {
   type Ws45LaunchBoardContext,
   type Ws45OperationalTone
 } from '../../../../shared/ws45LiveBoard';
+import type { Ws45PlanningStructuredPayload } from '../../../../shared/ws45PlanningParser';
 
 export type Ws45LiveWeatherSnapshot = {
   id: string;
@@ -30,6 +31,7 @@ export type Ws45PlanningForecast = {
   parse_status?: string | null;
   parse_confidence?: number | null;
   publish_eligible?: boolean | null;
+  structured_payload?: Ws45PlanningStructuredPayload | null;
 };
 
 export type Ws45OperationalWeather = {
@@ -151,7 +153,7 @@ export async function fetchWs45PlanningForecastsForLaunch(
   const { data, error } = await client
     .from('ws45_planning_forecasts')
     .select(
-      'id, product_kind, source_label, pdf_url, issued_at, valid_start, valid_end, headline, summary, highlights, document_family, parse_status, parse_confidence, publish_eligible'
+      'id, product_kind, source_label, pdf_url, issued_at, valid_start, valid_end, headline, summary, highlights, document_family, parse_status, parse_confidence, publish_eligible, structured_payload'
     )
     .in('product_kind', ['planning_24h', 'weekly_planning'])
     .neq('parse_status', 'failed')
@@ -209,7 +211,7 @@ function isUsablePlanningForecast(row: Ws45PlanningForecast | null | undefined):
   if (!row?.id || !row.product_kind || !row.pdf_url) return false;
   if (row.parse_status === 'failed') return false;
   if (!row.valid_start || !row.valid_end) return false;
-  return Boolean(row.summary || row.headline || row.source_label);
+  return Boolean(row.summary || row.headline || row.source_label || row.structured_payload);
 }
 
 function normalizePlanningForecastForDisplay(row: Ws45PlanningForecast): Ws45PlanningForecast {
@@ -217,7 +219,11 @@ function normalizePlanningForecastForDisplay(row: Ws45PlanningForecast): Ws45Pla
   const headline = row.headline || row.source_label || null;
   const summary =
     row.summary ||
-    (limitedExtract ? 'Limited extract from the current WS45 planning product. Open the PDF for the full forecast text.' : null);
+    (row.structured_payload
+      ? 'Expanded 45 WS planning details are available below.'
+      : limitedExtract
+        ? 'Limited extract from the current WS45 planning product. Open the PDF for the full forecast text.'
+        : null);
 
   return {
     ...row,
