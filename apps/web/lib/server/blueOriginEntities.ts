@@ -1,7 +1,7 @@
 import { cache } from 'react';
 import { fetchBlueOriginFlightIndex } from '@/lib/server/blueOrigin';
-import { isSupabaseConfigured } from '@/lib/server/env';
-import { createSupabasePublicClient } from '@/lib/server/supabaseServer';
+import { isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
+import { createSupabasePrivilegedReadClient } from '@/lib/server/supabaseServer';
 import type {
   BlueOriginEngine,
   BlueOriginEngineDetail,
@@ -41,6 +41,11 @@ const MISSION_KEYS: readonly BlueOriginMissionKey[] = [
   'blue-ring',
   'be-4'
 ];
+
+function createBlueOriginPrivateReadClient() {
+  if (!isSupabaseAdminConfigured()) return null;
+  return createSupabasePrivilegedReadClient();
+}
 
 type VehicleRow = {
   id: string;
@@ -391,7 +396,8 @@ export function getBlueOriginMissionLabel(mission: BlueOriginMissionKey): string
 async function fetchVehiclesFromDatabase(mission: BlueOriginMissionKey | 'all') {
   if (!isSupabaseConfigured()) return [] as BlueOriginVehicle[];
 
-  const supabase = createSupabasePublicClient();
+  const supabase = createBlueOriginPrivateReadClient();
+  if (!supabase) return [] as BlueOriginVehicle[];
   let query = supabase
     .from('blue_origin_vehicles')
     .select('id,vehicle_slug,mission_key,display_name,vehicle_class,status,first_flight,description,official_url,metadata,updated_at')
@@ -412,7 +418,8 @@ async function fetchVehiclesFromDatabase(mission: BlueOriginMissionKey | 'all') 
 async function fetchVehicleBySlugFromDatabase(vehicleSlug: BlueOriginVehicleSlug) {
   if (!isSupabaseConfigured()) return null;
 
-  const supabase = createSupabasePublicClient();
+  const supabase = createBlueOriginPrivateReadClient();
+  if (!supabase) return null;
   const { data, error } = await supabase
     .from('blue_origin_vehicles')
     .select('id,vehicle_slug,mission_key,display_name,vehicle_class,status,first_flight,description,official_url,metadata,updated_at')
@@ -430,7 +437,8 @@ async function fetchVehicleBySlugFromDatabase(vehicleSlug: BlueOriginVehicleSlug
 async function fetchEnginesFromDatabase(mission: BlueOriginMissionKey | 'all') {
   if (!isSupabaseConfigured()) return [] as BlueOriginEngine[];
 
-  const supabase = createSupabasePublicClient();
+  const supabase = createBlueOriginPrivateReadClient();
+  if (!supabase) return [] as BlueOriginEngine[];
   let query = supabase
     .from('blue_origin_engines')
     .select('id,engine_slug,mission_key,display_name,propellants,cycle,thrust_vac_kn,thrust_sl_kn,status,description,official_url,metadata,updated_at')
@@ -451,7 +459,8 @@ async function fetchEnginesFromDatabase(mission: BlueOriginMissionKey | 'all') {
 async function fetchEngineBySlugFromDatabase(engineSlug: BlueOriginEngineSlug) {
   if (!isSupabaseConfigured()) return null;
 
-  const supabase = createSupabasePublicClient();
+  const supabase = createBlueOriginPrivateReadClient();
+  if (!supabase) return null;
   const { data, error } = await supabase
     .from('blue_origin_engines')
     .select('id,engine_slug,mission_key,display_name,propellants,cycle,thrust_vac_kn,thrust_sl_kn,status,description,official_url,metadata,updated_at')
@@ -469,7 +478,8 @@ async function fetchEngineBySlugFromDatabase(engineSlug: BlueOriginEngineSlug) {
 async function fetchFlightsFromDatabase(mission: BlueOriginMissionKey | 'all') {
   if (!isSupabaseConfigured()) return [] as BlueOriginFlightRecord[];
 
-  const supabase = createSupabasePublicClient();
+  const supabase = createBlueOriginPrivateReadClient();
+  if (!supabase) return [] as BlueOriginFlightRecord[];
   let query = supabase
     .from('blue_origin_flights')
     .select('id,flight_code,mission_key,launch_id,ll2_launch_uuid,launch_name,launch_date,status,official_mission_url,source,confidence,metadata,updated_at')
@@ -491,7 +501,8 @@ async function fetchFlightsFromDatabase(mission: BlueOriginMissionKey | 'all') {
 async function fetchVehicleEngineMapForVehicle(vehicleSlug: BlueOriginVehicleSlug) {
   if (!isSupabaseConfigured()) return [] as BlueOriginVehicleEngineLink[];
 
-  const supabase = createSupabasePublicClient();
+  const supabase = createBlueOriginPrivateReadClient();
+  if (!supabase) return [] as BlueOriginVehicleEngineLink[];
   const { data, error } = await supabase
     .from('blue_origin_vehicle_engine_map')
     .select('vehicle_slug,engine_slug,role,notes,metadata')
@@ -510,7 +521,8 @@ async function fetchVehicleEngineMapForVehicle(vehicleSlug: BlueOriginVehicleSlu
 async function fetchVehicleEngineMapForEngine(engineSlug: BlueOriginEngineSlug) {
   if (!isSupabaseConfigured()) return [] as BlueOriginVehicleEngineLink[];
 
-  const supabase = createSupabasePublicClient();
+  const supabase = createBlueOriginPrivateReadClient();
+  if (!supabase) return [] as BlueOriginVehicleEngineLink[];
   const { data, error } = await supabase
     .from('blue_origin_vehicle_engine_map')
     .select('vehicle_slug,engine_slug,role,notes,metadata')
@@ -528,7 +540,8 @@ async function fetchVehicleEngineMapForEngine(engineSlug: BlueOriginEngineSlug) 
 
 async function fetchEnginesBySlugs(engineSlugs: BlueOriginEngineSlug[]) {
   if (!isSupabaseConfigured() || engineSlugs.length === 0) return [] as BlueOriginEngine[];
-  const supabase = createSupabasePublicClient();
+  const supabase = createBlueOriginPrivateReadClient();
+  if (!supabase) return [] as BlueOriginEngine[];
   const deduped = dedupe(engineSlugs);
 
   const { data, error } = await supabase
@@ -547,7 +560,8 @@ async function fetchEnginesBySlugs(engineSlugs: BlueOriginEngineSlug[]) {
 
 async function fetchVehiclesBySlugs(vehicleSlugs: BlueOriginVehicleSlug[]) {
   if (!isSupabaseConfigured() || vehicleSlugs.length === 0) return [] as BlueOriginVehicle[];
-  const supabase = createSupabasePublicClient();
+  const supabase = createBlueOriginPrivateReadClient();
+  if (!supabase) return [] as BlueOriginVehicle[];
   const deduped = dedupe(vehicleSlugs);
 
   const { data, error } = await supabase

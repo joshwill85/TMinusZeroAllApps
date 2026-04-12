@@ -71,6 +71,12 @@ export function createSupabasePublicClient() {
   });
 }
 
+export function createSupabasePrivilegedReadClient() {
+  return createClient(getSupabaseUrl(), getSupabaseServiceRoleKey(), {
+    auth: { autoRefreshToken: false, persistSession: false }
+  });
+}
+
 export function createSupabaseAuthClient() {
   return createClient(getSupabaseUrl(), getSupabaseAnonKey(), {
     auth: { autoRefreshToken: false, persistSession: false }
@@ -89,7 +95,5 @@ export function createSupabaseAccessTokenClient(accessToken: string) {
 }
 
 export function createSupabaseAdminClient() {
-  return createClient(getSupabaseUrl(), getSupabaseServiceRoleKey(), {
-    auth: { autoRefreshToken: false, persistSession: false }
-  });
+  return createSupabasePrivilegedReadClient();
 }

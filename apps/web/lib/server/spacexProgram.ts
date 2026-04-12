@@ -6,8 +6,11 @@ import {
   buildStoryLookupMapKey,
   fetchContractStorySummariesByAwards
 } from '@/lib/server/programContractStories';
-import { createSupabasePublicClient } from '@/lib/server/supabaseServer';
-import { isSupabaseConfigured } from '@/lib/server/env';
+import {
+  createSupabasePrivilegedReadClient,
+  createSupabasePublicClient
+} from '@/lib/server/supabaseServer';
+import { isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
 import { mapPublicCacheRow } from '@/lib/server/transformers';
 import { fetchSpaceXDroneShipAssignmentsByLaunchIds } from '@/lib/server/spacexDroneShips';
 import { fetchProgramUsaspendingAwards } from '@/lib/server/usaspendingProgramAwards';
@@ -938,6 +941,11 @@ type SpaceXContractMetrics = {
   totalAmount: number;
 };
 
+function createSpaceXContractsReadClient() {
+  if (!isSupabaseAdminConfigured()) return null;
+  return createSupabasePrivilegedReadClient();
+}
+
 const fetchSpaceXContractMetrics = cache(async (): Promise<SpaceXContractMetrics> => {
   if (!isSupabaseConfigured()) {
     return summarizeSpaceXContracts(FALLBACK_CONTRACTS);
@@ -1000,7 +1008,8 @@ async function fetchSpaceXContractBySlugFromRpc(slug: string): Promise<SpaceXCon
 async function fetchSpaceXContractCountFromScopedTable(mission: SpaceXMissionKey) {
   if (!isSupabaseConfigured()) return null;
 
-  const supabase = createSupabasePublicClient();
+  const supabase = createSpaceXContractsReadClient();
+  if (!supabase) return null;
   const { count, error } = await supabase
     .from('spacex_contracts')
     .select('id', { count: 'exact', head: true })
@@ -1093,7 +1102,8 @@ async function fetchSpaceXContractsFromScopedTable(options: SpaceXContractQueryO
   const mission = options.mission || 'all';
   const limit = clampIntValue(options.limit ?? MAX_SPACEX_CONTRACT_ROWS, MAX_SPACEX_CONTRACT_ROWS, 1, MAX_SPACEX_CONTRACT_ROWS);
   const initialOffset = clampIntValue(options.offset ?? 0, 0, 0, MAX_SPACEX_CONTRACT_ROWS);
-  const supabase = createSupabasePublicClient();
+  const supabase = createSpaceXContractsReadClient();
+  if (!supabase) return [] as SpaceXContract[];
   const rows: SpaceXContractsDbRow[] = [];
   let from = initialOffset;
 

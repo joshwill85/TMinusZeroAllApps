@@ -7,7 +7,7 @@ import {
   fetchBlueOriginWikipediaPassengers,
   fetchBlueOriginWikipediaProfilesByNames
 } from '@/lib/server/blueOriginTravelerIngest';
-import { createSupabaseAdminClient, createSupabasePublicClient } from '@/lib/server/supabaseServer';
+import { createSupabasePrivilegedReadClient } from '@/lib/server/supabaseServer';
 import { isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
 import type {
   BlueOriginPassengersResponse,
@@ -55,6 +55,11 @@ const withCache =
   typeof cache === 'function'
     ? cache
     : (<T extends (...args: any[]) => any>(fn: T): T => fn);
+
+function createBlueOriginPrivateReadClient() {
+  if (!isSupabaseAdminConfigured()) return null;
+  return createSupabasePrivilegedReadClient();
+}
 
 const FALLBACK_PASSENGER_MANIFEST: Array<{
   missionKey: BlueOriginMissionKey;
@@ -375,7 +380,7 @@ async function fetchPassengerRowsFromDatabase(mission: BlueOriginMissionKey | 'a
   if (!isSupabaseConfigured()) return [] as BlueOriginPassenger[];
 
   const queryClient = async (
-    client: ReturnType<typeof createSupabasePublicClient> | ReturnType<typeof createSupabaseAdminClient>,
+    client: ReturnType<typeof createSupabasePrivilegedReadClient>,
     includeTravelerSlug: boolean
   ) => {
     const selectColumns = includeTravelerSlug
@@ -397,7 +402,7 @@ async function fetchPassengerRowsFromDatabase(mission: BlueOriginMissionKey | 'a
   };
 
   const runQuery = async (
-    client: ReturnType<typeof createSupabasePublicClient> | ReturnType<typeof createSupabaseAdminClient>
+    client: ReturnType<typeof createSupabasePrivilegedReadClient>
   ) => {
     let result = await queryClient(client, true);
     if (result.error && /traveler_slug/i.test(result.error.message || '')) {
@@ -406,18 +411,10 @@ async function fetchPassengerRowsFromDatabase(mission: BlueOriginMissionKey | 'a
     return result;
   };
 
-  let dataResult = await runQuery(createSupabasePublicClient());
-  if ((dataResult.error || (dataResult.data || []).length === 0) && isSupabaseAdminConfigured()) {
-    const adminResult = await runQuery(createSupabaseAdminClient());
-    if (!adminResult.error) {
-      if (dataResult.error || (dataResult.data || []).length === 0) {
-        dataResult = adminResult;
-      }
-    } else if (!dataResult.error) {
-      // eslint-disable-next-line no-console
-      console.warn('blue origin passengers admin fallback query error', adminResult.error);
-    }
-  }
+  const supabase = createBlueOriginPrivateReadClient();
+  if (!supabase) return [] as BlueOriginPassenger[];
+
+  const dataResult = await runQuery(supabase);
 
   if (dataResult.error) {
     console.error('blue origin passengers query error', dataResult.error);
@@ -458,7 +455,7 @@ async function fetchPayloadRowsFromDatabase(mission: BlueOriginMissionKey | 'all
   const selectColumns =
     'id,mission_key,flight_code,flight_slug,name,payload_type,orbit,agency,launch_id,launch_name,launch_date,source,confidence';
   const queryClient = async (
-    client: ReturnType<typeof createSupabasePublicClient> | ReturnType<typeof createSupabaseAdminClient>
+    client: ReturnType<typeof createSupabasePrivilegedReadClient>
   ) => {
     let query = client
       .from('blue_origin_payloads')
@@ -474,18 +471,10 @@ async function fetchPayloadRowsFromDatabase(mission: BlueOriginMissionKey | 'all
     return await query;
   };
 
-  let dataResult = await queryClient(createSupabasePublicClient());
-  if ((dataResult.error || (dataResult.data || []).length === 0) && isSupabaseAdminConfigured()) {
-    const adminResult = await queryClient(createSupabaseAdminClient());
-    if (!adminResult.error) {
-      if (dataResult.error || (dataResult.data || []).length === 0) {
-        dataResult = adminResult;
-      }
-    } else if (!dataResult.error) {
-      // eslint-disable-next-line no-console
-      console.warn('blue origin payloads admin fallback query error', adminResult.error);
-    }
-  }
+  const supabase = createBlueOriginPrivateReadClient();
+  if (!supabase) return [] as BlueOriginPayload[];
+
+  const dataResult = await queryClient(supabase);
 
   if (dataResult.error) {
     console.error('blue origin payloads query error', dataResult.error);

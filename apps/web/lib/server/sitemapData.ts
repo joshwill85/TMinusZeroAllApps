@@ -1,6 +1,6 @@
 import type { MetadataRoute } from 'next';
 
-import { getSiteUrl, isSupabaseConfigured } from '@/lib/server/env';
+import { getSiteUrl, isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
 import { fetchArtemisAwardeeIndex } from '@/lib/server/artemisAwardees';
 import { fetchCanonicalContractsIndex } from '@/lib/server/contracts';
 import { fetchBlueOriginTravelerSlugs } from '@/lib/server/blueOriginTravelers';
@@ -11,7 +11,10 @@ import { buildLaunchHref, toProviderSlug } from '@/lib/utils/launchLinks';
 import { buildArtemisAwardeeHref } from '@/lib/utils/artemisAwardees';
 import { buildCatalogCollectionPath, catalogEntityOptions } from '@/lib/utils/catalog';
 import { buildSlugId } from '@/lib/utils/slug';
-import { createSupabasePublicClient } from '@/lib/server/supabaseServer';
+import {
+  createSupabaseAdminClient,
+  createSupabasePublicClient
+} from '@/lib/server/supabaseServer';
 
 export const SITEMAP_REVALIDATE_SECONDS = 60 * 60 * 6; // 6 hours
 export const SITEMAP_CACHE_CONTROL = 'public, s-maxage=21600, stale-while-revalidate=86400';
@@ -490,9 +493,9 @@ async function getProgramFlightSitemapEntries(siteUrl: string): Promise<ProgramF
 }
 
 async function getBlueOriginHistoricalLaunchEntries(siteUrl: string): Promise<MetadataRoute.Sitemap> {
-  if (!isSupabaseConfigured()) return [];
+  if (!isSupabaseConfigured() || !isSupabaseAdminConfigured()) return [];
 
-  const supabase = createSupabasePublicClient();
+  const supabase = createSupabaseAdminClient();
   const launchIds = new Set<string>();
   const launchDateById = new Map<string, string>();
   let offset = 0;

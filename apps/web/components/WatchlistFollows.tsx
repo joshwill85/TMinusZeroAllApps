@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import type { WatchlistRuleV1 } from '@tminuszero/api-client';
+import { ApiClientError, type WatchlistRuleV1 } from '@tminuszero/api-client';
 import { buildPreferencesHref, buildUpgradeHref } from '@tminuszero/navigation';
 import {
   useBasicFollowsQuery,
@@ -53,11 +53,11 @@ export function WatchlistFollows({
   const entitlementsQuery = useViewerEntitlementsQuery();
   const basicFollowsQuery = useBasicFollowsQuery();
   const watchlistsQuery = useWatchlistsQuery();
+  const { refetch: refetchWatchlists } = watchlistsQuery;
   const createWatchlistMutation = useCreateWatchlistMutation();
   const createWatchlistRuleMutation = useCreateWatchlistRuleMutation();
   const deleteWatchlistRuleMutation = useDeleteWatchlistRuleMutation();
 
-  const [didAttemptEnsureWatchlist, setDidAttemptEnsureWatchlist] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
 
@@ -119,41 +119,6 @@ export function WatchlistFollows({
     () => (stateRuleValue ? findRuleId(selectedWatchlist?.rules ?? [], 'state', stateRuleValue) : null),
     [stateRuleValue, selectedWatchlist?.rules]
   );
-
-  useEffect(() => {
-    if (!canUseSavedItems || !hasAnyFollowableValue({ launchId, providerKey, padRuleValue, rocketRuleValue, launchSiteRuleValue, stateRuleValue })) {
-      setDidAttemptEnsureWatchlist(false);
-      return;
-    }
-    if (!watchlists.length) return;
-    setDidAttemptEnsureWatchlist(false);
-  }, [canUseSavedItems, launchId, providerKey, watchlists.length, padRuleValue, rocketRuleValue, launchSiteRuleValue, stateRuleValue]);
-
-  useEffect(() => {
-    if (!canUseSavedItems || !hasAnyFollowableValue({ launchId, providerKey, padRuleValue, rocketRuleValue, launchSiteRuleValue, stateRuleValue })) {
-      return;
-    }
-    if (!watchlistsQuery.isSuccess || watchlists.length > 0 || didAttemptEnsureWatchlist || createWatchlistMutation.isPending) return;
-
-    setDidAttemptEnsureWatchlist(true);
-    setError(null);
-    void createWatchlistMutation.mutateAsync({}).catch((createError: unknown) => {
-      console.error('watchlist follows create error', createError);
-      setError(getErrorMessage(createError, 'Unable to load follows.'));
-    });
-  }, [
-    canUseSavedItems,
-    createWatchlistMutation,
-    didAttemptEnsureWatchlist,
-    launchId,
-    launchSiteRuleValue,
-    padRuleValue,
-    providerKey,
-    rocketRuleValue,
-    stateRuleValue,
-    watchlists.length,
-    watchlistsQuery.isSuccess
-  ]);
 
   const activeError = error ?? queryErrorMessage;
   const locked = !canUseSavedItems;
@@ -369,7 +334,6 @@ export function WatchlistFollows({
   }
 
   async function toggleRule(ruleType: FollowRuleType, ruleValue: string, label: string) {
-    if (!watchlistId) return;
     const normalizedValue = String(ruleValue || '').trim();
     if (!normalizedValue) return;
 
@@ -381,9 +345,15 @@ export function WatchlistFollows({
     setError(null);
 
     try {
+      const ensuredWatchlistId = await ensureWatchlistId();
+      if (!ensuredWatchlistId) {
+        setError('Unable to load follows.');
+        return;
+      }
+
       if (existingRuleId) {
         await deleteWatchlistRuleMutation.mutateAsync({
-          watchlistId,
+          watchlistId: ensuredWatchlistId,
           ruleId: existingRuleId
         });
         pushToast({
@@ -392,7 +362,7 @@ export function WatchlistFollows({
           onUndo: async () => {
             try {
               await createWatchlistRuleMutation.mutateAsync({
-                watchlistId,
+                watchlistId: ensuredWatchlistId,
                 payload: { ruleType, ruleValue: normalizedValue }
               });
             } catch (undoError: unknown) {
@@ -404,7 +374,7 @@ export function WatchlistFollows({
       }
 
       const created = await createWatchlistRuleMutation.mutateAsync({
-        watchlistId,
+        watchlistId: ensuredWatchlistId,
         payload: {
           ruleType,
           ruleValue: normalizedValue
@@ -434,6 +404,26 @@ export function WatchlistFollows({
       setError(nextError);
     } finally {
       setBusy((prev) => ({ ...prev, [busyKey]: false }));
+    }
+  }
+
+  async function ensureWatchlistId() {
+    if (watchlistId) return watchlistId;
+
+    try {
+      const created = await createWatchlistMutation.mutateAsync({});
+      return created.watchlist.id;
+    } catch (createError: unknown) {
+      if (createError instanceof ApiClientError && createError.status === 409) {
+        const refreshed = await refetchWatchlists();
+        const refreshedWatchlists = refreshed.data?.watchlists ?? [];
+        const refreshedSelection =
+          refreshedWatchlists.find((watchlist) => String(watchlist.name || '').trim().toLowerCase() === 'my launches') ??
+          refreshedWatchlists[0] ??
+          null;
+        return refreshedSelection?.id ?? null;
+      }
+      throw createError;
     }
   }
 

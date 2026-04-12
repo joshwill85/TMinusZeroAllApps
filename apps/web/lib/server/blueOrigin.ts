@@ -647,15 +647,9 @@ async function fetchBlueOriginLaunchBucketsFromFlights(
   nowMs: number,
   generatedAt: string
 ): Promise<BlueOriginLaunchBuckets | null> {
-  if (!isSupabaseConfigured()) return null;
+  if (!isSupabaseConfigured() || !isSupabaseAdminConfigured()) return null;
 
-  let queryResult = await queryBlueOriginFlightFallbackRows(createSupabasePublicClient());
-  if ((queryResult.error || !queryResult.data?.length) && isSupabaseAdminConfigured()) {
-    const adminResult = await queryBlueOriginFlightFallbackRows(createSupabaseAdminClient());
-    if (!adminResult.error && Array.isArray(adminResult.data)) {
-      queryResult = adminResult;
-    }
-  }
+  const queryResult = await queryBlueOriginFlightFallbackRows(createSupabaseAdminClient());
   const { data, error } = queryResult;
 
   if (error) {

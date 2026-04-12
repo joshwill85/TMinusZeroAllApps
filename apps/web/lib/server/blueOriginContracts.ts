@@ -1,6 +1,6 @@
 import { cache } from 'react';
-import { createSupabasePublicClient } from '@/lib/server/supabaseServer';
-import { isSupabaseConfigured } from '@/lib/server/env';
+import { createSupabasePrivilegedReadClient } from '@/lib/server/supabaseServer';
+import { isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
 import { fetchBlueOriginEngines, fetchBlueOriginVehicles } from '@/lib/server/blueOriginEntities';
 import {
   buildArtemisContractHref,
@@ -233,7 +233,7 @@ export const fetchBlueOriginContractDetailBySlug = cache(async (slug: string): P
       }
     : null;
 
-  if (!isSupabaseConfigured() || !looksLikeUuid(contract.id)) {
+  if (!isSupabaseConfigured() || !looksLikeUuid(contract.id) || !isSupabaseAdminConfigured()) {
     return {
       generatedAt,
       contract,
@@ -245,7 +245,7 @@ export const fetchBlueOriginContractDetailBySlug = cache(async (slug: string): P
     };
   }
 
-  const supabase = createSupabasePublicClient();
+  const supabase = createSupabasePrivilegedReadClient();
   const shouldQueryActions = !contractStory || contractStory.actions.length < 1;
   const shouldQueryNotices = !contractStory || contractStory.notices.length < 1;
   const shouldQuerySpending = !contractStory || contractStory.spending.length < 1;
@@ -339,9 +339,9 @@ export function parseBlueOriginContractSlug(value: string | null | undefined) {
 }
 
 async function fetchContractsFromDatabase(mission: BlueOriginMissionKey | 'all') {
-  if (!isSupabaseConfigured()) return [] as BlueOriginContract[];
+  if (!isSupabaseConfigured() || !isSupabaseAdminConfigured()) return [] as BlueOriginContract[];
 
-  const supabase = createSupabasePublicClient();
+  const supabase = createSupabasePrivilegedReadClient();
   let query = supabase
     .from('blue_origin_contracts')
     .select('id,contract_key,mission_key,title,agency,customer,amount,awarded_on,description,source_url,source_label,status,metadata,updated_at')
@@ -478,7 +478,7 @@ function mapSpendingRow(row: SpendingRow): BlueOriginSpendingPoint {
 }
 
 async function fetchContractNoticeRows(
-  supabase: ReturnType<typeof createSupabasePublicClient>,
+  supabase: ReturnType<typeof createSupabasePrivilegedReadClient>,
   contract: BlueOriginContract,
   actionRows: ContractActionRow[]
 ) {

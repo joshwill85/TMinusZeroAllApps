@@ -2379,7 +2379,6 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
           buildRecoveryLocationLabel(launchDetailEnrichment.recovery[0])
       )
     : null;
-  const heroNextEvent = timelineEvents.find((event) => event.absoluteMs == null || event.absoluteMs >= nowMs) || timelineEvents[0] || null;
   const heroMissionLink = infoLinks[0] || null;
   const heroOverviewItems = [
     {
@@ -2414,6 +2413,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
   const blockThirdPartyEmbeds = privacyPrefs.blockThirdPartyEmbeds;
   const nowMs = Date.now();
   const netMs = Date.parse(launch.net);
+  const heroNextEvent = timelineEvents.find((event) => event.absoluteMs == null || event.absoluteMs >= nowMs) || timelineEvents[0] || null;
   const arTrajectory = await loadArTrajectorySummary(launch.id);
   const isArEligible = arTrajectory.eligible;
   const showArTrajectoryCard = shouldShowLaunchDetailArTrajectoryCard(arTrajectory, canUseArTrajectory);

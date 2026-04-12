@@ -1,7 +1,7 @@
 import { cache } from 'react';
-import { isSupabaseConfigured } from '@/lib/server/env';
+import { isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
 import { fetchBlueOriginPassengersDatabaseOnly } from '@/lib/server/blueOriginPeoplePayloads';
-import { createSupabasePublicClient } from '@/lib/server/supabaseServer';
+import { createSupabasePrivilegedReadClient } from '@/lib/server/supabaseServer';
 import type {
   BlueOriginPassenger,
   BlueOriginTravelerIndexItem,
@@ -96,9 +96,9 @@ export type BlueOriginTravelerDetail = {
 };
 
 const fetchBlueOriginTravelerCanonicalDirectory = withCache(async (): Promise<TravelerCanonicalDirectory> => {
-  if (!isSupabaseConfigured()) return new Map();
+  if (!isSupabaseConfigured() || !isSupabaseAdminConfigured()) return new Map();
 
-  const supabase = createSupabasePublicClient();
+  const supabase = createSupabasePrivilegedReadClient();
   const { data: profileRows, error: profileError } = await supabase
     .from('blue_origin_travelers')
     .select('id,traveler_slug,canonical_name,bio_short,primary_image_url,primary_profile_url,nationality,source_confidence,metadata,updated_at')
