@@ -1,9 +1,8 @@
 'use client';
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import type { ViewerTier } from '@tminuszero/domain';
-import { buildCalendarHref } from '@tminuszero/navigation';
 import { useProfileQuery, useViewerEntitlementsQuery } from '@/lib/api/queries';
 import { CommLinkHeader } from '@/components/CommLinkHeader';
 import { DesktopRail, type RailProfile } from '@/components/DesktopRail';
@@ -16,7 +15,12 @@ import { useToast } from '@/components/ToastProvider';
 function isEditableTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
   const tagName = target.tagName;
-  return target.isContentEditable || tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT';
+  return (
+    target.isContentEditable ||
+    tagName === 'INPUT' ||
+    tagName === 'TEXTAREA' ||
+    tagName === 'SELECT'
+  );
 }
 
 const OPEN_LAUNCH_SEARCH_EVENT = 'tmz:open-launch-search';
@@ -25,7 +29,6 @@ export function SiteChrome() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [tipJarOpen, setTipJarOpen] = useState(false);
   const pathname = usePathname();
-  const router = useRouter();
   const { pushToast } = useToast();
   const entitlementsQuery = useViewerEntitlementsQuery();
   const profileQuery = useProfileQuery();
@@ -44,7 +47,11 @@ export function SiteChrome() {
   const isCameraGuide = /^\/launches\/[^/]+\/ar(?:\/|$)/.test(pathname || '');
   const feedbackContext = useMemo(() => {
     if (!pathname) return null;
-    if (pathname === '/') return { source: 'launch_card' as const, launchId: null as string | null };
+    if (pathname === '/')
+      return {
+        source: 'launch_card' as const,
+        launchId: null as string | null
+      };
     const match = pathname.match(/^\/launches\/([^/]+)$/);
     if (!match) return null;
     return { source: 'launch_details' as const, launchId: match[1] || null };
@@ -58,14 +65,21 @@ export function SiteChrome() {
     if (typeof window === 'undefined' || isCameraGuide) return;
 
     const onKeyDown = (event: KeyboardEvent) => {
-      const metaShortcut = event.key.toLowerCase() === 'k' && (event.metaKey || event.ctrlKey);
+      const metaShortcut =
+        event.key.toLowerCase() === 'k' && (event.metaKey || event.ctrlKey);
       if (metaShortcut) {
         event.preventDefault();
         setSearchOpen(true);
         return;
       }
 
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (
+        event.defaultPrevented ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey
+      )
+        return;
       if (event.key !== '/') return;
       if (isEditableTarget(event.target)) return;
 
@@ -82,7 +96,8 @@ export function SiteChrome() {
 
     const onOpenLaunchSearch = () => setSearchOpen(true);
     window.addEventListener(OPEN_LAUNCH_SEARCH_EVENT, onOpenLaunchSearch);
-    return () => window.removeEventListener(OPEN_LAUNCH_SEARCH_EVENT, onOpenLaunchSearch);
+    return () =>
+      window.removeEventListener(OPEN_LAUNCH_SEARCH_EVENT, onOpenLaunchSearch);
   }, [isCameraGuide]);
 
   useEffect(() => {
@@ -99,12 +114,18 @@ export function SiteChrome() {
     } else if (tip === 'success') {
       pushToast({
         tone: 'success',
-        message: tipMode === 'monthly' ? 'Monthly tip active — thank you!' : 'Thanks for the tip!'
+        message:
+          tipMode === 'monthly'
+            ? 'Monthly tip active — thank you!'
+            : 'Thanks for the tip!'
       });
     } else if (tip === 'cancel') {
       pushToast({
         tone: 'info',
-        message: tipMode === 'monthly' ? 'Monthly tip checkout canceled.' : 'Tip checkout canceled.'
+        message:
+          tipMode === 'monthly'
+            ? 'Monthly tip checkout canceled.'
+            : 'Tip checkout canceled.'
       });
     }
 
@@ -116,7 +137,8 @@ export function SiteChrome() {
     } else if (premium === 'payment_issue') {
       pushToast({
         tone: 'warning',
-        message: 'Billing needs attention. Update your payment method in Account.'
+        message:
+          'Billing needs attention. Update your payment method in Account.'
       });
     }
 
@@ -142,16 +164,23 @@ export function SiteChrome() {
       <DockingBay
         profile={profile}
         viewerTier={viewerTier}
-        onOpenCalendar={() => router.push(buildCalendarHref())}
         onOpenSearch={() => setSearchOpen(true)}
         onOpenTipJar={() => setTipJarOpen(true)}
       />
 
       <Suspense fallback={null}>
-        <LaunchSearchModal open={searchOpen} onClose={() => setSearchOpen(false)} />
+        <LaunchSearchModal
+          open={searchOpen}
+          onClose={() => setSearchOpen(false)}
+        />
       </Suspense>
       <TipJarModal open={tipJarOpen} onClose={() => setTipJarOpen(false)} />
-      {feedbackContext && <FeedbackWidget source={feedbackContext.source} launchId={feedbackContext.launchId} />}
+      {feedbackContext && (
+        <FeedbackWidget
+          source={feedbackContext.source}
+          launchId={feedbackContext.launchId}
+        />
+      )}
     </>
   );
 }

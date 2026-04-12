@@ -3,8 +3,21 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { buildAuthHref, buildPrivacyChoicesHref, buildProfileHref, buildUpgradeHref } from '@tminuszero/navigation';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode
+} from 'react';
+import {
+  buildAuthHref,
+  buildCalendarHref,
+  buildPrivacyChoicesHref,
+  buildProfileHref,
+  buildUpgradeHref
+} from '@tminuszero/navigation';
 import type { RailProfile } from './DesktopRail';
 import { CalendarBadge } from './CalendarBadge';
 import { FacebookIcon, XIcon } from './SocialIcons';
@@ -15,14 +28,18 @@ import type { ViewerTier } from '@tminuszero/domain';
 type DockingBayProps = {
   profile: RailProfile;
   viewerTier?: ViewerTier | null;
-  onOpenCalendar: () => void;
   onOpenSearch: () => void;
   onOpenTipJar: () => void;
 };
 
 const ANIMATION_MS = 220;
 
-export function DockingBay({ profile, viewerTier, onOpenCalendar, onOpenSearch, onOpenTipJar }: DockingBayProps) {
+export function DockingBay({
+  profile,
+  viewerTier,
+  onOpenSearch,
+  onOpenTipJar
+}: DockingBayProps) {
   const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
@@ -48,7 +65,9 @@ export function DockingBay({ profile, viewerTier, onOpenCalendar, onOpenSearch, 
         { label: 'Support', href: '/support' },
         { label: 'Notifications', href: '/preferences' },
         isAdmin ? { label: 'Admin', href: '/admin' } : null,
-        viewerTier && viewerTier !== 'premium' ? { label: 'Premium · $3.99/mo', href: buildUpgradeHref() } : null,
+        viewerTier && viewerTier !== 'premium'
+          ? { label: 'Premium · $3.99/mo', href: buildUpgradeHref() }
+          : null,
         { label: accountLabel, href: accountHref }
       ].filter(Boolean) as Array<{ label: string; href: string }>,
     [accountHref, accountLabel, isAdmin, viewerTier]
@@ -77,9 +96,21 @@ export function DockingBay({ profile, viewerTier, onOpenCalendar, onOpenSearch, 
   const socialLinks = useMemo(
     () =>
       [
-        xUrl ? { label: 'X', href: xUrl, icon: <XIcon className="h-4 w-4" /> } : null,
-        facebookUrl ? { label: 'Facebook', href: facebookUrl, icon: <FacebookIcon className="h-4 w-4" /> } : null
-      ].filter(Boolean) as Array<{ label: string; href: string; icon: ReactNode }>,
+        xUrl
+          ? { label: 'X', href: xUrl, icon: <XIcon className="h-4 w-4" /> }
+          : null,
+        facebookUrl
+          ? {
+              label: 'Facebook',
+              href: facebookUrl,
+              icon: <FacebookIcon className="h-4 w-4" />
+            }
+          : null
+      ].filter(Boolean) as Array<{
+        label: string;
+        href: string;
+        icon: ReactNode;
+      }>,
     [facebookUrl, xUrl]
   );
 
@@ -92,7 +123,10 @@ export function DockingBay({ profile, viewerTier, onOpenCalendar, onOpenSearch, 
   const closeSheet = useCallback(() => {
     setOpen(false);
     if (closeTimeoutRef.current) window.clearTimeout(closeTimeoutRef.current);
-    closeTimeoutRef.current = window.setTimeout(() => setMounted(false), ANIMATION_MS);
+    closeTimeoutRef.current = window.setTimeout(
+      () => setMounted(false),
+      ANIMATION_MS
+    );
   }, []);
 
   useEffect(() => {
@@ -127,14 +161,20 @@ export function DockingBay({ profile, viewerTier, onOpenCalendar, onOpenSearch, 
 
   return (
     <>
-      <div className="fixed inset-x-0 bottom-0 z-[70] md:left-[60px] md:w-[calc(100%-60px)]" data-nosnippet>
+      <div
+        className="fixed inset-x-0 bottom-0 z-[70] md:left-[60px] md:w-[calc(100%-60px)]"
+        data-nosnippet
+      >
         <div className="mx-auto w-full max-w-6xl px-4 pb-[calc(env(safe-area-inset-bottom)+0.35rem)]">
           <div className="rounded-2xl border border-stroke bg-[rgba(7,9,19,0.66)] px-3 py-2 shadow-glow backdrop-blur-xl">
             <div className="grid grid-cols-[1fr_auto_1fr] items-center">
               <div className="flex">
                 <Link
                   href="/"
-                  className={clsx(dockIconClass, homeActive && dockIconActiveClass)}
+                  className={clsx(
+                    dockIconClass,
+                    homeActive && dockIconActiveClass
+                  )}
                   aria-label="Home"
                 >
                   <HomeIcon className="h-5 w-5" />
@@ -143,39 +183,62 @@ export function DockingBay({ profile, viewerTier, onOpenCalendar, onOpenSearch, 
               <div className="flex items-center gap-2">
                 <Link
                   href="/news"
-                  className={clsx(dockIconClass, newsActive && dockIconActiveClass)}
+                  className={clsx(
+                    dockIconClass,
+                    newsActive && dockIconActiveClass
+                  )}
                   aria-label="News"
                 >
                   <NewsIcon className="h-5 w-5" />
                 </Link>
                 <Link
                   href="/info"
-                  className={clsx(dockIconClass, infoActive && dockIconActiveClass)}
+                  className={clsx(
+                    dockIconClass,
+                    infoActive && dockIconActiveClass
+                  )}
                   aria-label="Info"
                 >
                   <InfoIcon className="h-5 w-5" />
                 </Link>
-                <button
-                  type="button"
-                  className={clsx(dockIconClass, calendarActive && dockIconActiveClass)}
-                  onClick={onOpenCalendar}
+                <Link
+                  href={buildCalendarHref()}
+                  className={clsx(
+                    dockIconClass,
+                    calendarActive && dockIconActiveClass
+                  )}
                   aria-label="Calendar"
                 >
                   <CalendarBadge />
-                </button>
-                <button type="button" className={dockIconClass} onClick={onOpenSearch} aria-label="Search">
+                </Link>
+                <button
+                  type="button"
+                  className={dockIconClass}
+                  onClick={onOpenSearch}
+                  aria-label="Search"
+                >
                   <SearchIcon className="h-5 w-5" />
                 </button>
                 <Link
                   href={accountHref}
                   className={clsx(
                     dockIconClass,
-                    (pathname?.startsWith('/account') || pathname?.startsWith('/me')) && dockIconActiveClass
+                    (pathname?.startsWith('/account') ||
+                      pathname?.startsWith('/me')) &&
+                      dockIconActiveClass
                   )}
                   aria-label="Account"
-                  title={profile?.first_name?.trim() ? `Account: ${profile.first_name.trim()}` : 'Account'}
+                  title={
+                    profile?.first_name?.trim()
+                      ? `Account: ${profile.first_name.trim()}`
+                      : 'Account'
+                  }
                 >
-                  {accountInitials ? <ProfileBadge initials={accountInitials} /> : <UserIcon className="h-5 w-5" />}
+                  {accountInitials ? (
+                    <ProfileBadge initials={accountInitials} />
+                  ) : (
+                    <UserIcon className="h-5 w-5" />
+                  )}
                 </Link>
               </div>
               <div className="flex justify-end">
@@ -221,8 +284,14 @@ export function DockingBay({ profile, viewerTier, onOpenCalendar, onOpenSearch, 
           >
             <div className="mx-auto flex h-[30vh] w-full max-w-6xl flex-col px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3 md:px-8">
               <div className="flex items-center justify-between">
-                <div className="text-xs uppercase tracking-[0.24em] text-text4">Manifest</div>
-                <button type="button" className="text-sm text-text3 hover:text-text1" onClick={closeSheet}>
+                <div className="text-xs uppercase tracking-[0.24em] text-text4">
+                  Manifest
+                </div>
+                <button
+                  type="button"
+                  className="text-sm text-text3 hover:text-text1"
+                  onClick={closeSheet}
+                >
                   Close
                 </button>
               </div>
@@ -230,7 +299,12 @@ export function DockingBay({ profile, viewerTier, onOpenCalendar, onOpenSearch, 
               <div className="mt-3 grid flex-1 grid-cols-2 gap-4 overflow-y-auto sm:grid-cols-4">
                 <Section title="Sitemap">
                   {sitemapLinks.map((link) => (
-                    <Link key={link.href} href={link.href} className={sheetLinkClass} onClick={closeSheet}>
+                    <Link
+                      key={link.href}
+                      href={link.href}
+                      className={sheetLinkClass}
+                      onClick={closeSheet}
+                    >
                       {link.label}
                     </Link>
                   ))}
@@ -238,7 +312,12 @@ export function DockingBay({ profile, viewerTier, onOpenCalendar, onOpenSearch, 
 
                 <Section title="Legal">
                   {legalLinks.map((link) => (
-                    <a key={link.href} href={link.href} className={sheetLinkClass} onClick={closeSheet}>
+                    <a
+                      key={link.href}
+                      href={link.href}
+                      className={sheetLinkClass}
+                      onClick={closeSheet}
+                    >
                       {link.label}
                     </a>
                   ))}
@@ -251,8 +330,12 @@ export function DockingBay({ profile, viewerTier, onOpenCalendar, onOpenSearch, 
                       href={link.href}
                       className={sheetLinkClass}
                       onClick={closeSheet}
-                      target={link.href.startsWith('http') ? '_blank' : undefined}
-                      rel={link.href.startsWith('http') ? 'noreferrer' : undefined}
+                      target={
+                        link.href.startsWith('http') ? '_blank' : undefined
+                      }
+                      rel={
+                        link.href.startsWith('http') ? 'noreferrer' : undefined
+                      }
                     >
                       {link.label}
                     </a>
@@ -274,7 +357,9 @@ export function DockingBay({ profile, viewerTier, onOpenCalendar, onOpenSearch, 
                   </button>
                   {socialLinks.length ? (
                     <div className="pt-2">
-                      <div className="text-[10px] uppercase tracking-[0.24em] text-text4">Follow</div>
+                      <div className="text-[10px] uppercase tracking-[0.24em] text-text4">
+                        Follow
+                      </div>
                       <div className="mt-2 flex flex-wrap gap-2">
                         {socialLinks.map((link) => (
                           <a
@@ -294,7 +379,9 @@ export function DockingBay({ profile, viewerTier, onOpenCalendar, onOpenSearch, 
                 </Section>
               </div>
 
-              <div className="mt-3 text-[11px] text-text4">Primary launch schedule data: The Space Devs - Launch Library 2</div>
+              <div className="mt-3 text-[11px] text-text4">
+                Primary launch schedule data: The Space Devs - Launch Library 2
+              </div>
             </div>
           </div>
         </div>
@@ -306,7 +393,9 @@ export function DockingBay({ profile, viewerTier, onOpenCalendar, onOpenSearch, 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="space-y-2">
-      <div className="text-[10px] uppercase tracking-[0.24em] text-text4">{title}</div>
+      <div className="text-[10px] uppercase tracking-[0.24em] text-text4">
+        {title}
+      </div>
       <div className="space-y-1.5">{children}</div>
     </div>
   );
@@ -315,7 +404,8 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 const dockIconClass =
   'inline-flex h-11 w-11 items-center justify-center gap-2 rounded-2xl border border-transparent bg-[rgba(255,255,255,0.02)] text-text2 shadow-[0_1px_0_rgba(255,255,255,0.04)] transition hover:-translate-y-[1px] hover:border-stroke hover:text-text1 active:translate-y-0';
 
-const dockIconActiveClass = 'border-primary bg-[rgba(34,211,238,0.12)] text-text1';
+const dockIconActiveClass =
+  'border-primary bg-[rgba(34,211,238,0.12)] text-text1';
 
 const sheetLinkClass = 'block text-sm text-text2 hover:text-text1';
 
@@ -342,7 +432,12 @@ function profileInitials(profile: RailProfile) {
 
 function HomeIcon({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+      aria-hidden="true"
+    >
       <path
         d="M4 11.3 12 4l8 7.3v8.3c0 .9-.7 1.6-1.6 1.6H5.6c-.9 0-1.6-.7-1.6-1.6v-8.3z"
         stroke="currentColor"
@@ -361,7 +456,12 @@ function HomeIcon({ className }: { className?: string }) {
 
 function NewsIcon({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+      aria-hidden="true"
+    >
       <path
         d="M6 6.5h8.5a2 2 0 0 1 2 2V18a1.5 1.5 0 0 1-1.5 1.5H8a2 2 0 0 1-2-2V6.5z"
         stroke="currentColor"
@@ -386,7 +486,12 @@ function NewsIcon({ className }: { className?: string }) {
 
 function SearchIcon({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+      aria-hidden="true"
+    >
       <path
         d="M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15z"
         stroke="currentColor"
@@ -404,21 +509,78 @@ function SearchIcon({ className }: { className?: string }) {
 
 function MenuIcon({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
-      <path d="M5 7h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-      <path d="M5 12h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-      <path d="M5 17h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+      aria-hidden="true"
+    >
+      <path
+        d="M5 7h14"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <path
+        d="M5 12h14"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <path
+        d="M5 17h14"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
 
 function InfoIcon({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
-      <rect x="4" y="6" width="16" height="14" rx="2.6" stroke="currentColor" strokeWidth="1.6" />
-      <rect x="6.6" y="9" width="7" height="8" rx="1.4" stroke="currentColor" strokeWidth="1.6" />
-      <rect x="14.6" y="9" width="2.8" height="3.6" rx="1.2" stroke="currentColor" strokeWidth="1.6" />
-      <rect x="14.6" y="13.4" width="2.8" height="3.6" rx="1.2" stroke="currentColor" strokeWidth="1.6" />
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+      aria-hidden="true"
+    >
+      <rect
+        x="4"
+        y="6"
+        width="16"
+        height="14"
+        rx="2.6"
+        stroke="currentColor"
+        strokeWidth="1.6"
+      />
+      <rect
+        x="6.6"
+        y="9"
+        width="7"
+        height="8"
+        rx="1.4"
+        stroke="currentColor"
+        strokeWidth="1.6"
+      />
+      <rect
+        x="14.6"
+        y="9"
+        width="2.8"
+        height="3.6"
+        rx="1.2"
+        stroke="currentColor"
+        strokeWidth="1.6"
+      />
+      <rect
+        x="14.6"
+        y="13.4"
+        width="2.8"
+        height="3.6"
+        rx="1.2"
+        stroke="currentColor"
+        strokeWidth="1.6"
+      />
       <circle cx="10.1" cy="12.6" r="0.9" fill="currentColor" opacity="0.6" />
     </svg>
   );
@@ -426,7 +588,12 @@ function InfoIcon({ className }: { className?: string }) {
 
 function TipJarIcon({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+      aria-hidden="true"
+    >
       <circle cx="12" cy="5.5" r="2" stroke="currentColor" strokeWidth="1.6" />
       <path
         d="M7 9h10l-1 10a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2L7 9z"
@@ -448,9 +615,19 @@ function TipJarIcon({ className }: { className?: string }) {
 
 function UserIcon({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+      aria-hidden="true"
+    >
       <circle cx="12" cy="8" r="3.2" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M5.5 20a6.5 6.5 0 0 1 13 0" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path
+        d="M5.5 20a6.5 6.5 0 0 1 13 0"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }

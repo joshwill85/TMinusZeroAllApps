@@ -1,28 +1,53 @@
 import type { Metadata } from 'next';
+import { JsonLd } from '@/components/JsonLd';
 import { BRAND_NAME } from '@/lib/brand';
 import { fetchSpaceXDroneShipCoverageSummary } from '@/lib/server/spacexDroneShips';
+import {
+  buildBreadcrumbJsonLd,
+  buildCollectionPageJsonLd,
+  buildPageMetadata
+} from '@/lib/server/seo';
 import { CommandDeckTile } from './CommandDeckTile';
 
-export const metadata: Metadata = {
-  title: `Info | ${BRAND_NAME}`,
-  description: `Browse agencies, astronauts, vehicles, stations, pads, and more sourced from Launch Library 2.`,
-  alternates: { canonical: '/info' }
-};
+const INFO_TITLE = `Spaceflight Reference Database | Agencies, Astronauts, Pads & Vehicles | ${BRAND_NAME}`;
+const INFO_DESCRIPTION =
+  'Browse agencies, astronauts, rockets, spacecraft, space stations, pads, and other spaceflight reference data sourced from Launch Library 2.';
+
+export const metadata: Metadata = buildPageMetadata({
+  title: INFO_TITLE,
+  description: INFO_DESCRIPTION,
+  canonical: '/info'
+});
 
 export const revalidate = 60 * 10;
 
 export default async function InfoPage() {
   const droneShipCoverage = await fetchSpaceXDroneShipCoverageSummary();
+  const jsonLd = [
+    buildBreadcrumbJsonLd([
+      { name: 'Home', item: '/' },
+      { name: 'Info', item: '/info' }
+    ]),
+    buildCollectionPageJsonLd({
+      canonical: '/info',
+      name: 'Spaceflight reference database',
+      description: INFO_DESCRIPTION
+    })
+  ];
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-10 md:px-8">
+      <JsonLd data={jsonLd} />
       <header className="space-y-4">
         <div>
           <p className="text-xs uppercase tracking-[0.14em] text-text3">Info</p>
-          <h1 className="text-3xl font-semibold text-text1">The Command Deck</h1>
+          <h1 className="text-3xl font-semibold text-text1">
+            The Command Deck
+          </h1>
         </div>
         <p className="max-w-3xl text-sm text-text2">
-          A mission-control style dashboard for Launch Library 2 reference data—hardware, players, places, and deep telemetry.
+          A mission-control style dashboard for Launch Library 2 reference
+          data—hardware, players, places, and deep telemetry.
         </p>
       </header>
 
@@ -43,7 +68,11 @@ export default async function InfoPage() {
               size="tall"
               className="md:col-span-3 md:row-span-1 xl:col-span-2 xl:row-span-1"
             />
-            <CommandDeckTile type="starship" size="standard" className="md:col-span-2 xl:col-span-2" />
+            <CommandDeckTile
+              type="starship"
+              size="standard"
+              className="md:col-span-2 xl:col-span-2"
+            />
             <CommandDeckTile
               type="spacex_drone_ships"
               size="standard"
@@ -55,7 +84,11 @@ export default async function InfoPage() {
                 label: 'Coverage'
               }}
             />
-            <CommandDeckTile type="catalog" size="standard" className="md:col-span-2 xl:col-span-2" />
+            <CommandDeckTile
+              type="catalog"
+              size="standard"
+              className="md:col-span-2 xl:col-span-2"
+            />
           </div>
         </DeckSector>
 
@@ -97,7 +130,9 @@ export default async function InfoPage() {
         </DeckSector>
       </section>
 
-      <p className="mt-8 text-xs text-text4">Data provided by The Space Devs - Launch Library 2.</p>
+      <p className="mt-8 text-xs text-text4">
+        Data provided by The Space Devs - Launch Library 2.
+      </p>
     </div>
   );
 }
@@ -117,9 +152,13 @@ function DeckSector({
     <section className="space-y-4">
       <div className="space-y-1">
         <div className="flex items-center gap-3">
-          <div className="text-[10px] uppercase tracking-[0.28em] text-text4">{indexLabel}</div>
+          <div className="text-[10px] uppercase tracking-[0.28em] text-text4">
+            {indexLabel}
+          </div>
           <div className="h-px flex-1 bg-stroke" />
-          <h2 className="text-[10px] uppercase tracking-[0.28em] text-text4">{title}</h2>
+          <h2 className="text-[10px] uppercase tracking-[0.28em] text-text4">
+            {title}
+          </h2>
         </div>
         <p className="text-xs text-text3">{subtitle}</p>
       </div>

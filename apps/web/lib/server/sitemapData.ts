@@ -1,15 +1,23 @@
 import type { MetadataRoute } from 'next';
 
-import { getSiteUrl, isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
+import {
+  getSiteUrl,
+  isSupabaseAdminConfigured,
+  isSupabaseConfigured
+} from '@/lib/server/env';
 import { fetchArtemisAwardeeIndex } from '@/lib/server/artemisAwardees';
 import { fetchCanonicalContractsIndex } from '@/lib/server/contracts';
 import { fetchBlueOriginTravelerSlugs } from '@/lib/server/blueOriginTravelers';
 import { fetchSpaceXFlights } from '@/lib/server/spacexProgram';
 import { fetchStarshipFlightIndex } from '@/lib/server/starship';
+import { fetchProviders, type ProviderSummary } from '@/lib/server/providers';
 import { US_PAD_COUNTRY_CODES } from '@/lib/server/us';
 import { buildLaunchHref, toProviderSlug } from '@/lib/utils/launchLinks';
 import { buildArtemisAwardeeHref } from '@/lib/utils/artemisAwardees';
-import { buildCatalogCollectionPath, catalogEntityOptions } from '@/lib/utils/catalog';
+import {
+  buildCatalogCollectionPath,
+  catalogEntityOptions
+} from '@/lib/utils/catalog';
 import { buildSlugId } from '@/lib/utils/slug';
 import {
   createSupabaseAdminClient,
@@ -17,11 +25,14 @@ import {
 } from '@/lib/server/supabaseServer';
 
 export const SITEMAP_REVALIDATE_SECONDS = 60 * 60 * 6; // 6 hours
-export const SITEMAP_CACHE_CONTROL = 'public, s-maxage=21600, stale-while-revalidate=86400';
+export const SITEMAP_CACHE_CONTROL =
+  'public, s-maxage=21600, stale-while-revalidate=86400';
 
 const STATIC_PATHS: Array<{
   path: string;
-  changeFrequency: NonNullable<MetadataRoute.Sitemap[number]['changeFrequency']>;
+  changeFrequency: NonNullable<
+    MetadataRoute.Sitemap[number]['changeFrequency']
+  >;
   priority: number;
 }> = [
   { path: '/', changeFrequency: 'hourly', priority: 1 },
@@ -41,53 +52,159 @@ const STATIC_PATHS: Array<{
   { path: '/artemis/contracts', changeFrequency: 'daily', priority: 0.68 },
   { path: '/blue-origin', changeFrequency: 'daily', priority: 0.76 },
   { path: '/blue-origin/missions', changeFrequency: 'weekly', priority: 0.66 },
-  { path: '/blue-origin/missions/new-shepard', changeFrequency: 'daily', priority: 0.68 },
-  { path: '/blue-origin/missions/new-glenn', changeFrequency: 'daily', priority: 0.68 },
-  { path: '/blue-origin/missions/blue-moon', changeFrequency: 'weekly', priority: 0.66 },
-  { path: '/blue-origin/missions/blue-ring', changeFrequency: 'weekly', priority: 0.64 },
-  { path: '/blue-origin/missions/be-4', changeFrequency: 'weekly', priority: 0.64 },
+  {
+    path: '/blue-origin/missions/new-shepard',
+    changeFrequency: 'daily',
+    priority: 0.68
+  },
+  {
+    path: '/blue-origin/missions/new-glenn',
+    changeFrequency: 'daily',
+    priority: 0.68
+  },
+  {
+    path: '/blue-origin/missions/blue-moon',
+    changeFrequency: 'weekly',
+    priority: 0.66
+  },
+  {
+    path: '/blue-origin/missions/blue-ring',
+    changeFrequency: 'weekly',
+    priority: 0.64
+  },
+  {
+    path: '/blue-origin/missions/be-4',
+    changeFrequency: 'weekly',
+    priority: 0.64
+  },
   { path: '/blue-origin/vehicles', changeFrequency: 'weekly', priority: 0.66 },
-  { path: '/blue-origin/vehicles/new-shepard', changeFrequency: 'weekly', priority: 0.64 },
-  { path: '/blue-origin/vehicles/new-glenn', changeFrequency: 'weekly', priority: 0.64 },
-  { path: '/blue-origin/vehicles/blue-moon', changeFrequency: 'weekly', priority: 0.63 },
-  { path: '/blue-origin/vehicles/blue-ring', changeFrequency: 'weekly', priority: 0.62 },
+  {
+    path: '/blue-origin/vehicles/new-shepard',
+    changeFrequency: 'weekly',
+    priority: 0.64
+  },
+  {
+    path: '/blue-origin/vehicles/new-glenn',
+    changeFrequency: 'weekly',
+    priority: 0.64
+  },
+  {
+    path: '/blue-origin/vehicles/blue-moon',
+    changeFrequency: 'weekly',
+    priority: 0.63
+  },
+  {
+    path: '/blue-origin/vehicles/blue-ring',
+    changeFrequency: 'weekly',
+    priority: 0.62
+  },
   { path: '/blue-origin/engines', changeFrequency: 'weekly', priority: 0.64 },
-  { path: '/blue-origin/engines/be-3pm', changeFrequency: 'weekly', priority: 0.62 },
-  { path: '/blue-origin/engines/be-3u', changeFrequency: 'weekly', priority: 0.62 },
-  { path: '/blue-origin/engines/be-4', changeFrequency: 'weekly', priority: 0.63 },
-  { path: '/blue-origin/engines/be-7', changeFrequency: 'weekly', priority: 0.62 },
+  {
+    path: '/blue-origin/engines/be-3pm',
+    changeFrequency: 'weekly',
+    priority: 0.62
+  },
+  {
+    path: '/blue-origin/engines/be-3u',
+    changeFrequency: 'weekly',
+    priority: 0.62
+  },
+  {
+    path: '/blue-origin/engines/be-4',
+    changeFrequency: 'weekly',
+    priority: 0.63
+  },
+  {
+    path: '/blue-origin/engines/be-7',
+    changeFrequency: 'weekly',
+    priority: 0.62
+  },
   { path: '/blue-origin/flights', changeFrequency: 'daily', priority: 0.7 },
   { path: '/blue-origin/travelers', changeFrequency: 'daily', priority: 0.67 },
   { path: '/blue-origin/contracts', changeFrequency: 'daily', priority: 0.68 },
   { path: '/spacex', changeFrequency: 'daily', priority: 0.76 },
   { path: '/jellyfish-effect', changeFrequency: 'weekly', priority: 0.69 },
   { path: '/spacex/missions', changeFrequency: 'weekly', priority: 0.66 },
-  { path: '/spacex/missions/starship', changeFrequency: 'daily', priority: 0.68 },
-  { path: '/spacex/missions/falcon-9', changeFrequency: 'daily', priority: 0.67 },
-  { path: '/spacex/missions/falcon-heavy', changeFrequency: 'weekly', priority: 0.66 },
+  {
+    path: '/spacex/missions/starship',
+    changeFrequency: 'daily',
+    priority: 0.68
+  },
+  {
+    path: '/spacex/missions/falcon-9',
+    changeFrequency: 'daily',
+    priority: 0.67
+  },
+  {
+    path: '/spacex/missions/falcon-heavy',
+    changeFrequency: 'weekly',
+    priority: 0.66
+  },
   { path: '/spacex/missions/dragon', changeFrequency: 'daily', priority: 0.67 },
   { path: '/spacex/vehicles', changeFrequency: 'weekly', priority: 0.66 },
-  { path: '/spacex/vehicles/starship-super-heavy', changeFrequency: 'weekly', priority: 0.64 },
-  { path: '/spacex/vehicles/falcon-9', changeFrequency: 'weekly', priority: 0.64 },
-  { path: '/spacex/vehicles/falcon-heavy', changeFrequency: 'weekly', priority: 0.63 },
-  { path: '/spacex/vehicles/dragon', changeFrequency: 'weekly', priority: 0.63 },
+  {
+    path: '/spacex/vehicles/starship-super-heavy',
+    changeFrequency: 'weekly',
+    priority: 0.64
+  },
+  {
+    path: '/spacex/vehicles/falcon-9',
+    changeFrequency: 'weekly',
+    priority: 0.64
+  },
+  {
+    path: '/spacex/vehicles/falcon-heavy',
+    changeFrequency: 'weekly',
+    priority: 0.63
+  },
+  {
+    path: '/spacex/vehicles/dragon',
+    changeFrequency: 'weekly',
+    priority: 0.63
+  },
   { path: '/spacex/engines', changeFrequency: 'weekly', priority: 0.64 },
   { path: '/spacex/engines/raptor', changeFrequency: 'weekly', priority: 0.63 },
-  { path: '/spacex/engines/merlin-1d', changeFrequency: 'weekly', priority: 0.62 },
-  { path: '/spacex/engines/merlin-vac', changeFrequency: 'weekly', priority: 0.62 },
+  {
+    path: '/spacex/engines/merlin-1d',
+    changeFrequency: 'weekly',
+    priority: 0.62
+  },
+  {
+    path: '/spacex/engines/merlin-vac',
+    changeFrequency: 'weekly',
+    priority: 0.62
+  },
   { path: '/spacex/engines/draco', changeFrequency: 'weekly', priority: 0.62 },
-  { path: '/spacex/engines/superdraco', changeFrequency: 'weekly', priority: 0.62 },
+  {
+    path: '/spacex/engines/superdraco',
+    changeFrequency: 'weekly',
+    priority: 0.62
+  },
   { path: '/spacex/flights', changeFrequency: 'daily', priority: 0.7 },
   { path: '/spacex/drone-ships', changeFrequency: 'daily', priority: 0.7 },
-  { path: '/spacex/drone-ships/ocisly', changeFrequency: 'daily', priority: 0.66 },
-  { path: '/spacex/drone-ships/asog', changeFrequency: 'daily', priority: 0.66 },
-  { path: '/spacex/drone-ships/jrti', changeFrequency: 'daily', priority: 0.66 },
+  {
+    path: '/spacex/drone-ships/ocisly',
+    changeFrequency: 'daily',
+    priority: 0.66
+  },
+  {
+    path: '/spacex/drone-ships/asog',
+    changeFrequency: 'daily',
+    priority: 0.66
+  },
+  {
+    path: '/spacex/drone-ships/jrti',
+    changeFrequency: 'daily',
+    priority: 0.66
+  },
   { path: '/spacex/contracts', changeFrequency: 'daily', priority: 0.68 },
   { path: '/contracts', changeFrequency: 'daily', priority: 0.72 },
   { path: '/catalog', changeFrequency: 'daily', priority: 0.7 },
+  { path: '/site-map', changeFrequency: 'daily', priority: 0.66 },
   { path: '/satellites', changeFrequency: 'daily', priority: 0.68 },
   { path: '/launch-providers', changeFrequency: 'weekly', priority: 0.6 },
   { path: '/about', changeFrequency: 'monthly', priority: 0.6 },
+  { path: '/support', changeFrequency: 'monthly', priority: 0.6 },
   { path: '/upgrade', changeFrequency: 'weekly', priority: 0.5 },
   { path: '/docs/about', changeFrequency: 'monthly', priority: 0.6 },
   { path: '/docs/faq', changeFrequency: 'monthly', priority: 0.6 },
@@ -182,11 +299,12 @@ type ProgramFlightSitemapEntries = {
 export async function getSitemapTiers(): Promise<SitemapTiers> {
   const siteUrl = getSiteUrl();
 
-  const catalogCollectionEntries: MetadataRoute.Sitemap = catalogEntityOptions.map((option) => ({
-    url: `${siteUrl}${buildCatalogCollectionPath(option.value)}`,
-    changeFrequency: 'daily',
-    priority: 0.62
-  }));
+  const catalogCollectionEntries: MetadataRoute.Sitemap =
+    catalogEntityOptions.map((option) => ({
+      url: `${siteUrl}${buildCatalogCollectionPath(option.value)}`,
+      changeFrequency: 'daily',
+      priority: 0.62
+    }));
   const staticEntries: MetadataRoute.Sitemap = dedupeEntries([
     ...STATIC_PATHS.map(({ path, changeFrequency, priority }) => ({
       url: `${siteUrl}${path}`,
@@ -196,18 +314,30 @@ export async function getSitemapTiers(): Promise<SitemapTiers> {
     ...catalogCollectionEntries
   ]);
 
-  const [publicCacheEntries, catalogEntries, awardeeEntries, programContractEntries, travelerEntries, blueOriginHistoricalLaunchEntries, programFlightEntries] =
-    await Promise.all([
+  const [
+    publicCacheEntries,
+    catalogEntries,
+    awardeeEntries,
+    programContractEntries,
+    travelerEntries,
+    blueOriginHistoricalLaunchEntries,
+    programFlightEntries,
+    providers
+  ] = await Promise.all([
     getPublicCacheDerivedSitemapEntries(siteUrl),
     getCatalogSitemapEntries(siteUrl),
     getArtemisAwardeeSitemapEntries(siteUrl),
     getProgramContractSitemapEntries(siteUrl),
     getBlueOriginTravelerSitemapEntries(siteUrl),
     getBlueOriginHistoricalLaunchEntries(siteUrl),
-    getProgramFlightSitemapEntries(siteUrl)
+    getProgramFlightSitemapEntries(siteUrl),
+    fetchProviders()
   ]);
 
-  const coreEntries = dedupeEntries([...staticEntries, ...publicCacheEntries.coreLaunchEntries]);
+  const coreEntries = dedupeEntries([
+    ...staticEntries,
+    ...publicCacheEntries.coreLaunchEntries
+  ]);
   const coreEntryUrls = new Set(coreEntries.map((entry) => entry.url));
   const launchEntries = dedupeEntries([
     ...publicCacheEntries.longTailLaunchEntries,
@@ -223,6 +353,8 @@ export async function getSitemapTiers(): Promise<SitemapTiers> {
     entityEntries: dedupeEntries([
       ...publicCacheEntries.providerEntries,
       ...publicCacheEntries.providerNewsEntries,
+      ...buildProviderScheduleEntries(siteUrl, providers),
+      ...buildProviderCoverageEntries(siteUrl, providers),
       ...publicCacheEntries.rocketEntries,
       ...publicCacheEntries.locationEntries,
       ...awardeeEntries,
@@ -233,8 +365,35 @@ export async function getSitemapTiers(): Promise<SitemapTiers> {
   };
 }
 
-async function getArtemisAwardeeSitemapEntries(siteUrl: string): Promise<MetadataRoute.Sitemap> {
-  const rows = await fetchArtemisAwardeeIndex({ includeDraft: false, limit: 10_000 });
+function buildProviderScheduleEntries(
+  siteUrl: string,
+  providers: ProviderSummary[]
+): MetadataRoute.Sitemap {
+  return providers.map((provider) => ({
+    url: `${siteUrl}/launch-providers/${encodeURIComponent(provider.slug)}`,
+    changeFrequency: 'daily',
+    priority: 0.6
+  }));
+}
+
+function buildProviderCoverageEntries(
+  siteUrl: string,
+  providers: ProviderSummary[]
+): MetadataRoute.Sitemap {
+  return providers.map((provider) => ({
+    url: `${siteUrl}/providers/${encodeURIComponent(provider.slug)}`,
+    changeFrequency: 'daily',
+    priority: 0.58
+  }));
+}
+
+async function getArtemisAwardeeSitemapEntries(
+  siteUrl: string
+): Promise<MetadataRoute.Sitemap> {
+  const rows = await fetchArtemisAwardeeIndex({
+    includeDraft: false,
+    limit: 10_000
+  });
 
   return rows.map((row) => ({
     url: `${siteUrl}${buildArtemisAwardeeHref(row.slug)}`,
@@ -244,19 +403,27 @@ async function getArtemisAwardeeSitemapEntries(siteUrl: string): Promise<Metadat
   }));
 }
 
-async function getProgramContractSitemapEntries(siteUrl: string): Promise<MetadataRoute.Sitemap> {
+async function getProgramContractSitemapEntries(
+  siteUrl: string
+): Promise<MetadataRoute.Sitemap> {
   const canonicalContracts = await fetchCanonicalContractsIndex();
   return dedupeEntries(
     canonicalContracts.map((item) => ({
       url: `${siteUrl}${item.canonicalPath}`,
-      lastModified: item.updatedAt ? new Date(item.updatedAt) : item.awardedOn ? new Date(`${item.awardedOn}T00:00:00Z`) : undefined,
+      lastModified: item.updatedAt
+        ? new Date(item.updatedAt)
+        : item.awardedOn
+          ? new Date(`${item.awardedOn}T00:00:00Z`)
+          : undefined,
       changeFrequency: 'weekly',
       priority: 0.63
     }))
   );
 }
 
-async function getBlueOriginTravelerSitemapEntries(siteUrl: string): Promise<MetadataRoute.Sitemap> {
+async function getBlueOriginTravelerSitemapEntries(
+  siteUrl: string
+): Promise<MetadataRoute.Sitemap> {
   const slugs = await fetchBlueOriginTravelerSlugs();
   return slugs.map((slug) => ({
     url: `${siteUrl}/blue-origin/travelers/${slug}`,
@@ -270,9 +437,14 @@ export function buildSitemapXml(entries: MetadataRoute.Sitemap): string {
     .map((entry) => {
       const parts = [`<loc>${escapeXml(entry.url)}</loc>`];
       const lastModified = normalizeLastModified(entry.lastModified);
-      if (lastModified) parts.push(`<lastmod>${escapeXml(lastModified)}</lastmod>`);
-      if (entry.changeFrequency) parts.push(`<changefreq>${entry.changeFrequency}</changefreq>`);
-      if (typeof entry.priority === 'number' && Number.isFinite(entry.priority)) {
+      if (lastModified)
+        parts.push(`<lastmod>${escapeXml(lastModified)}</lastmod>`);
+      if (entry.changeFrequency)
+        parts.push(`<changefreq>${entry.changeFrequency}</changefreq>`);
+      if (
+        typeof entry.priority === 'number' &&
+        Number.isFinite(entry.priority)
+      ) {
         parts.push(`<priority>${formatPriority(entry.priority)}</priority>`);
       }
       return `<url>${parts.join('')}</url>`;
@@ -283,21 +455,32 @@ export function buildSitemapXml(entries: MetadataRoute.Sitemap): string {
 }
 
 export function buildSitemapIndexXml(urls: string[]) {
-  const body = urls.map((url) => `<sitemap><loc>${escapeXml(url)}</loc></sitemap>`).join('');
+  const body = urls
+    .map((url) => `<sitemap><loc>${escapeXml(url)}</loc></sitemap>`)
+    .join('');
   return `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${body}</sitemapindex>`;
 }
 
-export function getSitemapPageCount(entries: MetadataRoute.Sitemap, pageSize = SITEMAP_TIER_PAGE_SIZE) {
+export function getSitemapPageCount(
+  entries: MetadataRoute.Sitemap,
+  pageSize = SITEMAP_TIER_PAGE_SIZE
+) {
   return Math.max(1, Math.ceil(entries.length / pageSize));
 }
 
-export function getSitemapPageEntries(entries: MetadataRoute.Sitemap, page: number, pageSize = SITEMAP_TIER_PAGE_SIZE) {
+export function getSitemapPageEntries(
+  entries: MetadataRoute.Sitemap,
+  page: number,
+  pageSize = SITEMAP_TIER_PAGE_SIZE
+) {
   const safePage = Math.max(1, Math.trunc(page));
   const start = (safePage - 1) * pageSize;
   return entries.slice(start, start + pageSize);
 }
 
-async function getPublicCacheDerivedSitemapEntries(siteUrl: string): Promise<PublicCacheScanResult> {
+async function getPublicCacheDerivedSitemapEntries(
+  siteUrl: string
+): Promise<PublicCacheScanResult> {
   const coreLaunchEntries: MetadataRoute.Sitemap = [];
   const longTailLaunchEntries: MetadataRoute.Sitemap = [];
   const providerBySlug = new Map<string, { lastModified?: Date }>();
@@ -348,15 +531,23 @@ async function getPublicCacheDerivedSitemapEntries(siteUrl: string): Promise<Pub
           ? new Date(row.net)
           : undefined;
       const padCode = row.pad_country_code?.trim();
-      const isUsLaunch = padCode ? (US_PAD_COUNTRY_CODES as readonly string[]).includes(padCode) : false;
+      const isUsLaunch = padCode
+        ? (US_PAD_COUNTRY_CODES as readonly string[]).includes(padCode)
+        : false;
       const isUpcoming = Number.isFinite(netMs) && netMs >= nowMs;
       const isNearTerm =
-        Number.isFinite(netMs) && netMs >= nowMs - 1000 * 60 * 60 * 24 * 2 && netMs <= nowMs + 1000 * 60 * 60 * 24 * 30;
+        Number.isFinite(netMs) &&
+        netMs >= nowMs - 1000 * 60 * 60 * 24 * 2 &&
+        netMs <= nowMs + 1000 * 60 * 60 * 24 * 30;
 
       const entry: MetadataRoute.Sitemap[number] = {
         url: `${siteUrl}${href}`,
         lastModified,
-        changeFrequency: isNearTerm ? 'hourly' : isUpcoming ? 'daily' : 'monthly',
+        changeFrequency: isNearTerm
+          ? 'hourly'
+          : isUpcoming
+            ? 'daily'
+            : 'monthly',
         priority: isUsLaunch ? 0.7 : isUpcoming ? 0.55 : 0.4
       };
 
@@ -368,13 +559,16 @@ async function getPublicCacheDerivedSitemapEntries(siteUrl: string): Promise<Pub
         const providerSlug = toProviderSlug(providerName);
         if (providerSlug) {
           const existing = providerBySlug.get(providerSlug);
-          providerBySlug.set(providerSlug, { lastModified: maxDate(existing?.lastModified, lastModified) });
+          providerBySlug.set(providerSlug, {
+            lastModified: maxDate(existing?.lastModified, lastModified)
+          });
         }
       }
 
       if (Number.isFinite(row.ll2_rocket_config_id)) {
         const rocketId = String(row.ll2_rocket_config_id);
-        const rocketLabel = row.rocket_full_name?.trim() || row.vehicle?.trim() || rocketId;
+        const rocketLabel =
+          row.rocket_full_name?.trim() || row.vehicle?.trim() || rocketId;
         const existing = rocketById.get(rocketId);
         rocketById.set(rocketId, {
           name: existing?.name ?? rocketLabel,
@@ -384,7 +578,8 @@ async function getPublicCacheDerivedSitemapEntries(siteUrl: string): Promise<Pub
 
       if (Number.isFinite(row.ll2_pad_id)) {
         const padId = String(row.ll2_pad_id);
-        const locationLabel = row.pad_location_name?.trim() || row.pad_name?.trim() || padId;
+        const locationLabel =
+          row.pad_location_name?.trim() || row.pad_name?.trim() || padId;
         const existing = locationById.get(padId);
         locationById.set(padId, {
           name: existing?.name ?? locationLabel,
@@ -406,7 +601,9 @@ async function getPublicCacheDerivedSitemapEntries(siteUrl: string): Promise<Pub
       priority: 0.6
     }));
 
-  const providerNewsEntries: MetadataRoute.Sitemap = [...providerBySlug.entries()]
+  const providerNewsEntries: MetadataRoute.Sitemap = [
+    ...providerBySlug.entries()
+  ]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([slug, meta]) => ({
       url: `${siteUrl}/providers/${encodeURIComponent(slug)}`,
@@ -449,21 +646,33 @@ async function getPublicCacheDerivedSitemapEntries(siteUrl: string): Promise<Pub
   };
 }
 
-async function getProgramFlightSitemapEntries(siteUrl: string): Promise<ProgramFlightSitemapEntries> {
+async function getProgramFlightSitemapEntries(
+  siteUrl: string
+): Promise<ProgramFlightSitemapEntries> {
   try {
     const nowMs = Date.now();
-    const [spaceXFlights, starshipFlights] = await Promise.all([fetchSpaceXFlights('all'), fetchStarshipFlightIndex()]);
+    const [spaceXFlights, starshipFlights] = await Promise.all([
+      fetchSpaceXFlights('all'),
+      fetchStarshipFlightIndex()
+    ]);
 
     const spaceXFlightEntries = dedupeEntries(
       spaceXFlights.items.map((item) => {
         const netMs = Date.parse(item.launch.net);
         const isUpcoming = Number.isFinite(netMs) && netMs >= nowMs;
-        const lastModifiedRaw = item.launch.cacheGeneratedAt || item.launch.lastUpdated || item.launch.net;
-        const lastModifiedMs = lastModifiedRaw ? Date.parse(lastModifiedRaw) : Number.NaN;
+        const lastModifiedRaw =
+          item.launch.cacheGeneratedAt ||
+          item.launch.lastUpdated ||
+          item.launch.net;
+        const lastModifiedMs = lastModifiedRaw
+          ? Date.parse(lastModifiedRaw)
+          : Number.NaN;
 
         return {
           url: `${siteUrl}/spacex/flights/${encodeURIComponent(item.flightSlug)}`,
-          lastModified: Number.isFinite(lastModifiedMs) ? new Date(lastModifiedMs) : undefined,
+          lastModified: Number.isFinite(lastModifiedMs)
+            ? new Date(lastModifiedMs)
+            : undefined,
           changeFrequency: isUpcoming ? 'daily' : 'monthly',
           priority: isUpcoming ? 0.58 : 0.46
         } satisfies MetadataRoute.Sitemap[number];
@@ -472,13 +681,20 @@ async function getProgramFlightSitemapEntries(siteUrl: string): Promise<ProgramF
 
     const starshipFlightEntries = dedupeEntries(
       starshipFlights.map((entry) => {
-        const nextLaunchMs = entry.nextLaunch?.net ? Date.parse(entry.nextLaunch.net) : Number.NaN;
-        const isUpcoming = Number.isFinite(nextLaunchMs) && nextLaunchMs >= nowMs;
-        const lastModifiedMs = entry.lastUpdated ? Date.parse(entry.lastUpdated) : Number.NaN;
+        const nextLaunchMs = entry.nextLaunch?.net
+          ? Date.parse(entry.nextLaunch.net)
+          : Number.NaN;
+        const isUpcoming =
+          Number.isFinite(nextLaunchMs) && nextLaunchMs >= nowMs;
+        const lastModifiedMs = entry.lastUpdated
+          ? Date.parse(entry.lastUpdated)
+          : Number.NaN;
 
         return {
           url: `${siteUrl}/starship/${encodeURIComponent(entry.flightSlug)}`,
-          lastModified: Number.isFinite(lastModifiedMs) ? new Date(lastModifiedMs) : undefined,
+          lastModified: Number.isFinite(lastModifiedMs)
+            ? new Date(lastModifiedMs)
+            : undefined,
           changeFrequency: isUpcoming ? 'daily' : 'weekly',
           priority: isUpcoming ? 0.66 : 0.56
         } satisfies MetadataRoute.Sitemap[number];
@@ -492,7 +708,9 @@ async function getProgramFlightSitemapEntries(siteUrl: string): Promise<ProgramF
   }
 }
 
-async function getBlueOriginHistoricalLaunchEntries(siteUrl: string): Promise<MetadataRoute.Sitemap> {
+async function getBlueOriginHistoricalLaunchEntries(
+  siteUrl: string
+): Promise<MetadataRoute.Sitemap> {
   if (!isSupabaseConfigured() || !isSupabaseAdminConfigured()) return [];
 
   const supabase = createSupabaseAdminClient();
@@ -528,7 +746,10 @@ async function getBlueOriginHistoricalLaunchEntries(siteUrl: string): Promise<Me
 
   const nowMs = Date.now();
   const entries: MetadataRoute.Sitemap = [];
-  for (const chunk of chunkArray([...launchIds], BLUE_ORIGIN_LAUNCH_RESOLVE_CHUNK_SIZE)) {
+  for (const chunk of chunkArray(
+    [...launchIds],
+    BLUE_ORIGIN_LAUNCH_RESOLVE_CHUNK_SIZE
+  )) {
     const { data, error } = await supabase
       .from('launches_public_cache')
       .select('launch_id,name,slug,net,cache_generated_at')
@@ -548,13 +769,22 @@ async function getBlueOriginHistoricalLaunchEntries(siteUrl: string): Promise<Me
       });
       const netCandidate = row.net || launchDateById.get(launchId) || '';
       const netMs = Date.parse(netCandidate);
-      const lastModifiedRaw = row.cache_generated_at || row.net || launchDateById.get(launchId) || null;
-      const lastModifiedMs = lastModifiedRaw ? Date.parse(lastModifiedRaw) : Number.NaN;
+      const lastModifiedRaw =
+        row.cache_generated_at ||
+        row.net ||
+        launchDateById.get(launchId) ||
+        null;
+      const lastModifiedMs = lastModifiedRaw
+        ? Date.parse(lastModifiedRaw)
+        : Number.NaN;
 
       entries.push({
         url: `${siteUrl}${href}`,
-        lastModified: Number.isFinite(lastModifiedMs) ? new Date(lastModifiedMs) : undefined,
-        changeFrequency: Number.isFinite(netMs) && netMs >= nowMs ? 'daily' : 'monthly',
+        lastModified: Number.isFinite(lastModifiedMs)
+          ? new Date(lastModifiedMs)
+          : undefined,
+        changeFrequency:
+          Number.isFinite(netMs) && netMs >= nowMs ? 'daily' : 'monthly',
         priority: Number.isFinite(netMs) && netMs >= nowMs ? 0.56 : 0.45
       });
     }
@@ -563,7 +793,9 @@ async function getBlueOriginHistoricalLaunchEntries(siteUrl: string): Promise<Me
   return dedupeEntries(entries);
 }
 
-async function getCatalogSitemapEntries(siteUrl: string): Promise<MetadataRoute.Sitemap> {
+async function getCatalogSitemapEntries(
+  siteUrl: string
+): Promise<MetadataRoute.Sitemap> {
   if (!isSupabaseConfigured()) return [];
 
   const supabase = createSupabasePublicClient();
@@ -606,7 +838,8 @@ function chunkArray<T>(items: T[], chunkSize: number) {
   if (items.length === 0) return [] as T[][];
   const size = Math.max(1, Math.trunc(chunkSize));
   const out = [] as T[][];
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  for (let i = 0; i < items.length; i += size)
+    out.push(items.slice(i, i + size));
   return out;
 }
 
@@ -630,7 +863,9 @@ function normalizeLastModified(value: string | Date | undefined) {
 
 function formatPriority(priority: number) {
   const rounded = Math.round(priority * 100) / 100;
-  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+  return Number.isInteger(rounded)
+    ? String(rounded)
+    : rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
 }
 
 function escapeXml(value: string) {

@@ -3,7 +3,11 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { CANONICAL_HOST, COOKIE_DOMAIN, DOMAIN_APEX } from '@/lib/brand';
 import { normalizeEnvText, normalizeEnvUrl } from '@/lib/env/normalize';
-import { getAntiIngestionTokenSecret, isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
+import {
+  getAntiIngestionTokenSecret,
+  isSupabaseAdminConfigured,
+  isSupabaseConfigured
+} from '@/lib/server/env';
 import {
   APP_CLIENT_HEADER_NAME,
   APP_GUEST_TOKEN_HEADER_NAME,
@@ -17,9 +21,15 @@ import {
 import { buildLegacyCatalogRedirectHref } from '@/lib/utils/catalog';
 import { toProviderSlug } from '@/lib/utils/launchLinks';
 
-const SUPABASE_URL = normalizeEnvUrl(process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL);
-const SUPABASE_ANON_KEY = normalizeEnvText(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
-const SUPABASE_SERVICE_ROLE_KEY = normalizeEnvText(process.env.SUPABASE_SERVICE_ROLE_KEY);
+const SUPABASE_URL = normalizeEnvUrl(
+  process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL
+);
+const SUPABASE_ANON_KEY = normalizeEnvText(
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+);
+const SUPABASE_SERVICE_ROLE_KEY = normalizeEnvText(
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 const LEGACY_HOSTS = new Set(['tminusnow.space', 'www.tminusnow.space']);
 
 type MiddlewareRateLimitRule = {
@@ -33,9 +43,13 @@ type InMemoryRateLimitWindow = {
   resetAt: number;
 };
 
-const LEGACY_RATE_LIMIT_RULES: Array<{ matches: (pathname: string) => boolean; rule: MiddlewareRateLimitRule }> = [
+const LEGACY_RATE_LIMIT_RULES: Array<{
+  matches: (pathname: string) => boolean;
+  rule: MiddlewareRateLimitRule;
+}> = [
   {
-    matches: (pathname) => pathname === '/api/public' || pathname.startsWith('/api/public/'),
+    matches: (pathname) =>
+      pathname === '/api/public' || pathname.startsWith('/api/public/'),
     rule: {
       scope: 'legacy_public_api',
       limit: 120,
@@ -43,7 +57,8 @@ const LEGACY_RATE_LIMIT_RULES: Array<{ matches: (pathname: string) => boolean; r
     }
   },
   {
-    matches: (pathname) => pathname === '/embed' || pathname.startsWith('/embed/'),
+    matches: (pathname) =>
+      pathname === '/embed' || pathname.startsWith('/embed/'),
     rule: {
       scope: 'legacy_embed_surface',
       limit: 120,
@@ -72,7 +87,13 @@ const PROTECTED_V1_PREFIXES = [
   '/api/v1/spacex',
   '/api/v1/starship'
 ];
-const LEGACY_NATIVE_APP_USER_AGENT_PATTERNS = [/okhttp/i, /cfnetwork/i, /darwin/i, /expo/i, /tminuszero/i];
+const LEGACY_NATIVE_APP_USER_AGENT_PATTERNS = [
+  /okhttp/i,
+  /cfnetwork/i,
+  /darwin/i,
+  /expo/i,
+  /tminuszero/i
+];
 const inMemoryRateLimitStore: Map<string, InMemoryRateLimitWindow> = (() => {
   const globalScope = globalThis as unknown as Record<string, unknown>;
   const existing = globalScope[RATE_LIMIT_STORE_KEY];
@@ -112,7 +133,9 @@ export async function middleware(request: NextRequest) {
 
   const forwardedProto = request.headers.get('x-forwarded-proto');
   const proto = forwardedProto?.split(',')[0]?.trim();
-  const isHttps = proto ? proto === 'https' : request.nextUrl.protocol === 'https:';
+  const isHttps = proto
+    ? proto === 'https'
+    : request.nextUrl.protocol === 'https:';
 
   if (!isHttps) {
     const url = request.nextUrl.clone();
@@ -136,7 +159,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url, 308);
   }
 
-  if (pathname === '/' && (request.nextUrl.searchParams.has('code') || request.nextUrl.searchParams.has('token_hash'))) {
+  if (
+    pathname === '/' &&
+    (request.nextUrl.searchParams.has('code') ||
+      request.nextUrl.searchParams.has('token_hash'))
+  ) {
     const url = request.nextUrl.clone();
     url.pathname = '/auth/callback';
     return NextResponse.redirect(url, 302);
@@ -144,7 +171,11 @@ export async function middleware(request: NextRequest) {
 
   const antiIngestionSecret = getAntiIngestionTokenSecret();
   if (antiIngestionSecret) {
-    const protectedResponse = await maybeEnforceFirstPartyApiAccess(request, pathname, antiIngestionSecret);
+    const protectedResponse = await maybeEnforceFirstPartyApiAccess(
+      request,
+      pathname,
+      antiIngestionSecret
+    );
     if (protectedResponse) {
       return applyApiHardeningHeaders(pathname, protectedResponse);
     }
@@ -152,7 +183,10 @@ export async function middleware(request: NextRequest) {
 
   const legacyRateLimitRule = matchLegacyRateLimitRule(pathname);
   if (legacyRateLimitRule) {
-    const rateLimited = await enforceLegacyRateLimit(request, legacyRateLimitRule);
+    const rateLimited = await enforceLegacyRateLimit(
+      request,
+      legacyRateLimitRule
+    );
     if (rateLimited) {
       return applyApiHardeningHeaders(pathname, rateLimited);
     }
@@ -164,12 +198,19 @@ export async function middleware(request: NextRequest) {
     response = await syncSupabaseSession(request, response);
   }
 
-  if (request.nextUrl.pathname === '/' && request.nextUrl.searchParams.size > 0) {
+  if (
+    request.nextUrl.pathname === '/' &&
+    request.nextUrl.searchParams.size > 0
+  ) {
     const rawPage = request.nextUrl.searchParams.get('page');
     const page = rawPage ? Number(rawPage) : NaN;
-    const isOnlyPageParam = request.nextUrl.searchParams.size === 1 && rawPage != null;
+    const isOnlyPageParam =
+      request.nextUrl.searchParams.size === 1 && rawPage != null;
     const isIndexablePage =
-      isOnlyPageParam && Number.isFinite(page) && page > 1 && Number.isInteger(page);
+      isOnlyPageParam &&
+      Number.isFinite(page) &&
+      page > 1 &&
+      Number.isInteger(page);
 
     if (!isIndexablePage) {
       response.headers.set('X-Robots-Tag', 'noindex,follow');
@@ -177,9 +218,14 @@ export async function middleware(request: NextRequest) {
   }
 
   if (antiIngestionSecret && shouldIssuePublicViewCookie(request)) {
-    response = await attachPublicViewCookie(request, response, antiIngestionSecret);
+    response = await attachPublicViewCookie(
+      request,
+      response,
+      antiIngestionSecret
+    );
   }
 
+  response = applyUtilityNoIndexHeaders(pathname, response);
   return applyApiHardeningHeaders(pathname, response);
 }
 
@@ -227,7 +273,9 @@ function matchLegacyRateLimitRule(pathname: string) {
 }
 
 function matchesProtectedPrefix(pathname: string, prefixes: string[]) {
-  return prefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  return prefixes.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+  );
 }
 
 function isProtectedPublicApiPath(pathname: string) {
@@ -239,28 +287,43 @@ function isProtectedV1Path(pathname: string) {
 }
 
 function requestHasBearerToken(request: NextRequest) {
-  const authorization = request.headers.get('authorization') || request.headers.get('Authorization') || '';
+  const authorization =
+    request.headers.get('authorization') ||
+    request.headers.get('Authorization') ||
+    '';
   return authorization.toLowerCase().startsWith('bearer ');
 }
 
 function requestHasSupabaseSessionCookie(request: NextRequest) {
-  return request.cookies.getAll().some((cookie) => cookie.name.startsWith('sb-'));
+  return request.cookies
+    .getAll()
+    .some((cookie) => cookie.name.startsWith('sb-'));
 }
 
 function requestHasViewerAuth(request: NextRequest) {
-  return requestHasBearerToken(request) || requestHasSupabaseSessionCookie(request);
+  return (
+    requestHasBearerToken(request) || requestHasSupabaseSessionCookie(request)
+  );
 }
 
 function looksLikeLegacyNativeAppClient(request: NextRequest) {
   const userAgent = request.headers.get('user-agent') || '';
   if (!userAgent) return false;
-  if (request.headers.get(APP_CLIENT_HEADER_NAME) || request.headers.get(APP_GUEST_TOKEN_HEADER_NAME)) {
+  if (
+    request.headers.get(APP_CLIENT_HEADER_NAME) ||
+    request.headers.get(APP_GUEST_TOKEN_HEADER_NAME)
+  ) {
     return false;
   }
-  if (request.headers.get('sec-fetch-site') || request.headers.get('sec-fetch-mode')) {
+  if (
+    request.headers.get('sec-fetch-site') ||
+    request.headers.get('sec-fetch-mode')
+  ) {
     return false;
   }
-  return LEGACY_NATIVE_APP_USER_AGENT_PATTERNS.some((pattern) => pattern.test(userAgent));
+  return LEGACY_NATIVE_APP_USER_AGENT_PATTERNS.some((pattern) =>
+    pattern.test(userAgent)
+  );
 }
 
 function headerMatchesRequestHost(value: string | null, request: NextRequest) {
@@ -275,7 +338,9 @@ function headerMatchesRequestHost(value: string | null, request: NextRequest) {
 }
 
 function hasFirstPartyBrowserContext(request: NextRequest) {
-  const secFetchSite = (request.headers.get('sec-fetch-site') || '').trim().toLowerCase();
+  const secFetchSite = (request.headers.get('sec-fetch-site') || '')
+    .trim()
+    .toLowerCase();
   if (secFetchSite === 'same-origin' || secFetchSite === 'same-site') {
     return true;
   }
@@ -284,11 +349,14 @@ function hasFirstPartyBrowserContext(request: NextRequest) {
   }
 
   return (
-    headerMatchesRequestHost(request.headers.get('origin'), request) || headerMatchesRequestHost(request.headers.get('referer'), request)
+    headerMatchesRequestHost(request.headers.get('origin'), request) ||
+    headerMatchesRequestHost(request.headers.get('referer'), request)
   );
 }
 
-function buildFirstPartyRequiredResponse(reason: 'public_view_required' | 'app_guest_token_required') {
+function buildFirstPartyRequiredResponse(
+  reason: 'public_view_required' | 'app_guest_token_required'
+) {
   return NextResponse.json(
     {
       error: 'first_party_required',
@@ -303,13 +371,19 @@ function buildFirstPartyRequiredResponse(reason: 'public_view_required' | 'app_g
   );
 }
 
-async function maybeEnforceFirstPartyApiAccess(request: NextRequest, pathname: string, secret: string) {
+async function maybeEnforceFirstPartyApiAccess(
+  request: NextRequest,
+  pathname: string,
+  secret: string
+) {
   if (request.method === 'OPTIONS') {
     return null;
   }
 
   const isPublicApiPath = isProtectedPublicApiPath(pathname);
-  const isProtectedV1ApiPath = isProtectedV1Path(pathname) && (request.method === 'GET' || request.method === 'HEAD');
+  const isProtectedV1ApiPath =
+    isProtectedV1Path(pathname) &&
+    (request.method === 'GET' || request.method === 'HEAD');
   if (!isPublicApiPath && !isProtectedV1ApiPath) {
     return null;
   }
@@ -319,11 +393,17 @@ async function maybeEnforceFirstPartyApiAccess(request: NextRequest, pathname: s
   }
 
   const firstPartyBrowserContext = hasFirstPartyBrowserContext(request);
-  const publicViewFingerprint = await buildPublicViewFingerprint(request.headers);
+  const publicViewFingerprint = await buildPublicViewFingerprint(
+    request.headers
+  );
   const publicViewCookie = request.cookies.get(PUBLIC_VIEW_COOKIE_NAME)?.value;
   const publicViewProof =
     firstPartyBrowserContext && publicViewCookie
-      ? await verifyPublicViewToken(publicViewCookie, secret, publicViewFingerprint)
+      ? await verifyPublicViewToken(
+          publicViewCookie,
+          secret,
+          publicViewFingerprint
+        )
       : null;
 
   if (publicViewProof) {
@@ -334,8 +414,14 @@ async function maybeEnforceFirstPartyApiAccess(request: NextRequest, pathname: s
     return buildFirstPartyRequiredResponse('public_view_required');
   }
 
-  const appClientContext = parseAppClientContext(request.headers.get(APP_CLIENT_HEADER_NAME));
-  const appGuestProof = await verifyAppGuestToken(request.headers.get(APP_GUEST_TOKEN_HEADER_NAME), secret, appClientContext);
+  const appClientContext = parseAppClientContext(
+    request.headers.get(APP_CLIENT_HEADER_NAME)
+  );
+  const appGuestProof = await verifyAppGuestToken(
+    request.headers.get(APP_GUEST_TOKEN_HEADER_NAME),
+    secret,
+    appClientContext
+  );
   if (appGuestProof) {
     return null;
   }
@@ -353,13 +439,29 @@ function shouldIssuePublicViewCookie(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   if (pathname === '/api' || pathname.startsWith('/api/')) return false;
   if (pathname.startsWith('/_next/')) return false;
-  if (pathname.startsWith('/account') || pathname.startsWith('/admin') || pathname.startsWith('/auth') || pathname.startsWith('/me')) return false;
-  if (pathname.startsWith('/embed') || pathname.startsWith('/share')) return false;
-  if (pathname.startsWith('/favicon') || pathname.startsWith('/apple-touch-icon') || pathname.startsWith('/icon-')) return false;
+  if (
+    pathname.startsWith('/account') ||
+    pathname.startsWith('/admin') ||
+    pathname.startsWith('/auth') ||
+    pathname.startsWith('/me')
+  )
+    return false;
+  if (pathname.startsWith('/embed') || pathname.startsWith('/share'))
+    return false;
+  if (
+    pathname.startsWith('/favicon') ||
+    pathname.startsWith('/apple-touch-icon') ||
+    pathname.startsWith('/icon-')
+  )
+    return false;
   return !/\.[^/]+$/.test(pathname);
 }
 
-async function attachPublicViewCookie(request: NextRequest, response: NextResponse, secret: string) {
+async function attachPublicViewCookie(
+  request: NextRequest,
+  response: NextResponse,
+  secret: string
+) {
   const fingerprint = await buildPublicViewFingerprint(request.headers);
   const value = await issuePublicViewToken(secret, fingerprint);
   const hostHeader = request.headers.get('host') || '';
@@ -399,13 +501,58 @@ function applyApiHardeningHeaders(pathname: string, response: NextResponse) {
   }
 
   const vary = response.headers.get('Vary');
-  const nextVary = ['Sec-Fetch-Site', 'Origin', 'Referer', APP_CLIENT_HEADER_NAME, APP_GUEST_TOKEN_HEADER_NAME]
-    .filter((value) => !(vary || '').split(',').map((entry) => entry.trim()).includes(value))
+  const nextVary = [
+    'Sec-Fetch-Site',
+    'Origin',
+    'Referer',
+    APP_CLIENT_HEADER_NAME,
+    APP_GUEST_TOKEN_HEADER_NAME
+  ]
+    .filter(
+      (value) =>
+        !(vary || '')
+          .split(',')
+          .map((entry) => entry.trim())
+          .includes(value)
+    )
     .join(', ');
   if (nextVary) {
     response.headers.set('Vary', vary ? `${vary}, ${nextVary}` : nextVary);
   }
   return response;
+}
+
+function applyUtilityNoIndexHeaders(pathname: string, response: NextResponse) {
+  if (!shouldApplyUtilityNoIndexHeader(pathname)) {
+    return response;
+  }
+
+  const existingRobots = response.headers.get('X-Robots-Tag');
+  if (!existingRobots) {
+    response.headers.set('X-Robots-Tag', 'noindex, nofollow');
+    return response;
+  }
+
+  const parts = existingRobots
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (!parts.includes('noindex')) parts.push('noindex');
+  if (!parts.includes('nofollow')) parts.push('nofollow');
+  response.headers.set('X-Robots-Tag', parts.join(', '));
+  return response;
+}
+
+function shouldApplyUtilityNoIndexHeader(pathname: string) {
+  if (
+    pathname === '/calendar' ||
+    pathname === '/premium-onboarding/legal' ||
+    pathname === '/mobile-auth/challenge'
+  ) {
+    return true;
+  }
+
+  return /^\/launches\/[^/]+\/ar(?:\/|$)/.test(pathname);
 }
 
 async function hashValue(value: string) {
@@ -487,12 +634,18 @@ function buildRateLimitedResponse({
   retryAfterSeconds: number;
   resetAtMs: number;
 }) {
-  const response = NextResponse.json({ error: 'rate_limited' }, { status: 429 });
+  const response = NextResponse.json(
+    { error: 'rate_limited' },
+    { status: 429 }
+  );
   response.headers.set('Cache-Control', 'no-store');
   response.headers.set('Retry-After', String(retryAfterSeconds));
   response.headers.set('X-RateLimit-Limit', String(limit));
   response.headers.set('X-RateLimit-Remaining', '0');
-  response.headers.set('X-RateLimit-Reset', String(Math.ceil(resetAtMs / 1000)));
+  response.headers.set(
+    'X-RateLimit-Reset',
+    String(Math.ceil(resetAtMs / 1000))
+  );
   return response;
 }
 
@@ -521,10 +674,16 @@ function pruneInMemoryRateLimitStore(nowMs: number) {
   }
 }
 
-function enforceInMemoryLegacyRateLimit(request: NextRequest, rule: MiddlewareRateLimitRule) {
+function enforceInMemoryLegacyRateLimit(
+  request: NextRequest,
+  rule: MiddlewareRateLimitRule
+) {
   const nowMs = Date.now();
   const windowMs = rule.windowSeconds * 1000;
-  const clientId = readClientIp(request.headers) || normalizeIp(request.ip || null) || 'anonymous';
+  const clientId =
+    readClientIp(request.headers) ||
+    normalizeIp(request.ip || null) ||
+    'anonymous';
   const key = `${rule.scope}:${clientId}`;
   pruneInMemoryRateLimitStore(nowMs);
 
@@ -556,13 +715,20 @@ async function buildRateLimitProviderName(scope: string, request: NextRequest) {
   return `middleware:${scope}:${await hashValue(payload)}`;
 }
 
-async function enforceLegacyRateLimit(request: NextRequest, rule: MiddlewareRateLimitRule) {
+async function enforceLegacyRateLimit(
+  request: NextRequest,
+  rule: MiddlewareRateLimitRule
+) {
   const method = request.method.toUpperCase();
   if (!(method === 'GET' || method === 'HEAD')) {
     return null;
   }
 
-  if (!isSupabaseAdminConfigured() || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+  if (
+    !isSupabaseAdminConfigured() ||
+    !SUPABASE_URL ||
+    !SUPABASE_SERVICE_ROLE_KEY
+  ) {
     return enforceInMemoryLegacyRateLimit(request, rule);
   }
 
@@ -591,7 +757,10 @@ async function enforceLegacyRateLimit(request: NextRequest, rule: MiddlewareRate
     });
 
     if (!response.ok) {
-      console.error(`middleware legacy rate limit RPC failed for ${rule.scope}`, response.status);
+      console.error(
+        `middleware legacy rate limit RPC failed for ${rule.scope}`,
+        response.status
+      );
       return enforceInMemoryLegacyRateLimit(request, rule);
     }
 
@@ -606,22 +775,34 @@ async function enforceLegacyRateLimit(request: NextRequest, rule: MiddlewareRate
       resetAtMs
     });
   } catch (error) {
-    console.error(`middleware legacy rate limit request failed for ${rule.scope}`, error);
+    console.error(
+      `middleware legacy rate limit request failed for ${rule.scope}`,
+      error
+    );
     return enforceInMemoryLegacyRateLimit(request, rule);
   }
 }
 
 function shouldSyncSupabase(request: NextRequest) {
-  if (!isSupabaseConfigured() || !SUPABASE_URL || !SUPABASE_ANON_KEY) return false;
+  if (!isSupabaseConfigured() || !SUPABASE_URL || !SUPABASE_ANON_KEY)
+    return false;
   const pathname = request.nextUrl.pathname;
   if (pathname.startsWith('/api/')) return false;
   if (pathname.startsWith('/share/')) return false;
   if (pathname.startsWith('/_next/')) return false;
-  if (pathname.startsWith('/favicon') || pathname.startsWith('/apple-touch-icon') || pathname.startsWith('/icon-')) return false;
+  if (
+    pathname.startsWith('/favicon') ||
+    pathname.startsWith('/apple-touch-icon') ||
+    pathname.startsWith('/icon-')
+  )
+    return false;
   return !/\.[^/]+$/.test(pathname);
 }
 
-async function syncSupabaseSession(request: NextRequest, response: NextResponse) {
+async function syncSupabaseSession(
+  request: NextRequest,
+  response: NextResponse
+) {
   let nextResponse = response;
   const hostHeader = request.headers.get('host') || '';
   const host = hostHeader.split(':')[0]?.trim().toLowerCase();
@@ -644,7 +825,9 @@ async function syncSupabaseSession(request: NextRequest, response: NextResponse)
         cookiesToSet.forEach(({ name, value }) => {
           request.cookies.set(name, value);
         });
-        nextResponse = NextResponse.next({ request: { headers: request.headers } });
+        nextResponse = NextResponse.next({
+          request: { headers: request.headers }
+        });
         cookiesToSet.forEach(({ name, value, options }) => {
           nextResponse.cookies.set(name, value, options);
         });

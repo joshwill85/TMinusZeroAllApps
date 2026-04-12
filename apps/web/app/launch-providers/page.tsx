@@ -1,16 +1,27 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { JsonLd } from '@/components/JsonLd';
 import { BRAND_NAME } from '@/lib/brand';
 import { isSupabaseConfigured } from '@/lib/server/env';
 import { fetchUsProviderCounts } from '@/lib/server/usProviderCounts';
+import {
+  buildBreadcrumbJsonLd,
+  buildCanonicalUrl,
+  buildCollectionPageJsonLd,
+  buildPageMetadata
+} from '@/lib/server/seo';
 
 export const revalidate = 60 * 60 * 6; // 6 hours
 
-export const metadata: Metadata = {
-  title: `Launch Providers (US Schedules) | ${BRAND_NAME}`,
-  description: `Browse US rocket launch schedules by provider — SpaceX, NASA, ULA, and more.`,
-  alternates: { canonical: '/launch-providers' }
-};
+const PROVIDERS_TITLE = `Rocket Launch Providers | SpaceX, NASA, ULA & More | ${BRAND_NAME}`;
+const PROVIDERS_DESCRIPTION =
+  'Browse US rocket launch schedules by provider, including SpaceX, NASA, ULA, Blue Origin, and other launch operators.';
+
+export const metadata: Metadata = buildPageMetadata({
+  title: PROVIDERS_TITLE,
+  description: PROVIDERS_DESCRIPTION,
+  canonical: '/launch-providers'
+});
 
 const FALLBACK_PROVIDERS: Array<{ name: string; slug: string }> = [
   { name: 'SpaceX', slug: 'spacex' },
@@ -36,22 +47,58 @@ export default async function LaunchProvidersPage() {
           slug: provider.slug,
           badge: null as string | null
         }));
+  const jsonLd = [
+    buildBreadcrumbJsonLd([
+      { name: 'Home', item: '/' },
+      { name: 'Launch providers', item: '/launch-providers' }
+    ]),
+    buildCollectionPageJsonLd({
+      canonical: '/launch-providers',
+      name: 'Rocket launch providers',
+      description: PROVIDERS_DESCRIPTION,
+      mainEntityId: 'launch-provider-list'
+    }),
+    {
+      '@context': 'https://schema.org',
+      '@type': 'ItemList',
+      '@id': 'launch-provider-list',
+      numberOfItems: rows.length,
+      itemListElement: rows.map((provider, index) => ({
+        '@type': 'ListItem',
+        position: index + 1,
+        item: {
+          '@type': 'Organization',
+          name: provider.name,
+          url: buildCanonicalUrl(
+            `/launch-providers/${encodeURIComponent(provider.slug)}`
+          )
+        }
+      }))
+    }
+  ];
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-10 md:px-8">
+      <JsonLd data={jsonLd} />
       <header className="space-y-4">
         <div>
-          <p className="text-xs uppercase tracking-[0.14em] text-text3">Browse</p>
-          <h1 className="text-3xl font-semibold text-text1">Launch Providers</h1>
+          <p className="text-xs uppercase tracking-[0.14em] text-text3">
+            Browse
+          </p>
+          <h1 className="text-3xl font-semibold text-text1">
+            Launch Providers
+          </h1>
         </div>
         <p className="max-w-3xl text-sm text-text2">
-          Provider schedule hubs for US launches. Use these pages to track upcoming missions and recent history by operator.
+          Provider schedule hubs for US launches. Use these pages to track
+          upcoming missions and recent history by operator.
         </p>
       </header>
 
       {!supabaseReady && (
         <div className="mt-6 rounded-2xl border border-stroke bg-surface-1 p-5 text-sm text-text2">
-          Configure Supabase env vars to load dynamic provider counts. Showing a default list.
+          Configure Supabase env vars to load dynamic provider counts. Showing a
+          default list.
         </div>
       )}
 
@@ -64,8 +111,12 @@ export default async function LaunchProvidersPage() {
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-text1 group-hover:text-primary">{provider.name}</div>
-                <div className="mt-1 text-xs text-text3">US launch schedule</div>
+                <div className="truncate text-sm font-semibold text-text1 group-hover:text-primary">
+                  {provider.name}
+                </div>
+                <div className="mt-1 text-xs text-text3">
+                  US launch schedule
+                </div>
               </div>
               {provider.badge && (
                 <span className="shrink-0 rounded-full border border-stroke px-3 py-1 text-[11px] uppercase tracking-[0.08em] text-text3">
@@ -78,10 +129,16 @@ export default async function LaunchProvidersPage() {
       </section>
 
       <div className="mt-10 flex flex-wrap items-center gap-3 text-xs text-text3">
-        <Link href="/#schedule" className="rounded-full border border-stroke px-3 py-1 uppercase tracking-[0.14em] hover:text-text1">
+        <Link
+          href="/#schedule"
+          className="rounded-full border border-stroke px-3 py-1 uppercase tracking-[0.14em] hover:text-text1"
+        >
           Back to schedule
         </Link>
-        <Link href="/news" className="rounded-full border border-stroke px-3 py-1 uppercase tracking-[0.14em] hover:text-text1">
+        <Link
+          href="/news"
+          className="rounded-full border border-stroke px-3 py-1 uppercase tracking-[0.14em] hover:text-text1"
+        >
           News
         </Link>
       </div>

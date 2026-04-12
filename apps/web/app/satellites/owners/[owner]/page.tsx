@@ -7,10 +7,14 @@ import { getSiteUrl } from '@/lib/server/env';
 import { fetchSatelliteOwnerProfile } from '@/lib/server/satellites';
 import { buildSiteMeta, SITE_META } from '@/lib/server/siteMeta';
 import { buildLaunchHref } from '@/lib/utils/launchLinks';
-import { buildSatelliteHref, buildSatelliteOwnerHref, formatSatelliteOwnerLabel, parseSatelliteOwnerParam } from '@/lib/utils/satelliteLinks';
+import {
+  buildSatelliteHref,
+  buildSatelliteOwnerHref,
+  formatSatelliteOwnerLabel,
+  parseSatelliteOwnerParam
+} from '@/lib/utils/satelliteLinks';
 
 export const revalidate = 60 * 10; // 10 minutes
-export const dynamic = 'force-dynamic';
 
 type Params = {
   owner: string;
@@ -20,10 +24,17 @@ function resolveOwner(ownerParam: string) {
   return parseSatelliteOwnerParam(ownerParam);
 }
 
-export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
+export async function generateMetadata({
+  params
+}: {
+  params: Params;
+}): Promise<Metadata> {
   const owner = resolveOwner(params.owner);
   if (!owner) {
-    return { title: `Not found | ${SITE_META.siteName}`, robots: { index: false, follow: false } };
+    return {
+      title: `Not found | ${SITE_META.siteName}`,
+      robots: { index: false, follow: false }
+    };
   }
 
   const profile = await fetchSatelliteOwnerProfile(owner, {
@@ -32,12 +43,18 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
     launchesLimit: 16
   });
   if (!profile) {
-    return { title: `Not found | ${SITE_META.siteName}`, robots: { index: false, follow: false } };
+    return {
+      title: `Not found | ${SITE_META.siteName}`,
+      robots: { index: false, follow: false }
+    };
   }
 
   const canonical = buildSatelliteOwnerHref(profile.owner);
   if (!canonical) {
-    return { title: `Not found | ${SITE_META.siteName}`, robots: { index: false, follow: false } };
+    return {
+      title: `Not found | ${SITE_META.siteName}`,
+      robots: { index: false, follow: false }
+    };
   }
 
   const ownerLabel = formatSatelliteOwnerLabel(profile.owner) || profile.owner;
@@ -83,7 +100,11 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
   };
 }
 
-export default async function SatelliteOwnerProfilePage({ params }: { params: Params }) {
+export default async function SatelliteOwnerProfilePage({
+  params
+}: {
+  params: Params;
+}) {
   const owner = resolveOwner(params.owner);
   if (!owner) return notFound();
 
@@ -121,8 +142,18 @@ export default async function SatelliteOwnerProfilePage({ params }: { params: Pa
       '@type': 'BreadcrumbList',
       itemListElement: [
         { '@type': 'ListItem', position: 1, name: 'Home', item: siteUrl },
-        { '@type': 'ListItem', position: 2, name: 'Satellites', item: `${siteUrl}/satellites` },
-        { '@type': 'ListItem', position: 3, name: 'Owners', item: `${siteUrl}/satellites/owners` },
+        {
+          '@type': 'ListItem',
+          position: 2,
+          name: 'Satellites',
+          item: `${siteUrl}/satellites`
+        },
+        {
+          '@type': 'ListItem',
+          position: 3,
+          name: 'Owners',
+          item: `${siteUrl}/satellites/owners`
+        },
         { '@type': 'ListItem', position: 4, name: ownerLabel, item: pageUrl }
       ]
     },
@@ -163,27 +194,45 @@ export default async function SatelliteOwnerProfilePage({ params }: { params: Pa
 
       <header className="space-y-3">
         <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.14em] text-text3">
-          <Link href="/satellites" className="rounded-full border border-stroke px-3 py-1 hover:text-text1">
+          <Link
+            href="/satellites"
+            className="rounded-full border border-stroke px-3 py-1 hover:text-text1"
+          >
             Satellites
           </Link>
-          <Link href="/satellites/owners" className="rounded-full border border-stroke px-3 py-1 hover:text-text1">
+          <Link
+            href="/satellites/owners"
+            className="rounded-full border border-stroke px-3 py-1 hover:text-text1"
+          >
             Owner index
           </Link>
         </div>
         <h1 className="text-3xl font-semibold text-text1">{ownerLabel}</h1>
         <p className="max-w-3xl text-sm text-text2">
-          SATCAT objects attributed to this owner, with related launch links and object-type distribution.
+          SATCAT objects attributed to this owner, with related launch links and
+          object-type distribution.
         </p>
         <div className="flex flex-wrap items-center gap-2 text-xs text-text3">
           <span className="rounded-full border border-stroke px-3 py-1">
-            {profile.ownerSatelliteCount} satellite{profile.ownerSatelliteCount === 1 ? '' : 's'}
+            {profile.ownerSatelliteCount} satellite
+            {profile.ownerSatelliteCount === 1 ? '' : 's'}
           </span>
-          <span className="rounded-full border border-stroke px-3 py-1">PAY: {profile.typeCounts.PAY}</span>
-          <span className="rounded-full border border-stroke px-3 py-1">RB: {profile.typeCounts.RB}</span>
-          <span className="rounded-full border border-stroke px-3 py-1">DEB: {profile.typeCounts.DEB}</span>
-          <span className="rounded-full border border-stroke px-3 py-1">UNK: {profile.typeCounts.UNK}</span>
+          <span className="rounded-full border border-stroke px-3 py-1">
+            PAY: {profile.typeCounts.PAY}
+          </span>
+          <span className="rounded-full border border-stroke px-3 py-1">
+            RB: {profile.typeCounts.RB}
+          </span>
+          <span className="rounded-full border border-stroke px-3 py-1">
+            DEB: {profile.typeCounts.DEB}
+          </span>
+          <span className="rounded-full border border-stroke px-3 py-1">
+            UNK: {profile.typeCounts.UNK}
+          </span>
           {profile.lastSatcatUpdatedAt ? (
-            <span className="rounded-full border border-stroke px-3 py-1">Updated: {profile.lastSatcatUpdatedAt}</span>
+            <span className="rounded-full border border-stroke px-3 py-1">
+              Updated: {profile.lastSatcatUpdatedAt}
+            </span>
           ) : null}
         </div>
       </header>
@@ -198,20 +247,36 @@ export default async function SatelliteOwnerProfilePage({ params }: { params: Pa
         {launchRows.length ? (
           <ul className="mt-4 grid gap-3 md:grid-cols-2">
             {launchRows.map((launch) => (
-              <li key={launch.launchId} className="rounded-xl border border-stroke bg-surface-0 p-3">
-                <Link href={launch.href} className="text-sm font-semibold text-text1 hover:text-primary">
+              <li
+                key={launch.launchId}
+                className="rounded-xl border border-stroke bg-surface-0 p-3"
+              >
+                <Link
+                  href={launch.href}
+                  className="text-sm font-semibold text-text1 hover:text-primary"
+                >
                   {launch.launchName || launch.launchId}
                 </Link>
                 <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-text3">
-                  {launch.launchProvider ? <span>{launch.launchProvider}</span> : null}
-                  {launch.launchVehicle ? <span>{launch.launchVehicle}</span> : null}
+                  {launch.launchProvider ? (
+                    <span>{launch.launchProvider}</span>
+                  ) : null}
+                  {launch.launchVehicle ? (
+                    <span>{launch.launchVehicle}</span>
+                  ) : null}
                 </div>
-                {launch.launchNet ? <div className="mt-1 text-[11px] text-text3">{launch.launchNet}</div> : null}
+                {launch.launchNet ? (
+                  <div className="mt-1 text-[11px] text-text3">
+                    {launch.launchNet}
+                  </div>
+                ) : null}
               </li>
             ))}
           </ul>
         ) : (
-          <p className="mt-3 text-sm text-text3">No associated launches have been resolved for this owner yet.</p>
+          <p className="mt-3 text-sm text-text3">
+            No associated launches have been resolved for this owner yet.
+          </p>
         )}
       </section>
 
@@ -225,8 +290,14 @@ export default async function SatelliteOwnerProfilePage({ params }: { params: Pa
         {profile.satellites.length ? (
           <ul className="mt-4 grid gap-3 md:grid-cols-2">
             {profile.satellites.map((sat) => (
-              <li key={sat.noradCatId} className="rounded-xl border border-stroke bg-surface-0 p-3">
-                <Link href={buildSatelliteHref(sat.noradCatId)} className="text-sm font-semibold text-text1 hover:text-primary">
+              <li
+                key={sat.noradCatId}
+                className="rounded-xl border border-stroke bg-surface-0 p-3"
+              >
+                <Link
+                  href={buildSatelliteHref(sat.noradCatId)}
+                  className="text-sm font-semibold text-text1 hover:text-primary"
+                >
                   {sat.name || `NORAD ${sat.noradCatId}`}
                 </Link>
                 <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-text3">
@@ -235,18 +306,29 @@ export default async function SatelliteOwnerProfilePage({ params }: { params: Pa
                   {sat.objectType ? <span>{sat.objectType}</span> : null}
                 </div>
                 <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-text3">
-                  {typeof sat.perigeeKm === 'number' && Number.isFinite(sat.perigeeKm) ? <span>Perigee: {Math.round(sat.perigeeKm)} km</span> : null}
-                  {typeof sat.apogeeKm === 'number' && Number.isFinite(sat.apogeeKm) ? <span>Apogee: {Math.round(sat.apogeeKm)} km</span> : null}
-                  {typeof sat.inclinationDeg === 'number' && Number.isFinite(sat.inclinationDeg) ? (
+                  {typeof sat.perigeeKm === 'number' &&
+                  Number.isFinite(sat.perigeeKm) ? (
+                    <span>Perigee: {Math.round(sat.perigeeKm)} km</span>
+                  ) : null}
+                  {typeof sat.apogeeKm === 'number' &&
+                  Number.isFinite(sat.apogeeKm) ? (
+                    <span>Apogee: {Math.round(sat.apogeeKm)} km</span>
+                  ) : null}
+                  {typeof sat.inclinationDeg === 'number' &&
+                  Number.isFinite(sat.inclinationDeg) ? (
                     <span>Inc: {sat.inclinationDeg.toFixed(2)}°</span>
                   ) : null}
-                  {sat.satcatUpdatedAt ? <span>Updated: {sat.satcatUpdatedAt}</span> : null}
+                  {sat.satcatUpdatedAt ? (
+                    <span>Updated: {sat.satcatUpdatedAt}</span>
+                  ) : null}
                 </div>
               </li>
             ))}
           </ul>
         ) : (
-          <p className="mt-3 text-sm text-text3">No satellites are currently available for this owner profile.</p>
+          <p className="mt-3 text-sm text-text3">
+            No satellites are currently available for this owner profile.
+          </p>
         )}
       </section>
     </div>

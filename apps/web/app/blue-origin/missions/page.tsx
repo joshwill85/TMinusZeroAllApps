@@ -6,34 +6,38 @@ import { getSiteUrl } from '@/lib/server/env';
 import { buildSiteMeta, SITE_META } from '@/lib/server/siteMeta';
 import { BlueOriginRouteTraceLink } from '@/app/blue-origin/_components/BlueOriginRouteTransitionTracker';
 
-export const dynamic = 'force-dynamic';
 export const revalidate = 60 * 10;
 
 const MISSION_ITEMS = [
   {
     slug: 'new-shepard',
     title: 'New Shepard',
-    summary: 'Suborbital crewed and research missions with passenger and payload-level tracking.'
+    summary:
+      'Suborbital crewed and research missions with passenger and payload-level tracking.'
   },
   {
     slug: 'new-glenn',
     title: 'New Glenn',
-    summary: 'Orbital launch cadence, schedule movement, and government/commercial mission context.'
+    summary:
+      'Orbital launch cadence, schedule movement, and government/commercial mission context.'
   },
   {
     slug: 'blue-moon',
     title: 'Blue Moon',
-    summary: 'Lunar systems timeline, Artemis-linked milestones, and contract evidence.'
+    summary:
+      'Lunar systems timeline, Artemis-linked milestones, and contract evidence.'
   },
   {
     slug: 'blue-ring',
     title: 'Blue Ring',
-    summary: 'In-space logistics mission development and supporting timeline updates.'
+    summary:
+      'In-space logistics mission development and supporting timeline updates.'
   },
   {
     slug: 'be-4',
     title: 'BE-4',
-    summary: 'Engine-program mission context tied to launch integration and public milestones.'
+    summary:
+      'Engine-program mission context tied to launch integration and public milestones.'
   }
 ] as const;
 
@@ -56,7 +60,15 @@ export async function generateMetadata(): Promise<Metadata> {
       url: pageUrl,
       type: 'website',
       siteName: SITE_META.siteName,
-      images: [{ url: siteMeta.ogImage, width: 1200, height: 630, alt: SITE_META.ogImageAlt, type: 'image/jpeg' }]
+      images: [
+        {
+          url: siteMeta.ogImage,
+          width: 1200,
+          height: 630,
+          alt: SITE_META.ogImageAlt,
+          type: 'image/jpeg'
+        }
+      ]
     },
     twitter: {
       card: 'summary_large_image',
@@ -76,7 +88,12 @@ export default async function BlueOriginMissionsIndexPage() {
     '@type': 'BreadcrumbList',
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'Home', item: siteUrl },
-      { '@type': 'ListItem', position: 2, name: 'Blue Origin', item: `${siteUrl}/blue-origin` },
+      {
+        '@type': 'ListItem',
+        position: 2,
+        name: 'Blue Origin',
+        item: `${siteUrl}/blue-origin`
+      },
       { '@type': 'ListItem', position: 3, name: 'Mission Hubs', item: pageUrl }
     ]
   };
@@ -87,17 +104,25 @@ export default async function BlueOriginMissionsIndexPage() {
       <ProgramHubBackLink program="blue-origin" />
 
       <header className="space-y-3">
-        <p className="text-xs uppercase tracking-[0.14em] text-text3">Mission Index</p>
-        <h1 className="text-3xl font-semibold text-text1">Blue Origin Mission Hubs</h1>
+        <p className="text-xs uppercase tracking-[0.14em] text-text3">
+          Mission Index
+        </p>
+        <h1 className="text-3xl font-semibold text-text1">
+          Blue Origin Mission Hubs
+        </h1>
         <p className="max-w-3xl text-sm text-text2">
-          Start at mission family level, then drill into flights, passengers, payloads, contracts, and timeline evidence.
+          Start at mission family level, then drill into flights, passengers,
+          payloads, contracts, and timeline evidence.
         </p>
       </header>
 
       <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
         <ul className="grid gap-3 md:grid-cols-2">
           {MISSION_ITEMS.map((mission) => (
-            <li key={mission.slug} className="rounded-xl border border-stroke bg-surface-0 p-4">
+            <li
+              key={mission.slug}
+              className="rounded-xl border border-stroke bg-surface-0 p-4"
+            >
               <BlueOriginRouteTraceLink
                 href={`/blue-origin/missions/${mission.slug}`}
                 traceLabel={`${mission.title} mission hub`}

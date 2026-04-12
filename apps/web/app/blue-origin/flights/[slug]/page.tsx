@@ -5,14 +5,17 @@ import { fetchBlueOriginFlightHubData } from '@/lib/server/blueOriginFlightHub';
 import { parseBlueOriginFlightSlug } from '@/lib/utils/blueOrigin';
 import { buildLaunchHref } from '@/lib/utils/launchLinks';
 
-export const dynamic = 'force-dynamic';
 export const revalidate = 60 * 10;
 
 type Params = {
   slug: string;
 };
 
-export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
+export async function generateMetadata({
+  params
+}: {
+  params: Params;
+}): Promise<Metadata> {
   const parsed = parseBlueOriginFlightSlug(params.slug);
   if (!parsed) {
     return {
@@ -27,7 +30,11 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
   };
 }
 
-export default async function BlueOriginFlightRedirectPage({ params }: { params: Params }) {
+export default async function BlueOriginFlightRedirectPage({
+  params
+}: {
+  params: Params;
+}) {
   const parsed = parseBlueOriginFlightSlug(params.slug);
   if (!parsed) notFound();
 

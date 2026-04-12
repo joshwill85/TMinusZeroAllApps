@@ -13,13 +13,15 @@ type LaunchCountdownSummaryProps = {
   netPrecision: Launch['netPrecision'];
   padTimeZone?: string | null;
   initialNowMs?: number;
+  showLabel?: boolean;
 };
 
 export function LaunchCountdownSummary({
   net,
   netPrecision,
   padTimeZone,
-  initialNowMs
+  initialNowMs,
+  showLabel = true
 }: LaunchCountdownSummaryProps) {
   const initialNowMsValue =
     typeof initialNowMs === 'number' && Number.isFinite(initialNowMs) ? initialNowMs : Date.now();
@@ -42,10 +44,12 @@ export function LaunchCountdownSummary({
   }, [dateOnly, displayTimeZone, net, netPrecision]);
 
   return (
-    <div className="flex min-w-0 flex-col items-center gap-1">
-      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-text3">
-        {dateOnly ? 'Launch window' : 'T- countdown'}
-      </div>
+    <div className={`flex min-w-0 flex-col items-center ${showLabel ? 'gap-1' : 'gap-0'}`}>
+      {showLabel ? (
+        <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-text3">
+          {dateOnly ? 'Launch window' : 'T- countdown'}
+        </div>
+      ) : null}
       <div className="flex min-w-0 items-center justify-center gap-2 overflow-hidden">
         {dateOnly ? (
           <span className="rounded-full bg-[rgba(234,240,255,0.05)] px-3 py-1 text-xs font-semibold text-text2">Time TBD</span>

@@ -5,10 +5,12 @@ import { BRAND_NAME } from '@/lib/brand';
 import { getSiteUrl } from '@/lib/server/env';
 import { fetchAllSatelliteOwners } from '@/lib/server/satellites';
 import { buildSiteMeta, SITE_META } from '@/lib/server/siteMeta';
-import { buildSatelliteOwnerHref, formatSatelliteOwnerLabel } from '@/lib/utils/satelliteLinks';
+import {
+  buildSatelliteOwnerHref,
+  formatSatelliteOwnerLabel
+} from '@/lib/utils/satelliteLinks';
 
 export const revalidate = 60 * 10; // 10 minutes
-export const dynamic = 'force-dynamic';
 
 export function generateMetadata(): Metadata {
   const siteUrl = getSiteUrl().replace(/\/+$/, '');
@@ -16,7 +18,8 @@ export function generateMetadata(): Metadata {
   const canonical = '/satellites/owners';
   const pageUrl = `${siteUrl}${canonical}`;
   const title = `Satellite Owners | ${BRAND_NAME}`;
-  const description = 'Find satellites grouped by owner code and explore associated launches and catalog objects.';
+  const description =
+    'Find satellites grouped by owner code and explore associated launches and catalog objects.';
 
   return {
     title,
@@ -70,7 +73,12 @@ export default async function SatelliteOwnersPage() {
       '@type': 'BreadcrumbList',
       itemListElement: [
         { '@type': 'ListItem', position: 1, name: 'Home', item: siteUrl },
-        { '@type': 'ListItem', position: 2, name: 'Satellites', item: `${siteUrl}/satellites` },
+        {
+          '@type': 'ListItem',
+          position: 2,
+          name: 'Satellites',
+          item: `${siteUrl}/satellites`
+        },
         { '@type': 'ListItem', position: 3, name: 'Owners', item: pageUrl }
       ]
     },
@@ -104,16 +112,25 @@ export default async function SatelliteOwnersPage() {
       <JsonLd data={jsonLd as any} />
 
       <header className="space-y-3">
-        <div className="text-xs uppercase tracking-[0.14em] text-text3">Satellite Index</div>
+        <div className="text-xs uppercase tracking-[0.14em] text-text3">
+          Satellite Index
+        </div>
         <h1 className="text-3xl font-semibold text-text1">Satellite Owners</h1>
         <p className="max-w-3xl text-sm text-text2">
-          Search-engine friendly owner hubs with satellite counts, launch links, and object-level context from SATCAT data.
+          Search-engine friendly owner hubs with satellite counts, launch links,
+          and object-level context from SATCAT data.
         </p>
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <Link href="/satellites" className="rounded-full border border-stroke px-3 py-1 uppercase tracking-[0.1em] text-text3 hover:text-text1">
+          <Link
+            href="/satellites"
+            className="rounded-full border border-stroke px-3 py-1 uppercase tracking-[0.1em] text-text3 hover:text-text1"
+          >
             All satellites
           </Link>
-          <Link href="/" className="rounded-full border border-stroke px-3 py-1 uppercase tracking-[0.1em] text-text3 hover:text-text1">
+          <Link
+            href="/"
+            className="rounded-full border border-stroke px-3 py-1 uppercase tracking-[0.1em] text-text3 hover:text-text1"
+          >
             Back to launch list
           </Link>
         </div>
@@ -129,19 +146,32 @@ export default async function SatelliteOwnersPage() {
         {rows.length ? (
           <ul className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
             {rows.map((row) => (
-              <li key={row.owner} className="rounded-xl border border-stroke bg-surface-0 p-3">
-                <Link href={row.href || '/satellites/owners'} className="text-sm font-semibold text-text1 hover:text-primary">
+              <li
+                key={row.owner}
+                className="rounded-xl border border-stroke bg-surface-0 p-3"
+              >
+                <Link
+                  href={row.href || '/satellites/owners'}
+                  className="text-sm font-semibold text-text1 hover:text-primary"
+                >
                   {row.label}
                 </Link>
                 <div className="mt-1 text-xs text-text3">
-                  {row.satelliteCount} satellite{row.satelliteCount === 1 ? '' : 's'}
+                  {row.satelliteCount} satellite
+                  {row.satelliteCount === 1 ? '' : 's'}
                 </div>
-                {row.lastSatcatUpdatedAt ? <div className="mt-1 text-[11px] text-text3">Latest update: {row.lastSatcatUpdatedAt}</div> : null}
+                {row.lastSatcatUpdatedAt ? (
+                  <div className="mt-1 text-[11px] text-text3">
+                    Latest update: {row.lastSatcatUpdatedAt}
+                  </div>
+                ) : null}
               </li>
             ))}
           </ul>
         ) : (
-          <p className="mt-3 text-sm text-text3">Owner index data is not available yet.</p>
+          <p className="mt-3 text-sm text-text3">
+            Owner index data is not available yet.
+          </p>
         )}
       </section>
     </div>

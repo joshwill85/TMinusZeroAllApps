@@ -20,7 +20,11 @@ import {
 } from '@/app/blue-origin/_components/BlueOriginSignalLog';
 import { BlueOriginMediaArchive } from '@/app/blue-origin/_components/BlueOriginMediaArchive';
 import { BRAND_NAME } from '@/lib/brand';
-import { getSiteUrl, isSupabaseAdminConfigured, isSupabaseConfigured } from '@/lib/server/env';
+import {
+  getSiteUrl,
+  isSupabaseAdminConfigured,
+  isSupabaseConfigured
+} from '@/lib/server/env';
 import { fetchBlueOriginProgramSnapshot } from '@/lib/server/blueOrigin';
 import { fetchBlueOriginTimelineViewModel } from '@/lib/server/blueOriginUi';
 import {
@@ -44,7 +48,10 @@ import {
 } from '@/lib/server/blueOriginProgramMedia';
 import { buildSiteMeta, SITE_META } from '@/lib/server/siteMeta';
 import type { Launch } from '@/lib/types/launch';
-import type { BlueOriginPassenger, BlueOriginPayload } from '@/lib/types/blueOrigin';
+import type {
+  BlueOriginPassenger,
+  BlueOriginPayload
+} from '@/lib/types/blueOrigin';
 import {
   buildManifestSeats,
   sortByDateAsc,
@@ -64,13 +71,15 @@ import {
   normalizeBlueOriginTravelerRole
 } from '@/lib/utils/blueOrigin';
 import { buildLaunchHref } from '@/lib/utils/launchLinks';
-import { createSupabaseAdminClient, createSupabasePublicClient } from '@/lib/server/supabaseServer';
+import {
+  createSupabaseAdminClient,
+  createSupabasePublicClient
+} from '@/lib/server/supabaseServer';
 import { resolveXPostId } from '@/lib/utils/xSocial';
 import { formatPercent } from '@/lib/utils/formatters';
 import { ProgramContractDiscoveryList } from '@/components/contracts/ProgramContractDiscoveryList';
 import { ProgramHubHero } from '@/components/program-hubs/ProgramHubHero';
 
-export const dynamic = 'force-dynamic';
 export const revalidate = 60 * 10; // 10 minutes
 
 const BLUE_ORIGIN_MISSION_SUMMARY_FACT_KEY = 'mission_summary';
@@ -214,7 +223,10 @@ export default async function BlueOriginProgramPage() {
     });
   };
 
-  const timedFetch = async <T,>(step: string, fetcher: () => Promise<T>): Promise<T> => {
+  const timedFetch = async <T,>(
+    step: string,
+    fetcher: () => Promise<T>
+  ): Promise<T> => {
     const startedAtMs = nowMilliseconds();
     try {
       const result = await fetcher();
@@ -226,8 +238,9 @@ export default async function BlueOriginProgramPage() {
       throw error;
     }
   };
-  const discoveryPagePromise = timedFetch('fetchProgramContractDiscoveryPage', () =>
-    fetchProgramContractDiscoveryPage('blue-origin', { limit: 8 })
+  const discoveryPagePromise = timedFetch(
+    'fetchProgramContractDiscoveryPage',
+    () => fetchProgramContractDiscoveryPage('blue-origin', { limit: 8 })
   ).catch((error) => {
     console.error('blue-origin discovery query error', error);
     return {
@@ -253,27 +266,39 @@ export default async function BlueOriginProgramPage() {
     auditTrailPage,
     discoveryPage
   ] = await Promise.all([
-    timedFetch('fetchBlueOriginProgramSnapshot', () => fetchBlueOriginProgramSnapshot()),
-    timedFetch('fetchBlueOriginTimelineViewModel', () => fetchBlueOriginTimelineViewModel({
-      mode: 'quick',
-      mission: 'all',
-      sourceType: 'all',
-      includeSuperseded: false,
-      from: null,
-      to: null,
-      cursor: null,
-      limit: BLUE_ORIGIN_TIMELINE_INITIAL_LIMIT
-    })),
-    timedFetch('fetchBlueOriginContracts', () => fetchBlueOriginContracts('all')),
+    timedFetch('fetchBlueOriginProgramSnapshot', () =>
+      fetchBlueOriginProgramSnapshot()
+    ),
+    timedFetch('fetchBlueOriginTimelineViewModel', () =>
+      fetchBlueOriginTimelineViewModel({
+        mode: 'quick',
+        mission: 'all',
+        sourceType: 'all',
+        includeSuperseded: false,
+        from: null,
+        to: null,
+        cursor: null,
+        limit: BLUE_ORIGIN_TIMELINE_INITIAL_LIMIT
+      })
+    ),
+    timedFetch('fetchBlueOriginContracts', () =>
+      fetchBlueOriginContracts('all')
+    ),
     timedFetch('fetchBlueOriginPassengersDatabaseOnly', () =>
       fetchBlueOriginPassengersDatabaseOnly('all')
     ),
     timedFetch('fetchBlueOriginPayloads', () => fetchBlueOriginPayloads('all')),
     timedFetch('fetchBlueOriginVehicles', () => fetchBlueOriginVehicles('all')),
     timedFetch('fetchBlueOriginEngines', () => fetchBlueOriginEngines('all')),
-    timedFetch('fetchBlueOriginSocialPosts', () => fetchBlueOriginSocialPosts(8)),
-    timedFetch('fetchBlueOriginYouTubeVideos', () => fetchBlueOriginYouTubeVideos(8)),
-    timedFetch('fetchBlueOriginMediaImages', () => fetchBlueOriginMediaImages(12)),
+    timedFetch('fetchBlueOriginSocialPosts', () =>
+      fetchBlueOriginSocialPosts(8)
+    ),
+    timedFetch('fetchBlueOriginYouTubeVideos', () =>
+      fetchBlueOriginYouTubeVideos(8)
+    ),
+    timedFetch('fetchBlueOriginMediaImages', () =>
+      fetchBlueOriginMediaImages(12)
+    ),
     timedFetch('fetchBlueOriginAuditTrailPage', () =>
       fetchBlueOriginAuditTrailPage(BLUE_ORIGIN_PROCUREMENT_INITIAL_LIMIT)
     ),
@@ -286,7 +311,9 @@ export default async function BlueOriginProgramPage() {
   const allLaunches = buildBlueOriginLaunchRows(dedupedUpcoming, dedupedRecent);
   const launchByFlightCode = new Map<string, Launch>();
   for (const launch of allLaunches) {
-    const flightCode = normalizeManifestLookupKey(extractBlueOriginFlightCode(launch));
+    const flightCode = normalizeManifestLookupKey(
+      extractBlueOriginFlightCode(launch)
+    );
     if (!flightCode || launchByFlightCode.has(flightCode)) continue;
     launchByFlightCode.set(flightCode, launch);
   }
@@ -296,13 +323,17 @@ export default async function BlueOriginProgramPage() {
   const manifestTransformStartMs = nowMilliseconds();
   const nowForManifestMs = Date.now();
   const manifestLaunches = allLaunches;
-  const manifestLaunchIds = [...new Set(
-    manifestLaunches.flatMap((launch) => {
-      const launchId = normalizeBlueOriginLaunchId(launch.id);
-      const ll2LaunchId = normalizeBlueOriginLaunchId(launch.ll2Id);
-      return [launchId, ll2LaunchId].filter((id): id is string => Boolean(id));
-    })
-  )];
+  const manifestLaunchIds = [
+    ...new Set(
+      manifestLaunches.flatMap((launch) => {
+        const launchId = normalizeBlueOriginLaunchId(launch.id);
+        const ll2LaunchId = normalizeBlueOriginLaunchId(launch.ll2Id);
+        return [launchId, ll2LaunchId].filter((id): id is string =>
+          Boolean(id)
+        );
+      })
+    )
+  ];
 
   const manifestPassengerLookup = buildManifestRecordLookup(passengers.items);
   const manifestPayloadLookup = buildManifestRecordLookup(payloads.items);
@@ -313,12 +344,18 @@ export default async function BlueOriginProgramPage() {
       ).length === 0
   );
 
-  const [manifestEnhancementFacts, manifestLl2PayloadByLaunchId, manifestLl2SpacecraftFlightsByLaunchUuid] = await Promise.all([
+  const [
+    manifestEnhancementFacts,
+    manifestLl2PayloadByLaunchId,
+    manifestLl2SpacecraftFlightsByLaunchUuid
+  ] = await Promise.all([
     timedFetch('fetchBlueOriginManifestFactsByLaunchIds', () =>
       fetchBlueOriginManifestFactsByLaunchIds(manifestLaunchIds)
     ),
     timedFetch('fetchBlueOriginManifestLl2PayloadDataByLaunches', () =>
-      fetchBlueOriginManifestLl2PayloadDataByLaunches(launchesNeedingLl2ManifestPayloads)
+      fetchBlueOriginManifestLl2PayloadDataByLaunches(
+        launchesNeedingLl2ManifestPayloads
+      )
     ),
     timedFetch('fetchBlueOriginManifestLl2SpacecraftFlightsByLaunches', () =>
       fetchBlueOriginManifestLl2SpacecraftFlightsByLaunches(manifestLaunches)
@@ -326,7 +363,10 @@ export default async function BlueOriginProgramPage() {
   ]);
 
   const manifestData = manifestLaunches.map((launch) => {
-    const launchLl2PayloadData = getManifestRowsByLaunchKey(manifestLl2PayloadByLaunchId, launch);
+    const launchLl2PayloadData = getManifestRowsByLaunchKey(
+      manifestLl2PayloadByLaunchId,
+      launch
+    );
     const ll2LaunchUuid = normalizeLl2LaunchUuid(launch.ll2Id);
     const launchLl2SpacecraftFlights = ll2LaunchUuid
       ? manifestLl2SpacecraftFlightsByLaunchUuid.get(ll2LaunchUuid) || []
@@ -342,16 +382,19 @@ export default async function BlueOriginProgramPage() {
       launch.mission?.description || null
     );
 
-    const ll2ManifestCrew = resolveBlueOriginManifestCrewRowsFromLl2SpacecraftFlights(
-      launch,
-      launchLl2SpacecraftFlights
-    );
+    const ll2ManifestCrew =
+      resolveBlueOriginManifestCrewRowsFromLl2SpacecraftFlights(
+        launch,
+        launchLl2SpacecraftFlights
+      );
     const verifiedPassengerRows = [
       ...getManifestRowsForLaunch(manifestPassengerLookup, launch),
       ...ll2ManifestCrew.passengers
     ].filter(isVerifiedBlueOriginManifestPassenger);
     const humanPassengerRows: typeof verifiedPassengerRows = [];
-    const passengerPayloadRows: Array<(typeof verifiedPassengerRows)[number] & { payloadType: string | null }> = [];
+    const passengerPayloadRows: Array<
+      (typeof verifiedPassengerRows)[number] & { payloadType: string | null }
+    > = [];
     for (const row of verifiedPassengerRows) {
       if (shouldTreatBlueOriginPassengerAsPayload(row)) {
         passengerPayloadRows.push({
@@ -371,14 +414,18 @@ export default async function BlueOriginProgramPage() {
     );
 
     const verifiedPayloadRows = [
-      ...getManifestRowsForLaunch(manifestPayloadLookup, launch).filter(isVerifiedBlueOriginManifestPayload),
+      ...getManifestRowsForLaunch(manifestPayloadLookup, launch).filter(
+        isVerifiedBlueOriginManifestPayload
+      ),
       ...launchLl2PayloadData.filter(isVerifiedBlueOriginManifestPayload)
     ];
 
     if (verifiedPayloadRows.length === 0) {
-      const syntheticPayloadRows = deriveSyntheticBlueOriginPayloadRowsFromMissionSummary(launch, missionSummary).filter(
-        isVerifiedBlueOriginManifestPayload
-      );
+      const syntheticPayloadRows =
+        deriveSyntheticBlueOriginPayloadRowsFromMissionSummary(
+          launch,
+          missionSummary
+        ).filter(isVerifiedBlueOriginManifestPayload);
       verifiedPayloadRows.push(...syntheticPayloadRows);
     }
 
@@ -394,7 +441,10 @@ export default async function BlueOriginProgramPage() {
       manifestPayloadCount: launchPayloads.length,
       ll2PassengerCount: ll2ManifestCrew.passengers.length
     });
-    const manifestSourceTags = collectManifestSourceTags([...launchPassengers, ...launchPayloads]);
+    const manifestSourceTags = collectManifestSourceTags([
+      ...launchPassengers,
+      ...launchPayloads
+    ]);
 
     const { seats, hasExplicitSeatAssignments } = buildManifestSeats(
       launchPassengers.map((passenger) => ({
@@ -424,9 +474,9 @@ export default async function BlueOriginProgramPage() {
       manifestSourceTags,
       mannedStatus,
       launchStatusTone: getLaunchStatusTone(launch.status, launch.statusText),
-      launchStatus: normalizeBlueOriginFactText(
-        launch.statusText || launch.status
-      ) || 'Unknown'
+      launchStatus:
+        normalizeBlueOriginFactText(launch.statusText || launch.status) ||
+        'Unknown'
     };
   });
   const manifestCarouselItems = sortByDateAsc(
@@ -460,11 +510,13 @@ export default async function BlueOriginProgramPage() {
       seats: item.seats,
       hasExplicitSeatAssignments: item.hasExplicitSeatAssignments,
       missionVehicle: normalizeBlueOriginFactText(item.launch.vehicle) || null,
-      missionProvider: normalizeBlueOriginFactText(item.launch.provider) || 'Blue Origin',
+      missionProvider:
+        normalizeBlueOriginFactText(item.launch.provider) || 'Blue Origin',
       missionPad: item.launch.pad?.name
         ? `${normalizeBlueOriginFactText(item.launch.pad.name)} (${normalizeBlueOriginFactText(item.launch.pad.shortCode) || 'pad'})`
         : null,
-      missionPadState: normalizeBlueOriginFactText(item.launch.pad?.state) || null,
+      missionPadState:
+        normalizeBlueOriginFactText(item.launch.pad?.state) || null,
       manifestCapacity: item.manifestCapacity,
       manifestTravelerCount: item.manifestTravelerCount,
       manifestPayloadCount: item.manifestPayloadCount,
@@ -472,7 +524,12 @@ export default async function BlueOriginProgramPage() {
       isUnmannedFlight: item.mannedStatus === 'unmanned'
     };
   });
-  pushTiming('transform', 'buildManifestCarouselItems', manifestTransformStartMs, 'ok');
+  pushTiming(
+    'transform',
+    'buildManifestCarouselItems',
+    manifestTransformStartMs,
+    'ok'
+  );
 
   // 2. Transform Hardware Data
   const hardwareTransformStartMs = nowMilliseconds();
@@ -516,7 +573,12 @@ export default async function BlueOriginProgramPage() {
     (entry) => entry.postedDate,
     (entry) => entry.id
   );
-  pushTiming('transform', 'buildProcurementEntries', procurementTransformStartMs, 'ok');
+  pushTiming(
+    'transform',
+    'buildProcurementEntries',
+    procurementTransformStartMs,
+    'ok'
+  );
 
   // 4. Transform Signal Log Data
   const signalTransformStartMs = nowMilliseconds();
@@ -524,13 +586,21 @@ export default async function BlueOriginProgramPage() {
     const eventFlightCode = extractBlueOriginFlightCodeFromText(
       `${e.title} ${e.summary || ''}`
     );
-    const sourceFlightCode = extractBlueOriginFlightCodeFromUrl(e.source.href || null);
-    const normalizedEventFlightCode = normalizeManifestLookupKey(eventFlightCode);
-    const normalizedSourceFlightCode = normalizeManifestLookupKey(sourceFlightCode);
+    const sourceFlightCode = extractBlueOriginFlightCodeFromUrl(
+      e.source.href || null
+    );
+    const normalizedEventFlightCode =
+      normalizeManifestLookupKey(eventFlightCode);
+    const normalizedSourceFlightCode =
+      normalizeManifestLookupKey(sourceFlightCode);
     const linkedLaunch =
       e.launch ||
-      (normalizedEventFlightCode ? launchByFlightCode.get(normalizedEventFlightCode) : null) ||
-      (normalizedSourceFlightCode ? launchByFlightCode.get(normalizedSourceFlightCode) : null);
+      (normalizedEventFlightCode
+        ? launchByFlightCode.get(normalizedEventFlightCode)
+        : null) ||
+      (normalizedSourceFlightCode
+        ? launchByFlightCode.get(normalizedSourceFlightCode)
+        : null);
     const launchHref = linkedLaunch ? buildLaunchHref(linkedLaunch) : null;
 
     return {
@@ -624,7 +694,8 @@ export default async function BlueOriginProgramPage() {
   ).size;
   const hasOfficialHumanCountGap =
     trackedNewShepardHumanCount !== NEW_SHEPARD_OFFICIAL_HUMAN_COUNT ||
-    trackedNewShepardUniqueHumanCount !== NEW_SHEPARD_OFFICIAL_UNIQUE_HUMAN_COUNT;
+    trackedNewShepardUniqueHumanCount !==
+      NEW_SHEPARD_OFFICIAL_UNIQUE_HUMAN_COUNT;
   const highConfidenceTimelineRate =
     timeline.kpis.totalEvents > 0
       ? timeline.kpis.highConfidenceEvents / timeline.kpis.totalEvents
@@ -712,7 +783,8 @@ export default async function BlueOriginProgramPage() {
             {
               label: 'Traveler records',
               value: passengers.items.length.toLocaleString(),
-              detail: 'Crew and passenger directory coverage from shared loaders.'
+              detail:
+                'Crew and passenger directory coverage from shared loaders.'
             },
             {
               label: 'Verified events',
@@ -729,25 +801,29 @@ export default async function BlueOriginProgramPage() {
             {
               href: '/blue-origin/missions',
               label: 'Mission hubs',
-              description: 'New Shepard, New Glenn, Blue Moon, Blue Ring, and BE-4 route families.',
+              description:
+                'New Shepard, New Glenn, Blue Moon, Blue Ring, and BE-4 route families.',
               eyebrow: 'Primary routes'
             },
             {
               href: '/blue-origin/flights',
               label: 'Flight records',
-              description: 'Mission flight history with launch routing and manifest handoff.',
+              description:
+                'Mission flight history with launch routing and manifest handoff.',
               eyebrow: 'Operations'
             },
             {
               href: '/blue-origin/travelers',
               label: 'Traveler directory',
-              description: 'Crew and passenger profiles with mission-linked browsing.',
+              description:
+                'Crew and passenger profiles with mission-linked browsing.',
               eyebrow: 'People'
             },
             {
               href: '/blue-origin/contracts',
               label: 'Contracts',
-              description: 'Internal story pages backed by SAM.gov and USAspending records.',
+              description:
+                'Internal story pages backed by SAM.gov and USAspending records.',
               eyebrow: 'Records'
             }
           ]}
@@ -758,7 +834,12 @@ export default async function BlueOriginProgramPage() {
           ]}
           footnote={
             <span>
-              Last hub snapshot rendered <span className="font-semibold text-text1">{lastUpdatedLabel}</span>. New Shepard pause context stays visible below so the page still opens with the clearest current program signal.
+              Last hub snapshot rendered{' '}
+              <span className="font-semibold text-text1">
+                {lastUpdatedLabel}
+              </span>
+              . New Shepard pause context stays visible below so the page still
+              opens with the clearest current program signal.
             </span>
           }
         />
@@ -840,7 +921,9 @@ export default async function BlueOriginProgramPage() {
               <p className="mt-2 text-2xl font-semibold text-text1">
                 {upcomingNewShepardLaunchCount}
               </p>
-              <p className="text-xs text-text3">Listed in current launch feed</p>
+              <p className="text-xs text-text3">
+                Listed in current launch feed
+              </p>
             </div>
 
             <div className="rounded-xl border border-stroke bg-surface-0 p-3">
@@ -848,7 +931,9 @@ export default async function BlueOriginProgramPage() {
                 Program Status
               </p>
               <p className="mt-2 text-sm font-semibold text-text1">Paused</p>
-              <p className="mt-1 text-xs text-text2">{NEW_SHEPARD_STATUS_SUMMARY}</p>
+              <p className="mt-1 text-xs text-text2">
+                {NEW_SHEPARD_STATUS_SUMMARY}
+              </p>
             </div>
           </div>
 
@@ -865,9 +950,9 @@ export default async function BlueOriginProgramPage() {
           </p>
           {hasOfficialHumanCountGap ? (
             <p className="mt-2 text-xs text-text3">
-              Internal roster currently tracks {trackedNewShepardHumanCount} humans (
-              {trackedNewShepardUniqueHumanCount} unique), while Blue Origin reports{' '}
-              {NEW_SHEPARD_OFFICIAL_HUMAN_COUNT} humans (
+              Internal roster currently tracks {trackedNewShepardHumanCount}{' '}
+              humans ({trackedNewShepardUniqueHumanCount} unique), while Blue
+              Origin reports {NEW_SHEPARD_OFFICIAL_HUMAN_COUNT} humans (
               {NEW_SHEPARD_OFFICIAL_UNIQUE_HUMAN_COUNT} unique).
             </p>
           ) : null}
@@ -905,7 +990,8 @@ export default async function BlueOriginProgramPage() {
               03 Contracts and Records
             </h2>
             <p className="mt-1 text-sm text-text3 italic">
-              Internal contract pages with linked SAM.gov and USASpending source records.
+              Internal contract pages with linked SAM.gov and USASpending source
+              records.
             </p>
           </div>
           <BlueOriginProcurementLedger
@@ -928,8 +1014,7 @@ export default async function BlueOriginProgramPage() {
               04 Timeline and Updates
             </h2>
             <p className="mt-1 text-sm text-text3 italic">
-              Source-backed mission milestones and official posts in one
-              stream.
+              Source-backed mission milestones and official posts in one stream.
             </p>
           </div>
           <BlueOriginSignalLog
@@ -963,7 +1048,10 @@ export default async function BlueOriginProgramPage() {
 }
 
 function nowMilliseconds() {
-  if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+  if (
+    typeof performance !== 'undefined' &&
+    typeof performance.now === 'function'
+  ) {
     return performance.now();
   }
   return Date.now();
@@ -1073,7 +1161,9 @@ type ManifestRecordLookup<T extends ManifestRecordForLookup> = {
 };
 
 function buildManifestLookupKeys(launch: Launch) {
-  const flightCode = normalizeManifestLookupKey(extractBlueOriginFlightCode(launch));
+  const flightCode = normalizeManifestLookupKey(
+    extractBlueOriginFlightCode(launch)
+  );
   const launchName = normalizeManifestLookupKey(launch.name);
   const launchDate = normalizeManifestDateKey(launch.net);
 
@@ -1081,9 +1171,12 @@ function buildManifestLookupKeys(launch: Launch) {
     launchId: normalizeManifestLookupKey(launch.id),
     ll2LaunchId: normalizeManifestLookupKey(launch.ll2Id),
     flightCode,
-    flightSlug: flightCode ? normalizeManifestLookupKey(buildBlueOriginFlightSlug(flightCode)) : null,
+    flightSlug: flightCode
+      ? normalizeManifestLookupKey(buildBlueOriginFlightSlug(flightCode))
+      : null,
     launchName,
-    launchNameDateKey: launchName && launchDate ? `${launchDate}|${launchName}` : null
+    launchNameDateKey:
+      launchName && launchDate ? `${launchDate}|${launchName}` : null
   };
 }
 
@@ -1096,7 +1189,11 @@ function buildManifestRecordLookup<T extends ManifestRecordForLookup>(
   const byLaunchName = new Map<string, T[]>();
   const byLaunchNameDate = new Map<string, T[]>();
 
-  const addToLookup = (bucket: Map<string, T[]>, key: string | null, value: T) => {
+  const addToLookup = (
+    bucket: Map<string, T[]>,
+    key: string | null,
+    value: T
+  ) => {
     if (!key) return;
     const existing = bucket.get(key) || [];
     existing.push(value);
@@ -1121,7 +1218,13 @@ function buildManifestRecordLookup<T extends ManifestRecordForLookup>(
     );
   }
 
-  return { byLaunchId, byFlightCode, byFlightSlug, byLaunchName, byLaunchNameDate };
+  return {
+    byLaunchId,
+    byFlightCode,
+    byFlightSlug,
+    byLaunchName,
+    byLaunchNameDate
+  };
 }
 
 function getManifestRowsForLaunch<T extends ManifestRecordForLookup>(
@@ -1213,103 +1316,135 @@ async function fetchBlueOriginManifestLl2PayloadDataByLaunches(
 
   const supabase = createSupabaseAdminClient();
 
-  const flightChunkQueries = chunkArray(ll2LaunchIds, BLUE_ORIGIN_LAUNCH_BATCH_SIZE).map(
-    (chunk) =>
-      supabase
-        .from('ll2_payload_flights')
-        .select('ll2_payload_flight_id,ll2_launch_uuid,ll2_payload_id,destination,amount,active,launch_id')
-        .in('ll2_launch_uuid', chunk)
-        .limit(5000)
+  const flightChunkQueries = chunkArray(
+    ll2LaunchIds,
+    BLUE_ORIGIN_LAUNCH_BATCH_SIZE
+  ).map((chunk) =>
+    supabase
+      .from('ll2_payload_flights')
+      .select(
+        'll2_payload_flight_id,ll2_launch_uuid,ll2_payload_id,destination,amount,active,launch_id'
+      )
+      .in('ll2_launch_uuid', chunk)
+      .limit(5000)
   );
 
   const flightChunkResults = await Promise.all(flightChunkQueries);
   const payloadFlights: BlueOriginManifestLl2PayloadFlightRow[] = [];
   for (const result of flightChunkResults) {
     if (result.error) {
-      console.error('blue origin manifest ll2 payload flights query error', result.error);
+      console.error(
+        'blue origin manifest ll2 payload flights query error',
+        result.error
+      );
       continue;
     }
 
-    payloadFlights.push(...((result.data || []) as BlueOriginManifestLl2PayloadFlightRow[]));
+    payloadFlights.push(
+      ...((result.data || []) as BlueOriginManifestLl2PayloadFlightRow[])
+    );
   }
 
-  const payloadIdList = [...new Set(
-    payloadFlights
-      .map((row) => row.ll2_payload_id)
-      .filter((value): value is number => value != null)
-  )];
+  const payloadIdList = [
+    ...new Set(
+      payloadFlights
+        .map((row) => row.ll2_payload_id)
+        .filter((value): value is number => value != null)
+    )
+  ];
   if (!payloadIdList.length) {
     return new Map<string, BlueOriginPayload[]>();
   }
 
   const payloadById = new Map<number, BlueOriginManifestLl2PayloadDetailRow>();
-  const payloadIdQueries = chunkArray(payloadIdList, BLUE_ORIGIN_LAUNCH_PAYLOAD_BATCH_SIZE).map(
-    (chunk) =>
-      supabase
-        .from('ll2_payloads')
-        .select('ll2_payload_id,name,payload_type_id,manufacturer_id,operator_id')
-        .in('ll2_payload_id', chunk)
-        .limit(5000)
+  const payloadIdQueries = chunkArray(
+    payloadIdList,
+    BLUE_ORIGIN_LAUNCH_PAYLOAD_BATCH_SIZE
+  ).map((chunk) =>
+    supabase
+      .from('ll2_payloads')
+      .select('ll2_payload_id,name,payload_type_id,manufacturer_id,operator_id')
+      .in('ll2_payload_id', chunk)
+      .limit(5000)
   );
 
   const payloadIdResults = await Promise.all(payloadIdQueries);
   for (const result of payloadIdResults) {
     if (result.error) {
-      console.error('blue origin manifest ll2 payload query error', result.error);
+      console.error(
+        'blue origin manifest ll2 payload query error',
+        result.error
+      );
       continue;
     }
 
-    for (const row of (result.data || []) as BlueOriginManifestLl2PayloadDetailRow[]) {
+    for (const row of (result.data ||
+      []) as BlueOriginManifestLl2PayloadDetailRow[]) {
       payloadById.set(row.ll2_payload_id, row);
     }
   }
 
-  const payloadTypeIdList = [...new Set(
-    [...payloadById.values()]
-      .map((row) => row.payload_type_id)
-      .filter((value): value is number => value != null)
-  )];
+  const payloadTypeIdList = [
+    ...new Set(
+      [...payloadById.values()]
+        .map((row) => row.payload_type_id)
+        .filter((value): value is number => value != null)
+    )
+  ];
   const payloadTypeById = new Map<number, string>();
-  const payloadTypeQueries = chunkArray(payloadTypeIdList, BLUE_ORIGIN_LAUNCH_PAYLOAD_BATCH_SIZE).map(
-    (chunk) =>
-      supabase
-        .from('ll2_payload_types')
-        .select('ll2_payload_type_id,name')
-        .in('ll2_payload_type_id', chunk)
-        .limit(5000)
+  const payloadTypeQueries = chunkArray(
+    payloadTypeIdList,
+    BLUE_ORIGIN_LAUNCH_PAYLOAD_BATCH_SIZE
+  ).map((chunk) =>
+    supabase
+      .from('ll2_payload_types')
+      .select('ll2_payload_type_id,name')
+      .in('ll2_payload_type_id', chunk)
+      .limit(5000)
   );
 
   const payloadTypeResults = await Promise.all(payloadTypeQueries);
   for (const result of payloadTypeResults) {
     if (result.error) {
-      console.error('blue origin manifest ll2 payload type query error', result.error);
+      console.error(
+        'blue origin manifest ll2 payload type query error',
+        result.error
+      );
       continue;
     }
 
-    for (const row of (result.data || []) as BlueOriginManifestLl2PayloadTypeRow[]) {
+    for (const row of (result.data ||
+      []) as BlueOriginManifestLl2PayloadTypeRow[]) {
       payloadTypeById.set(row.ll2_payload_type_id, row.name);
     }
   }
 
-  const agencyIds = [...new Set(
-    [...payloadById.values()]
-      .map((row) => row.operator_id || row.manufacturer_id)
-      .filter((value): value is number => value != null)
-  )];
+  const agencyIds = [
+    ...new Set(
+      [...payloadById.values()]
+        .map((row) => row.operator_id || row.manufacturer_id)
+        .filter((value): value is number => value != null)
+    )
+  ];
   const agencyById = new Map<number, string>();
-  const agencyQueries = chunkArray(agencyIds, BLUE_ORIGIN_LAUNCH_PAYLOAD_BATCH_SIZE).map(
-    (chunk) =>
-      supabase
-        .from('ll2_agencies')
-        .select('ll2_agency_id,name')
-        .in('ll2_agency_id', chunk)
-        .limit(5000)
+  const agencyQueries = chunkArray(
+    agencyIds,
+    BLUE_ORIGIN_LAUNCH_PAYLOAD_BATCH_SIZE
+  ).map((chunk) =>
+    supabase
+      .from('ll2_agencies')
+      .select('ll2_agency_id,name')
+      .in('ll2_agency_id', chunk)
+      .limit(5000)
   );
 
   const agencyResults = await Promise.all(agencyQueries);
   for (const result of agencyResults) {
     if (result.error) {
-      console.error('blue origin manifest ll2 agency query error', result.error);
+      console.error(
+        'blue origin manifest ll2 agency query error',
+        result.error
+      );
       continue;
     }
 
@@ -1333,11 +1468,17 @@ async function fetchBlueOriginManifestLl2PayloadDataByLaunches(
 
   for (const row of payloadFlights) {
     if (!row.ll2_payload_id) continue;
-    const normalizedLl2LaunchId = normalizeManifestLookupKey(row.ll2_launch_uuid);
+    const normalizedLl2LaunchId = normalizeManifestLookupKey(
+      row.ll2_launch_uuid
+    );
     const normalizedLaunchId = normalizeManifestLookupKey(row.launch_id);
     const launchCandidates = [
-      ...(normalizedLl2LaunchId ? launchByLookupKey.get(normalizedLl2LaunchId) || [] : []),
-      ...(normalizedLaunchId ? launchByLookupKey.get(normalizedLaunchId) || [] : [])
+      ...(normalizedLl2LaunchId
+        ? launchByLookupKey.get(normalizedLl2LaunchId) || []
+        : []),
+      ...(normalizedLaunchId
+        ? launchByLookupKey.get(normalizedLaunchId) || []
+        : [])
     ];
 
     const launch = launchCandidates[0];
@@ -1347,14 +1488,17 @@ async function fetchBlueOriginManifestLl2PayloadDataByLaunches(
     if (!payloadProfile) continue;
 
     const flightCode = extractBlueOriginFlightCode(launch);
-    const missionKey = getBlueOriginMissionKeyFromLaunch(launch) || 'blue-origin-program';
+    const missionKey =
+      getBlueOriginMissionKeyFromLaunch(launch) || 'blue-origin-program';
     const payloadType = payloadProfile.payload_type_id
       ? payloadTypeById.get(payloadProfile.payload_type_id) || null
       : null;
-    const agencyId = payloadProfile.operator_id || payloadProfile.manufacturer_id;
-    const agency = agencyId && agencyById.get(agencyId)
-      ? normalizeBlueOriginFactText(agencyById.get(agencyId))
-      : null;
+    const agencyId =
+      payloadProfile.operator_id || payloadProfile.manufacturer_id;
+    const agency =
+      agencyId && agencyById.get(agencyId)
+        ? normalizeBlueOriginFactText(agencyById.get(agencyId))
+        : null;
 
     const payloadRow: BlueOriginPayload = {
       id: `ll2_manifest:${launch.id}:${row.ll2_payload_flight_id}`,
@@ -1363,7 +1507,10 @@ async function fetchBlueOriginManifestLl2PayloadDataByLaunches(
       flightSlug: flightCode ? buildBlueOriginFlightSlug(flightCode) : null,
       name: payloadProfile.name,
       payloadType,
-      orbit: normalizeBlueOriginFactText(row.destination) || normalizeBlueOriginFactText(launch.mission?.orbit) || null,
+      orbit:
+        normalizeBlueOriginFactText(row.destination) ||
+        normalizeBlueOriginFactText(launch.mission?.orbit) ||
+        null,
       agency,
       launchId: launch.id,
       launchName: normalizeBlueOriginFactText(launch.name) || launch.id,
@@ -1375,7 +1522,9 @@ async function fetchBlueOriginManifestLl2PayloadDataByLaunches(
     const launchLookupKeys = new Set<string>();
     for (const launchCandidate of launchCandidates) {
       const launchId = normalizeManifestLookupKey(launchCandidate.id);
-      const ll2LaunchCandidateId = normalizeManifestLookupKey(launchCandidate.ll2Id);
+      const ll2LaunchCandidateId = normalizeManifestLookupKey(
+        launchCandidate.ll2Id
+      );
       if (launchId) launchLookupKeys.add(launchId);
       if (ll2LaunchCandidateId) launchLookupKeys.add(ll2LaunchCandidateId);
     }
@@ -1409,12 +1558,19 @@ async function fetchBlueOriginManifestLl2SpacecraftFlightsByLaunches(
   }
 
   const runQuery = async (
-    client: ReturnType<typeof createSupabasePublicClient> | ReturnType<typeof createSupabaseAdminClient>
+    client:
+      | ReturnType<typeof createSupabasePublicClient>
+      | ReturnType<typeof createSupabaseAdminClient>
   ) => {
-    const queries = chunkArray(ll2LaunchIds, BLUE_ORIGIN_LAUNCH_SPACECRAFT_FLIGHT_BATCH_SIZE).map((chunk) =>
+    const queries = chunkArray(
+      ll2LaunchIds,
+      BLUE_ORIGIN_LAUNCH_SPACECRAFT_FLIGHT_BATCH_SIZE
+    ).map((chunk) =>
       client
         .from('ll2_spacecraft_flights')
-        .select('ll2_spacecraft_flight_id,ll2_launch_uuid,launch_crew,onboard_crew,landing_crew,active')
+        .select(
+          'll2_spacecraft_flight_id,ll2_launch_uuid,launch_crew,onboard_crew,landing_crew,active'
+        )
         .in('ll2_launch_uuid', chunk)
         .limit(5_000)
     );
@@ -1427,25 +1583,36 @@ async function fetchBlueOriginManifestLl2SpacecraftFlightsByLaunches(
       if (result.error) {
         errorCount += 1;
         // eslint-disable-next-line no-console
-        console.error('blue origin manifest ll2 spacecraft flights query error', result.error);
+        console.error(
+          'blue origin manifest ll2 spacecraft flights query error',
+          result.error
+        );
         continue;
       }
 
-      rows.push(...((result.data || []) as BlueOriginManifestLl2SpacecraftFlightRow[]));
+      rows.push(
+        ...((result.data || []) as BlueOriginManifestLl2SpacecraftFlightRow[])
+      );
     }
 
     return { rows, errorCount };
   };
 
   let result = await runQuery(createSupabasePublicClient());
-  if ((result.errorCount > 0 || result.rows.length === 0) && isSupabaseAdminConfigured()) {
+  if (
+    (result.errorCount > 0 || result.rows.length === 0) &&
+    isSupabaseAdminConfigured()
+  ) {
     const adminResult = await runQuery(createSupabaseAdminClient());
     if (adminResult.rows.length > 0) {
       result = adminResult;
     }
   }
 
-  const flightsByLaunchUuid = new Map<string, BlueOriginManifestLl2SpacecraftFlightRow[]>();
+  const flightsByLaunchUuid = new Map<
+    string,
+    BlueOriginManifestLl2SpacecraftFlightRow[]
+  >();
   for (const row of result.rows) {
     const uuid = normalizeLl2LaunchUuid(row.ll2_launch_uuid);
     if (!uuid) continue;
@@ -1466,9 +1633,7 @@ function chunkArray<T>(values: T[], size: number): T[][] {
   return chunks;
 }
 
-function collectManifestSourceTags(
-  rows: Array<{ source?: string | null }>
-) {
+function collectManifestSourceTags(rows: Array<{ source?: string | null }>) {
   const sourceSet = new Set<string>();
 
   for (const row of rows) {
@@ -1476,7 +1641,9 @@ function collectManifestSourceTags(
     if (label) sourceSet.add(label);
   }
 
-  return [...sourceSet.values()].sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }));
+  return [...sourceSet.values()].sort((left, right) =>
+    left.localeCompare(right, undefined, { sensitivity: 'base' })
+  );
 }
 
 function normalizeManifestSourceLabel(value: string | null) {
@@ -1488,10 +1655,16 @@ function normalizeManifestSourceLabel(value: string | null) {
   if (lower === 'database') return 'Blue Origin Database';
   if (lower.startsWith('launches_public_cache')) return 'Launches Public Cache';
   if (lower.startsWith('ll2-api')) return 'LL2 API';
-  if (lower === 'll2_spacecraft_flights' || lower.startsWith('ll2_spacecraft_flights')) {
+  if (
+    lower === 'll2_spacecraft_flights' ||
+    lower.startsWith('ll2_spacecraft_flights')
+  ) {
     return 'LL2 Spacecraft Flights';
   }
-  if (lower === 'll2_payload_manifest' || lower.startsWith('ll2_payload_manifest')) {
+  if (
+    lower === 'll2_payload_manifest' ||
+    lower.startsWith('ll2_payload_manifest')
+  ) {
     return 'LL2 Payload Manifest';
   }
   if (lower.startsWith('wikipedia')) return 'Wikipedia';
@@ -1510,22 +1683,25 @@ function normalizeManifestSourceLabel(value: string | null) {
   if (lower.includes('blueorigin_multisource:bo_manifest_payloads')) {
     return 'Blue Origin Multisource Payloads';
   }
-  if (lower.startsWith('blueorigin_multisource')) return 'Blue Origin Multisource';
+  if (lower.startsWith('blueorigin_multisource'))
+    return 'Blue Origin Multisource';
   if (lower.startsWith('curated-fallback')) return 'Blue Origin Curated';
 
   const source = normalized.split(':')[0] || normalized;
   return source ? `${source}` : '';
 }
 
-function mergeManifestPeopleAndPayloadSourceRows<T extends {
-  id?: string | null;
-  name?: string | null;
-  source?: string | null;
-  flightCode?: string | null;
-  launchId?: string | null;
-  launchName?: string | null;
-  payloadType?: string | null;
-}>(
+function mergeManifestPeopleAndPayloadSourceRows<
+  T extends {
+    id?: string | null;
+    name?: string | null;
+    source?: string | null;
+    flightCode?: string | null;
+    launchId?: string | null;
+    launchName?: string | null;
+    payloadType?: string | null;
+  }
+>(
   rows: T[],
   launchKeyOverride?: string | null,
   mergeKind: 'traveler' | 'payload' = 'payload'
@@ -1556,13 +1732,17 @@ function mergeManifestPeopleAndPayloadSourceRows<T extends {
   for (const row of rows) {
     const flightKey =
       normalizeManifestDedupeKey(launchKeyOverride) ||
-      normalizeManifestDedupeKey(row.flightCode || row.launchId || row.launchName || 'unknown');
+      normalizeManifestDedupeKey(
+        row.flightCode || row.launchId || row.launchName || 'unknown'
+      );
     const nameKey =
       mergeKind === 'traveler'
         ? buildBlueOriginTravelerIdentityKey(row.name, row.flightCode)
         : normalizeManifestDedupeKey(row.name);
     if (!nameKey) continue;
-    const typeKey = normalizeManifestDedupeKey((row as { payloadType?: string | null }).payloadType);
+    const typeKey = normalizeManifestDedupeKey(
+      (row as { payloadType?: string | null }).payloadType
+    );
     const dedupeKey = `${flightKey}|${nameKey}${typeKey ? `|${typeKey}` : ''}`;
 
     const existing = deduped.get(dedupeKey);
@@ -1571,8 +1751,12 @@ function mergeManifestPeopleAndPayloadSourceRows<T extends {
       continue;
     }
 
-    const existingConfidence = confidenceRank((existing as { confidence?: 'high' | 'medium' | 'low' }).confidence);
-    const rowConfidence = confidenceRank((row as { confidence?: 'high' | 'medium' | 'low' }).confidence);
+    const existingConfidence = confidenceRank(
+      (existing as { confidence?: 'high' | 'medium' | 'low' }).confidence
+    );
+    const rowConfidence = confidenceRank(
+      (row as { confidence?: 'high' | 'medium' | 'low' }).confidence
+    );
 
     if (rowConfidence > existingConfidence) {
       deduped.set(dedupeKey, mergeRows(row, existing));
@@ -1602,8 +1786,10 @@ function isLikelyBlueOriginManifestPassengerName(value: string) {
   if (/[|=]/.test(normalized)) return false;
   if (!/\p{L}/u.test(normalized)) return false;
   if (normalized.length > 96) return false;
-  if (BLUE_ORIGIN_MANIFEST_PASSENGER_NOISE_PHRASE_PATTERN.test(normalized)) return false;
-  if (BLUE_ORIGIN_MANIFEST_PASSENGER_NOISE_TOKEN_PATTERN.test(normalized)) return false;
+  if (BLUE_ORIGIN_MANIFEST_PASSENGER_NOISE_PHRASE_PATTERN.test(normalized))
+    return false;
+  if (BLUE_ORIGIN_MANIFEST_PASSENGER_NOISE_TOKEN_PATTERN.test(normalized))
+    return false;
 
   const tokenized = normalized
     .normalize('NFKD')
@@ -1626,7 +1812,8 @@ function isLikelyBlueOriginManifestPayloadName(value: string) {
   if (/[|=]/.test(normalized)) return false;
   if (!/\p{L}/u.test(normalized)) return false;
   if (normalized.length < 2 || normalized.length > 96) return false;
-  if (BLUE_ORIGIN_MANIFEST_PAYLOAD_NOISE_TOKEN_PATTERN.test(normalized)) return false;
+  if (BLUE_ORIGIN_MANIFEST_PAYLOAD_NOISE_TOKEN_PATTERN.test(normalized))
+    return false;
 
   const tokenized = normalized
     .normalize('NFKD')
@@ -1645,10 +1832,14 @@ function isLikelyBlueOriginManifestPayloadName(value: string) {
 function isExcludedBlueOriginManifestSource(value: string | null | undefined) {
   const normalized = normalizeBlueOriginFactText(value);
   if (!normalized) return false;
-  return BLUE_ORIGIN_MANIFEST_EXCLUDED_SOURCE_PATTERN.test(normalized.toLowerCase());
+  return BLUE_ORIGIN_MANIFEST_EXCLUDED_SOURCE_PATTERN.test(
+    normalized.toLowerCase()
+  );
 }
 
-function shouldTreatBlueOriginPassengerAsPayload(row: Pick<BlueOriginPassenger, 'name' | 'role'>) {
+function shouldTreatBlueOriginPassengerAsPayload(
+  row: Pick<BlueOriginPassenger, 'name' | 'role'>
+) {
   return isBlueOriginNonHumanCrewEntry(row.name, row.role);
 }
 
@@ -1697,7 +1888,13 @@ function countKnownHumanCrewMembersFromLaunch(launch: Launch) {
   for (const crew of launch.crew || []) {
     const name = normalizeBlueOriginFactText(crew?.astronaut || null);
     if (!name) continue;
-    if (shouldTreatBlueOriginPassengerAsPayload({ name, role: crew?.role || null })) continue;
+    if (
+      shouldTreatBlueOriginPassengerAsPayload({
+        name,
+        role: crew?.role || null
+      })
+    )
+      continue;
     count += 1;
   }
   return count;
@@ -1736,7 +1933,8 @@ function resolveBlueOriginManifestCrewRowsFromLl2SpacecraftFlights(
 } {
   if (!flights.length) return { passengers: [], devicePayloads: [] };
 
-  const missionKey = getBlueOriginMissionKeyFromLaunch(launch) || 'blue-origin-program';
+  const missionKey =
+    getBlueOriginMissionKeyFromLaunch(launch) || 'blue-origin-program';
   const flightCode = extractBlueOriginFlightCode(launch);
   const flightSlug = flightCode ? buildBlueOriginFlightSlug(flightCode) : null;
   const launchId = normalizeBlueOriginLaunchId(launch.id);
@@ -1745,7 +1943,9 @@ function resolveBlueOriginManifestCrewRowsFromLl2SpacecraftFlights(
   const launchDedupeKey = buildManifestLaunchDedupeKey(launch);
 
   const passengerRows: BlueOriginPassenger[] = [];
-  const devicePayloadRows: Array<BlueOriginPassenger & { payloadType: string | null }> = [];
+  const devicePayloadRows: Array<
+    BlueOriginPassenger & { payloadType: string | null }
+  > = [];
 
   const ingestCrewBucket = (bucket: unknown) => {
     if (!Array.isArray(bucket)) return;
@@ -1754,22 +1954,33 @@ function resolveBlueOriginManifestCrewRowsFromLl2SpacecraftFlights(
       if (!entry || typeof entry !== 'object') continue;
       const row = entry as Record<string, any>;
 
-      const rawCrewRole = normalizeBlueOriginFactText(row?.role?.role ?? row?.role ?? null);
+      const rawCrewRole = normalizeBlueOriginFactText(
+        row?.role?.role ?? row?.role ?? null
+      );
       const crewRole = normalizeBlueOriginTravelerRole(rawCrewRole);
       const astronautObject =
-        row?.astronaut && typeof row.astronaut === 'object' ? (row.astronaut as Record<string, any>) : null;
+        row?.astronaut && typeof row.astronaut === 'object'
+          ? (row.astronaut as Record<string, any>)
+          : null;
       const astronautName = resolveBlueOriginTravelerCanonicalName(
-        normalizeBlueOriginFactText(astronautObject?.name ?? row?.astronaut ?? null),
+        normalizeBlueOriginFactText(
+          astronautObject?.name ?? row?.astronaut ?? null
+        ),
         flightCode
       );
       if (!astronautName) continue;
 
       const astronautIdRaw = astronautObject?.id;
       const astronautId =
-        typeof astronautIdRaw === 'number' && Number.isFinite(astronautIdRaw) ? astronautIdRaw : null;
+        typeof astronautIdRaw === 'number' && Number.isFinite(astronautIdRaw)
+          ? astronautIdRaw
+          : null;
 
       const nationality = formatLl2Nationality(astronautObject?.nationality);
-      const profileUrl = normalizeBlueOriginFactText(astronautObject?.wiki) || normalizeBlueOriginFactText(astronautObject?.url) || null;
+      const profileUrl =
+        normalizeBlueOriginFactText(astronautObject?.wiki) ||
+        normalizeBlueOriginFactText(astronautObject?.url) ||
+        null;
       const imageUrl =
         normalizeBlueOriginFactText(astronautObject?.image?.thumbnail_url) ||
         normalizeBlueOriginFactText(astronautObject?.image?.thumbnailUrl) ||
@@ -1834,7 +2045,10 @@ function resolveBlueOriginManifestCrewRowsFromLl2SpacecraftFlights(
   };
 }
 
-function shouldTreatLl2CrewMemberAsPayload(name: string, role: string | null | undefined) {
+function shouldTreatLl2CrewMemberAsPayload(
+  name: string,
+  role: string | null | undefined
+) {
   return isBlueOriginNonHumanCrewEntry(name, role);
 }
 
@@ -1870,11 +2084,15 @@ function formatLl2Nationality(value: unknown): string | null {
   return null;
 }
 
-function deriveSyntheticBlueOriginPayloadRowsFromMissionSummary(launch: Launch, missionSummary: string | null): BlueOriginPayload[] {
+function deriveSyntheticBlueOriginPayloadRowsFromMissionSummary(
+  launch: Launch,
+  missionSummary: string | null
+): BlueOriginPayload[] {
   const summary = normalizeBlueOriginFactText(missionSummary);
   if (!summary) return [];
 
-  const missionKey = getBlueOriginMissionKeyFromLaunch(launch) || 'blue-origin-program';
+  const missionKey =
+    getBlueOriginMissionKeyFromLaunch(launch) || 'blue-origin-program';
   const flightCode = extractBlueOriginFlightCode(launch);
   const flightSlug = flightCode ? buildBlueOriginFlightSlug(flightCode) : null;
   const launchId = normalizeBlueOriginLaunchId(launch.id);
@@ -1919,7 +2137,9 @@ function deriveSyntheticBlueOriginPayloadRowsFromMissionSummary(launch: Launch, 
         ? 'Microgravity research payloads'
         : lower.includes('commercial')
           ? 'Commercial payloads'
-          : lower.includes('research') || lower.includes('science') || lower.includes('scientific')
+          : lower.includes('research') ||
+              lower.includes('science') ||
+              lower.includes('scientific')
             ? 'Research payloads'
             : 'Payloads';
       return [
@@ -2031,7 +2251,8 @@ async function fetchBlueOriginManifestFactsByLaunchIds(launchIds: string[]) {
       failureReason: null
     };
 
-    const payload = row.data && typeof row.data === 'object' ? (row.data as any) : null;
+    const payload =
+      row.data && typeof row.data === 'object' ? (row.data as any) : null;
     const facts = Array.isArray(payload?.facts) ? payload.facts : [];
 
     for (const fact of facts) {
@@ -2113,14 +2334,19 @@ function buildBlueOriginHubDiagnosticsPayload({
   dedupedRecent: Launch[];
   manifestData: Array<{
     launch: Launch;
-    seats: Array<{ traveler?: { name?: string } | null; payload?: { name?: string } | null }>;
+    seats: Array<{
+      traveler?: { name?: string } | null;
+      payload?: { name?: string } | null;
+    }>;
     hasExplicitSeatAssignments: boolean;
   }>;
   timings: BlueOriginDiagnosticsTiming[];
   passengers: BlueOriginPassenger[];
   payloads: Awaited<ReturnType<typeof fetchBlueOriginPayloads>>['items'];
   contracts: Awaited<ReturnType<typeof fetchBlueOriginContracts>>;
-  timelineEvents: Awaited<ReturnType<typeof fetchBlueOriginTimelineViewModel>>['events'];
+  timelineEvents: Awaited<
+    ReturnType<typeof fetchBlueOriginTimelineViewModel>
+  >['events'];
   socialPosts: Awaited<ReturnType<typeof fetchBlueOriginSocialPosts>>;
   mediaImages: Awaited<ReturnType<typeof fetchBlueOriginMediaImages>>;
   youtubeVideos: Awaited<ReturnType<typeof fetchBlueOriginYouTubeVideos>>;
@@ -2136,8 +2362,9 @@ function buildBlueOriginHubDiagnosticsPayload({
   );
   const coverageDenominator = Math.max(1, manifestRows.length);
 
-  const timelineHighConfidenceCount = timelineEvents.filter((event) => event.confidence === 'high')
-    .length;
+  const timelineHighConfidenceCount = timelineEvents.filter(
+    (event) => event.confidence === 'high'
+  ).length;
   const tentativeUpcomingCount = dedupedUpcoming.filter((launch) =>
     isTentativeLaunch(launch)
   ).length;
@@ -2163,7 +2390,9 @@ function buildBlueOriginHubDiagnosticsPayload({
     }));
 
   const missingSeatManifestLaunches = dedupeProgramLaunches(
-    manifestData.filter((item) => item.seats.length === 0).map((item) => item.launch)
+    manifestData
+      .filter((item) => item.seats.length === 0)
+      .map((item) => item.launch)
   )
     .map((launch) => ({
       key: buildBlueOriginLaunchDiagnosticKey(launch),
@@ -2173,13 +2402,19 @@ function buildBlueOriginHubDiagnosticsPayload({
       mission: extractBlueOriginFlightCode(launch),
       href: buildLaunchHref(launch)
     }))
-    .filter((entry) => !missingManifestLaunches.some((launch) => launch.key === entry.key));
+    .filter(
+      (entry) =>
+        !missingManifestLaunches.some((launch) => launch.key === entry.key)
+    );
 
-  const combinedDuplicateGroups = buildBlueOriginDuplicateLaunchGroups(programLaunches);
+  const combinedDuplicateGroups =
+    buildBlueOriginDuplicateLaunchGroups(programLaunches);
 
   const warnings = [] as string[];
   if (missingSeatManifestLaunches.length) {
-    warnings.push(`Manifests missing traveler/payload seats: ${missingSeatManifestLaunches.length}`);
+    warnings.push(
+      `Manifests missing traveler/payload seats: ${missingSeatManifestLaunches.length}`
+    );
   }
   if (missingManifestLaunches.length) {
     warnings.push(
@@ -2187,7 +2422,9 @@ function buildBlueOriginHubDiagnosticsPayload({
     );
   }
   if (combinedDuplicateGroups.length) {
-    warnings.push(`Duplicate launch keys detected: ${combinedDuplicateGroups.length}`);
+    warnings.push(
+      `Duplicate launch keys detected: ${combinedDuplicateGroups.length}`
+    );
   }
   if (!manifestData.length) {
     warnings.push('No Blue Origin manifest rows were rendered.');
@@ -2228,18 +2465,28 @@ function buildBlueOriginHubDiagnosticsPayload({
       payloadCoverageShare:
         manifestRowsWithPayloads.length / coverageDenominator,
       highConfidenceTimelineShare:
-        timelineEvents.length > 0 ? timelineHighConfidenceCount / timelineEvents.length : 0,
+        timelineEvents.length > 0
+          ? timelineHighConfidenceCount / timelineEvents.length
+          : 0,
       tentativeUpcomingShare:
-        dedupedUpcoming.length > 0 ? tentativeUpcomingCount / dedupedUpcoming.length : 0
+        dedupedUpcoming.length > 0
+          ? tentativeUpcomingCount / dedupedUpcoming.length
+          : 0
     },
     duplicates: {
       upcoming: buildBlueOriginDuplicateLaunchGroups(program.upcoming),
       recent: buildBlueOriginDuplicateLaunchGroups(program.recent),
       combined: combinedDuplicateGroups,
-      crossBucket: buildCrossBucketDuplicateLaunchGroups(program.upcoming, program.recent)
+      crossBucket: buildCrossBucketDuplicateLaunchGroups(
+        program.upcoming,
+        program.recent
+      )
     },
     timings,
-    launchesMissingManifest: [...missingManifestLaunches, ...missingSeatManifestLaunches],
+    launchesMissingManifest: [
+      ...missingManifestLaunches,
+      ...missingSeatManifestLaunches
+    ],
     warnings
   } as BlueOriginHubDiagnosticsPayload;
 }
@@ -2282,14 +2529,20 @@ function buildBlueOriginDuplicateLaunchGroups(launches: Launch[]) {
         net: launch.net || null,
         ll2Id: launch.ll2Id || null,
         status: launch.statusText || launch.status || null,
-        mission: extractBlueOriginFlightCode(launch) || getBlueOriginMissionKeyFromLaunch(launch) || null
+        mission:
+          extractBlueOriginFlightCode(launch) ||
+          getBlueOriginMissionKeyFromLaunch(launch) ||
+          null
       }))
     });
   }
   return rows;
 }
 
-function buildCrossBucketDuplicateLaunchGroups(upcoming: Launch[], recent: Launch[]) {
+function buildCrossBucketDuplicateLaunchGroups(
+  upcoming: Launch[],
+  recent: Launch[]
+) {
   const upcomingByKey = new Map<string, Launch[]>();
   const recentByKey = new Map<string, Launch[]>();
   for (const launch of upcoming) {
@@ -2313,26 +2566,28 @@ function buildCrossBucketDuplicateLaunchGroups(upcoming: Launch[], recent: Launc
       key,
       upcomingCount: upcomingSamples.length,
       recentCount: recentSamples.length,
-      upcomingSample: upcomingSamples
-        .slice(0, 3)
-        .map((launch) => ({
-          id: launch.id,
-          name: launch.name,
-          net: launch.net || null,
-          ll2Id: launch.ll2Id || null,
-          status: launch.statusText || launch.status || null,
-          mission: extractBlueOriginFlightCode(launch) || getBlueOriginMissionKeyFromLaunch(launch) || null
-        })),
-      recentSample: recentSamples
-        .slice(0, 3)
-        .map((launch) => ({
-          id: launch.id,
-          name: launch.name,
-          net: launch.net || null,
-          ll2Id: launch.ll2Id || null,
-          status: launch.statusText || launch.status || null,
-          mission: extractBlueOriginFlightCode(launch) || getBlueOriginMissionKeyFromLaunch(launch) || null
-        }))
+      upcomingSample: upcomingSamples.slice(0, 3).map((launch) => ({
+        id: launch.id,
+        name: launch.name,
+        net: launch.net || null,
+        ll2Id: launch.ll2Id || null,
+        status: launch.statusText || launch.status || null,
+        mission:
+          extractBlueOriginFlightCode(launch) ||
+          getBlueOriginMissionKeyFromLaunch(launch) ||
+          null
+      })),
+      recentSample: recentSamples.slice(0, 3).map((launch) => ({
+        id: launch.id,
+        name: launch.name,
+        net: launch.net || null,
+        ll2Id: launch.ll2Id || null,
+        status: launch.statusText || launch.status || null,
+        mission:
+          extractBlueOriginFlightCode(launch) ||
+          getBlueOriginMissionKeyFromLaunch(launch) ||
+          null
+      }))
     });
   }
 

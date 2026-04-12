@@ -1,7 +1,10 @@
+import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 import { buildAuthHref } from '@tminuszero/navigation';
+import { BRAND_NAME } from '@/lib/brand';
 import { mapPublicCacheRow } from '@/lib/server/transformers';
 import { isSupabaseConfigured } from '@/lib/server/env';
+import { buildPageMetadata } from '@/lib/server/seo';
 import { createSupabaseServerClient } from '@/lib/server/supabaseServer';
 import { getViewerTier } from '@/lib/server/viewerTier';
 import { parseLaunchParam } from '@/lib/utils/launchParams';
@@ -12,7 +15,50 @@ import { loadLaunchTrajectoryContractByLaunchId } from '@/lib/server/arTrajector
 
 export const dynamic = 'force-dynamic';
 
-function haversineKm(lat1Deg: number, lon1Deg: number, lat2Deg: number, lon2Deg: number) {
+export async function generateMetadata({
+  params
+}: {
+  params: { id: string };
+}): Promise<Metadata> {
+  const parsed = parseLaunchParam(params.id);
+  if (!parsed || !isSupabaseConfigured()) {
+    return {
+      title: `Launch AR View | ${BRAND_NAME}`,
+      description: 'Premium augmented-reality launch visualization.',
+      robots: { index: false, follow: false }
+    };
+  }
+
+  const supabase = createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from('launches_public_cache')
+    .select('*')
+    .eq('launch_id', parsed.launchId)
+    .maybeSingle();
+  if (error || !data) {
+    return {
+      title: `Launch AR View | ${BRAND_NAME}`,
+      description: 'Premium augmented-reality launch visualization.',
+      robots: { index: false, follow: false }
+    };
+  }
+
+  const launch = mapPublicCacheRow(data);
+  return buildPageMetadata({
+    title: `${launch.name} AR View | ${BRAND_NAME}`,
+    description: `Premium augmented-reality launch visualization for ${launch.name}.`,
+    canonical: buildLaunchHref(launch),
+    robots: { index: false, follow: false },
+    includeSocial: false
+  });
+}
+
+function haversineKm(
+  lat1Deg: number,
+  lon1Deg: number,
+  lat2Deg: number,
+  lon2Deg: number
+) {
   const toRad = Math.PI / 180;
   const lat1 = lat1Deg * toRad;
   const lon1 = lon1Deg * toRad;
@@ -22,7 +68,9 @@ function haversineKm(lat1Deg: number, lon1Deg: number, lat2Deg: number, lon2Deg:
   const dLon = lon2 - lon1;
   const sinHalfLat = Math.sin(dLat / 2);
   const sinHalfLon = Math.sin(dLon / 2);
-  const a = sinHalfLat * sinHalfLat + Math.cos(lat1) * Math.cos(lat2) * sinHalfLon * sinHalfLon;
+  const a =
+    sinHalfLat * sinHalfLat +
+    Math.cos(lat1) * Math.cos(lat2) * sinHalfLon * sinHalfLon;
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(1 - a, 0)));
   return 6371 * c;
 }
@@ -42,7 +90,11 @@ function parseFiniteNumber(value: unknown): number | null {
   return null;
 }
 
-export default async function LaunchArPage({ params }: { params: { id: string } }) {
+export default async function LaunchArPage({
+  params
+}: {
+  params: { id: string };
+}) {
   const parsed = parseLaunchParam(params.id);
   if (!parsed) return notFound();
   if (!isSupabaseConfigured()) return notFound();
@@ -50,18 +102,27 @@ export default async function LaunchArPage({ params }: { params: { id: string } 
   const viewer = await getViewerTier();
   const nextPath = `/launches/${encodeURIComponent(parsed.raw)}/ar`;
   if (!viewer.isAuthed) {
-    redirect(buildAuthHref('sign-in', { returnTo: nextPath, intent: 'upgrade' }));
+    redirect(
+      buildAuthHref('sign-in', { returnTo: nextPath, intent: 'upgrade' })
+    );
   }
   if (viewer.tier !== 'premium') {
     redirect(`/upgrade?return_to=${encodeURIComponent(nextPath)}`);
   }
 
   const supabase = createSupabaseServerClient();
-  const { data, error } = await supabase.from('launches_public_cache').select('*').eq('launch_id', parsed.launchId).maybeSingle();
+  const { data, error } = await supabase
+    .from('launches_public_cache')
+    .select('*')
+    .eq('launch_id', parsed.launchId)
+    .maybeSingle();
   if (error || !data) return notFound();
 
   const launch = mapPublicCacheRow(data);
-  let resolvedPad: typeof launch.pad & { source: 'public_cache' | 'll2_pad'; canonicalDeltaKm: number | null } = {
+  let resolvedPad: typeof launch.pad & {
+    source: 'public_cache' | 'll2_pad';
+    canonicalDeltaKm: number | null;
+  } = {
     ...launch.pad,
     source: 'public_cache',
     canonicalDeltaKm: null
@@ -79,19 +140,35 @@ export default async function LaunchArPage({ params }: { params: { id: string } 
       console.warn('AR pad canonical lookup failed', canonicalPadError.message);
     } else if (canonicalPad) {
       const canonicalData =
-        canonicalPad.data && typeof canonicalPad.data === 'object' && !Array.isArray(canonicalPad.data)
+        canonicalPad.data &&
+        typeof canonicalPad.data === 'object' &&
+        !Array.isArray(canonicalPad.data)
           ? (canonicalPad.data as Record<string, unknown>)
           : null;
-      const canonicalLat = canonicalData ? parseFiniteNumber(canonicalData.latitude) : null;
-      const canonicalLon = canonicalData ? parseFiniteNumber(canonicalData.longitude) : null;
-      const canonicalMapUrl = canonicalData && typeof canonicalData.map_url === 'string' ? canonicalData.map_url : null;
+      const canonicalLat = canonicalData
+        ? parseFiniteNumber(canonicalData.latitude)
+        : null;
+      const canonicalLon = canonicalData
+        ? parseFiniteNumber(canonicalData.longitude)
+        : null;
+      const canonicalMapUrl =
+        canonicalData && typeof canonicalData.map_url === 'string'
+          ? canonicalData.map_url
+          : null;
 
       if (canonicalLat != null && canonicalLon != null) {
         const canonicalValid =
-          canonicalLat >= -90 && canonicalLat <= 90 && canonicalLon >= -180 && canonicalLon <= 180;
+          canonicalLat >= -90 &&
+          canonicalLat <= 90 &&
+          canonicalLon >= -180 &&
+          canonicalLon <= 180;
         if (canonicalValid) {
-          const cacheLat = isFiniteNumber(launch.pad.latitude) ? launch.pad.latitude : null;
-          const cacheLon = isFiniteNumber(launch.pad.longitude) ? launch.pad.longitude : null;
+          const cacheLat = isFiniteNumber(launch.pad.latitude)
+            ? launch.pad.latitude
+            : null;
+          const cacheLon = isFiniteNumber(launch.pad.longitude)
+            ? launch.pad.longitude
+            : null;
           const cacheHasPadLatLon = cacheLat != null && cacheLon != null;
           const padDeltaKm = cacheHasPadLatLon
             ? haversineKm(cacheLat, cacheLon, canonicalLat, canonicalLon)
@@ -101,14 +178,22 @@ export default async function LaunchArPage({ params }: { params: { id: string } 
           const shouldPreferCanonical = true;
           resolvedPad = {
             ...resolvedPad,
-            name: typeof canonicalPad.name === 'string' && canonicalPad.name.trim().length > 0 ? canonicalPad.name : resolvedPad.name,
+            name:
+              typeof canonicalPad.name === 'string' &&
+              canonicalPad.name.trim().length > 0
+                ? canonicalPad.name
+                : resolvedPad.name,
             mapUrl:
               canonicalMapUrl && canonicalMapUrl.trim().length > 0
                 ? canonicalMapUrl
                 : resolvedPad.mapUrl,
             canonicalDeltaKm: padDeltaKm,
-            latitude: shouldPreferCanonical ? canonicalLat : resolvedPad.latitude,
-            longitude: shouldPreferCanonical ? canonicalLon : resolvedPad.longitude,
+            latitude: shouldPreferCanonical
+              ? canonicalLat
+              : resolvedPad.latitude,
+            longitude: shouldPreferCanonical
+              ? canonicalLon
+              : resolvedPad.longitude,
             source: shouldPreferCanonical ? 'll2_pad' : 'public_cache'
           };
         }
@@ -121,7 +206,9 @@ export default async function LaunchArPage({ params }: { params: { id: string } 
   const isEligible = eligible.some((entry) => entry.launchId === launch.id);
   if (!isEligible) return notFound();
 
-  const trajectoryContract = await loadLaunchTrajectoryContractByLaunchId(launch.id);
+  const trajectoryContract = await loadLaunchTrajectoryContractByLaunchId(
+    launch.id
+  );
 
   const backHref = buildLaunchHref(launch);
 

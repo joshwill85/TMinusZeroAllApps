@@ -14,7 +14,6 @@ import { buildSiteMeta, SITE_META } from '@/lib/server/siteMeta';
 import type { Launch } from '@/lib/types/launch';
 import { buildLaunchHref } from '@/lib/utils/launchLinks';
 
-export const dynamic = 'force-dynamic';
 export const revalidate = 60 * 5; // 5 minutes
 
 const ARTEMIS_III_FAQ = resolveArtemisMissionPageFaq('artemis-iii');
@@ -25,7 +24,8 @@ export async function generateMetadata(): Promise<Metadata> {
   const canonical = '/artemis-iii';
   const pageUrl = `${siteUrl}${canonical}`;
   const title = `Artemis III (Artemis 3) Launch Schedule & Mission Plan | ${BRAND_NAME}`;
-  const description = 'Artemis III mission planning coverage with launch schedule signals, timeline context, and related Artemis mission links.';
+  const description =
+    'Artemis III mission planning coverage with launch schedule signals, timeline context, and related Artemis mission links.';
   const images = [
     {
       url: siteMeta.ogImage,
@@ -70,7 +70,9 @@ export default async function ArtemisIIIMissionPage() {
   const recent = mission.recent;
   const nextLaunch = upcoming[0] || null;
   const featuredLaunch = nextLaunch || recent[0] || null;
-  const lastUpdatedLabel = formatUpdatedLabel(mission.lastUpdated || mission.generatedAt);
+  const lastUpdatedLabel = formatUpdatedLabel(
+    mission.lastUpdated || mission.generatedAt
+  );
   const launchHref = featuredLaunch ? buildLaunchHref(featuredLaunch) : null;
 
   const breadcrumbJsonLd = {
@@ -78,7 +80,12 @@ export default async function ArtemisIIIMissionPage() {
     '@type': 'BreadcrumbList',
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'Home', item: siteUrl },
-      { '@type': 'ListItem', position: 2, name: 'Artemis', item: `${siteUrl}/artemis` },
+      {
+        '@type': 'ListItem',
+        position: 2,
+        name: 'Artemis',
+        item: `${siteUrl}/artemis`
+      },
       { '@type': 'ListItem', position: 3, name: 'Artemis III', item: pageUrl }
     ]
   };
@@ -89,7 +96,8 @@ export default async function ArtemisIIIMissionPage() {
     '@id': pageUrl,
     url: pageUrl,
     name: mission.missionName,
-    description: 'Artemis III mission schedule signals, timeline updates, and planning context.',
+    description:
+      'Artemis III mission schedule signals, timeline updates, and planning context.',
     dateModified: mission.lastUpdated || mission.generatedAt
   };
 
@@ -117,7 +125,9 @@ export default async function ArtemisIIIMissionPage() {
               addressCountry: featuredLaunch.pad?.countryCode || undefined
             }
           },
-          organizer: featuredLaunch.provider ? { '@type': 'Organization', name: featuredLaunch.provider } : undefined,
+          organizer: featuredLaunch.provider
+            ? { '@type': 'Organization', name: featuredLaunch.provider }
+            : undefined,
           url: launchHref ? `${siteUrl}${launchHref}` : pageUrl
         }
       : null;
@@ -155,57 +165,97 @@ export default async function ArtemisIIIMissionPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-10 md:px-8">
-      <JsonLd data={[breadcrumbJsonLd, collectionPageJsonLd, ...(eventJsonLd ? [eventJsonLd] : []), ...(upcomingJsonLd ? [upcomingJsonLd] : []), faqJsonLd]} />
+      <JsonLd
+        data={[
+          breadcrumbJsonLd,
+          collectionPageJsonLd,
+          ...(eventJsonLd ? [eventJsonLd] : []),
+          ...(upcomingJsonLd ? [upcomingJsonLd] : []),
+          faqJsonLd
+        ]}
+      />
       <ProgramHubBackLink program="artemis" />
 
       <header className="space-y-4">
-        <p className="text-xs uppercase tracking-[0.14em] text-text3">Mission Hub</p>
-        <h1 className="text-3xl font-semibold text-text1">Artemis III (Artemis 3)</h1>
+        <p className="text-xs uppercase tracking-[0.14em] text-text3">
+          Mission Hub
+        </p>
+        <h1 className="text-3xl font-semibold text-text1">
+          Artemis III (Artemis 3)
+        </h1>
         <p className="max-w-3xl text-sm text-text2">
-          Artemis III is the planned lunar landing mission in the Artemis sequence. This route tracks mission-specific scheduling signals while linking back to Artemis workbench and crewed Artemis II timing coverage.
+          Artemis III is the planned lunar landing mission in the Artemis
+          sequence. This route tracks mission-specific scheduling signals while
+          linking back to Artemis workbench and crewed Artemis II timing
+          coverage.
         </p>
         <div className="flex flex-wrap items-center gap-2 text-xs text-text3">
-          <span className="rounded-full border border-stroke px-3 py-1">Last updated: {lastUpdatedLabel}</span>
-          <span className="rounded-full border border-stroke px-3 py-1">Coverage: news {mission.news.length} • social {mission.social.length}</span>
-          <span className="rounded-full border border-stroke px-3 py-1">Mission status: Planned</span>
+          <span className="rounded-full border border-stroke px-3 py-1">
+            Last updated: {lastUpdatedLabel}
+          </span>
+          <span className="rounded-full border border-stroke px-3 py-1">
+            Coverage: news {mission.news.length} • social{' '}
+            {mission.social.length}
+          </span>
+          <span className="rounded-full border border-stroke px-3 py-1">
+            Mission status: Planned
+          </span>
         </div>
       </header>
 
       <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
         <h2 className="text-xl font-semibold text-text1">Mission snapshot</h2>
         <p className="mt-2 text-sm text-text2">
-          Artemis III planning remains dynamic as architecture, readiness milestones, and launch windows evolve. Use this page for Artemis III-specific feed tracking and follow Artemis II for near-term crewed timing.
+          Artemis III planning remains dynamic as architecture, readiness
+          milestones, and launch windows evolve. Use this page for Artemis
+          III-specific feed tracking and follow Artemis II for near-term crewed
+          timing.
         </p>
       </section>
 
       <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
-        <h2 className="text-xl font-semibold text-text1">Launch date and countdown</h2>
+        <h2 className="text-xl font-semibold text-text1">
+          Launch date and countdown
+        </h2>
         {featuredLaunch ? (
           <div className="mt-3 space-y-3 rounded-xl border border-stroke bg-surface-0 p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <Link href={buildLaunchHref(featuredLaunch)} className="text-sm font-semibold text-text1 hover:text-primary">
+                <Link
+                  href={buildLaunchHref(featuredLaunch)}
+                  className="text-sm font-semibold text-text1 hover:text-primary"
+                >
                   {featuredLaunch.name}
                 </Link>
                 <p className="mt-1 text-xs text-text3">
-                  {featuredLaunch.provider} - {featuredLaunch.vehicle} - {formatPadLabel(featuredLaunch)}
+                  {featuredLaunch.provider} - {featuredLaunch.vehicle} -{' '}
+                  {formatPadLabel(featuredLaunch)}
                 </p>
               </div>
               <span className="rounded-full border border-stroke px-3 py-1 text-xs uppercase tracking-[0.08em] text-text3">
                 Status: {featuredLaunch.statusText}
               </span>
             </div>
-            {nextLaunch && !isDateOnlyNet(nextLaunch.net, nextLaunch.netPrecision) ? (
+            {nextLaunch &&
+            !isDateOnlyNet(nextLaunch.net, nextLaunch.netPrecision) ? (
               <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3">
-                <p className="text-xs uppercase tracking-[0.14em] text-text3">Countdown</p>
+                <p className="text-xs uppercase tracking-[0.14em] text-text3">
+                  Countdown
+                </p>
                 <Countdown net={nextLaunch.net} />
               </div>
             ) : null}
-            <TimeDisplay net={featuredLaunch.net} netPrecision={featuredLaunch.netPrecision} fallbackTimeZone={featuredLaunch.pad.timezone} />
+            <TimeDisplay
+              net={featuredLaunch.net}
+              netPrecision={featuredLaunch.netPrecision}
+              fallbackTimeZone={featuredLaunch.pad.timezone}
+            />
           </div>
         ) : (
           <p className="mt-3 text-sm text-text2">
-            No Artemis III launch window is currently available in the feed. This page updates automatically when mission-specific schedule data appears.
+            No Artemis III launch window is currently available in the feed.
+            This page updates automatically when mission-specific schedule data
+            appears.
           </p>
         )}
       </section>
@@ -218,15 +268,25 @@ export default async function ArtemisIIIMissionPage() {
         coverage={mission.coverage}
       />
 
-      <LaunchList title="Upcoming Artemis III launches" launches={upcoming} emptyLabel="No upcoming Artemis III launches are currently listed." />
-      <LaunchList title="Recent Artemis III launches" launches={recent} emptyLabel="No recent Artemis III launches are currently listed." />
+      <LaunchList
+        title="Upcoming Artemis III launches"
+        launches={upcoming}
+        emptyLabel="No upcoming Artemis III launches are currently listed."
+      />
+      <LaunchList
+        title="Recent Artemis III launches"
+        launches={recent}
+        emptyLabel="No recent Artemis III launches are currently listed."
+      />
 
       <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
         <h2 className="text-xl font-semibold text-text1">Artemis III FAQ</h2>
         <dl className="mt-4 space-y-4">
           {ARTEMIS_III_FAQ.map((entry) => (
             <div key={entry.question}>
-              <dt className="text-sm font-semibold text-text1">{entry.question}</dt>
+              <dt className="text-sm font-semibold text-text1">
+                {entry.question}
+              </dt>
               <dd className="mt-1 text-sm text-text2">{entry.answer}</dd>
             </div>
           ))}
@@ -234,16 +294,28 @@ export default async function ArtemisIIIMissionPage() {
       </section>
 
       <div className="flex flex-wrap items-center gap-3 text-xs text-text3">
-        <Link href="/artemis" className="rounded-full border border-stroke px-3 py-1 uppercase tracking-[0.14em] hover:text-text1">
+        <Link
+          href="/artemis"
+          className="rounded-full border border-stroke px-3 py-1 uppercase tracking-[0.14em] hover:text-text1"
+        >
           Artemis Workbench
         </Link>
-        <Link href="/artemis-i" className="rounded-full border border-stroke px-3 py-1 uppercase tracking-[0.14em] hover:text-text1">
+        <Link
+          href="/artemis-i"
+          className="rounded-full border border-stroke px-3 py-1 uppercase tracking-[0.14em] hover:text-text1"
+        >
           Artemis I Hub
         </Link>
-        <Link href="/artemis-ii" className="rounded-full border border-stroke px-3 py-1 uppercase tracking-[0.14em] hover:text-text1">
+        <Link
+          href="/artemis-ii"
+          className="rounded-full border border-stroke px-3 py-1 uppercase tracking-[0.14em] hover:text-text1"
+        >
           Artemis II Hub
         </Link>
-        <Link href="/spacex" className="rounded-full border border-stroke px-3 py-1 uppercase tracking-[0.14em] hover:text-text1">
+        <Link
+          href="/spacex"
+          className="rounded-full border border-stroke px-3 py-1 uppercase tracking-[0.14em] hover:text-text1"
+        >
           SpaceX Program
         </Link>
       </div>
@@ -251,12 +323,22 @@ export default async function ArtemisIIIMissionPage() {
   );
 }
 
-function LaunchList({ title, launches, emptyLabel }: { title: string; launches: Launch[]; emptyLabel: string }) {
+function LaunchList({
+  title,
+  launches,
+  emptyLabel
+}: {
+  title: string;
+  launches: Launch[];
+  emptyLabel: string;
+}) {
   return (
     <section className="rounded-2xl border border-stroke bg-surface-1 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-xl font-semibold text-text1">{title}</h2>
-        <span className="rounded-full border border-stroke px-3 py-1 text-xs uppercase tracking-[0.08em] text-text3">{launches.length} items</span>
+        <span className="rounded-full border border-stroke px-3 py-1 text-xs uppercase tracking-[0.08em] text-text3">
+          {launches.length} items
+        </span>
       </div>
 
       {launches.length === 0 ? (
@@ -266,10 +348,16 @@ function LaunchList({ title, launches, emptyLabel }: { title: string; launches: 
           {launches.map((launch) => {
             const dateOnly = isDateOnlyNet(launch.net, launch.netPrecision);
             return (
-              <li key={launch.id} className="rounded-xl border border-stroke bg-surface-0 p-3">
+              <li
+                key={launch.id}
+                className="rounded-xl border border-stroke bg-surface-0 p-3"
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <Link href={buildLaunchHref(launch)} className="text-sm font-semibold text-text1 hover:text-primary">
+                    <Link
+                      href={buildLaunchHref(launch)}
+                      className="text-sm font-semibold text-text1 hover:text-primary"
+                    >
                       {launch.name}
                     </Link>
                     <p className="mt-1 text-xs text-text3">

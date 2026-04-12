@@ -3,15 +3,28 @@ import { JetBrains_Mono, Space_Grotesk } from 'next/font/google';
 import { getGoogleSiteVerification, getSiteUrl } from '@/lib/server/env';
 import { buildSiteMeta, SITE_META } from '@/lib/server/siteMeta';
 import { BRAND_TECHNICAL_NAME, SUPPORT_EMAIL } from '@/lib/brand';
+import { getPublicSocialLinks } from '@/lib/env/public';
 import { JsonLd } from '@/components/JsonLd';
 import { RootFrame } from '@/components/RootFrame';
 import './globals.css';
 
-const sans = Space_Grotesk({ subsets: ['latin'], variable: '--font-sans', display: 'swap' });
-const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono', display: 'swap' });
+const sans = Space_Grotesk({
+  subsets: ['latin'],
+  variable: '--font-sans',
+  display: 'swap'
+});
+const mono = JetBrains_Mono({
+  subsets: ['latin'],
+  variable: '--font-mono',
+  display: 'swap'
+});
 const siteUrl = getSiteUrl();
 const siteMeta = buildSiteMeta();
 const googleSiteVerification = getGoogleSiteVerification();
+const publicSocialLinks = getPublicSocialLinks();
+const sameAs = [publicSocialLinks.xUrl, publicSocialLinks.facebookUrl].filter(
+  (value): value is string => Boolean(value)
+);
 
 export const metadata: Metadata = {
   title: SITE_META.title,
@@ -19,6 +32,8 @@ export const metadata: Metadata = {
   keywords: SITE_META.keywords,
   metadataBase: new URL(siteUrl),
   openGraph: {
+    title: SITE_META.title,
+    description: SITE_META.description,
     siteName: SITE_META.siteName,
     type: 'website',
     images: [
@@ -33,6 +48,8 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
+    title: SITE_META.title,
+    description: SITE_META.description,
     images: [
       {
         url: siteMeta.ogImage,
@@ -62,7 +79,11 @@ export const viewport: Viewport = {
   themeColor: '#05060A'
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children
+}: {
+  children: React.ReactNode;
+}) {
   const organizationId = `${siteUrl}#organization`;
   const websiteId = `${siteUrl}#website`;
   const structuredData = [
@@ -74,7 +95,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       alternateName: BRAND_TECHNICAL_NAME,
       url: siteUrl,
       logo: `${siteUrl}/apple-touch-icon.png`,
-      email: SUPPORT_EMAIL
+      email: SUPPORT_EMAIL,
+      ...(sameAs.length ? { sameAs } : {})
     },
     {
       '@context': 'https://schema.org',
@@ -82,12 +104,21 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       '@id': websiteId,
       name: SITE_META.siteName,
       url: siteUrl,
-      publisher: { '@id': organizationId }
+      publisher: { '@id': organizationId },
+      potentialAction: {
+        '@type': 'SearchAction',
+        target: `${siteUrl}/search?q={search_term_string}`,
+        'query-input': 'required name=search_term_string'
+      }
     }
   ];
 
   return (
-    <html lang="en" className={`${sans.variable} ${mono.variable}`} suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`${sans.variable} ${mono.variable}`}
+      suppressHydrationWarning
+    >
       <body className="min-h-screen bg-bg text-text1 antialiased">
         <a
           href="#main"

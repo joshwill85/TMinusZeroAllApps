@@ -6,7 +6,6 @@ import { buildSiteMeta, SITE_META } from '@/lib/server/siteMeta';
 import { getSiteUrl } from '@/lib/server/env';
 import type { BlueOriginMissionKey } from '@/lib/utils/blueOrigin';
 
-export const dynamic = 'force-dynamic';
 export const revalidate = 60 * 10;
 
 type Params = {
@@ -69,7 +68,11 @@ const MISSION_CONFIG: Record<string, MissionPageConfig> = {
   }
 };
 
-export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
+export async function generateMetadata({
+  params
+}: {
+  params: Params;
+}): Promise<Metadata> {
   const resolved = resolveMissionConfig(params.mission);
   if (!resolved) {
     return {
@@ -93,7 +96,15 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
       url: pageUrl,
       type: 'website',
       siteName: SITE_META.siteName,
-      images: [{ url: siteMeta.ogImage, width: 1200, height: 630, alt: SITE_META.ogImageAlt, type: 'image/jpeg' }]
+      images: [
+        {
+          url: siteMeta.ogImage,
+          width: 1200,
+          height: 630,
+          alt: SITE_META.ogImageAlt,
+          type: 'image/jpeg'
+        }
+      ]
     },
     twitter: {
       card: 'summary_large_image',
@@ -104,10 +115,15 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
   };
 }
 
-export default async function BlueOriginMissionRoutePage({ params }: { params: Params }) {
+export default async function BlueOriginMissionRoutePage({
+  params
+}: {
+  params: Params;
+}) {
   const resolved = resolveMissionConfig(params.mission);
   if (!resolved) {
-    if (normalizeMission(params.mission) === 'blue-origin-program') permanentRedirect('/blue-origin');
+    if (normalizeMission(params.mission) === 'blue-origin-program')
+      permanentRedirect('/blue-origin');
     notFound();
   }
 
@@ -135,12 +151,33 @@ function resolveMissionConfig(value: string) {
 
 function normalizeMission(value: string | null | undefined) {
   if (!value) return null;
-  const normalized = value.trim().toLowerCase().replace(/\s+/g, '-').replace(/_/g, '-');
-  if (normalized === 'new-shepard' || normalized === 'newshepard' || normalized === 'shepard') return 'new-shepard';
-  if (normalized === 'new-glenn' || normalized === 'newglenn' || normalized === 'glenn') return 'new-glenn';
-  if (normalized === 'blue-moon' || normalized === 'bluemoon') return 'blue-moon';
-  if (normalized === 'blue-ring' || normalized === 'bluering') return 'blue-ring';
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/_/g, '-');
+  if (
+    normalized === 'new-shepard' ||
+    normalized === 'newshepard' ||
+    normalized === 'shepard'
+  )
+    return 'new-shepard';
+  if (
+    normalized === 'new-glenn' ||
+    normalized === 'newglenn' ||
+    normalized === 'glenn'
+  )
+    return 'new-glenn';
+  if (normalized === 'blue-moon' || normalized === 'bluemoon')
+    return 'blue-moon';
+  if (normalized === 'blue-ring' || normalized === 'bluering')
+    return 'blue-ring';
   if (normalized === 'be-4' || normalized === 'be4') return 'be-4';
-  if (normalized === 'blue-origin-program' || normalized === 'blue-origin' || normalized === 'program') return 'blue-origin-program';
+  if (
+    normalized === 'blue-origin-program' ||
+    normalized === 'blue-origin' ||
+    normalized === 'program'
+  )
+    return 'blue-origin-program';
   return null;
 }

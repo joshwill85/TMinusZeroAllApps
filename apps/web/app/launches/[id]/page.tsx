@@ -2589,41 +2589,43 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 overflow-x-hidden px-4 py-10 pb-28 md:overflow-x-visible md:px-8 md:pb-10">
       <JsonLd data={[breadcrumbJsonLd, webPageJsonLd, eventJsonLd, ...(videoJsonLd ? [videoJsonLd] : [])]} />
       <div className="sticky top-4 z-30">
-        <div className="rounded-full border border-stroke bg-[rgba(7,9,19,0.82)] px-3 py-2 shadow-[0_18px_60px_rgba(0,0,0,0.28)] backdrop-blur-xl">
-          <div className="grid grid-cols-[auto_1fr_auto] items-center gap-3">
-            <Link
-              href="/#schedule"
-              className="btn-secondary flex h-10 w-10 items-center justify-center rounded-full border border-stroke text-text2 hover:border-primary hover:text-primary"
-              aria-label="Back to feed"
-            >
-              <BackArrowIcon className="h-4 w-4" />
-            </Link>
-            <div className="min-w-0 justify-self-center text-center">
-              <div className="truncate text-sm font-semibold text-text1">{heroTitle}</div>
-              <div className="flex items-center justify-center gap-2 text-xs text-text2">
-                {heroStatusLabel ? <span className={`rounded-full border px-2 py-0.5 ${statusToneStyles.badge}`}>{heroStatusLabel}</span> : null}
+        <div className="relative overflow-hidden rounded-[30px] border border-white/10 bg-[linear-gradient(180deg,rgba(12,16,31,0.96),rgba(7,9,19,0.88))] px-3 py-2 shadow-[0_22px_70px_rgba(0,0,0,0.34)] backdrop-blur-xl">
+          <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(34,211,238,0.14),transparent_55%)]" />
+          <div className="relative">
+            <div className="grid grid-cols-[auto_1fr_auto] items-center gap-3">
+              <Link
+                href="/#schedule"
+                className="btn-secondary flex h-10 w-10 items-center justify-center rounded-full border border-stroke text-text2 hover:border-primary hover:text-primary"
+                aria-label="Back to feed"
+              >
+                <BackArrowIcon className="h-4 w-4" />
+              </Link>
+              <div className="min-w-0 justify-self-center text-center">
                 <LaunchCountdownSummary
                   net={launch.net}
                   netPrecision={launch.netPrecision}
                   padTimeZone={launch.pad.timezone}
                   initialNowMs={nowMs}
+                  showLabel={false}
                 />
               </div>
-            </div>
-            <div className="flex items-center justify-self-end gap-2">
-              {primaryWatchUrl ? (
-                <a
-                  href={primaryWatchUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="rounded-full border border-primary/40 bg-primary/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-primary transition hover:border-primary"
-                >
-                  Watch
-                </a>
-              ) : (
+              <div className="flex items-center justify-self-end gap-2">
                 <ShareButton url={share.path} title={share.title} text={share.text} variant="icon" className="h-10 w-10 rounded-full" />
-              )}
+              </div>
             </div>
+            <LaunchSectionRail
+              sections={[
+                { id: 'overview', label: 'Overview' },
+                { id: 'timeline', label: 'Timeline' },
+                { id: 'viewing', label: 'Viewing' },
+                { id: 'vehicle', label: 'Vehicle' },
+                { id: 'coverage', label: 'Coverage' }
+              ]}
+              topOffset={124}
+              navHeight={116}
+              stickyThreshold={200}
+            />
           </div>
         </div>
       </div>
@@ -2757,7 +2759,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
             )}
           </div>
         </div>
-        <div className="rounded-2xl border border-stroke bg-surface-1 p-4">
+        <div className="rounded-2xl border border-stroke bg-surface-1 p-4 xl:col-span-2">
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-xs uppercase tracking-[0.08em] text-text3">Overview</div>
@@ -2797,16 +2799,6 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
         </div>
         </div>
       </section>
-
-      <LaunchSectionRail
-        sections={[
-          { id: 'overview', label: 'Overview' },
-          { id: 'timeline', label: 'Timeline' },
-          { id: 'viewing', label: 'Viewing' },
-          { id: 'vehicle', label: 'Vehicle' },
-          { id: 'coverage', label: 'Coverage' }
-        ]}
-      />
       <section id="timeline" className="space-y-4">
         {timelineEvents.length > 0 ? (
           <LaunchMilestoneMapLive events={timelineEvents} launchNetMs={Number.isFinite(netMs) ? netMs : null} />
@@ -2819,10 +2811,6 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
 
       <section id="viewing" className="space-y-4">
         <div className="grid gap-4 xl:grid-cols-2">
-          <Suspense fallback={<LoadingPanel label="Loading visibility score..." />}>
-            <LaunchJepScoreSection jepScorePromise={jepScorePromise} padTimezone={padTimezone} />
-          </Suspense>
-
           <Suspense fallback={<LoadingPanel label="Loading forecast outlook..." />}>
             <ConsolidatedWeatherSection
               ws45ForecastPromise={ws45ForecastPromise}
@@ -2845,6 +2833,10 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
               viewerTier={viewer.tier}
               isAuthed={isAuthed}
             />
+          </Suspense>
+
+          <Suspense fallback={<LoadingPanel label="Loading visibility score..." />}>
+            <LaunchJepScoreSection jepScorePromise={jepScorePromise} padTimezone={padTimezone} />
           </Suspense>
         </div>
 
@@ -2959,7 +2951,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
           </Suspense>
         </div>
 
-        <details className="rounded-2xl border border-stroke bg-surface-1 p-4">
+        <details className="group rounded-2xl border border-stroke bg-surface-1 p-4">
           <summary className="cursor-pointer list-none">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -2967,8 +2959,10 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
                 <h2 className="mt-1 text-xl font-semibold text-text1">Flight record</h2>
                 <p className="text-sm text-text3">Expand for the full vehicle timeline and mission history.</p>
               </div>
-              <span className="rounded-full border border-stroke px-3 py-1 text-xs uppercase tracking-[0.08em] text-text3">
-                Collapsed by default
+              <span className="inline-flex items-center gap-1 rounded-full border border-stroke px-3 py-1 text-xs uppercase tracking-[0.08em] text-text3">
+                <span className="group-open:hidden">Expand</span>
+                <span className="hidden group-open:inline">Collapse</span>
+                <ChevronDownIcon className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
               </span>
             </div>
           </summary>
@@ -7332,6 +7326,14 @@ function BackArrowIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 20 20" className={className} aria-hidden="true" fill="none">
       <path d="M13.5 4.5 8 10l5.5 5.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ChevronDownIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" className={className} aria-hidden="true" fill="none">
+      <path d="M5 7.5 10 12.5 15 7.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

@@ -3,21 +3,28 @@ import Link from 'next/link';
 import clsx from 'clsx';
 import { BRAND_NAME } from '@/lib/brand';
 import { getSiteUrl, isSupabaseConfigured } from '@/lib/server/env';
+import {
+  buildBreadcrumbJsonLd,
+  buildCollectionPageJsonLd,
+  buildPageMetadata
+} from '@/lib/server/seo';
 import { fetchProviders, type ProviderSummary } from '@/lib/server/providers';
 import { fetchNewsStreamPage } from '@/lib/server/newsStream';
 import type { NewsType } from '@/lib/types/news';
 import { CommLinkStream } from '@/components/news/CommLinkStream';
 import { JsonLd } from '@/components/JsonLd';
 
-const NEWS_TITLE = `News | ${BRAND_NAME}`;
-const NEWS_DESCRIPTION = `Incoming telemetry from Spaceflight News API, fused with mission status in ${BRAND_NAME}.`;
+const NEWS_TITLE = `Rocket Launch News & Space News | ${BRAND_NAME}`;
+const NEWS_DESCRIPTION = `Latest rocket launch news, mission coverage, and space headlines connected to launch activity on ${BRAND_NAME}.`;
 
 type NewsSearchParams = Record<string, string | string[] | undefined>;
 
 function hasSearchParams(searchParams?: NewsSearchParams) {
   return Object.values(searchParams ?? {}).some((value) => {
     if (Array.isArray(value)) {
-      return value.some((entry) => typeof entry === 'string' && entry.trim().length > 0);
+      return value.some(
+        (entry) => typeof entry === 'string' && entry.trim().length > 0
+      );
     }
     return typeof value === 'string' && value.trim().length > 0;
   });
@@ -30,12 +37,12 @@ export function generateMetadata({
 }): Metadata {
   const hasParams = hasSearchParams(searchParams);
 
-  return {
+  return buildPageMetadata({
     title: NEWS_TITLE,
     description: NEWS_DESCRIPTION,
-    alternates: { canonical: '/news' },
+    canonical: '/news',
     robots: hasParams ? { index: false, follow: true } : undefined
-  };
+  });
 }
 
 const TYPE_OPTIONS = [
@@ -61,15 +68,25 @@ export default async function NewsPage({
   const providerMissing = Boolean(rawProvider) && !activeProvider;
   const supabaseReady = isSupabaseConfigured();
   const newsResult = supabaseReady
-    ? await fetchNewsStreamPage({ type: activeType, providerName: activeProvider?.name ?? null, cursor: 0 })
+    ? await fetchNewsStreamPage({
+        type: activeType,
+        providerName: activeProvider?.name ?? null,
+        cursor: 0
+      })
     : null;
-  const { page, errorMessage } = newsResult ?? { page: { items: [], nextCursor: 0, hasMore: false }, errorMessage: null };
+  const { page, errorMessage } = newsResult ?? {
+    page: { items: [], nextCursor: 0, hasMore: false },
+    errorMessage: null
+  };
   const siteUrl = getSiteUrl().replace(/\/$/, '');
   const pageUrl = `${siteUrl}/news`;
-  const organizationId = `${siteUrl}#organization`;
-  const websiteId = `${siteUrl}#website`;
   const itemListElement = page.items.map((item, index) => {
-    const itemType = item.item_type === 'article' ? 'NewsArticle' : item.item_type === 'blog' ? 'BlogPosting' : 'Report';
+    const itemType =
+      item.item_type === 'article'
+        ? 'NewsArticle'
+        : item.item_type === 'blog'
+          ? 'BlogPosting'
+          : 'Report';
     const author = (item.authors || [])
       .map((entry) => entry?.name?.trim())
       .filter((name): name is string => Boolean(name))
@@ -87,7 +104,9 @@ export default async function NewsPage({
         datePublished: item.published_at || undefined,
         dateModified: item.updated_at || undefined,
         author: author.length ? author : undefined,
-        publisher: item.news_site ? { '@type': 'Organization', name: item.news_site } : undefined
+        publisher: item.news_site
+          ? { '@type': 'Organization', name: item.news_site }
+          : undefined
       }
     };
   });
@@ -100,35 +119,50 @@ export default async function NewsPage({
         itemListElement
       }
     : null;
-  const collectionPageJsonLd = {
-    '@context': 'https://schema.org',
-    '@type': 'CollectionPage',
-    '@id': pageUrl,
-    url: pageUrl,
-    name: `News | ${BRAND_NAME}`,
-    description: `Incoming telemetry from Spaceflight News API, fused with mission status in ${BRAND_NAME}.`,
-    isPartOf: { '@id': websiteId },
-    publisher: { '@id': organizationId },
-    mainEntity: itemListJsonLd ? { '@id': itemListJsonLd['@id'] } : undefined
-  };
+  const breadcrumbJsonLd = buildBreadcrumbJsonLd([
+    { name: 'Home', item: siteUrl },
+    { name: 'News', item: '/news' }
+  ]);
+  const collectionPageJsonLd = buildCollectionPageJsonLd({
+    canonical: '/news',
+    name: 'Rocket launch news',
+    description: NEWS_DESCRIPTION,
+    mainEntityId: itemListJsonLd ? `${pageUrl}#itemlist` : undefined
+  });
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-10 md:px-8">
-      <JsonLd data={[collectionPageJsonLd, ...(itemListJsonLd ? [itemListJsonLd] : [])]} />
+      <JsonLd
+        data={[
+          breadcrumbJsonLd,
+          collectionPageJsonLd,
+          ...(itemListJsonLd ? [itemListJsonLd] : [])
+        ]}
+      />
       <header className="space-y-5">
         <div>
-          <p className="text-xs uppercase tracking-[0.14em] text-text3">News Downlink</p>
-          <h1 className="text-3xl font-semibold text-text1">The CommLink Stream</h1>
+          <p className="text-xs uppercase tracking-[0.14em] text-text3">
+            News Downlink
+          </p>
+          <h1 className="text-3xl font-semibold text-text1">
+            The CommLink Stream
+          </h1>
         </div>
         <p className="max-w-3xl text-sm text-text2">
-          Incoming coverage packets pulled from Spaceflight News API and fused with mission context when missions are detected.
+          Incoming coverage packets pulled from Spaceflight News API and fused
+          with mission context when missions are detected.
         </p>
         <div className="rounded-3xl border border-stroke bg-surface-1/60 p-4 backdrop-blur-xl md:p-5">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-text4">Stream Controls</div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-text4">
+            Stream Controls
+          </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {TYPE_OPTIONS.map((option) => {
               const isActive = option.value === activeType;
-              const href = buildNewsHref({ type: option.value, provider: providerParam });
+              const href = buildNewsHref({
+                type: option.value,
+                provider: providerParam
+              });
               return (
                 <Link
                   key={option.value}
@@ -167,8 +201,13 @@ export default async function NewsPage({
                 </option>
               ))}
             </select>
-            {activeType !== 'all' && <input type="hidden" name="type" value={activeType} />}
-            <button type="submit" className="btn-secondary rounded-full px-3 py-1 text-[11px] uppercase tracking-[0.14em]">
+            {activeType !== 'all' && (
+              <input type="hidden" name="type" value={activeType} />
+            )}
+            <button
+              type="submit"
+              className="btn-secondary rounded-full px-3 py-1 text-[11px] uppercase tracking-[0.14em]"
+            >
               Apply
             </button>
             {providerParam && (
@@ -192,7 +231,10 @@ export default async function NewsPage({
           {providerMissing && (
             <div className="mt-3 text-xs text-warning">
               Unknown provider filter.{' '}
-              <Link href={buildNewsHref({ type: activeType })} className="underline">
+              <Link
+                href={buildNewsHref({ type: activeType })}
+                className="underline"
+              >
                 Clear
               </Link>
             </div>
@@ -231,7 +273,12 @@ function resolveTypeFilter(raw?: string | string[]): NewsTypeFilter {
   const value = Array.isArray(raw) ? raw[0] : raw;
   const normalized = value?.trim().toLowerCase() || '';
   if (!normalized) return 'all';
-  if (normalized === 'article' || normalized === 'blog' || normalized === 'report') return normalized;
+  if (
+    normalized === 'article' ||
+    normalized === 'blog' ||
+    normalized === 'report'
+  )
+    return normalized;
   if (normalized === 'articles') return 'article';
   if (normalized === 'blogs') return 'blog';
   if (normalized === 'reports') return 'report';
@@ -246,17 +293,28 @@ function resolveProviderParam(raw?: string | string[]) {
   return normalized;
 }
 
-function resolveProviderFilter(raw: string | null, providers: ProviderSummary[]) {
+function resolveProviderFilter(
+  raw: string | null,
+  providers: ProviderSummary[]
+) {
   if (!raw) return null;
   const normalized = raw.trim().toLowerCase();
   if (!normalized) return null;
   const slugMatch = providers.find((provider) => provider.slug === normalized);
   if (slugMatch) return slugMatch;
-  const nameMatch = providers.find((provider) => provider.name.toLowerCase() === normalized);
+  const nameMatch = providers.find(
+    (provider) => provider.name.toLowerCase() === normalized
+  );
   return nameMatch ?? null;
 }
 
-function buildNewsHref({ type, provider }: { type?: string | null; provider?: string | null }) {
+function buildNewsHref({
+  type,
+  provider
+}: {
+  type?: string | null;
+  provider?: string | null;
+}) {
   const params = new URLSearchParams();
   if (type && type !== 'all') params.set('type', type);
   if (provider) params.set('provider', provider);

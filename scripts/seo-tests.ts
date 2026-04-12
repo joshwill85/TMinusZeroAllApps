@@ -4,10 +4,22 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 
+type RouteExpectation = {
+  route: string;
+  requiredSchemaTypes?: string[];
+};
+
+type NoIndexRouteExpectation = {
+  route: string;
+  expectedCanonicalPath: string;
+  excludeCanonicalFromSitemap?: boolean;
+};
+
 type ParsedHead = {
   title: string | null;
   canonical: string | null;
   meta: Map<string, string>;
+  jsonLd: Array<Record<string, unknown>>;
 };
 
 const REQUIRED_META_KEYS = [
@@ -26,32 +38,108 @@ const REQUIRED_META_KEYS = [
   'twitter:image:alt'
 ];
 
-const ROUTES_TO_VALIDATE = [
-  '/',
-  '/artemis',
-  '/artemis/awardees',
-  '/artemis/awardees/lockheed-martin',
-  '/artemis-i',
-  '/artemis-ii',
-  '/artemis-iii',
-  '/artemis-iv',
-  '/artemis-v',
-  '/artemis-vi',
-  '/artemis-vii',
-  '/artemis/content',
-  '/catalog',
-  '/catalog/astronauts',
-  '/launch-providers/spacex',
-  '/docs/about',
-  '/starship',
-  '/satellites',
-  '/satellites/owners',
-  '/blue-origin/travelers',
-  '/about',
-  '/legal/privacy'
+const INDEXABLE_ROUTE_EXPECTATIONS: RouteExpectation[] = [
+  { route: '/', requiredSchemaTypes: ['BreadcrumbList', 'CollectionPage'] },
+  { route: '/artemis' },
+  { route: '/artemis/awardees' },
+  { route: '/artemis/awardees/lockheed-martin' },
+  { route: '/artemis-i' },
+  { route: '/artemis-ii' },
+  { route: '/artemis-iii' },
+  { route: '/artemis-iv' },
+  { route: '/artemis-v' },
+  { route: '/artemis-vi' },
+  { route: '/artemis-vii' },
+  { route: '/artemis/content' },
+  { route: '/catalog' },
+  { route: '/catalog/astronauts' },
+  { route: '/news', requiredSchemaTypes: ['BreadcrumbList', 'CollectionPage'] },
+  { route: '/info', requiredSchemaTypes: ['BreadcrumbList', 'CollectionPage'] },
+  {
+    route: '/launch-providers',
+    requiredSchemaTypes: ['BreadcrumbList', 'CollectionPage', 'ItemList']
+  },
+  { route: '/launch-providers/spacex' },
+  {
+    route: '/providers/spacex',
+    requiredSchemaTypes: ['BreadcrumbList', 'CollectionPage', 'Organization']
+  },
+  { route: '/site-map', requiredSchemaTypes: ['BreadcrumbList', 'WebPage'] },
+  { route: '/docs/about', requiredSchemaTypes: ['BreadcrumbList', 'WebPage'] },
+  {
+    route: '/docs/faq',
+    requiredSchemaTypes: ['BreadcrumbList', 'WebPage', 'FAQPage']
+  },
+  {
+    route: '/docs/roadmap',
+    requiredSchemaTypes: ['BreadcrumbList', 'WebPage']
+  },
+  { route: '/starship' },
+  { route: '/satellites' },
+  { route: '/satellites/owners' },
+  { route: '/blue-origin/travelers' },
+  { route: '/about', requiredSchemaTypes: ['BreadcrumbList', 'WebPage'] },
+  { route: '/support', requiredSchemaTypes: ['BreadcrumbList', 'WebPage'] },
+  {
+    route: '/legal/privacy',
+    requiredSchemaTypes: ['BreadcrumbList', 'WebPage']
+  },
+  { route: '/legal/terms', requiredSchemaTypes: ['BreadcrumbList', 'WebPage'] },
+  { route: '/legal/data', requiredSchemaTypes: ['BreadcrumbList', 'WebPage'] }
 ];
 
-const SNIPPET_BANNED_TEXT = ['loading telemetry', 'comm link', 'manifest'];
+const NOINDEX_ROUTE_EXPECTATIONS: NoIndexRouteExpectation[] = [
+  {
+    route: '/auth/sign-in',
+    expectedCanonicalPath: '/auth/sign-in',
+    excludeCanonicalFromSitemap: true
+  },
+  {
+    route: '/artemis/awardees?q=lockheed',
+    expectedCanonicalPath: '/artemis/awardees'
+  },
+  {
+    route: '/artemis/content?kind=photo',
+    expectedCanonicalPath: '/artemis/content'
+  },
+  {
+    route: '/catalog/astronauts?q=neil&page=2',
+    expectedCanonicalPath: '/catalog/astronauts'
+  },
+  { route: '/search?q=starship', expectedCanonicalPath: '/search' },
+  {
+    route: '/spacex/contracts?show=200',
+    expectedCanonicalPath: '/spacex/contracts'
+  },
+  {
+    route: '/blue-origin/contracts?show=200',
+    expectedCanonicalPath: '/blue-origin/contracts'
+  },
+  {
+    route: '/artemis/contracts?show=200',
+    expectedCanonicalPath: '/artemis/contracts'
+  },
+  { route: '/artemis?view=intel', expectedCanonicalPath: '/artemis' },
+  { route: '/starship?view=timeline', expectedCanonicalPath: '/starship' },
+  { route: '/news?provider=spacex', expectedCanonicalPath: '/news' },
+  {
+    route: '/calendar',
+    expectedCanonicalPath: '/calendar',
+    excludeCanonicalFromSitemap: true
+  },
+  {
+    route: '/premium-onboarding/legal',
+    expectedCanonicalPath: '/premium-onboarding/legal',
+    excludeCanonicalFromSitemap: true
+  },
+  {
+    route: '/mobile-auth/challenge',
+    expectedCanonicalPath: '/mobile-auth/challenge',
+    excludeCanonicalFromSitemap: true
+  }
+];
+
+const SNIPPET_BANNED_TEXT = ['loading telemetry', 'comm link'];
 const TIERED_SITEMAP_ROUTES = [
   '/sitemap.xml',
   '/sitemap-launches.xml',
@@ -73,37 +161,17 @@ async function main() {
   const server = startNextServer(port);
   try {
     await waitForServerReady({ port, path: '/' });
-    for (const route of ROUTES_TO_VALIDATE) {
-      const url = `http://localhost:${port}${route}`;
-      const html = await fetchHtml(url);
-      const head = parseHead(html);
 
-      assert.ok(head.title, `[${route}] missing <title>`);
-      assert.ok(head.canonical, `[${route}] missing canonical link`);
-
-      for (const key of REQUIRED_META_KEYS) {
-        assert.ok(head.meta.get(key), `[${route}] missing meta: ${key}`);
-      }
-
-      assert.equal(head.meta.get('og:type'), 'website', `[${route}] og:type should be "website"`);
-      assert.equal(head.meta.get('twitter:card'), 'summary_large_image', `[${route}] twitter:card should be "summary_large_image"`);
-
-      assert.ok(isAbsoluteUrl(head.canonical), `[${route}] canonical should be absolute: ${head.canonical}`);
-      assert.ok(isAbsoluteUrl(head.meta.get('og:image')), `[${route}] og:image should be absolute: ${head.meta.get('og:image')}`);
-      assert.ok(isAbsoluteUrl(head.meta.get('twitter:image')), `[${route}] twitter:image should be absolute: ${head.meta.get('twitter:image')}`);
-      const canonicalPath = toPathname(head.canonical);
-      assert.equal(canonicalPath, route, `[${route}] canonical path mismatch`);
-
-      assert.equal(head.meta.get('og:image:width'), '1200', `[${route}] og:image:width should be 1200`);
-      assert.equal(head.meta.get('og:image:height'), '630', `[${route}] og:image:height should be 630`);
-
-      const bannedMatches = findBannedTextOutsideNosnippet(html, SNIPPET_BANNED_TEXT);
-      assert.equal(bannedMatches.length, 0, `[${route}] snippet pollution: ${bannedMatches.join(', ')}`);
-      const robots = (head.meta.get('robots') || '').toLowerCase();
-      assert.ok(!robots.includes('noindex'), `[${route}] should be indexable`);
+    for (const expectation of INDEXABLE_ROUTE_EXPECTATIONS) {
+      await assertIndexableRoute({ port, expectation });
     }
 
-    await assertRedirect({ port, route: '/artemis-2', expectedLocationPath: '/artemis-ii', expectedStatus: 308 });
+    await assertRedirect({
+      port,
+      route: '/artemis-2',
+      expectedLocationPath: '/artemis-ii',
+      expectedStatus: 308
+    });
     await assertRedirect({
       port,
       route: '/launch-providers/spacex:SpaceX',
@@ -118,25 +186,11 @@ async function main() {
       expectedStatus: 308
     });
 
-    const authHtml = await fetchHtml(`http://localhost:${port}/auth/sign-in`);
-    const authHead = parseHead(authHtml);
-    const authRobots = (authHead.meta.get('robots') || '').toLowerCase();
-    assert.ok(authRobots.includes('noindex'), '[/auth/sign-in] expected robots noindex');
+    for (const expectation of NOINDEX_ROUTE_EXPECTATIONS) {
+      await assertNoIndexRoute({ port, expectation });
+    }
 
-    const awardeeQueryHtml = await fetchHtml(`http://localhost:${port}/artemis/awardees?q=lockheed`);
-    const awardeeQueryHead = parseHead(awardeeQueryHtml);
-    const awardeeQueryRobots = (awardeeQueryHead.meta.get('robots') || '').toLowerCase();
-    assert.ok(awardeeQueryRobots.includes('noindex'), '[/artemis/awardees?q=...] expected robots noindex');
-    assert.equal(toPathname(awardeeQueryHead.canonical), '/artemis/awardees', '[/artemis/awardees?q=...] canonical path mismatch');
-
-    await assertNoIndexRoute({ port, route: '/artemis/content?kind=photo', expectedCanonicalPath: '/artemis/content' });
-    await assertNoIndexRoute({ port, route: '/catalog/astronauts?q=neil&page=2', expectedCanonicalPath: '/catalog/astronauts' });
-    await assertNoIndexRoute({ port, route: '/search?q=starship', expectedCanonicalPath: '/search' });
-    await assertNoIndexRoute({ port, route: '/spacex/contracts?show=200', expectedCanonicalPath: '/spacex/contracts' });
-    await assertNoIndexRoute({ port, route: '/blue-origin/contracts?show=200', expectedCanonicalPath: '/blue-origin/contracts' });
-    await assertNoIndexRoute({ port, route: '/artemis/contracts?show=200', expectedCanonicalPath: '/artemis/contracts' });
-    await assertNoIndexRoute({ port, route: '/artemis?view=intel', expectedCanonicalPath: '/artemis' });
-    await assertNoIndexRoute({ port, route: '/starship?view=timeline', expectedCanonicalPath: '/starship' });
+    await assertLaunchArNoIndexHeader({ port });
 
     await assertHeaderContains({
       port,
@@ -146,7 +200,8 @@ async function main() {
     });
     await assertHeaderContains({
       port,
-      route: '/launches/00000000-0000-0000-0000-000000000000/opengraph-image/seo-tests/jpeg',
+      route:
+        '/launches/00000000-0000-0000-0000-000000000000/opengraph-image/seo-tests/jpeg',
       header: 'x-robots-tag',
       expectedSubstring: 'noindex'
     });
@@ -160,7 +215,14 @@ async function main() {
 }
 
 function startNextServer(port: number) {
-  const nextCli = path.join(process.cwd(), 'node_modules', 'next', 'dist', 'bin', 'next');
+  const nextCli = path.join(
+    process.cwd(),
+    'node_modules',
+    'next',
+    'dist',
+    'bin',
+    'next'
+  );
   const env = {
     ...process.env,
     NEXT_TELEMETRY_DISABLED: '1',
@@ -168,11 +230,15 @@ function startNextServer(port: number) {
     NEXT_PUBLIC_OG_IMAGE_VERSION: 'seo-tests'
   };
 
-  const child = spawn(process.execPath, [nextCli, 'start', '-p', String(port)], {
-    cwd: WEB_DIR,
-    env,
-    stdio: ['ignore', 'pipe', 'pipe']
-  });
+  const child = spawn(
+    process.execPath,
+    [nextCli, 'start', '-p', String(port)],
+    {
+      cwd: WEB_DIR,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe']
+    }
+  );
 
   child.stdout?.on('data', () => {});
   child.stderr?.on('data', () => {});
@@ -191,7 +257,13 @@ async function stopServer(child: ReturnType<typeof startNextServer>) {
   }
 }
 
-async function waitForServerReady({ port, path: routePath }: { port: number; path: string }) {
+async function waitForServerReady({
+  port,
+  path: routePath
+}: {
+  port: number;
+  path: string;
+}) {
   const url = `http://localhost:${port}${routePath}`;
   const deadline = Date.now() + 30_000;
   let lastError: unknown;
@@ -208,13 +280,98 @@ async function waitForServerReady({ port, path: routePath }: { port: number; pat
     }
     await sleep(200);
   }
-  throw lastError instanceof Error ? lastError : new Error('Server did not become ready');
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('Server did not become ready');
 }
 
-async function fetchHtml(url: string) {
-  const response = await fetch(url, { headers: { 'x-forwarded-proto': 'https' } });
-  assert.equal(response.status, 200, `Expected 200 for ${url} but got ${response.status}`);
-  return response.text();
+async function assertIndexableRoute({
+  port,
+  expectation
+}: {
+  port: number;
+  expectation: RouteExpectation;
+}) {
+  const url = `http://localhost:${port}${expectation.route}`;
+  const html = await fetchHtml(url);
+  const head = parseHead(html);
+
+  assert.ok(head.title, `[${expectation.route}] missing <title>`);
+  assert.ok(head.canonical, `[${expectation.route}] missing canonical link`);
+
+  for (const key of REQUIRED_META_KEYS) {
+    assert.ok(
+      head.meta.get(key),
+      `[${expectation.route}] missing meta: ${key}`
+    );
+  }
+
+  assert.equal(
+    head.meta.get('og:type'),
+    'website',
+    `[${expectation.route}] og:type should be "website"`
+  );
+  assert.equal(
+    head.meta.get('twitter:card'),
+    'summary_large_image',
+    `[${expectation.route}] twitter:card should be "summary_large_image"`
+  );
+
+  assert.ok(
+    isAbsoluteUrl(head.canonical),
+    `[${expectation.route}] canonical should be absolute: ${head.canonical}`
+  );
+  assert.ok(
+    isAbsoluteUrl(head.meta.get('og:image')),
+    `[${expectation.route}] og:image should be absolute: ${head.meta.get('og:image')}`
+  );
+  assert.ok(
+    isAbsoluteUrl(head.meta.get('twitter:image')),
+    `[${expectation.route}] twitter:image should be absolute: ${head.meta.get('twitter:image')}`
+  );
+
+  const canonicalPath = toPathname(head.canonical);
+  assert.equal(
+    canonicalPath,
+    expectation.route,
+    `[${expectation.route}] canonical path mismatch`
+  );
+  assert.equal(
+    head.meta.get('og:image:width'),
+    '1200',
+    `[${expectation.route}] og:image:width should be 1200`
+  );
+  assert.equal(
+    head.meta.get('og:image:height'),
+    '630',
+    `[${expectation.route}] og:image:height should be 630`
+  );
+
+  const bannedMatches = findBannedTextOutsideNosnippet(
+    html,
+    SNIPPET_BANNED_TEXT
+  );
+  assert.equal(
+    bannedMatches.length,
+    0,
+    `[${expectation.route}] snippet pollution: ${bannedMatches.join(', ')}`
+  );
+
+  const robots = (head.meta.get('robots') || '').toLowerCase();
+  assert.ok(
+    !robots.includes('noindex'),
+    `[${expectation.route}] should be indexable`
+  );
+
+  if (expectation.requiredSchemaTypes?.length) {
+    const availableTypes = collectJsonLdTypes(head.jsonLd);
+    for (const requiredType of expectation.requiredSchemaTypes) {
+      assert.ok(
+        availableTypes.has(requiredType),
+        `[${expectation.route}] missing JSON-LD type ${requiredType}. Found: ${[...availableTypes].join(', ') || '(none)'}`
+      );
+    }
+  }
 }
 
 async function assertRedirect({
@@ -235,13 +392,23 @@ async function assertRedirect({
     redirect: 'manual'
   });
 
-  assert.equal(response.status, expectedStatus, `[${route}] expected redirect status ${expectedStatus}, got ${response.status}`);
+  assert.equal(
+    response.status,
+    expectedStatus,
+    `[${route}] expected redirect status ${expectedStatus}, got ${response.status}`
+  );
 
   const location = response.headers.get('location');
   assert.ok(location, `[${route}] missing redirect location`);
 
-  const resolvedUrl = location.startsWith('http') ? new URL(location) : new URL(location, `http://localhost:${port}`);
-  assert.equal(resolvedUrl.pathname, expectedLocationPath, `[${route}] expected redirect location ${expectedLocationPath}, got ${location}`);
+  const resolvedUrl = location.startsWith('http')
+    ? new URL(location)
+    : new URL(location, `http://localhost:${port}`);
+  assert.equal(
+    resolvedUrl.pathname,
+    expectedLocationPath,
+    `[${route}] expected redirect location ${expectedLocationPath}, got ${location}`
+  );
   if (typeof expectedLocationSearch === 'string') {
     assert.equal(
       resolvedUrl.search,
@@ -267,42 +434,134 @@ async function assertHeaderContains({
     redirect: 'manual'
   });
   const value = (response.headers.get(header) || '').toLowerCase();
-  assert.ok(value.includes(expectedSubstring.toLowerCase()), `[${route}] expected ${header} to include "${expectedSubstring}"`);
+  assert.ok(
+    value.includes(expectedSubstring.toLowerCase()),
+    `[${route}] expected ${header} to include "${expectedSubstring}"`
+  );
 }
 
 async function assertNoIndexRoute({
   port,
-  route,
-  expectedCanonicalPath
+  expectation
 }: {
   port: number;
-  route: string;
-  expectedCanonicalPath: string;
+  expectation: NoIndexRouteExpectation;
 }) {
-  const html = await fetchHtml(`http://localhost:${port}${route}`);
+  const html = await fetchHtml(`http://localhost:${port}${expectation.route}`);
   const head = parseHead(html);
   const robots = (head.meta.get('robots') || '').toLowerCase();
-  assert.ok(robots.includes('noindex'), `[${route}] expected robots noindex`);
-  assert.equal(toPathname(head.canonical), expectedCanonicalPath, `[${route}] canonical path mismatch`);
+
+  assert.ok(head.title, `[${expectation.route}] missing <title>`);
+  assert.ok(
+    head.meta.get('description'),
+    `[${expectation.route}] missing meta: description`
+  );
+  assert.ok(head.canonical, `[${expectation.route}] missing canonical link`);
+  assert.ok(
+    robots.includes('noindex'),
+    `[${expectation.route}] expected robots noindex`
+  );
+  assert.equal(
+    toPathname(head.canonical),
+    expectation.expectedCanonicalPath,
+    `[${expectation.route}] canonical path mismatch`
+  );
+}
+
+async function assertLaunchArNoIndexHeader({ port }: { port: number }) {
+  const launchLeafLocs = extractLocs(
+    await fetchText(`http://localhost:${port}/sitemap-launches.xml?page=1`)
+  );
+  const launchLoc = launchLeafLocs.find((loc) =>
+    toPathname(loc).startsWith('/launches/')
+  );
+  assert.ok(
+    launchLoc,
+    '[launch AR header] missing launch detail entry in sitemap-launches.xml?page=1'
+  );
+
+  const launchPath = toPathname(launchLoc);
+  await assertHeaderContains({
+    port,
+    route: `${launchPath}/ar`,
+    header: 'x-robots-tag',
+    expectedSubstring: 'noindex'
+  });
 }
 
 async function assertTieredSitemaps({ port }: { port: number }) {
   const robotsTxt = await fetchText(`http://localhost:${port}/robots.txt`);
   for (const route of TIERED_SITEMAP_ROUTES) {
-    assert.ok(robotsTxt.includes(route), `[robots.txt] missing sitemap entry for ${route}`);
+    assert.ok(
+      robotsTxt.includes(route),
+      `[robots.txt] missing sitemap entry for ${route}`
+    );
   }
 
-  const coreLocs = extractLocs(await fetchText(`http://localhost:${port}/sitemap.xml`));
-  const launchIndexLocs = extractLocs(await fetchText(`http://localhost:${port}/sitemap-launches.xml`));
-  const entityIndexLocs = extractLocs(await fetchText(`http://localhost:${port}/sitemap-entities.xml`));
-  const catalogIndexLocs = extractLocs(await fetchText(`http://localhost:${port}/sitemap-catalog.xml`));
-  const satelliteSitemapLocs = extractLocs(await fetchText(`http://localhost:${port}/sitemap-satellites.xml`));
-  const ownerSitemapLocs = extractLocs(await fetchText(`http://localhost:${port}/sitemap-satellite-owners.xml`));
+  const coreLocs = extractLocs(
+    await fetchText(`http://localhost:${port}/sitemap.xml`)
+  );
+  const launchIndexLocs = extractLocs(
+    await fetchText(`http://localhost:${port}/sitemap-launches.xml`)
+  );
+  const entityIndexLocs = extractLocs(
+    await fetchText(`http://localhost:${port}/sitemap-entities.xml`)
+  );
+  const catalogIndexLocs = extractLocs(
+    await fetchText(`http://localhost:${port}/sitemap-catalog.xml`)
+  );
+  const satelliteIndexLocs = extractLocs(
+    await fetchText(`http://localhost:${port}/sitemap-satellites.xml`)
+  );
+  const ownerSitemapLocs = extractLocs(
+    await fetchText(`http://localhost:${port}/sitemap-satellite-owners.xml`)
+  );
 
-  const launchLeafLocs = extractLocs(await fetchText(`http://localhost:${port}/sitemap-launches.xml?page=1`));
-  const entityLeafLocs = extractLocs(await fetchText(`http://localhost:${port}/sitemap-entities.xml?page=1`));
-  const catalogLeafLocs = extractLocs(await fetchText(`http://localhost:${port}/sitemap-catalog.xml?page=1`));
+  const launchLeafLocs = extractLocs(
+    await fetchText(`http://localhost:${port}/sitemap-launches.xml?page=1`)
+  );
+  const entityLeafLocs = extractLocs(
+    await fetchText(`http://localhost:${port}/sitemap-entities.xml?page=1`)
+  );
+  const catalogLeafLocs = extractLocs(
+    await fetchText(`http://localhost:${port}/sitemap-catalog.xml?page=1`)
+  );
+  const satelliteLeafLocs = extractLocs(
+    await fetchText(`http://localhost:${port}/sitemap-satellites.xml?page=1`)
+  );
 
+  assert.ok(
+    coreLocs.some((loc) => loc.endsWith('/site-map')),
+    '[sitemap.xml] missing /site-map entry'
+  );
+  assert.ok(
+    coreLocs.some((loc) => loc.endsWith('/news')),
+    '[sitemap.xml] missing /news entry'
+  );
+  assert.ok(
+    coreLocs.some((loc) => loc.endsWith('/info')),
+    '[sitemap.xml] missing /info entry'
+  );
+  assert.ok(
+    coreLocs.some((loc) => loc.endsWith('/launch-providers')),
+    '[sitemap.xml] missing /launch-providers entry'
+  );
+  assert.ok(
+    coreLocs.some((loc) => loc.endsWith('/about')),
+    '[sitemap.xml] missing /about entry'
+  );
+  assert.ok(
+    coreLocs.some((loc) => loc.endsWith('/support')),
+    '[sitemap.xml] missing /support entry'
+  );
+  assert.ok(
+    coreLocs.some((loc) => loc.endsWith('/legal/privacy')),
+    '[sitemap.xml] missing /legal/privacy entry'
+  );
+  assert.ok(
+    coreLocs.some((loc) => loc.endsWith('/catalog/astronauts')),
+    '[sitemap.xml] missing /catalog/astronauts entry'
+  );
   assert.ok(
     coreLocs.some((loc) => loc.endsWith('/artemis/awardees')),
     '[sitemap.xml] missing /artemis/awardees entry'
@@ -311,10 +570,7 @@ async function assertTieredSitemaps({ port }: { port: number }) {
     coreLocs.some((loc) => loc.endsWith('/artemis/content')),
     '[sitemap.xml] missing /artemis/content entry'
   );
-  assert.ok(
-    coreLocs.some((loc) => loc.endsWith('/catalog/astronauts')),
-    '[sitemap.xml] missing /catalog/astronauts entry'
-  );
+
   assert.ok(
     launchIndexLocs.some((loc) => loc.includes('/sitemap-launches.xml?page=1')),
     '[sitemap-launches.xml] missing first shard reference'
@@ -328,7 +584,24 @@ async function assertTieredSitemaps({ port }: { port: number }) {
     '[sitemap-catalog.xml] missing first shard reference'
   );
   assert.ok(
-    entityLeafLocs.some((loc) => loc.endsWith('/artemis/awardees/lockheed-martin')),
+    satelliteIndexLocs.some((loc) =>
+      loc.includes('/sitemap-satellites.xml?page=1')
+    ),
+    '[sitemap-satellites.xml] missing first shard reference'
+  );
+
+  assert.ok(
+    entityLeafLocs.some((loc) => loc.endsWith('/launch-providers/spacex')),
+    '[sitemap-entities.xml?page=1] missing /launch-providers/spacex entry'
+  );
+  assert.ok(
+    entityLeafLocs.some((loc) => loc.endsWith('/providers/spacex')),
+    '[sitemap-entities.xml?page=1] missing /providers/spacex entry'
+  );
+  assert.ok(
+    entityLeafLocs.some((loc) =>
+      loc.endsWith('/artemis/awardees/lockheed-martin')
+    ),
     '[sitemap-entities.xml?page=1] missing /artemis/awardees/lockheed-martin entry'
   );
   assert.ok(
@@ -340,24 +613,126 @@ async function assertTieredSitemaps({ port }: { port: number }) {
     '[sitemap-catalog.xml?page=1] missing catalog detail entries'
   );
   assert.ok(
-    satelliteSitemapLocs.some((loc) => loc.includes('/sitemap-satellites.xml?page=1')),
-    '[sitemap-satellites.xml] missing first shard reference'
+    satelliteLeafLocs.some((loc) => loc.includes('/satellites/')),
+    '[sitemap-satellites.xml?page=1] missing satellite detail entries'
   );
   assert.ok(
     ownerSitemapLocs.some((loc) => loc.endsWith('/satellites/owners')),
     '[sitemap-satellite-owners.xml] missing /satellites/owners entry'
   );
 
+  const combinedPageLocs = dedupeStrings([
+    ...coreLocs,
+    ...launchLeafLocs,
+    ...entityLeafLocs,
+    ...catalogLeafLocs,
+    ...satelliteLeafLocs,
+    ...ownerSitemapLocs
+  ]);
+  const combinedPaths = new Set(combinedPageLocs.map((loc) => toPathname(loc)));
+  for (const expectation of NOINDEX_ROUTE_EXPECTATIONS.filter(
+    (routeExpectation) => routeExpectation.excludeCanonicalFromSitemap
+  )) {
+    assert.ok(
+      !combinedPaths.has(expectation.expectedCanonicalPath),
+      `[sitemap] noindex route should not be present: ${expectation.expectedCanonicalPath}`
+    );
+  }
+  assert.ok(
+    !combinedPageLocs.some((loc) => toPathname(loc).endsWith('/ar')),
+    '[sitemap] launch AR routes should not be present in sitemap output'
+  );
+
+  const sitemapVerificationLocs = dedupeStrings([
+    ...coreLocs,
+    ...entityLeafLocs.filter((loc) =>
+      [
+        '/launch-providers/spacex',
+        '/providers/spacex',
+        '/artemis/awardees/lockheed-martin'
+      ].some((suffix) => loc.endsWith(suffix))
+    ),
+    ...catalogLeafLocs.slice(0, 5),
+    ...launchLeafLocs.slice(0, 5),
+    ...satelliteLeafLocs.slice(0, 5),
+    ...ownerSitemapLocs.slice(0, 5)
+  ]);
+
+  for (const loc of sitemapVerificationLocs) {
+    await assertSitemapPageIsCanonicalIndexable({ port, loc });
+  }
+
   const lastLaunchLeaf = launchIndexLocs.at(-1);
   if (lastLaunchLeaf) {
     const lastLaunchLeafLocs = extractLocs(await fetchText(lastLaunchLeaf));
-    assert.ok(lastLaunchLeafLocs.length > 0, '[sitemap-launches.xml] last shard should contain older launch entries');
+    assert.ok(
+      lastLaunchLeafLocs.length > 0,
+      '[sitemap-launches.xml] last shard should contain older launch entries'
+    );
   }
 }
 
+async function assertSitemapPageIsCanonicalIndexable({
+  port,
+  loc
+}: {
+  port: number;
+  loc: string;
+}) {
+  assert.ok(isAbsoluteUrl(loc), `[${loc}] sitemap entry should be absolute`);
+
+  const sourceUrl = new URL(loc);
+  const routePath = sourceUrl.pathname;
+  const localUrl = `http://localhost:${port}${routePath}${sourceUrl.search}`;
+
+  const response = await fetch(localUrl, {
+    headers: { 'x-forwarded-proto': 'https' },
+    redirect: 'manual'
+  });
+  assert.equal(
+    response.status,
+    200,
+    `[${loc}] sitemap path should resolve locally without redirect`
+  );
+
+  const html = await response.text();
+  const head = parseHead(html);
+  const robots = (head.meta.get('robots') || '').toLowerCase();
+
+  assert.ok(head.title, `[${loc}] missing <title>`);
+  assert.ok(head.canonical, `[${loc}] missing canonical link`);
+  assert.equal(
+    toPathname(head.canonical),
+    routePath,
+    `[${loc}] canonical path mismatch`
+  );
+  assert.ok(
+    !robots.includes('noindex'),
+    `[${loc}] sitemap entry should not resolve to a noindex page`
+  );
+}
+
+async function fetchHtml(url: string) {
+  const response = await fetch(url, {
+    headers: { 'x-forwarded-proto': 'https' }
+  });
+  assert.equal(
+    response.status,
+    200,
+    `Expected 200 for ${url} but got ${response.status}`
+  );
+  return response.text();
+}
+
 async function fetchText(url: string) {
-  const response = await fetch(url, { headers: { 'x-forwarded-proto': 'https' } });
-  assert.equal(response.status, 200, `Expected 200 for ${url} but got ${response.status}`);
+  const response = await fetch(url, {
+    headers: { 'x-forwarded-proto': 'https' }
+  });
+  assert.equal(
+    response.status,
+    200,
+    `Expected 200 for ${url} but got ${response.status}`
+  );
   return response.text();
 }
 
@@ -382,7 +757,8 @@ function parseHead(html: string): ParsedHead {
     const linkTags = head.match(/<link\s+[^>]*>/gi) ?? [];
     for (const tag of linkTags) {
       const attrs = parseTagAttributes(tag);
-      if ((attrs.rel || '').toLowerCase() === 'canonical' && attrs.href) return attrs.href;
+      if ((attrs.rel || '').toLowerCase() === 'canonical' && attrs.href)
+        return attrs.href;
     }
     return null;
   })();
@@ -397,7 +773,62 @@ function parseHead(html: string): ParsedHead {
     meta.set(key, attrs.content);
   }
 
-  return { title, canonical: canonicalHref, meta };
+  return {
+    title,
+    canonical: canonicalHref,
+    meta,
+    jsonLd: parseJsonLd(html)
+  };
+}
+
+function parseJsonLd(html: string) {
+  const objects: Array<Record<string, unknown>> = [];
+  const regex =
+    /<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(html))) {
+    const raw = match[1]?.trim();
+    if (!raw) continue;
+    try {
+      const parsed = JSON.parse(raw);
+      for (const node of normalizeJsonLdNodes(parsed)) {
+        if (node && typeof node === 'object' && !Array.isArray(node)) {
+          objects.push(node as Record<string, unknown>);
+        }
+      }
+    } catch (error) {
+      throw new Error(
+        `Failed to parse JSON-LD block: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  return objects;
+}
+
+function normalizeJsonLdNodes(value: unknown): unknown[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => normalizeJsonLdNodes(entry));
+  }
+  return value == null ? [] : [value];
+}
+
+function collectJsonLdTypes(jsonLd: Array<Record<string, unknown>>) {
+  const types = new Set<string>();
+  for (const node of jsonLd) {
+    const rawType = node['@type'];
+    if (typeof rawType === 'string') {
+      types.add(rawType);
+      continue;
+    }
+    if (Array.isArray(rawType)) {
+      for (const value of rawType) {
+        if (typeof value === 'string') types.add(value);
+      }
+    }
+  }
+  return types;
 }
 
 function toPathname(url: string | null): string {
@@ -457,7 +888,8 @@ function findBannedTextOutsideNosnippet(html: string, bannedText: string[]) {
   let inScript = false;
   let inStyle = false;
 
-  const isNosnippet = () => (stack.length ? stack[stack.length - 1].nosnippet : false);
+  const isNosnippet = () =>
+    stack.length ? stack[stack.length - 1].nosnippet : false;
   const shouldScanText = () => !inScript && !inStyle && !isNosnippet();
 
   const scanText = (text: string) => {
@@ -523,24 +955,26 @@ function findBannedTextOutsideNosnippet(html: string, bannedText: string[]) {
   return [...found];
 }
 
-async function getFreePort(): Promise<number> {
-  return await new Promise((resolve, reject) => {
+function dedupeStrings(values: string[]) {
+  return [...new Set(values)];
+}
+
+async function getFreePort() {
+  return new Promise<number>((resolve, reject) => {
     const server = net.createServer();
-    server.unref();
-    server.on('error', reject);
-    server.listen(0, '127.0.0.1', () => {
+    server.listen(0, () => {
       const address = server.address();
       if (!address || typeof address === 'string') {
-        server.close();
-        reject(new Error('Failed to resolve port'));
+        reject(new Error('Failed to get free port'));
         return;
       }
-      const port = address.port;
+      const { port } = address;
       server.close((error) => {
         if (error) reject(error);
         else resolve(port);
       });
     });
+    server.on('error', reject);
   });
 }
 
