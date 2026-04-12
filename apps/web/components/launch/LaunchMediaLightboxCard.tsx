@@ -1,26 +1,31 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import clsx from 'clsx';
 
 type LaunchMediaLightboxCardProps = {
   imageUrl: string;
+  lightboxImageUrl?: string;
   alt: string;
   href?: string | null;
   className?: string;
   imageClassName?: string;
   buttonLabel?: string;
+  overlay?: ReactNode;
 };
 
 export function LaunchMediaLightboxCard({
   imageUrl,
+  lightboxImageUrl,
   alt,
   href,
   className,
   imageClassName,
-  buttonLabel
+  buttonLabel,
+  overlay
 }: LaunchMediaLightboxCardProps) {
   const [open, setOpen] = useState(false);
+  const fullImageUrl = lightboxImageUrl || imageUrl;
 
   useEffect(() => {
     if (!open) return;
@@ -52,13 +57,16 @@ export function LaunchMediaLightboxCard({
           className
         )}
       >
-        <img
-          src={imageUrl}
-          alt={alt}
-          className={clsx('h-40 w-full cursor-zoom-in object-cover transition duration-300 group-hover:scale-[1.02]', imageClassName)}
-          loading="lazy"
-          decoding="async"
-        />
+        <div className="relative">
+          <img
+            src={imageUrl}
+            alt={alt}
+            className={clsx('h-40 w-full cursor-zoom-in object-cover transition duration-300 group-hover:scale-[1.02]', imageClassName)}
+            loading="lazy"
+            decoding="async"
+          />
+          {overlay ? <div className="pointer-events-none absolute inset-0">{overlay}</div> : null}
+        </div>
       </button>
 
       {open ? (
@@ -85,13 +93,7 @@ export function LaunchMediaLightboxCard({
               </button>
             </div>
 
-            <img
-              src={imageUrl}
-              alt={alt}
-              className="max-h-full max-w-full rounded-2xl object-contain"
-              loading="lazy"
-              decoding="async"
-            />
+            <img src={fullImageUrl} alt={alt} className="max-h-full max-w-full rounded-2xl object-contain" loading="lazy" decoding="async" />
           </div>
         </div>
       ) : null}

@@ -8,10 +8,10 @@ import {
   calculateStickyNavState,
   type SectionVisibility
 } from '@tminuszero/launch-animations';
-import type { VisibleLaunchSectionId } from '@tminuszero/launch-detail-ui';
+import type { LaunchSectionId } from '@tminuszero/launch-detail-ui';
 
 type LaunchSectionRailProps = {
-  sections: Array<{ id: VisibleLaunchSectionId; label: string }>;
+  sections: Array<{ id: LaunchSectionId; label: string }>;
   topOffset?: number;
   navHeight?: number;
   stickyThreshold?: number;
@@ -19,7 +19,7 @@ type LaunchSectionRailProps = {
 };
 
 type LaunchSectionRailState = {
-  activeSection: VisibleLaunchSectionId | null;
+  activeSection: LaunchSectionId | null;
   isSticky: boolean;
   opacity: number;
 };

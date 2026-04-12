@@ -82,7 +82,7 @@ export function LaunchTimingInfoButton({
           aria-modal="false"
           aria-label="Launch time reference"
           className={clsx(
-            'absolute top-full z-20 mt-2 w-[min(24rem,calc(100vw-2rem))] rounded-2xl border border-stroke bg-[rgba(10,14,26,0.97)] p-3 shadow-[0_18px_60px_rgba(0,0,0,0.4)] backdrop-blur',
+            'absolute top-full z-40 mt-2 w-[min(24rem,calc(100vw-2rem))] rounded-2xl border border-stroke bg-[rgba(10,14,26,0.97)] p-3 shadow-[0_18px_60px_rgba(0,0,0,0.4)] backdrop-blur',
             align === 'left' && 'left-0',
             align === 'center' && 'left-1/2 -translate-x-1/2',
             align === 'right' && 'right-0'

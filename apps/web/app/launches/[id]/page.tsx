@@ -2318,8 +2318,14 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
   const faaMapMode: LaunchFaaMapRenderMode =
     webMapPolicy.faaMapMode === 'apple' && !appleMapsAuthorizationToken ? 'fallback' : webMapPolicy.faaMapMode;
   const padMapsHref = webMapPolicy.padMapsHref;
+  const hasPadPreviewTarget =
+    (typeof launch.ll2PadId === 'number' && Number.isInteger(launch.ll2PadId) && launch.ll2PadId > 0) ||
+    (typeof launch.pad.latitude === 'number' &&
+      Number.isFinite(launch.pad.latitude) &&
+      typeof launch.pad.longitude === 'number' &&
+      Number.isFinite(launch.pad.longitude));
   const googleMapsPadPreviewUrl =
-    webMapPolicy.allowGoogleStaticPadPreview
+    hasPadPreviewTarget
       ? buildPadSatellitePreviewPath({ launchId: launch.id, ll2PadId: launch.ll2PadId })
       : null;
   const externalLinksRaw = buildExternalLinks({
@@ -2620,7 +2626,8 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
                 { id: 'timeline', label: 'Timeline' },
                 { id: 'viewing', label: 'Viewing' },
                 { id: 'vehicle', label: 'Vehicle' },
-                { id: 'coverage', label: 'Coverage' }
+                { id: 'coverage', label: 'Coverage' },
+                { id: 'details', label: 'Launch info' }
               ]}
               topOffset={124}
               navHeight={116}
@@ -3348,25 +3355,6 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
                   )}
                 </div>
               )}
-            </div>
-          )}
-          {externalLinks.length > 0 && (
-            <div className="mt-3 rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3 text-sm text-text2">
-              <div className="text-xs uppercase tracking-[0.08em] text-text3">Links & sources</div>
-              <div className="mt-2 grid gap-2 md:grid-cols-2">
-                {externalLinks.map((link) => (
-                  <a
-                    key={link.url}
-                    className="flex min-w-0 flex-col gap-1 rounded-lg border border-stroke bg-surface-0 px-3 py-2 text-sm text-text1 hover:border-primary sm:flex-row sm:items-center sm:justify-between"
-                    href={link.url}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <span className="min-w-0 break-words sm:truncate">{link.label}</span>
-                    <span className="text-xs text-text3 sm:shrink-0 sm:text-right">{link.meta}</span>
-                  </a>
-                ))}
-              </div>
             </div>
           )}
           {(launch.providerDescription || launch.providerType || launch.providerCountryCode) && (
@@ -4892,7 +4880,13 @@ async function LaunchMissionResourcesSection({
   enrichmentPromise: Promise<LaunchDetailEnrichment>;
 }) {
   const enrichment = await enrichmentPromise;
-  const resources = flattenExternalResources(enrichment.externalContent);
+  const resources = flattenExternalResources(enrichment.externalContent).filter(
+    (resource) => resource.kind !== 'page'
+  );
+  const previewableResources = resources.filter((resource) => Boolean(getLaunchExternalResourcePreview(resource).previewUrl));
+  const featuredResourceIds = new Set(previewableResources.slice(0, 2).map((resource) => resource.id));
+  const featuredResources = resources.filter((resource) => featuredResourceIds.has(resource.id));
+  const secondaryResources = resources.filter((resource) => !featuredResourceIds.has(resource.id));
 
   if (!resources.length) return null;
 
@@ -4910,30 +4904,72 @@ async function LaunchMissionResourcesSection({
       </div>
 
       {resources.length > 0 && (
-        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {resources.map((resource) => (
-            <LaunchExternalResourceCard key={resource.id} resource={resource} />
-          ))}
+        <div className="mt-4 space-y-4">
+          {featuredResources.length > 0 ? (
+            <div className="grid gap-4 xl:grid-cols-2">
+              {featuredResources.map((resource) => (
+                <LaunchExternalResourceCard key={resource.id} resource={resource} featured />
+              ))}
+            </div>
+          ) : null}
+
+          {secondaryResources.length > 0 ? (
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {secondaryResources.map((resource) => (
+                <LaunchExternalResourceCard key={resource.id} resource={resource} />
+              ))}
+            </div>
+          ) : null}
         </div>
       )}
     </section>
   );
 }
 
-function LaunchExternalResourceCard({ resource }: { resource: LaunchExternalResource }) {
-  const previewUrl =
-    normalizeImageUrl(
-      resource.previewUrl || (resource.kind === 'image' || resource.kind === 'infographic' ? resource.url : null)
-    ) || null;
+function LaunchExternalResourceCard({
+  resource,
+  featured = false
+}: {
+  resource: LaunchExternalResource;
+  featured?: boolean;
+}) {
+  const { previewUrl, lightboxImageUrl } = getLaunchExternalResourcePreview(resource);
 
   if (previewUrl) {
     return (
       <LaunchMediaLightboxCard
         imageUrl={previewUrl}
+        lightboxImageUrl={lightboxImageUrl || undefined}
         alt={resource.label}
         href={resource.url}
         buttonLabel={`Open ${resource.label}`}
-        className="bg-[rgba(255,255,255,0.02)]"
+        className={clsx(
+          'bg-[rgba(255,255,255,0.02)]',
+          featured &&
+            'overflow-hidden rounded-[1.5rem] border-primary/25 bg-[radial-gradient(circle_at_top,rgba(34,211,238,0.12),transparent_62%),rgba(255,255,255,0.02)] shadow-[0_18px_50px_rgba(2,12,27,0.34)]'
+        )}
+        imageClassName={featured ? 'h-56 md:h-64 xl:h-72' : undefined}
+        overlay={
+          featured ? (
+            <>
+              <div className="absolute inset-0 bg-gradient-to-t from-[rgba(3,7,18,0.92)] via-[rgba(3,7,18,0.2)] to-transparent" />
+              <div className="absolute inset-x-0 bottom-0 p-4">
+                <div className="flex items-end justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="inline-flex items-center rounded-full border border-primary/25 bg-[rgba(7,9,19,0.7)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-primary">
+                      Featured
+                    </div>
+                    <div className="mt-3 text-lg font-semibold text-white">{resource.label}</div>
+                    <div className="mt-1 text-xs uppercase tracking-[0.1em] text-white/70">{formatExternalResourceKind(resource.kind)}</div>
+                  </div>
+                  <div className="rounded-full border border-white/15 bg-black/35 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-white">
+                    Open Full
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : undefined
+        }
       />
     );
   }
@@ -4952,6 +4988,24 @@ function LaunchExternalResourceCard({ resource }: { resource: LaunchExternalReso
       </div>
     </a>
   );
+}
+
+function getLaunchExternalResourcePreview(resource: LaunchExternalResource) {
+  const previewUrl =
+    normalizeImageUrl(
+      resource.previewUrl || (resource.kind === 'image' || resource.kind === 'infographic' ? resource.url : null)
+    ) || null;
+  const lightboxImageUrl =
+    normalizeImageUrl(
+      resource.mime?.startsWith('image/') || resource.kind === 'image' || resource.kind === 'infographic'
+        ? resource.url
+        : resource.previewUrl
+    ) || previewUrl;
+
+  return {
+    previewUrl,
+    lightboxImageUrl
+  };
 }
 
 function buildSpacecraftStageCards(manifest: PayloadManifestEntry[]): SpacecraftStageCard[] {

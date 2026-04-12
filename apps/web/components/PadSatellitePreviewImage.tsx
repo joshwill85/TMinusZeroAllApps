@@ -12,7 +12,7 @@ type PadSatellitePreviewImageProps = {
 export function PadSatellitePreviewImage({ src, alt, padName, providerLabel }: PadSatellitePreviewImageProps) {
   const [imageFailed, setImageFailed] = useState(false);
   const showImage = Boolean(src) && !imageFailed;
-  const previewUnavailable = Boolean(src) && imageFailed;
+  const previewUnavailable = !src || imageFailed;
 
   return (
     <div className="relative h-56 w-full overflow-hidden bg-[radial-gradient(circle_at_20%_20%,_rgba(34,197,94,0.22),_transparent_34%),radial-gradient(circle_at_80%_18%,_rgba(59,130,246,0.25),_transparent_28%),linear-gradient(135deg,rgba(15,23,42,0.96),rgba(12,18,34,0.98))]">

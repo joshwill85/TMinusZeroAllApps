@@ -50,7 +50,7 @@ export function LaunchCountdownSummary({
           {dateOnly ? 'Launch window' : 'T- countdown'}
         </div>
       ) : null}
-      <div className="flex min-w-0 items-center justify-center gap-2 overflow-hidden">
+      <div className="flex min-w-0 items-center justify-center gap-2 overflow-visible">
         {dateOnly ? (
           <span className="rounded-full bg-[rgba(234,240,255,0.05)] px-3 py-1 text-xs font-semibold text-text2">Time TBD</span>
         ) : (
