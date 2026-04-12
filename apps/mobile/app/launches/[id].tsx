@@ -57,6 +57,7 @@ import { LaunchFollowSheet } from '@/src/components/LaunchFollowSheet';
 import { LaunchShareIconButton } from '@/src/components/LaunchShareIconButton';
 import { EmptyStateCard, ErrorStateCard, LoadingStateCard, SectionCard } from '@/src/components/SectionCard';
 import { ForecastAdvisoriesDisclosure } from '@/src/components/launch/ForecastAdvisoriesDisclosure';
+import { AdvancedWeatherDisclosure } from '@/src/components/launch/AdvancedWeatherDisclosure';
 import { JepPanel } from '@/src/components/launch/JepPanel';
 import { LaunchNewsCard } from '@/src/components/launch/LaunchNewsCard';
 import { LaunchVideoInlineEmbed } from '@/src/components/launch/LaunchVideoInlineEmbed';
@@ -2004,20 +2005,7 @@ export default function LaunchDetailScreen() {
               ))}
 
               {advancedWeatherCards.length ? (
-                <View
-                  style={{
-                    borderRadius: 16,
-                    borderWidth: 1,
-                    borderColor: theme.stroke,
-                    backgroundColor: 'rgba(255, 255, 255, 0.02)',
-                    padding: 14,
-                    gap: 10
-                  }}
-                >
-                  <Text style={{ color: theme.foreground, fontSize: 14, fontWeight: '700' }}>Advanced weather</Text>
-                  <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
-                    Planning products from 45 WS provide broader launch-day and near-term week-ahead Cape context, with the weekly outlook limited to launches inside the next 7 days.
-                  </Text>
+                <AdvancedWeatherDisclosure count={advancedWeatherCards.length} isPremium={isPremium} theme={theme} onOpenPremiumGate={openPremiumGate}>
                   {advancedWeatherCards.map((card) => (
                     <View
                       key={card.id}
@@ -2062,7 +2050,7 @@ export default function LaunchDetailScreen() {
                       ) : null}
                     </View>
                   ))}
-                </View>
+                </AdvancedWeatherDisclosure>
               ) : null}
 
               {advisoryCount > 0 ? (

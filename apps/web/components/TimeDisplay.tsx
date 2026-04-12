@@ -1,23 +1,20 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { formatDateOnly, formatNetLabel, isDateOnlyNet } from '@/lib/time';
+import { useResolvedTimeZone } from '@/lib/hooks/useResolvedTimeZone';
 import { Launch } from '@/lib/types/launch';
 
 export function TimeDisplay({
   net,
-  netPrecision
+  netPrecision,
+  fallbackTimeZone
 }: {
   net: string;
   netPrecision: Launch['netPrecision'];
+  fallbackTimeZone?: string | null;
 }) {
-  const [userTz, setUserTz] = useState('UTC');
-
-  useEffect(() => {
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    if (tz) setUserTz(tz);
-  }, []);
-
+  const userTz = useResolvedTimeZone(fallbackTimeZone);
   const isDateOnly = isDateOnlyNet(net, netPrecision, userTz);
   const tz = userTz;
   const dateTime = useMemo(() => {

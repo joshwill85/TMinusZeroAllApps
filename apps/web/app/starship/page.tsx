@@ -302,7 +302,7 @@ export default async function StarshipPage({
                 <Countdown net={nextLaunch.net} />
               </div>
             ) : null}
-            <TimeDisplay net={nextLaunch.net} netPrecision={nextLaunch.netPrecision} />
+            <TimeDisplay net={nextLaunch.net} netPrecision={nextLaunch.netPrecision} fallbackTimeZone={nextLaunch.pad.timezone} />
           </div>
         ) : (
           <p className="mt-3 text-sm text-text2">No upcoming Starship launch is currently available in the feed.</p>

@@ -124,7 +124,7 @@ export default async function SpaceXFlightPage({ params }: { params: Params }) {
               <Countdown net={launch.net} />
             </div>
           ) : null}
-          <TimeDisplay net={launch.net} netPrecision={launch.netPrecision} />
+          <TimeDisplay net={launch.net} netPrecision={launch.netPrecision} fallbackTimeZone={launch.pad.timezone} />
           <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3 text-xs text-text3">
             <p className="uppercase tracking-[0.12em] text-text3">First-stage landing target</p>
             {flight.droneShipSlug ? (

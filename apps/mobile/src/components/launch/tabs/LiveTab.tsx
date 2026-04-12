@@ -5,6 +5,7 @@ import type { LaunchFaaAirspaceMapV1 } from '@tminuszero/contracts';
 import type { MobileTheme } from '@tminuszero/design-tokens';
 import { buildLaunchVideoEmbed, type LiveTabData } from '@tminuszero/launch-detail-ui';
 import { ForecastAdvisoriesDisclosure } from '@/src/components/launch/ForecastAdvisoriesDisclosure';
+import { AdvancedWeatherDisclosure } from '@/src/components/launch/AdvancedWeatherDisclosure';
 import { JepPanel } from '@/src/components/launch/JepPanel';
 import { LaunchFaaMapCard } from '@/src/components/launch/NativeLaunchMapCard';
 import { LaunchVideoInlineEmbed } from '@/src/components/launch/LaunchVideoInlineEmbed';
@@ -19,9 +20,18 @@ type LiveTabProps = {
   theme: MobileTheme;
   faaMapData?: LaunchFaaAirspaceMapV1 | null;
   faaMapLoading?: boolean;
+  isPremium?: boolean;
+  onOpenPremiumGate?: () => void;
 };
 
-export function LiveTab({ data, theme, faaMapData = null, faaMapLoading = false }: LiveTabProps) {
+export function LiveTab({
+  data,
+  theme,
+  faaMapData = null,
+  faaMapLoading = false,
+  isPremium = false,
+  onOpenPremiumGate
+}: LiveTabProps) {
   const router = useRouter();
   const operationalWeather = data.weatherDetail?.operational ?? null;
   const standardWeatherCards = (data.weatherDetail?.cards ?? []).filter((card) => !isAdvancedWeatherSource(card.source));
@@ -179,28 +189,18 @@ export function LiveTab({ data, theme, faaMapData = null, faaMapLoading = false 
                     </View>
                   ) : null}
                   {advancedWeatherCards.length ? (
-                    <View
-                      style={{
-                        gap: 12,
-                        borderRadius: 18,
-                        borderWidth: 1,
-                        borderColor: theme.stroke,
-                        backgroundColor: 'rgba(255, 255, 255, 0.02)',
-                        padding: 16
-                      }}
+                    <AdvancedWeatherDisclosure
+                      count={advancedWeatherCards.length}
+                      isPremium={isPremium}
+                      theme={theme}
+                      onOpenPremiumGate={onOpenPremiumGate}
                     >
-                      <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 0.9, textTransform: 'uppercase' }}>
-                        Advanced weather
-                      </Text>
-                      <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>
-                        Planning products from 45 WS provide broader day-of and near-term week-ahead Cape context, with the weekly outlook limited to launches inside the next 7 days.
-                      </Text>
                       <View style={{ gap: 12 }}>
                         {advancedWeatherCards.map((card) => (
                           <WeatherCard key={card.id} card={card} theme={theme} />
                         ))}
                       </View>
-                    </View>
+                    </AdvancedWeatherDisclosure>
                   ) : null}
                 </>
               ) : null}

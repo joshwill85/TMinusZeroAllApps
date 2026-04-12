@@ -179,7 +179,7 @@ export async function ArtemisPlannedMissionPage({
                 <Countdown net={nextLaunch.net} />
               </div>
             ) : null}
-            <TimeDisplay net={featuredLaunch.net} netPrecision={featuredLaunch.netPrecision} />
+            <TimeDisplay net={featuredLaunch.net} netPrecision={featuredLaunch.netPrecision} fallbackTimeZone={featuredLaunch.pad.timezone} />
           </div>
         ) : (
           <p className="mt-3 text-sm text-text2">

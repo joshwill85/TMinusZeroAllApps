@@ -57,6 +57,26 @@ export function formatDateOnly(netIso: string, timezone: string) {
   }
 }
 
+export function formatLaunchMoment(
+  netIso: string,
+  timezone: string,
+  netPrecision?: Launch['netPrecision'],
+  options?: { includeTimeTbd?: boolean }
+) {
+  const includeTimeTbd = options?.includeTimeTbd ?? true;
+
+  if (isDateOnlyNet(netIso, netPrecision, timezone)) {
+    const dateLabel = formatDateOnly(netIso, timezone);
+    return includeTimeTbd ? `${dateLabel} (Time TBD)` : dateLabel;
+  }
+
+  try {
+    return formatInTimeZone(new Date(netIso), timezone, 'MMM d, h:mm a zzz');
+  } catch (err) {
+    return format(new Date(netIso), 'MMM d, p O');
+  }
+}
+
 function isMidnightInTimeZone(date: Date, timeZone?: string) {
   if (!timeZone) {
     return date.getHours() === 0 && date.getMinutes() === 0 && date.getSeconds() === 0;

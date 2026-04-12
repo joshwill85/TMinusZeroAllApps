@@ -176,7 +176,7 @@ export default async function ArtemisIMissionPage() {
               {featuredLaunch.provider} - {featuredLaunch.vehicle}
             </p>
             <div className="mt-2">
-              <TimeDisplay net={featuredLaunch.net} netPrecision={featuredLaunch.netPrecision} />
+              <TimeDisplay net={featuredLaunch.net} netPrecision={featuredLaunch.netPrecision} fallbackTimeZone={featuredLaunch.pad.timezone} />
             </div>
           </div>
         ) : (

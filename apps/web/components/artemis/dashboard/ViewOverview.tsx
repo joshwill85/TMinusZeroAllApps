@@ -95,7 +95,7 @@ export function ViewOverview({
                 </p>
               </div>
             ) : null}
-            <TimeDisplay net={nextLaunch.net} netPrecision={nextLaunch.netPrecision} />
+            <TimeDisplay net={nextLaunch.net} netPrecision={nextLaunch.netPrecision} fallbackTimeZone={nextLaunch.pad.timezone} />
           </div>
         ) : (
           <MissionControlEmptyState

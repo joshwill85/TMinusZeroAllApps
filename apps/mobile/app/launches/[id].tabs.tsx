@@ -6,7 +6,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Href, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import { ApiClientError } from '@tminuszero/api-client';
@@ -62,6 +62,7 @@ function getLaunchId(value: string | string[] | undefined) {
 }
 
 export default function LaunchDetailTabsScreen() {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const isFocused = useIsFocused();
   const { theme } = useMobileBootstrap();
@@ -70,6 +71,10 @@ export default function LaunchDetailTabsScreen() {
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const launchId = getLaunchId(params.id);
   const entitlementsQuery = useViewerEntitlementsQuery();
+  const isPremium = entitlementsQuery.data?.tier === 'premium';
+  const openPremiumGate = useCallback(() => {
+    router.push('/account/membership' as Href);
+  }, [router]);
 
   // Data queries
   const launchDetailQuery = useLaunchDetailQuery(launchId);
@@ -443,6 +448,8 @@ export default function LaunchDetailTabsScreen() {
               theme={theme}
               faaMapData={launchFaaAirspaceMap}
               faaMapLoading={launchFaaAirspaceMapQuery.isPending}
+              isPremium={isPremium}
+              onOpenPremiumGate={openPremiumGate}
             />
           </LaunchDetailTabPanel>
 

@@ -191,7 +191,7 @@ export async function BlueOriginMissionPage({
                 <Countdown net={nextLaunch.net} />
               </div>
             ) : null}
-            <TimeDisplay net={featuredLaunch.net} netPrecision={featuredLaunch.netPrecision} />
+            <TimeDisplay net={featuredLaunch.net} netPrecision={featuredLaunch.netPrecision} fallbackTimeZone={featuredLaunch.pad.timezone} />
           </div>
         ) : (
           <p className="mt-3 text-sm text-text2">No launch entry is currently available for this mission route.</p>

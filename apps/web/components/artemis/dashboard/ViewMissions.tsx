@@ -136,7 +136,7 @@ function MissionLaunchStatus({ href, launch }: { href: string; launch: Launch })
           <Countdown net={launch.net} />
         </div>
       ) : null}
-      <TimeDisplay net={launch.net} netPrecision={launch.netPrecision} />
+      <TimeDisplay net={launch.net} netPrecision={launch.netPrecision} fallbackTimeZone={launch.pad.timezone} />
     </div>
   );
 }

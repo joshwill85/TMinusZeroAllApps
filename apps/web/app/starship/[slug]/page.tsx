@@ -228,7 +228,7 @@ export default async function StarshipFlightPage({
                 <Countdown net={nextLaunch.net} />
               </div>
             ) : null}
-            <TimeDisplay net={nextLaunch.net} netPrecision={nextLaunch.netPrecision} />
+            <TimeDisplay net={nextLaunch.net} netPrecision={nextLaunch.netPrecision} fallbackTimeZone={nextLaunch.pad.timezone} />
           </div>
         ) : (
           <p className="mt-3 text-sm text-text2">No launch entry is currently available for this flight number.</p>

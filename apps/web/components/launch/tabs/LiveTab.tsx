@@ -7,6 +7,8 @@ import { buildLaunchVideoEmbed, type LiveTabData } from '@tminuszero/launch-deta
 import type { LaunchFaaMapRenderMode } from '@/lib/maps/providerTypes';
 import { LaunchFaaMapBlock } from '@/components/LaunchFaaMapBlock';
 import { ForecastAdvisoriesDisclosure } from '@/components/launch/ForecastAdvisoriesDisclosure';
+import { AdvancedWeatherDisclosure } from '@/components/launch/AdvancedWeatherDisclosure';
+import { useViewerEntitlementsQuery } from '@/lib/api/queries';
 import { JepScoreClient } from '@/components/JepScoreClient';
 import { ThirdPartyVideoEmbed } from '@/components/ThirdPartyVideoEmbed';
 import { XTweetEmbed } from '@/components/XTweetEmbed';
@@ -35,6 +37,9 @@ export function LiveTab({
   padMapsLinkLabel,
   faaMapUnavailableMessage = 'FAA launch-day geometry is available for this launch, but the interactive map is not configured in this environment.'
 }: LiveTabProps) {
+  const entitlementsQuery = useViewerEntitlementsQuery();
+  const isPremium = entitlementsQuery.data?.tier === 'premium';
+  const isAuthed = entitlementsQuery.data?.isAuthed ?? false;
   const operationalWeather = data.weatherDetail?.operational ?? null;
   const standardWeatherCards = (data.weatherDetail?.cards ?? []).filter((card) => !isAdvancedWeatherSource(card.source));
   const advancedWeatherCards = (data.weatherDetail?.cards ?? []).filter((card) => isAdvancedWeatherSource(card.source));
@@ -187,16 +192,17 @@ export function LiveTab({
                 ) : null}
 
                 {advancedWeatherCards.length ? (
-                  <div className="mt-6 rounded-xl border border-stroke/70 bg-[rgba(255,255,255,0.02)] p-4">
-                    <div className="text-xs uppercase tracking-[0.08em] text-text3">Advanced weather</div>
-                    <p className="mt-2 text-sm leading-relaxed text-text2">
-                      Planning products from 45 WS add broader prelaunch trend context, with the Cape weekly outlook reserved for launches inside the next 7 days.
-                    </p>
-                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  <div className="mt-6">
+                    <AdvancedWeatherDisclosure
+                      count={advancedWeatherCards.length}
+                      isPremium={isPremium}
+                      isAuthed={isAuthed}
+                      contentClassName="grid gap-3 md:grid-cols-2"
+                    >
                       {advancedWeatherCards.map((card) => (
                         <AdvancedWeatherCard key={card.id} card={card} />
                       ))}
-                    </div>
+                    </AdvancedWeatherDisclosure>
                   </div>
                 ) : null}
               </>

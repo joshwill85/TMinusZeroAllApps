@@ -25,6 +25,8 @@ import { CryoAtmosphere, type CryoStage } from './CryoAtmosphere';
 import { WeatherIcon } from './WeatherIcon';
 import { Badge, type BadgeTone } from './Badge';
 import { FollowMenuButton, type FollowMenuOption } from './FollowMenuButton';
+import { LaunchTimingInfoButton } from './LaunchTimingInfoButton';
+import { useResolvedTimeZone } from '@/lib/hooks/useResolvedTimeZone';
 
 export function LaunchCard({
   launch,
@@ -69,7 +71,7 @@ export function LaunchCard({
   void isAuthed;
   void canUseBasicAlertRules;
 
-  const [userTz, setUserTz] = useState('UTC');
+  const userTz = useResolvedTimeZone(launch.pad.timezone);
   const dateOnly = !isCountdownEligible(launch, userTz);
   const statusCombined = `${launch.status ?? ''} ${launch.statusText ?? ''}`.toLowerCase();
   const isHold = statusCombined.includes('hold');
@@ -227,6 +229,13 @@ export function LaunchCard({
     if (nowMs >= netMs && !isLaunchWindow) return null;
     return computeCountdownGlow(countdown.diffSeconds);
   }, [dateOnly, isLaunchWindow, isNext, isPast, countdown.diffSeconds, netMs, nowMs]);
+
+  const countdownReferenceLabel = useMemo(() => {
+    if (dateOnly) return 'Awaiting NET';
+    if (isLaunchWindow) return 'NOW';
+    if (isMilestoneSequence) return formatTimelineOffset('T+', nowMs - netMs);
+    return formatTMinus(countdown.diffSeconds);
+  }, [countdown.diffSeconds, dateOnly, isLaunchWindow, isMilestoneSequence, netMs, nowMs]);
 
   const showVehicle = useMemo(() => {
     const vehicleKey = normalizeKey(launch.vehicle);
@@ -393,11 +402,6 @@ export function LaunchCard({
   const [cryoSize, setCryoSize] = useState({ width: 0, height: 0 });
   const [flashActive, setFlashActive] = useState(false);
   const ignitionRef = useRef(false);
-
-  useEffect(() => {
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    if (tz) setUserTz(tz);
-  }, []);
 
   useEffect(() => {
     if (!showCryo) return;
@@ -682,7 +686,16 @@ export function LaunchCard({
         <section className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3">
           <div className="min-w-0">
             {!isPast && (
-              <TimeDisplay net={launch.net} netPrecision={launch.netPrecision} />
+              <div className="flex flex-wrap items-center gap-2">
+                <TimeDisplay net={launch.net} netPrecision={launch.netPrecision} fallbackTimeZone={launch.pad.timezone} />
+                <LaunchTimingInfoButton
+                  net={launch.net}
+                  netPrecision={launch.netPrecision}
+                  padTimeZone={launch.pad.timezone}
+                  countdownLabel={countdownReferenceLabel}
+                  align="left"
+                />
+              </div>
             )}
             {launch.changeSummary && (
               <div className="mt-2 text-xs text-text3">Update: {launch.changeSummary}</div>

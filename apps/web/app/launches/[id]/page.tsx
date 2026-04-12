@@ -13,7 +13,7 @@ import {
   shouldShowLaunchInventorySection
 } from '@tminuszero/launch-detail-ui';
 import type { BadgeTone } from '@/components/Badge';
-import { Countdown } from '@/components/Countdown';
+import { LaunchCountdownSummary } from '@/components/LaunchCountdownSummary';
 import { JsonLd } from '@/components/JsonLd';
 import { TimeDisplay } from '@/components/TimeDisplay';
 import { AddToCalendarButton } from '@/components/AddToCalendarButton';
@@ -28,6 +28,7 @@ import { LaunchDetailAutoRefresh } from '@/components/LaunchDetailAutoRefresh';
 import { LaunchDetailRefreshButton } from '@/components/LaunchDetailRefreshButton';
 import { LaunchMilestoneMapLive } from '@/components/LaunchMilestoneMapLive';
 import { ForecastAdvisoriesDisclosure } from '@/components/launch/ForecastAdvisoriesDisclosure';
+import { AdvancedWeatherDisclosure } from '@/components/launch/AdvancedWeatherDisclosure';
 import { LaunchMediaLightboxCard } from '@/components/launch/LaunchMediaLightboxCard';
 import { Ws45ForecastPanel, type Ws45Forecast } from '@/components/Ws45ForecastPanel';
 import { NwsForecastPanel, type NwsLaunchWeather } from '@/components/NwsForecastPanel';
@@ -2537,7 +2538,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
       <JsonLd data={[breadcrumbJsonLd, webPageJsonLd, eventJsonLd, ...(videoJsonLd ? [videoJsonLd] : [])]} />
       <div className="sticky top-4 z-30">
         <div className="rounded-full border border-stroke bg-[rgba(7,9,19,0.82)] px-3 py-2 shadow-[0_18px_60px_rgba(0,0,0,0.28)] backdrop-blur-xl">
-          <div className="flex items-center gap-3">
+          <div className="grid grid-cols-[auto_1fr_auto] items-center gap-3">
             <Link
               href="/#schedule"
               className="btn-secondary flex h-10 w-10 items-center justify-center rounded-full border border-stroke text-text2 hover:border-primary hover:text-primary"
@@ -2545,19 +2546,15 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
             >
               <BackArrowIcon className="h-4 w-4" />
             </Link>
-            <div className="min-w-0 flex-1 text-center">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-text3">
-                {dateOnly ? 'Launch window' : 'T- countdown'}
-              </div>
-              <div className="mt-1 whitespace-nowrap">
-                {dateOnly ? (
-                  <span className="rounded-full bg-[rgba(234,240,255,0.05)] px-3 py-1 text-xs font-semibold text-text2">Time TBD</span>
-                ) : (
-                  <Countdown net={launch.net} initialNowMs={nowMs} />
-                )}
-              </div>
+            <div className="min-w-0 justify-self-center">
+              <LaunchCountdownSummary
+                net={launch.net}
+                netPrecision={launch.netPrecision}
+                padTimeZone={launch.pad.timezone}
+                initialNowMs={nowMs}
+              />
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center justify-self-end gap-2">
               {isArEligible &&
                 (canUseArTrajectory ? (
                   <CameraGuideButton
@@ -2728,7 +2725,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
                       Launch window
                     </span>
                     <div className="whitespace-nowrap">
-                      <TimeDisplay net={launch.net} netPrecision={launch.netPrecision} />
+                      <TimeDisplay net={launch.net} netPrecision={launch.netPrecision} fallbackTimeZone={launch.pad.timezone} />
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2 sm:justify-end">
@@ -2762,7 +2759,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
             )}
           </div>
         </div>
-        <section className="rounded-2xl border border-stroke bg-surface-1 p-4 lg:p-5">
+        <section className="rounded-2xl border border-stroke bg-surface-1 p-4 lg:p-5 xl:col-span-2">
           <div className="flex h-full flex-col gap-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -2851,6 +2848,8 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
           within14Days={within14Days}
           padTimezone={padTimezone}
           canUseEnhancedForecastInsights={canUseEnhancedForecastInsights}
+          viewerTier={viewer.tier}
+          isAuthed={isAuthed}
         />
       </Suspense>
 
@@ -3126,7 +3125,7 @@ export default async function LaunchDetailPage({ params }: { params: { id: strin
       )}
 
       <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl border border-stroke bg-surface-1 p-4 md:col-span-2">
+        <div className="rounded-2xl border border-stroke bg-surface-1 p-4 md:col-span-3">
           <h2 className="text-xl font-semibold text-text1">Launch info</h2>
           <dl className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
             <Info
@@ -4115,7 +4114,9 @@ async function ConsolidatedWeatherSection({
   isUsPad,
   within14Days,
   padTimezone,
-  canUseEnhancedForecastInsights
+  canUseEnhancedForecastInsights,
+  viewerTier,
+  isAuthed
 }: {
   ws45ForecastPromise: Promise<Ws45Forecast | null>;
   ws45OperationalPromise: Promise<Ws45OperationalWeather | null>;
@@ -4134,6 +4135,8 @@ async function ConsolidatedWeatherSection({
   within14Days: boolean;
   padTimezone: string;
   canUseEnhancedForecastInsights: boolean;
+  viewerTier: 'anon' | 'premium';
+  isAuthed: boolean;
 }) {
   const ws45Eligible = isEasternRange && canUseEnhancedForecastInsights;
   const showNws = isUsPad && within14Days;
@@ -4197,22 +4200,34 @@ async function ConsolidatedWeatherSection({
                 className="rounded-xl border border-stroke bg-black/20 p-4"
               />
             )}
-            {showPlanning24h && (
-              <Ws45PlanningForecastPanel
-                forecast={ws45Planning.planning24h}
-                kind="planning_24h"
-                padTimezone={padTimezone}
-                className="rounded-xl border border-stroke bg-black/20 p-4"
-              />
-            )}
-            {showWeekly && (
-              <Ws45PlanningForecastPanel
-                forecast={ws45Planning.weekly}
-                kind="weekly_planning"
-                padTimezone={padTimezone}
-                className="rounded-xl border border-stroke bg-black/20 p-4"
-              />
-            )}
+            {showPlanning24h || showWeekly ? (
+              <AdvancedWeatherDisclosure
+                count={Number(showPlanning24h) + Number(showWeekly)}
+                isPremium={viewerTier === 'premium'}
+                isAuthed={isAuthed}
+                className="rounded-xl border border-stroke bg-black/20"
+                contentClassName="space-y-4 bg-black/10"
+              >
+                {showPlanning24h ? (
+                  <Ws45PlanningForecastPanel
+                    forecast={ws45Planning.planning24h}
+                    kind="planning_24h"
+                    padTimezone={padTimezone}
+                    className="rounded-xl border border-stroke bg-black/20 p-4"
+                    showEyebrow={false}
+                  />
+                ) : null}
+                {showWeekly ? (
+                  <Ws45PlanningForecastPanel
+                    forecast={ws45Planning.weekly}
+                    kind="weekly_planning"
+                    padTimezone={padTimezone}
+                    className="rounded-xl border border-stroke bg-black/20 p-4"
+                    showEyebrow={false}
+                  />
+                ) : null}
+              </AdvancedWeatherDisclosure>
+            ) : null}
           </div>
         ) : null}
 
