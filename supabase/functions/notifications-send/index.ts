@@ -32,6 +32,26 @@ type AdminAccessOverrideRow = {
   effective_tier_override: string | null;
 };
 
+type StarterScopeRuleRow = {
+  user_id: string;
+  scope_kind: 'all_us' | 'launch';
+  launch_id?: string | null;
+  enabled?: boolean | null;
+  channels?: string[] | null;
+  prelaunch_offsets_minutes?: number[] | null;
+};
+
+type StarterLaunchRow = {
+  id: string;
+  pad_country_code?: string | null;
+};
+
+type LegacyStarterResolutionContext = {
+  allUsOffsetsByUser: Map<string, Set<number>>;
+  launchOffsetsByUserLaunch: Map<string, Set<number>>;
+  launchById: Map<string, StarterLaunchRow>;
+};
+
 function isMissingAdminAccessOverrideRelationCode(code: string | null | undefined) {
   return code === '42P01' || code === 'PGRST205';
 }
@@ -40,6 +60,8 @@ const DEFAULT_BATCH_SIZE = 50;
 const MAX_ATTEMPTS = 5;
 const LOCK_TIMEOUT_MINUTES = 10;
 const CONCURRENCY = 5;
+const STARTER_T_MINUS_MINUTES = new Set<number>([1, 5, 10, 60]);
+const US_PAD_COUNTRY_CODES = new Set(['US', 'USA']);
 
 serve(async (req) => {
   const supabase = createSupabaseAdminClient();
@@ -405,6 +427,23 @@ async function sendMobilePushNotificationsV2(supabase: ReturnType<typeof createS
     const override = String(row.effective_tier_override || '').trim().toLowerCase();
     adminAccessOverridesByUser.set(row.user_id, override === 'anon' || override === 'premium' ? (override as 'anon' | 'premium') : null);
   });
+  const premiumAccessByUser = new Map<string, boolean>();
+  userIds.forEach((userId) => {
+    const sub = subsByUser.get(userId);
+    const isAdmin = rolesByUser.get(userId) === 'admin';
+    const adminAccessOverride = adminAccessOverridesByUser.get(userId) ?? null;
+    const hasPremiumAccess =
+      adminAccessOverride != null ? adminAccessOverride === 'premium' : isAdmin || isSubscriptionActiveStatus(sub?.status);
+    premiumAccessByUser.set(userId, hasPremiumAccess);
+  });
+  const legacyStarterRows = rows.filter((row) => {
+    if (row.owner_kind !== 'user') return false;
+    const userId = String(row.user_id || '').trim();
+    return userId.length > 0 && premiumAccessByUser.get(userId) !== true && queuedMobilePushRowNeedsLegacyStarterResolution(row);
+  });
+  const legacyStarterResolutionContext = legacyStarterRows.length
+    ? await loadLegacyStarterResolutionContext(supabase, legacyStarterRows)
+    : createEmptyLegacyStarterResolutionContext();
 
   const stats = {
     processed: rows.length,
@@ -417,16 +456,10 @@ async function sendMobilePushNotificationsV2(supabase: ReturnType<typeof createS
   const brandName = getPushBrandName();
 
   await runWithConcurrency(rows, CONCURRENCY, async (row) => {
+    let effectivePayload = row.payload;
     if (row.channel !== 'push') {
       await markMobilePushSkippedV2(supabase, row.id, 'unsupported_channel');
       stats.skipped += 1;
-      return;
-    }
-
-    const message = normalizeMessage(row.payload);
-    if (!message) {
-      await markMobilePushFailedV2(supabase, row.id, 'empty_message');
-      stats.failed += 1;
       return;
     }
 
@@ -436,17 +469,34 @@ async function sendMobilePushNotificationsV2(supabase: ReturnType<typeof createS
       devices = installationId ? guestDevicesByInstallation.get(installationId) || [] : [];
     } else {
       const userId = String(row.user_id || '').trim();
-      const sub = subsByUser.get(userId);
-      const isAdmin = rolesByUser.get(userId) === 'admin';
-      const adminAccessOverride = adminAccessOverridesByUser.get(userId) ?? null;
-      const hasPremiumAccess =
-        adminAccessOverride != null ? adminAccessOverride === 'premium' : isAdmin || isSubscriptionActiveStatus(sub?.status);
+      const hasPremiumAccess = premiumAccessByUser.get(userId) === true;
       if (!hasPremiumAccess) {
-        await markMobilePushSkippedV2(supabase, row.id, 'subscription_inactive');
+        const resolution = await resolveNonPremiumQueuedMobilePushRowPolicy(supabase, row, legacyStarterResolutionContext);
+        effectivePayload = resolution.payload;
+        if (!resolution.canSendWithoutPremium) {
+          await markMobilePushSkippedV2(supabase, row.id, 'premium_required');
+          stats.skipped += 1;
+          return;
+        }
+      }
+      devices = userId ? userDevicesByUser.get(userId) || [] : [];
+    }
+
+    const message = normalizeMessage(effectivePayload);
+    if (!message) {
+      await markMobilePushFailedV2(supabase, row.id, 'empty_message');
+      stats.failed += 1;
+      return;
+    }
+
+    if (row.owner_kind === 'user') {
+      const userId = String(row.user_id || '').trim();
+      const hasPremiumAccess = premiumAccessByUser.get(userId) === true;
+      if (!hasPremiumAccess && !canSendBasicMobilePushPayloadWithoutPremium(effectivePayload, row.event_type)) {
+        await markMobilePushSkippedV2(supabase, row.id, 'premium_required');
         stats.skipped += 1;
         return;
       }
-      devices = userId ? userDevicesByUser.get(userId) || [] : [];
     }
 
     if (!devices.length) {
@@ -455,8 +505,8 @@ async function sendMobilePushNotificationsV2(supabase: ReturnType<typeof createS
       return;
     }
 
-    const rawTitle = typeof row.payload?.title === 'string' ? String(row.payload.title).trim() : '';
-    const rawUrl = typeof row.payload?.url === 'string' ? String(row.payload.url).trim() : '';
+    const rawTitle = typeof effectivePayload?.title === 'string' ? String(effectivePayload.title).trim() : '';
+    const rawUrl = typeof effectivePayload?.url === 'string' ? String(effectivePayload.url).trim() : '';
     const title = rawTitle || brandName;
     const url = rawUrl || (row.launch_id ? `/launches/${row.launch_id}` : '/');
 
@@ -532,6 +582,211 @@ async function sendMobilePushNotificationsV2(supabase: ReturnType<typeof createS
   });
 
   return stats;
+}
+
+function normalizeMessage(payload: Record<string, unknown> | null | undefined) {
+  return typeof payload?.message === 'string' ? String(payload.message).trim() : '';
+}
+
+function isBasicMobilePushScopeKind(scopeKind: string) {
+  return scopeKind === 'all_us' || scopeKind === 'launch';
+}
+
+function requiresPremiumForQueuedMobilePushEvent(payload: Record<string, unknown> | null | undefined, eventType: string | null | undefined) {
+  if (typeof payload?.premium_required === 'boolean') {
+    return payload.premium_required;
+  }
+
+  const sourceScopeKind = typeof payload?.source_scope_kind === 'string' ? String(payload.source_scope_kind).trim() : '';
+  if (!isBasicMobilePushScopeKind(sourceScopeKind)) {
+    return true;
+  }
+
+  const normalizedEventType = String(eventType || '').trim();
+  if (normalizedEventType.startsWith('daily_digest_') || normalizedEventType.startsWith('local_time_')) {
+    return true;
+  }
+  if (normalizedEventType === 'status_change' || normalizedEventType === 'net_change' || normalizedEventType === 'status_net_change') {
+    return true;
+  }
+  if (normalizedEventType.startsWith('t_minus_')) {
+    const offsetMinutes = Number(normalizedEventType.slice('t_minus_'.length));
+    return !Number.isFinite(offsetMinutes) || !new Set<number>([1, 5, 10, 60]).has(offsetMinutes);
+  }
+
+  return true;
+}
+
+function canSendBasicMobilePushPayloadWithoutPremium(payload: Record<string, unknown> | null | undefined, eventType: string | null | undefined) {
+  return !requiresPremiumForQueuedMobilePushEvent(payload, eventType);
+}
+
+function queuedMobilePushRowNeedsLegacyStarterResolution(row: OutboxRowV2) {
+  return row.owner_kind === 'user' && typeof row.payload?.premium_required !== 'boolean';
+}
+
+function createEmptyLegacyStarterResolutionContext(): LegacyStarterResolutionContext {
+  return {
+    allUsOffsetsByUser: new Map<string, Set<number>>(),
+    launchOffsetsByUserLaunch: new Map<string, Set<number>>(),
+    launchById: new Map<string, StarterLaunchRow>()
+  };
+}
+
+async function loadLegacyStarterResolutionContext(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  rows: OutboxRowV2[]
+): Promise<LegacyStarterResolutionContext> {
+  const userIds = Array.from(new Set(rows.map((row) => String(row.user_id || '').trim()).filter(Boolean)));
+  if (!userIds.length) {
+    return createEmptyLegacyStarterResolutionContext();
+  }
+
+  const { data: rulesData, error: rulesError } = await supabase
+    .from('notification_rules_v3')
+    .select('user_id, scope_kind, launch_id, enabled, channels, prelaunch_offsets_minutes')
+    .eq('owner_kind', 'user')
+    .in('user_id', userIds)
+    .in('scope_kind', ['all_us', 'launch']);
+  if (rulesError) throw rulesError;
+
+  const starterRules = ((rulesData || []) as StarterScopeRuleRow[]).filter(
+    (row) => row.enabled !== false && Array.isArray(row.channels) && row.channels.includes('push')
+  );
+
+  const launchIds = Array.from(
+    new Set(
+      [
+        ...rows.map((row) => String(row.launch_id || '').trim()).filter(Boolean),
+        ...starterRules
+          .filter((row) => row.scope_kind === 'launch')
+          .map((row) => String(row.launch_id || '').trim())
+          .filter(Boolean)
+      ]
+    )
+  );
+  const { data: launchesData, error: launchesError } = launchIds.length
+    ? await supabase.from('launches').select('id, pad_country_code').in('id', launchIds)
+    : { data: [], error: null };
+  if (launchesError) throw launchesError;
+
+  const context = createEmptyLegacyStarterResolutionContext();
+  ((launchesData || []) as StarterLaunchRow[]).forEach((row) => {
+    const launchId = String(row.id || '').trim();
+    if (!launchId) return;
+    context.launchById.set(launchId, row);
+  });
+
+  starterRules.forEach((row) => {
+    const userId = String(row.user_id || '').trim();
+    if (!userId) return;
+
+    const normalizedOffsets = normalizeStarterScopeOffsets(row.scope_kind, row.prelaunch_offsets_minutes);
+    if (row.scope_kind === 'all_us') {
+      mergeStarterOffsets(context.allUsOffsetsByUser, userId, normalizedOffsets);
+      return;
+    }
+
+    const launchId = String(row.launch_id || '').trim();
+    if (!launchId) return;
+    mergeStarterOffsets(context.launchOffsetsByUserLaunch, `${userId}:${launchId}`, normalizedOffsets);
+  });
+
+  return context;
+}
+
+function normalizeStarterScopeOffsets(scopeKind: 'all_us' | 'launch', values: number[] | null | undefined) {
+  const maxOffsets = scopeKind === 'launch' ? 2 : 1;
+  const fallbackOffsets = scopeKind === 'launch' ? [10, 60] : [60];
+  const normalizedOffsets = Array.isArray(values)
+    ? Array.from(new Set(values.map((value) => Math.trunc(Number(value))).filter((value) => STARTER_T_MINUS_MINUTES.has(value)))).slice(0, maxOffsets)
+    : [];
+  return normalizedOffsets.length ? normalizedOffsets : fallbackOffsets;
+}
+
+function mergeStarterOffsets(target: Map<string, Set<number>>, key: string, offsets: number[]) {
+  const existing = target.get(key) || new Set<number>();
+  offsets.forEach((offset) => existing.add(offset));
+  target.set(key, existing);
+}
+
+function readTMinusOffsetMinutes(eventType: string | null | undefined) {
+  const normalizedEventType = String(eventType || '').trim();
+  if (!normalizedEventType.startsWith('t_minus_')) return null;
+  const offsetMinutes = Number(normalizedEventType.slice('t_minus_'.length));
+  if (!Number.isFinite(offsetMinutes) || !STARTER_T_MINUS_MINUTES.has(offsetMinutes)) {
+    return null;
+  }
+  return offsetMinutes;
+}
+
+function isUsLaunch(row: StarterLaunchRow | undefined) {
+  return US_PAD_COUNTRY_CODES.has(String(row?.pad_country_code || '').trim().toUpperCase());
+}
+
+function resolveLegacyStarterQueuedRow(row: OutboxRowV2, context: LegacyStarterResolutionContext) {
+  const userId = String(row.user_id || '').trim();
+  const launchId = String(row.launch_id || '').trim();
+  const offsetMinutes = readTMinusOffsetMinutes(row.event_type);
+  if (!userId || !launchId || offsetMinutes == null) {
+    return { canSendWithoutPremium: false, sourceScopeKind: null as 'all_us' | 'launch' | null };
+  }
+
+  const launchOffsets = context.launchOffsetsByUserLaunch.get(`${userId}:${launchId}`);
+  const launchMatches = launchOffsets?.has(offsetMinutes) === true;
+  const allUsOffsets = context.allUsOffsetsByUser.get(userId);
+  const allUsMatches = allUsOffsets?.has(offsetMinutes) === true && isUsLaunch(context.launchById.get(launchId));
+
+  return {
+    canSendWithoutPremium: launchMatches || allUsMatches,
+    sourceScopeKind: launchMatches && !allUsMatches ? 'launch' : allUsMatches && !launchMatches ? 'all_us' : null
+  };
+}
+
+async function backfillMobilePushPayloadPolicyV2(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  id: number,
+  payload: Record<string, unknown>
+) {
+  const { error } = await supabase.from('mobile_push_outbox_v2').update({ payload }).eq('id', id);
+  if (error) console.warn('backfillMobilePushPayloadPolicyV2 warning', error.message);
+}
+
+async function resolveNonPremiumQueuedMobilePushRowPolicy(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  row: OutboxRowV2,
+  context: LegacyStarterResolutionContext
+) {
+  const payload = row.payload || {};
+  if (typeof payload.premium_required === 'boolean') {
+    return {
+      payload,
+      canSendWithoutPremium: !payload.premium_required
+    };
+  }
+
+  const resolution = resolveLegacyStarterQueuedRow(row, context);
+  if (!resolution.canSendWithoutPremium) {
+    return {
+      payload,
+      canSendWithoutPremium: false
+    };
+  }
+
+  const nextPayload: Record<string, unknown> = {
+    ...payload,
+    premium_required: false,
+    legacy_policy_backfilled: true
+  };
+  if (resolution.sourceScopeKind && typeof payload.source_scope_kind !== 'string') {
+    nextPayload.source_scope_kind = resolution.sourceScopeKind;
+  }
+  await backfillMobilePushPayloadPolicyV2(supabase, row.id, nextPayload);
+
+  return {
+    payload: nextPayload,
+    canSendWithoutPremium: true
+  };
 }
 
 type ResendConfig = {

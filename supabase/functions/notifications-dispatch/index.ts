@@ -26,9 +26,6 @@ type PrefsRow = {
   quiet_hours_enabled?: boolean | null;
   quiet_start_local?: string | null;
   quiet_end_local?: string | null;
-  launch_day_email_enabled?: boolean | null;
-  launch_day_email_providers?: string[] | null;
-  launch_day_email_states?: string[] | null;
 };
 
 type LaunchRow = {
@@ -133,6 +130,21 @@ type MobilePushOutboxRowV2 = {
   payload?: Record<string, unknown> | null;
 };
 
+type SubscriptionStatusRow = {
+  user_id: string;
+  status: string | null;
+};
+
+type ProfileRoleRow = {
+  user_id: string;
+  role: string | null;
+};
+
+type AdminAccessOverrideRow = {
+  user_id: string;
+  effective_tier_override: string | null;
+};
+
 type DispatchResult = {
   queued: number;
   updated: number;
@@ -185,69 +197,19 @@ async function dispatchNotifications(supabase: ReturnType<typeof createSupabaseA
   const dayStart = startOfDayUtc(now).toISOString();
   const monthStart = startOfMonthUtc(now).toISOString().slice(0, 10);
 
-  const [premiumUserIds, activeMobilePushUserIds] = await Promise.all([
-    loadPremiumUserIds(supabase),
-    loadActiveMobilePushUserIds(supabase)
-  ]);
-  const notificationUserIds = Array.from(new Set([...premiumUserIds, ...activeMobilePushUserIds]));
-
-  const [prefsRes, profilesRes] = await Promise.all([
-    notificationUserIds.length
-      ? supabase
-          .from('notification_preferences')
-          .select(
-            'user_id, email_enabled, push_enabled, notify_t_minus_60, notify_t_minus_10, notify_t_minus_5, notify_status_change, notify_net_change, quiet_hours_enabled, quiet_start_local, quiet_end_local, launch_day_email_enabled, launch_day_email_providers, launch_day_email_states'
-          )
-          .in('user_id', notificationUserIds)
-      : Promise.resolve({ data: [], error: null }),
-    notificationUserIds.length
-      ? supabase.from('profiles').select('user_id, timezone').in('user_id', notificationUserIds)
-      : Promise.resolve({ data: [], error: null })
-  ]);
-  if (prefsRes.error) throw prefsRes.error;
-  if (profilesRes.error) throw profilesRes.error;
-
-  const prefs = prefsRes.data || [];
-  const premiumUserIdSet = new Set(premiumUserIds);
-  const prefsByUser = new Map<string, PrefsRow>();
-  const quietByUser = new Map<string, { enabled: boolean; start: string | null; end: string | null }>();
-  prefs.forEach((row: PrefsRow) => {
-    prefsByUser.set(row.user_id, row);
-    const start = normalizeLocalTime(String(row.quiet_start_local || ''));
-    const end = normalizeLocalTime(String(row.quiet_end_local || ''));
-    quietByUser.set(row.user_id, {
-      enabled: row.quiet_hours_enabled === true,
-      start,
-      end
-    });
-  });
-
-  const timeZoneByUser = new Map<string, string>();
-  (profilesRes.data || []).forEach((row: any) => {
-    if (row?.user_id) timeZoneByUser.set(String(row.user_id), String(row.timezone || '').trim() || 'UTC');
-  });
-
-  const pushEligibleUserIds = (prefs || [])
-    .filter((row: PrefsRow) => row.push_enabled === true)
-    .map((row: PrefsRow) => row.user_id);
-
-  const emailEligiblePrefs = (prefs || []).filter(
-    (row: PrefsRow) => premiumUserIdSet.has(row.user_id) && row.email_enabled !== false && row.launch_day_email_enabled === true
-  );
-
   const pushResult = await dispatchPushNotifications(supabase, {
     settings,
     now,
     dayStart,
     monthStart,
-    pushEligibleUserIds,
-    webPushEligibleUserIds: pushEligibleUserIds,
-    prefsByUser,
-    quietByUser,
-    timeZoneByUser
+    pushEligibleUserIds: [],
+    webPushEligibleUserIds: [],
+    prefsByUser: new Map(),
+    quietByUser: new Map(),
+    timeZoneByUser: new Map()
   });
 
-  const emailResult = await dispatchLaunchDayEmailDigests(supabase, { now, monthStart, prefs: emailEligiblePrefs });
+  const emailResult = await dispatchLaunchDayEmailDigests(supabase, { now, monthStart, prefs: [] });
 
   const mobilePushV2Result: DispatchResult = settings.push_enabled
     ? await dispatchMobilePushV2(supabase, {
@@ -266,32 +228,59 @@ async function dispatchNotifications(supabase: ReturnType<typeof createSupabaseA
   };
 }
 
-async function loadPremiumUserIds(supabase: ReturnType<typeof createSupabaseAdminClient>) {
-  const [subsRes, adminsRes] = await Promise.all([
-    supabase.from('subscriptions').select('user_id, status').in('status', ['active', 'trialing']),
-    supabase.from('profiles').select('user_id').eq('role', 'admin')
-  ]);
-  if (subsRes.error) throw subsRes.error;
-  if (adminsRes.error) throw adminsRes.error;
-
-  const paidUserIds = new Set<string>();
-  (subsRes.data || []).forEach((row) => paidUserIds.add(row.user_id));
-  (adminsRes.data || []).forEach((row) => paidUserIds.add(row.user_id));
-  return Array.from(paidUserIds);
+function isMissingAdminAccessOverrideRelationCode(code: string | null | undefined) {
+  return code === '42P01' || code === 'PGRST205';
 }
 
-async function loadActiveMobilePushUserIds(supabase: ReturnType<typeof createSupabaseAdminClient>) {
-  const { data, error } = await supabase
-    .from('notification_push_destinations_v3')
-    .select('user_id')
-    .eq('is_active', true)
-    .eq('delivery_kind', 'mobile_push')
-    .eq('push_provider', 'expo')
-    .in('platform', ['ios', 'android']);
+function isSubscriptionActiveStatus(status?: string | null) {
+  const normalized = String(status || '').trim().toLowerCase();
+  return normalized === 'active' || normalized === 'trialing';
+}
 
-  if (error) throw error;
+async function loadPremiumAccessByUserIds(supabase: ReturnType<typeof createSupabaseAdminClient>, userIds: string[]) {
+  if (!userIds.length) {
+    return new Map<string, boolean>();
+  }
 
-  return Array.from(new Set((data || []).map((row: any) => String(row.user_id || '').trim()).filter(Boolean)));
+  const [subsRes, profilesRes, adminOverridesRes] = await Promise.all([
+    supabase.from('subscriptions').select('user_id, status').in('user_id', userIds),
+    supabase.from('profiles').select('user_id, role').in('user_id', userIds),
+    supabase.from('admin_access_overrides').select('user_id, effective_tier_override').in('user_id', userIds)
+  ]);
+  if (subsRes.error) throw subsRes.error;
+  if (profilesRes.error) throw profilesRes.error;
+  if (adminOverridesRes.error) {
+    const code = typeof adminOverridesRes.error.code === 'string' ? adminOverridesRes.error.code : '';
+    if (isMissingAdminAccessOverrideRelationCode(code)) {
+      console.warn('admin_access_overrides table unavailable; continuing without admin access overrides');
+    } else {
+      throw adminOverridesRes.error;
+    }
+  }
+
+  const subscriptionByUser = new Map<string, SubscriptionStatusRow>();
+  ((subsRes.data || []) as SubscriptionStatusRow[]).forEach((row) => subscriptionByUser.set(row.user_id, row));
+
+  const roleByUser = new Map<string, string | null>();
+  ((profilesRes.data || []) as ProfileRoleRow[]).forEach((row) => roleByUser.set(row.user_id, row.role ?? null));
+
+  const adminOverrideByUser = new Map<string, 'anon' | 'premium' | null>();
+  const adminOverrideRows = adminOverridesRes.error ? [] : ((adminOverridesRes.data || []) as AdminAccessOverrideRow[]);
+  adminOverrideRows.forEach((row) => {
+    const override = String(row.effective_tier_override || '').trim().toLowerCase();
+    adminOverrideByUser.set(row.user_id, override === 'anon' || override === 'premium' ? (override as 'anon' | 'premium') : null);
+  });
+
+  const premiumAccessByUser = new Map<string, boolean>();
+  userIds.forEach((userId) => {
+    const adminOverride = adminOverrideByUser.get(userId) ?? null;
+    const isAdmin = roleByUser.get(userId) === 'admin';
+    const hasPremiumAccess =
+      adminOverride != null ? adminOverride === 'premium' : isAdmin || isSubscriptionActiveStatus(subscriptionByUser.get(userId)?.status);
+    premiumAccessByUser.set(userId, hasPremiumAccess);
+  });
+
+  return premiumAccessByUser;
 }
 
 async function dispatchPushNotifications(
@@ -341,7 +330,6 @@ async function dispatchMobilePushV2(
     now: Date;
   }
 ): Promise<DispatchResult> {
-  const premiumUserIds = new Set(await loadPremiumUserIds(supabase));
   const { data: installationsRes, error: installationsError } = await supabase
     .from('notification_push_destinations_v3')
     .select('owner_kind, user_id, installation_id, platform, delivery_kind, is_active')
@@ -356,11 +344,12 @@ async function dispatchMobilePushV2(
   const userIds = Array.from(
     new Set(
       installations
-        .filter((row) => row.owner_kind === 'user' && row.user_id && premiumUserIds.has(String(row.user_id)))
+        .filter((row) => row.owner_kind === 'user' && row.user_id)
         .map((row) => String(row.user_id || '').trim())
         .filter(Boolean)
     )
   );
+  const premiumAccessByUser = await loadPremiumAccessByUserIds(supabase, userIds);
 
   if (!guestInstallationIds.length && !userIds.length) {
     return { queued: 0, updated: 0, usageUpdates: 0, reason: 'no_mobile_push_installations' };
@@ -407,7 +396,8 @@ async function dispatchMobilePushV2(
   const rules = filterDeliverableMobilePushRules(
     [...((guestRulesRes.data || []) as MobilePushRuleRowV2[]), ...((userRulesRes.data || []) as MobilePushRuleRowV2[])],
     launches,
-    now
+    now,
+    premiumAccessByUser
   );
   if (!rules.length) {
     return { queued: 0, updated: 0, usageUpdates: 0, reason: 'no_mobile_push_rules' };
@@ -441,6 +431,7 @@ async function dispatchMobilePushV2(
 
   const existingOutbox = (existingOutboxRes.data || []) as MobilePushOutboxRowV2[];
   const existingUpdateKeys = new Set<string>();
+  const existingUpdateRowsByKey = new Map<string, MobilePushOutboxRowV2>();
   const existingByKey = new Map<string, MobilePushOutboxRowV2>();
   existingOutbox.forEach((row) => {
     const key = mobilePushOutboxKey(row.owner_kind, row.user_id, row.installation_id, row.launch_id ?? null, String(row.event_type || ''));
@@ -456,7 +447,13 @@ async function dispatchMobilePushV2(
     const eventType = String(row.event_type || '');
     if (!isChangeEventType(eventType)) return;
     const changeKey = mobilePushOutboxUpdateKey(row.owner_kind, row.user_id, row.installation_id, row.launch_id ?? null, eventType, updateId);
-    if (changeKey) existingUpdateKeys.add(changeKey);
+    if (changeKey) {
+      existingUpdateKeys.add(changeKey);
+      const existing = existingUpdateRowsByKey.get(changeKey);
+      if (!existing || existing.status !== 'queued' || row.status === 'queued') {
+        existingUpdateRowsByKey.set(changeKey, row);
+      }
+    }
   });
 
   const matchedRulesByLaunch = new Map<string, MobilePushRuleRowV2[]>();
@@ -479,7 +476,7 @@ async function dispatchMobilePushV2(
   }
 
   const toInsert: any[] = [];
-  const toUpdate: Array<{ id: number; scheduled_for: string; payload: Record<string, unknown> }> = [];
+  const toUpdate = new Map<number, { id: number; scheduled_for: string; payload: Record<string, unknown> }>();
 
   for (const launch of launches) {
     const matchedRules = matchedRulesByLaunch.get(launch.id);
@@ -496,13 +493,17 @@ async function dispatchMobilePushV2(
         const key = mobilePushOutboxKey(rule.owner_kind, rule.user_id, rule.installation_id, launch.id, eventType);
         const existing = key ? existingByKey.get(key) : null;
         if (existing && existing.status === 'queued') {
+          const payload = attachMobilePushPolicyMetadata(
+            makeOutboxPayload(launch, { type: eventType, at: eventAt }, timeZone, settings.push_max_chars),
+            rule,
+            eventType
+          );
           const existingAt = new Date(existing.scheduled_for);
           const diffMs = Number.isFinite(existingAt.getTime())
             ? Math.abs(existingAt.getTime() - scheduledFor.getTime())
             : Number.POSITIVE_INFINITY;
-          if (diffMs > 30_000) {
-            const payload = makeOutboxPayload(launch, { type: eventType, at: eventAt }, timeZone, settings.push_max_chars);
-            toUpdate.push({ id: Number(existing.id), scheduled_for: scheduledFor.toISOString(), payload });
+          if (diffMs > 30_000 || mobilePushPayloadNeedsPolicySync(existing.payload || null, rule, eventType)) {
+            queueMobilePushOutboxUpdate(toUpdate, Number(existing.id), scheduledFor.toISOString(), payload);
           }
           continue;
         }
@@ -514,12 +515,15 @@ async function dispatchMobilePushV2(
           launch_id: launch.id,
           channel: 'push',
           event_type: eventType,
-          payload: makeOutboxPayload(launch, { type: eventType, at: eventAt }, timeZone, settings.push_max_chars),
+          payload: attachMobilePushPolicyMetadata(
+            makeOutboxPayload(launch, { type: eventType, at: eventAt }, timeZone, settings.push_max_chars),
+            rule,
+            eventType
+          ),
           status: 'queued',
           scheduled_for: scheduledFor.toISOString(),
           created_at: now.toISOString()
         });
-        if (key) queuedKeys.add(key);
       }
     }
   }
@@ -540,7 +544,20 @@ async function dispatchMobilePushV2(
 
     const eventType = `daily_digest_${digestWindow.dateKey}_${rule.id}`;
     const key = mobilePushOutboxKey(rule.owner_kind, rule.user_id, rule.installation_id, null, eventType);
-    if (key && existingByKey.has(key)) continue;
+    const existing = key ? existingByKey.get(key) : null;
+    if (existing) {
+      if (existing.status === 'queued') {
+        const payload = attachMobilePushPolicyMetadata(
+          buildMobileDailyDigestPayload(matchingLaunches, timeZone, digestWindow.dateKey, settings.push_max_chars),
+          rule,
+          eventType
+        );
+        if (mobilePushPayloadNeedsPolicySync(existing.payload || null, rule, eventType)) {
+          queueMobilePushOutboxUpdate(toUpdate, Number(existing.id), existing.scheduled_for, payload);
+        }
+      }
+      continue;
+    }
 
     toInsert.push({
       owner_kind: rule.owner_kind,
@@ -549,7 +566,11 @@ async function dispatchMobilePushV2(
       launch_id: null,
       channel: 'push',
       event_type: eventType,
-      payload: buildMobileDailyDigestPayload(matchingLaunches, timeZone, digestWindow.dateKey, settings.push_max_chars),
+      payload: attachMobilePushPolicyMetadata(
+        buildMobileDailyDigestPayload(matchingLaunches, timeZone, digestWindow.dateKey, settings.push_max_chars),
+        rule,
+        eventType
+      ),
       status: 'queued',
       scheduled_for: digestWindow.scheduledFor.toISOString(),
       created_at: now.toISOString()
@@ -578,9 +599,21 @@ async function dispatchMobilePushV2(
 
       const eventType = wantsStatus && wantsTiming ? 'status_net_change' : wantsStatus ? 'status_change' : 'net_change';
       const changeKey = mobilePushOutboxUpdateKey(rule.owner_kind, rule.user_id, rule.installation_id, launch.id, eventType, update.id);
+      const payload = attachMobilePushPolicyMetadata(
+        makeChangeOutboxPayload(launch, eventType, normalizeTimeZone(rule.timezone || 'UTC'), update, settings.push_max_chars),
+        rule,
+        eventType
+      );
+      const existingChangeRow = changeKey ? existingUpdateRowsByKey.get(changeKey) : null;
+      if (existingChangeRow) {
+        if (existingChangeRow.status === 'queued' && mobilePushPayloadNeedsPolicySync(existingChangeRow.payload || null, rule, eventType)) {
+          queueMobilePushOutboxUpdate(toUpdate, Number(existingChangeRow.id), existingChangeRow.scheduled_for, payload);
+        }
+        continue;
+      }
+
       if (changeKey && existingUpdateKeys.has(changeKey)) continue;
 
-      const payload = makeChangeOutboxPayload(launch, eventType, normalizeTimeZone(rule.timezone || 'UTC'), update, settings.push_max_chars);
       toInsert.push({
         owner_kind: rule.owner_kind,
         user_id: rule.owner_kind === 'user' ? rule.user_id : null,
@@ -602,8 +635,8 @@ async function dispatchMobilePushV2(
     if (error) throw error;
   }
 
-  if (toUpdate.length) {
-    for (const row of toUpdate) {
+  if (toUpdate.size) {
+    for (const row of toUpdate.values()) {
       if (!Number.isFinite(row.id)) continue;
       const { error } = await supabase.from('mobile_push_outbox_v2').update({ scheduled_for: row.scheduled_for, payload: row.payload }).eq('id', row.id);
       if (error) console.warn('mobile_push_outbox_v2 reschedule warning', error.message);
@@ -612,72 +645,125 @@ async function dispatchMobilePushV2(
 
   return {
     queued: toInsert.length,
-    updated: toUpdate.length,
+    updated: toUpdate.size,
     usageUpdates: 0,
-    reason: toInsert.length || toUpdate.length ? undefined : 'no_mobile_push_notifications'
+    reason: toInsert.length || toUpdate.size ? undefined : 'no_mobile_push_notifications'
   };
 }
 
-function filterDeliverableMobilePushRules(rules: MobilePushRuleRowV2[], launches: LaunchRow[], now: Date) {
+function hasPremiumMobilePushAccess(rule: MobilePushRuleRowV2, premiumAccessByUser: Map<string, boolean>) {
+  if (rule.owner_kind !== 'user') {
+    return false;
+  }
+  const userId = String(rule.user_id || '').trim();
+  return userId.length > 0 && premiumAccessByUser.get(userId) === true;
+}
+
+function isBasicMobilePushScopeKind(scopeKind: string): scopeKind is 'all_us' | 'launch' {
+  return scopeKind === 'all_us' || scopeKind === 'launch';
+}
+
+function basicMobilePushOwnerKey(rule: MobilePushRuleRowV2) {
+  return rule.owner_kind === 'user' ? `user:${String(rule.user_id || '').trim().toLowerCase()}` : `guest:${String(rule.installation_id || '').trim().toLowerCase()}`;
+}
+
+function normalizeBasicRuleOffsets(scopeKind: 'all_us' | 'launch', values: number[] | null | undefined) {
+  const allowedOffsets = new Set<number>([1, 5, 10, 60]);
+  const maxOffsets = scopeKind === 'launch' ? 2 : 1;
+  const fallbackOffsets = scopeKind === 'launch' ? [10, 60] : [60];
+  const nextOffsets = normalizeOffsetsForRule(values)
+    .filter((value) => allowedOffsets.has(value))
+    .slice(0, maxOffsets);
+  return nextOffsets.length ? nextOffsets : fallbackOffsets;
+}
+
+function applyBasicMobilePushRulePolicy(rule: MobilePushRuleRowV2): MobilePushRuleRowV2 {
+  if (!isBasicMobilePushScopeKind(rule.scope_kind)) {
+    return rule;
+  }
+
+  return {
+    ...rule,
+    prelaunch_offsets_minutes: normalizeBasicRuleOffsets(rule.scope_kind, rule.prelaunch_offsets_minutes),
+    daily_digest_local_time: null,
+    status_change_types: [],
+    notify_net_change: false
+  };
+}
+
+function filterDeliverableMobilePushRules(
+  rules: MobilePushRuleRowV2[],
+  launches: LaunchRow[],
+  now: Date,
+  premiumAccessByUser: Map<string, boolean>
+) {
   const launchById = new Map<string, LaunchRow>();
   launches.forEach((launch) => launchById.set(launch.id, launch));
 
-  const retainedGuestLaunchIds = new Map<string, string>();
-  const guestLaunchCandidates = new Map<string, Array<{ launchId: string; netMs: number }>>();
+  const retainedBasicLaunchIds = new Map<string, string>();
+  const basicLaunchCandidates = new Map<string, Array<{ launchId: string; netMs: number }>>();
 
   for (const rule of rules) {
-    if (rule.owner_kind !== 'guest' || rule.scope_kind !== 'launch') {
+    const basicOnlyOwner = rule.owner_kind === 'guest' || !hasPremiumMobilePushAccess(rule, premiumAccessByUser);
+    if (!basicOnlyOwner || rule.scope_kind !== 'launch') {
       continue;
     }
-    const ownerKey = String(rule.installation_id || '').trim().toLowerCase();
+    const ownerKey = basicMobilePushOwnerKey(rule);
     const launchId = String(rule.launch_id || '').trim();
     const launch = launchById.get(launchId);
     const netMs = launch ? Date.parse(launch.net) : Number.NaN;
     if (!ownerKey || !launch || !Number.isFinite(netMs) || netMs <= now.getTime()) {
       continue;
     }
-    const next = guestLaunchCandidates.get(ownerKey) || [];
+    const next = basicLaunchCandidates.get(ownerKey) || [];
     next.push({ launchId, netMs });
-    guestLaunchCandidates.set(ownerKey, next);
+    basicLaunchCandidates.set(ownerKey, next);
   }
 
-  guestLaunchCandidates.forEach((candidates, ownerKey) => {
+  basicLaunchCandidates.forEach((candidates, ownerKey) => {
     candidates.sort((left, right) => left.netMs - right.netMs);
     if (candidates[0]) {
-      retainedGuestLaunchIds.set(ownerKey, candidates[0].launchId);
+      retainedBasicLaunchIds.set(ownerKey, candidates[0].launchId);
     }
   });
 
-  return rules.filter((rule) => {
-    if (rule.owner_kind !== 'guest') {
-      return true;
-    }
-    if (rule.scope_kind === 'state') {
-      return false;
-    }
-    if (rule.scope_kind !== 'launch') {
-      return true;
-    }
+  return rules
+    .map((rule) => {
+      const basicOnlyOwner = rule.owner_kind === 'guest' || !hasPremiumMobilePushAccess(rule, premiumAccessByUser);
+      if (!basicOnlyOwner) {
+        return rule;
+      }
 
-    const ownerKey = String(rule.installation_id || '').trim().toLowerCase();
-    const launchId = String(rule.launch_id || '').trim();
-    if (!ownerKey || !launchId) {
-      return false;
-    }
+      if (!isBasicMobilePushScopeKind(rule.scope_kind)) {
+        return null;
+      }
 
-    const launch = launchById.get(launchId);
-    if (!launch) {
-      return false;
-    }
+      if (rule.scope_kind === 'launch') {
+        const ownerKey = basicMobilePushOwnerKey(rule);
+        const launchId = String(rule.launch_id || '').trim();
+        if (!ownerKey || !launchId) {
+          return null;
+        }
 
-    const netMs = Date.parse(launch.net);
-    if (!Number.isFinite(netMs) || netMs <= now.getTime()) {
-      return false;
-    }
+        const launch = launchById.get(launchId);
+        if (!launch) {
+          return null;
+        }
 
-    const retainedLaunchId = retainedGuestLaunchIds.get(ownerKey);
-    return retainedLaunchId === launchId;
-  });
+        const netMs = Date.parse(launch.net);
+        if (!Number.isFinite(netMs) || netMs <= now.getTime()) {
+          return null;
+        }
+
+        const retainedLaunchId = retainedBasicLaunchIds.get(ownerKey);
+        if (retainedLaunchId !== launchId) {
+          return null;
+        }
+      }
+
+      return applyBasicMobilePushRulePolicy(rule);
+    })
+    .filter((rule): rule is MobilePushRuleRowV2 => rule !== null);
 }
 
 function normalizeOffsetsForRule(values: number[] | null | undefined) {
@@ -743,6 +829,63 @@ function ruleWantsStatusChange(rule: MobilePushRuleRowV2, nextStatus: string) {
   return types.includes(nextStatus);
 }
 
+function requiresPremiumForMobilePushEvent(rule: MobilePushRuleRowV2, eventType: string) {
+  if (rule.owner_kind !== 'user') {
+    return false;
+  }
+
+  if (!isBasicMobilePushScopeKind(rule.scope_kind)) {
+    return true;
+  }
+
+  const normalizedEventType = String(eventType || '').trim();
+  if (normalizedEventType.startsWith('daily_digest_') || normalizedEventType.startsWith('local_time_') || CHANGE_EVENT_TYPES.has(normalizedEventType)) {
+    return true;
+  }
+
+  if (normalizedEventType.startsWith('t_minus_')) {
+    const offsetMinutes = Number(normalizedEventType.slice('t_minus_'.length));
+    return !Number.isFinite(offsetMinutes) || !new Set<number>([1, 5, 10, 60]).has(offsetMinutes);
+  }
+
+  return true;
+}
+
+function attachMobilePushPolicyMetadata(payload: Record<string, unknown>, rule: MobilePushRuleRowV2, eventType: string) {
+  return {
+    ...payload,
+    source_rule_id: rule.id,
+    source_scope_kind: rule.scope_kind,
+    premium_required: requiresPremiumForMobilePushEvent(rule, eventType)
+  };
+}
+
+function mobilePushPayloadNeedsPolicySync(
+  payload: Record<string, unknown> | null | undefined,
+  rule: MobilePushRuleRowV2,
+  eventType: string
+) {
+  const expectedPremiumRequired = requiresPremiumForMobilePushEvent(rule, eventType);
+  const payloadRuleId = typeof payload?.source_rule_id === 'string' ? String(payload.source_rule_id).trim() : '';
+  const payloadScopeKind = typeof payload?.source_scope_kind === 'string' ? String(payload.source_scope_kind).trim() : '';
+  return (
+    typeof payload?.premium_required !== 'boolean' ||
+    payload.premium_required !== expectedPremiumRequired ||
+    payloadRuleId !== rule.id ||
+    payloadScopeKind !== rule.scope_kind
+  );
+}
+
+function queueMobilePushOutboxUpdate(
+  updates: Map<number, { id: number; scheduled_for: string; payload: Record<string, unknown> }>,
+  id: number,
+  scheduledFor: string,
+  payload: Record<string, unknown>
+) {
+  if (!Number.isFinite(id)) return;
+  updates.set(id, { id, scheduled_for: scheduledFor, payload });
+}
+
 function mobileOwnerKey(ownerKind: 'guest' | 'user', userId: string | null | undefined, installationId: string | null | undefined) {
   return ownerKind === 'user' ? `user:${String(userId || '').trim()}` : `guest:${String(installationId || '').trim()}`;
 }
@@ -767,11 +910,18 @@ function mobilePushOutboxUpdateKey(
   installationId: string | null | undefined,
   launchId: string | null,
   eventType: string,
-  updateId: number
+  updateId: number | string
 ) {
   const base = mobilePushOutboxKey(ownerKind, userId, installationId, launchId, eventType);
-  if (!base || !Number.isFinite(updateId)) return null;
-  return `${base}:update:${updateId}`;
+  if (!base) return null;
+  const normalizedUpdateId =
+    typeof updateId === 'number'
+      ? Number.isFinite(updateId)
+        ? String(updateId)
+        : ''
+      : String(updateId || '').trim();
+  if (!normalizedUpdateId) return null;
+  return `${base}:update:${normalizedUpdateId}`;
 }
 
 function resolveNextDailyDigestWindow(now: Date, timeZone: string, localTime: string) {
@@ -833,7 +983,7 @@ async function dispatchLaunchDayEmailDigests(
   void now;
   void monthStart;
   void prefs;
-  return { queued: 0, updated: 0, usageUpdates: 0, reason: 'retired_native_mobile_push_only' };
+  return { queued: 0, updated: 0, usageUpdates: 0, reason: 'launch_day_email_retired' };
 }
 
 const STATUS_CHANGE_FIELDS = new Set(['status_id', 'status_name', 'status_abbrev']);
@@ -1061,8 +1211,8 @@ function normalizeLocalTimes(value: string[] | null) {
     .slice(0, 2);
 }
 
-function normalizeLocalTime(value: string) {
-  const trimmed = value.trim();
+function normalizeLocalTime(value: string | null | undefined) {
+  const trimmed = typeof value === 'string' ? value.trim() : '';
   if (!trimmed) return null;
   const match = trimmed.match(/^(\d{2}):(\d{2})(?::\d{2})?$/);
   if (!match) return null;

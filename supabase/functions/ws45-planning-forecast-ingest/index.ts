@@ -3,7 +3,11 @@ import * as pdfjsStatic from 'npm:pdfjs-dist@4.0.379/build/pdf.mjs';
 import { createSupabaseAdminClient } from '../_shared/supabase.ts';
 import { requireJobAuth } from '../_shared/jobAuth.ts';
 import { getSettings, readBooleanSetting } from '../_shared/settings.ts';
-import { parseWs45PlanningForecast, type Ws45PlanningProductKind } from '../../../shared/ws45PlanningParser.ts';
+import {
+  parseWs45PlanningForecast,
+  type Ws45PlanningLayoutLine,
+  type Ws45PlanningProductKind
+} from '../../../shared/ws45PlanningParser.ts';
 
 type PdfJsModule = {
   getDocument?: (args: Record<string, unknown>) => { promise: Promise<any> };
@@ -27,7 +31,7 @@ type FetchedPdf = {
 
 const PLANNING_PAGE_URL = 'https://45thweathersquadron.nebula.spaceforce.mil/pages/planningAndAviationForecastProducts.html';
 const WS45_BASE_URL = 'https://45thweathersquadron.nebula.spaceforce.mil';
-const PARSE_VERSION = 'v1';
+const PARSE_VERSION = 'v2';
 const USER_AGENT =
   Deno.env.get('WS45_USER_AGENT') ||
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
@@ -41,6 +45,8 @@ serve(async (req) => {
 
   const authorized = await requireJobAuth(req, supabase);
   if (!authorized) return jsonResponse({ error: 'unauthorized' }, 401);
+  const requestBody = await req.json().catch(() => ({}));
+  const force = Boolean(requestBody && typeof requestBody === 'object' && 'force' in requestBody && requestBody.force === true);
 
   const stats: Record<string, unknown> = {
     pageUrl: PLANNING_PAGE_URL,
@@ -52,6 +58,7 @@ serve(async (req) => {
     rowsUpdated: 0,
     skipped: false,
     reason: null,
+    force,
     errors: [] as Array<{ step: string; error: string; context?: Record<string, unknown> }>
   };
 
@@ -68,7 +75,7 @@ serve(async (req) => {
     stats.dueReason24h = dueState.planning24hReason;
     stats.dueReasonWeekly = dueState.weeklyReason;
 
-    if (!dueState.planning24hDue && !dueState.weeklyDue) {
+    if (!force && !dueState.planning24hDue && !dueState.weeklyDue) {
       return jsonResponse({ ok: true, skipped: true, reason: 'not_due', elapsedMs: Date.now() - startedAt, stats });
     }
 
@@ -80,68 +87,46 @@ serve(async (req) => {
     stats.itemsFound = items.length;
     if (!items.length) throw new Error('ws45_planning_no_pdfs_found');
 
-    for (const item of items) {
-      try {
-        const latest = await loadLatestByUrl(supabase, item.productKind, item.pdfUrl);
-        const pdfRes = await fetchPdf(item.pdfUrl, latest);
-        if (pdfRes.notModified) {
-          stats.pdfsNotModified = Number(stats.pdfsNotModified || 0) + 1;
-          if (latest?.id && latest.sourceLabel !== item.label) {
-            const { error: updateError } = await supabase
-              .from('ws45_planning_forecasts')
-              .update({
-                source_label: item.label,
-                updated_at: new Date().toISOString()
-              })
-              .eq('id', latest.id);
-            if (updateError) throw updateError;
-            stats.rowsUpdated = Number(stats.rowsUpdated || 0) + 1;
-          }
-          continue;
-        }
+	    for (const item of items) {
+	      try {
+	        const latest = await loadLatestByUrl(supabase, item.productKind, item.pdfUrl);
+	        const pdfRes = await fetchPdf(item.pdfUrl, latest);
+	        if (pdfRes.notModified) {
+	          stats.pdfsNotModified = Number(stats.pdfsNotModified || 0) + 1;
+	          const reparsed = await maybeReparseLatestPlanningRow({
+	            supabase,
+	            latest,
+	            item
+	          });
+	          if (reparsed) {
+	            stats.rowsUpdated = Number(stats.rowsUpdated || 0) + 1;
+	          } else if (latest?.id && latest.sourceLabel !== item.label) {
+	            const { error: updateError } = await supabase
+	              .from('ws45_planning_forecasts')
+	              .update({
+	                source_label: item.label,
+	                updated_at: new Date().toISOString()
+	              })
+	              .eq('id', latest.id);
+	            if (updateError) throw updateError;
+	            stats.rowsUpdated = Number(stats.rowsUpdated || 0) + 1;
+	          }
+	          continue;
+	        }
 
-        stats.pdfsFetched = Number(stats.pdfsFetched || 0) + 1;
+	        stats.pdfsFetched = Number(stats.pdfsFetched || 0) + 1;
 
-        const pdfSha256 = await sha256Hex(pdfRes.bytes);
-        const existing = await loadByUrlAndHash(supabase, item.productKind, item.pdfUrl, pdfSha256);
-        const { text, metadata } = await extractPdfText(pdfRes.bytes);
-        const parsed = parseWs45PlanningForecast({
-          text,
-          productKind: item.productKind,
-          sourceLabel: item.label,
-          fetchedAt: new Date().toISOString()
-        });
-
-        const payload = {
-          product_kind: item.productKind,
-          source_page_url: PLANNING_PAGE_URL,
-          source_label: item.label,
-          pdf_url: item.pdfUrl,
-          pdf_etag: pdfRes.etag,
-          pdf_last_modified: pdfRes.lastModified,
-          pdf_sha256: pdfSha256,
-          pdf_bytes: pdfRes.contentLength,
-          pdf_metadata: metadata,
-          fetched_at: new Date().toISOString(),
-          issued_at: parsed.issuedAtUtc,
-          valid_start: parsed.validStartUtc,
-          valid_end: parsed.validEndUtc,
-          headline: parsed.headline || item.label,
-          summary: parsed.summary,
-          highlights: parsed.highlights,
-          raw_text: text,
-          raw: {
-            pageLabel: item.label,
-            pageSrc: item.src
-          },
-          parse_version: PARSE_VERSION,
-          document_family: parsed.documentFamily,
-          parse_status: parsed.parseStatus,
-          parse_confidence: parsed.parseConfidence,
-          publish_eligible: parsed.publishEligible,
-          quarantine_reasons: parsed.quarantineReasons,
-          updated_at: new Date().toISOString()
-        };
+	        const pdfSha256 = await sha256Hex(pdfRes.bytes);
+	        const existing = await loadByUrlAndHash(supabase, item.productKind, item.pdfUrl, pdfSha256);
+	        const { text, metadata, layoutLines } = await extractPdfText(pdfRes.bytes);
+	        const payload = buildPlanningForecastPayload({
+	          item,
+	          pdfRes,
+	          pdfSha256,
+	          text,
+	          metadata,
+	          layoutLines
+	        });
 
         if (existing?.id) {
           const { error: updateError } = await supabase.from('ws45_planning_forecasts').update(payload).eq('id', existing.id);
@@ -170,43 +155,152 @@ serve(async (req) => {
     await finishIngestionRun(supabase, runId, false, stats, message);
     return jsonResponse({ ok: false, elapsedMs: Date.now() - startedAt, stats, error: message }, 500);
   }
-});
+	});
+	
+	async function maybeReparseLatestPlanningRow(input: {
+	  supabase: ReturnType<typeof createSupabaseAdminClient>;
+	  latest: Awaited<ReturnType<typeof loadLatestByUrl>>;
+	  item: PlanningPageItem;
+	}) {
+	  if (!input.latest?.id) return false;
+	  if (!needsStructuredReparse(input.latest) && input.latest.sourceLabel === input.item.label) return false;
 
-function computeDueState(latestRows: Record<Ws45PlanningProductKind, Record<string, unknown> | null>) {
-  const nowMs = Date.now();
-  const latest24hAt = normalizeLatestAt(latestRows.planning_24h);
-  const latestWeeklyAt = normalizeLatestAt(latestRows.weekly_planning);
-  const latestSlotMs = latest24hPlanningSlotMs(nowMs);
+	  const pdfRes = await fetchPdf(input.item.pdfUrl, null);
+	  if (pdfRes.notModified) return false;
 
-  const planning24hDue =
-    !latest24hAt ||
-    nowMs - latest24hAt >= 4 * 60 * 60 * 1000 ||
-    (Number.isFinite(latestSlotMs) && nowMs >= latestSlotMs && nowMs - latestSlotMs <= 2 * 60 * 60 * 1000 && latest24hAt < latestSlotMs);
+	  const pdfSha256 = await sha256Hex(pdfRes.bytes);
+	  const { text, metadata, layoutLines } = await extractPdfText(pdfRes.bytes);
+	  const payload = buildPlanningForecastPayload({
+	    item: input.item,
+	    pdfRes,
+	    pdfSha256,
+	    text,
+	    metadata,
+	    layoutLines
+	  });
 
-  const weeklyDue = !latestWeeklyAt || nowMs - latestWeeklyAt >= 24 * 60 * 60 * 1000;
+	  const { error } = await input.supabase.from('ws45_planning_forecasts').update(payload).eq('id', input.latest.id);
+	  if (error) throw error;
+	  return true;
+	}
 
-  return {
-    planning24hDue,
-    planning24hReason: !latest24hAt
-      ? 'missing_latest'
-      : nowMs - latest24hAt >= 4 * 60 * 60 * 1000
-        ? 'base_cadence'
-        : Number.isFinite(latestSlotMs) && latest24hAt < latestSlotMs
-          ? 'post_slot_retry'
-          : null,
-    weeklyDue,
-    weeklyReason: !latestWeeklyAt ? 'missing_latest' : nowMs - latestWeeklyAt >= 24 * 60 * 60 * 1000 ? 'daily_refresh' : null
-  };
-}
+	function needsStructuredReparse(
+	  latest: NonNullable<Awaited<ReturnType<typeof loadLatestByUrl>>>
+	) {
+	  if (latest.parseVersion !== PARSE_VERSION) return true;
+	  if (!latest.structuredPayload || typeof latest.structuredPayload !== 'object') return true;
+	  return Object.keys(latest.structuredPayload).length === 0;
+	}
 
-function latest24hPlanningSlotMs(nowMs: number) {
-  const now = new Date(nowMs);
-  const parts = getEasternDateParts(now);
-  if (!parts) return NaN;
-  const slotHour = Math.floor(parts.hour / 4) * 4;
-  const slotIso = buildEasternIso(parts.year, parts.month, parts.day, slotHour, 0);
-  return slotIso ? Date.parse(slotIso) : NaN;
-}
+	function buildPlanningForecastPayload(input: {
+	  item: PlanningPageItem;
+	  pdfRes: FetchedPdf;
+	  pdfSha256: string;
+	  text: string;
+	  metadata: unknown;
+	  layoutLines: Ws45PlanningLayoutLine[];
+	}) {
+	  const fetchedAt = new Date().toISOString();
+	  const parsed = parseWs45PlanningForecast({
+	    text: input.text,
+	    productKind: input.item.productKind,
+	    sourceLabel: input.item.label,
+	    fetchedAt,
+	    layoutLines: input.layoutLines
+	  });
+
+	  return {
+	    product_kind: input.item.productKind,
+	    source_page_url: PLANNING_PAGE_URL,
+	    source_label: input.item.label,
+	    pdf_url: input.item.pdfUrl,
+	    pdf_etag: input.pdfRes.etag,
+	    pdf_last_modified: input.pdfRes.lastModified,
+	    pdf_sha256: input.pdfSha256,
+	    pdf_bytes: input.pdfRes.contentLength,
+	    pdf_metadata: input.metadata,
+	    fetched_at: fetchedAt,
+	    issued_at: parsed.issuedAtUtc,
+	    valid_start: parsed.validStartUtc,
+	    valid_end: parsed.validEndUtc,
+	    headline: parsed.headline || input.item.label,
+	    summary: parsed.summary,
+	    highlights: parsed.highlights,
+	    raw_text: input.text,
+	    raw: {
+	      pageLabel: input.item.label,
+	      pageSrc: input.item.src
+	    },
+	    structured_payload: parsed.structuredPayload ?? {},
+	    parse_version: PARSE_VERSION,
+	    document_family: parsed.documentFamily,
+	    parse_status: parsed.parseStatus,
+	    parse_confidence: parsed.parseConfidence,
+	    publish_eligible: parsed.publishEligible,
+	    quarantine_reasons: parsed.quarantineReasons,
+	    updated_at: fetchedAt
+	  };
+	}
+
+	function computeDueState(latestRows: Record<Ws45PlanningProductKind, Record<string, unknown> | null>) {
+	  const nowMs = Date.now();
+	  const latest24hAt = normalizeLatestAt(latestRows.planning_24h);
+	  const latestWeeklyAt = normalizeLatestAt(latestRows.weekly_planning);
+	  const latest24hSlotMs = latest24hPlanningSlotMs(nowMs);
+	  const latestWeeklySlotMs = latestWeeklyPlanningSlotMs(nowMs);
+
+	  const planning24hDue =
+	    !latest24hAt ||
+	    nowMs - latest24hAt >= 4 * 60 * 60 * 1000 ||
+	    (Number.isFinite(latest24hSlotMs) &&
+	      nowMs >= latest24hSlotMs &&
+	      nowMs - latest24hSlotMs <= 2 * 60 * 60 * 1000 &&
+	      latest24hAt < latest24hSlotMs);
+
+	  const weeklyDue =
+	    !latestWeeklyAt ||
+	    nowMs - latestWeeklyAt >= 24 * 60 * 60 * 1000 ||
+	    (Number.isFinite(latestWeeklySlotMs) &&
+	      nowMs >= latestWeeklySlotMs &&
+	      nowMs - latestWeeklySlotMs <= 6 * 60 * 60 * 1000 &&
+	      latestWeeklyAt < latestWeeklySlotMs);
+
+	  return {
+	    planning24hDue,
+	    planning24hReason: !latest24hAt
+	      ? 'missing_latest'
+	      : nowMs - latest24hAt >= 4 * 60 * 60 * 1000
+	        ? 'base_cadence'
+	        : Number.isFinite(latest24hSlotMs) && latest24hAt < latest24hSlotMs
+	          ? 'post_slot_retry'
+	          : null,
+	    weeklyDue,
+	    weeklyReason: !latestWeeklyAt
+	      ? 'missing_latest'
+	      : nowMs - latestWeeklyAt >= 24 * 60 * 60 * 1000
+	        ? 'daily_refresh'
+	        : Number.isFinite(latestWeeklySlotMs) && latestWeeklyAt < latestWeeklySlotMs
+	          ? 'post_daily_slot'
+	          : null
+	  };
+	}
+
+	function latest24hPlanningSlotMs(nowMs: number) {
+	  const now = new Date(nowMs);
+	  const parts = getEasternDateParts(now);
+	  if (!parts) return NaN;
+	  const slotHour = Math.floor(parts.hour / 4) * 4;
+	  const slotIso = buildEasternIso(parts.year, parts.month, parts.day, slotHour, 0);
+	  return slotIso ? Date.parse(slotIso) : NaN;
+	}
+
+	function latestWeeklyPlanningSlotMs(nowMs: number) {
+	  const now = new Date(nowMs);
+	  const parts = getEasternDateParts(now);
+	  if (!parts) return NaN;
+	  const slotIso = buildEasternIso(parts.year, parts.month, parts.day, 8, 0);
+	  return slotIso ? Date.parse(slotIso) : NaN;
+	}
 
 function getEasternDateParts(date: Date) {
   try {
@@ -360,28 +454,33 @@ async function loadLatestByProductKind(supabase: ReturnType<typeof createSupabas
   } as Record<Ws45PlanningProductKind, Record<string, unknown> | null>;
 }
 
-async function loadLatestByUrl(
-  supabase: ReturnType<typeof createSupabaseAdminClient>,
-  productKind: Ws45PlanningProductKind,
-  pdfUrl: string
-) {
-  const { data, error } = await supabase
-    .from('ws45_planning_forecasts')
-    .select('id, source_label, pdf_etag, pdf_last_modified')
-    .eq('product_kind', productKind)
-    .eq('pdf_url', pdfUrl)
-    .order('fetched_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+	async function loadLatestByUrl(
+	  supabase: ReturnType<typeof createSupabaseAdminClient>,
+	  productKind: Ws45PlanningProductKind,
+	  pdfUrl: string
+	) {
+	  const { data, error } = await supabase
+	    .from('ws45_planning_forecasts')
+	    .select('id, source_label, pdf_etag, pdf_last_modified, parse_version, structured_payload')
+	    .eq('product_kind', productKind)
+	    .eq('pdf_url', pdfUrl)
+	    .order('fetched_at', { ascending: false })
+	    .limit(1)
+	    .maybeSingle();
   if (error) throw error;
   if (!data) return null;
-  return {
-    id: String(data.id || ''),
-    sourceLabel: typeof data.source_label === 'string' ? data.source_label : null,
-    etag: typeof data.pdf_etag === 'string' ? data.pdf_etag : null,
-    lastModified: typeof data.pdf_last_modified === 'string' ? data.pdf_last_modified : null
-  };
-}
+	  return {
+	    id: String(data.id || ''),
+	    sourceLabel: typeof data.source_label === 'string' ? data.source_label : null,
+	    etag: typeof data.pdf_etag === 'string' ? data.pdf_etag : null,
+	    lastModified: typeof data.pdf_last_modified === 'string' ? data.pdf_last_modified : null,
+	    parseVersion: typeof data.parse_version === 'string' ? data.parse_version : null,
+	    structuredPayload:
+	      data.structured_payload && typeof data.structured_payload === 'object' && !Array.isArray(data.structured_payload)
+	        ? (data.structured_payload as Record<string, unknown>)
+	        : null
+	  };
+	}
 
 async function loadByUrlAndHash(
   supabase: ReturnType<typeof createSupabaseAdminClient>,
@@ -458,32 +557,78 @@ async function sha256Hex(bytes: Uint8Array) {
     .join('');
 }
 
-async function extractPdfText(bytes: Uint8Array): Promise<{ text: string; metadata: unknown }> {
-  const pdfjs = await loadPdfJsModule();
-  if (!pdfjs || typeof pdfjs.getDocument !== 'function') {
-    throw new Error('ws45_planning_pdfjs_module_unavailable');
-  }
-  ensurePdfWorkerSrc(pdfjs);
+	async function extractPdfText(bytes: Uint8Array): Promise<{ text: string; metadata: unknown; layoutLines: Ws45PlanningLayoutLine[] }> {
+	  const pdfjs = await loadPdfJsModule();
+	  if (!pdfjs || typeof pdfjs.getDocument !== 'function') {
+	    throw new Error('ws45_planning_pdfjs_module_unavailable');
+	  }
+	  ensurePdfWorkerSrc(pdfjs);
   const task = pdfjs.getDocument({ data: bytes, disableWorker: true });
   const doc = await task.promise;
   const meta = await doc.getMetadata().catch(() => null);
 
-  const pages: string[] = [];
-  for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
-    const page = await doc.getPage(pageNumber);
-    const textContent = await page.getTextContent();
-    const chunks = (textContent.items as any[])
-      .map((item) => (item && typeof item.str === 'string' ? item.str : ''))
-      .filter(Boolean);
-    pages.push(chunks.join(' '));
-  }
+	  const pages: string[] = [];
+	  const layoutLines: Ws45PlanningLayoutLine[] = [];
+	  for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
+	    const page = await doc.getPage(pageNumber);
+	    const textContent = await page.getTextContent();
+	    const chunks = (textContent.items as any[])
+	      .map((item) => (item && typeof item.str === 'string' ? item.str : ''))
+	      .filter(Boolean);
+	    pages.push(chunks.join(' '));
 
-  const text = pages.join('\n').trim();
-  const metadata = meta ? { info: (meta as any).info ?? null, meta: (meta as any).metadata ?? null, pages: doc.numPages } : { pages: doc.numPages };
-  return { text, metadata };
-}
+	    const items = (textContent.items as any[])
+	      .map((item) => ({
+	        text: item && typeof item.str === 'string' ? String(item.str) : '',
+	        x: Number(item?.transform?.[4] ?? 0),
+	        y: Number(item?.transform?.[5] ?? 0)
+	      }))
+	      .filter((item) => item.text.trim());
+	    layoutLines.push(...buildLayoutLines(items, pageNumber));
+	  }
 
-async function loadPdfJsModule(): Promise<PdfJsModule | null> {
+	  const text = pages.join('\n').trim();
+	  const metadata = meta ? { info: (meta as any).info ?? null, meta: (meta as any).metadata ?? null, pages: doc.numPages } : { pages: doc.numPages };
+	  return { text, metadata, layoutLines };
+	}
+
+	function buildLayoutLines(
+	  items: Array<{ text: string; x: number; y: number }>,
+	  pageNumber: number
+	): Ws45PlanningLayoutLine[] {
+	  const buckets: Array<{ y: number; items: Array<{ text: string; x: number }> }> = [];
+	  for (const item of items) {
+	    let bucket = buckets.find((entry) => Math.abs(entry.y - item.y) <= 1.5);
+	    if (!bucket) {
+	      bucket = { y: item.y, items: [] };
+	      buckets.push(bucket);
+	    }
+	    bucket.items.push({ text: item.text, x: item.x });
+	  }
+
+	  return buckets
+	    .sort((a, b) => b.y - a.y)
+	    .map((bucket) => {
+	      const parts = bucket.items
+	        .filter((item) => item.text.trim())
+	        .sort((a, b) => a.x - b.x)
+	        .map((item) => ({
+	          text: item.text.replace(/\s+/g, ' ').trim(),
+	          x: item.x
+	        }))
+	        .filter((part) => part.text);
+
+	      return {
+	        page: pageNumber,
+	        y: bucket.y,
+	        text: parts.map((part) => part.text).join(' '),
+	        parts
+	      } satisfies Ws45PlanningLayoutLine;
+	    })
+	    .filter((line) => line.parts.length);
+	}
+
+	async function loadPdfJsModule(): Promise<PdfJsModule | null> {
   if (pdfJsModulePromise) return pdfJsModulePromise;
 
   pdfJsModulePromise = (async () => {
