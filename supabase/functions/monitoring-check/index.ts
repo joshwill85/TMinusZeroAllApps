@@ -7,6 +7,11 @@ import { getLatestSuccessfulIngestionRuns } from '../_shared/ingestionRuns.ts';
 import { createSupabaseAdminClient } from '../_shared/supabase.ts';
 import { requireJobAuth } from '../_shared/jobAuth.ts';
 import { getSettings, readBooleanSetting, readNumberSetting, readStringArraySetting, readStringSetting } from '../_shared/settings.ts';
+import {
+  buildWs45CoverageRows,
+  isWs45CoverageEligibleLaunch,
+  WS45_MISSION_FORECAST_EXPECTED_WINDOW_HOURS
+} from '../../../shared/ws45Coverage.ts';
 import { getWs45LiveCadenceMinutes } from '../../../shared/ws45LiveBoard.ts';
 
 const JOB_THRESHOLDS_MINUTES: Record<string, number> = {
@@ -15,16 +20,16 @@ const JOB_THRESHOLDS_MINUTES: Record<string, number> = {
   ll2_catalog: 240,
   ll2_catalog_agencies: 96 * 60,
   ll2_future_launch_sync: 1440,
-  ws45_forecasts_ingest: 600,
+  ws45_forecasts_ingest: 720,
   ws45_live_weather_ingest: 90,
-  ws45_planning_forecast_ingest: 360,
+  ws45_planning_forecast_ingest: 720,
   ws45_weather_retention_cleanup: 2160,
   notifications_dispatch: 10,
   notifications_send: 5,
   social_posts_dispatch: 90,
 
-  navcen_bnm_ingest: 180,
-  faa_trajectory_hazard_ingest: 180,
+  navcen_bnm_ingest: 420,
+  faa_trajectory_hazard_ingest: 420,
   spacex_infographics_ingest: 1560,
   trajectory_orbit_ingest: 720,
   trajectory_constraints_ingest: 720,
@@ -32,8 +37,8 @@ const JOB_THRESHOLDS_MINUTES: Record<string, number> = {
   trajectory_templates_generate: 1560,
 
   celestrak_gp_groups_sync: 2160,
-  celestrak_supgp_sync: 90,
-  celestrak_supgp_ingest: 90,
+  celestrak_supgp_sync: 420,
+  celestrak_supgp_ingest: 240,
   celestrak_ingest: 420,
   celestrak_retention_cleanup: 2160
 };
@@ -560,7 +565,7 @@ async function checkWs45ForecastJoins(supabase: ReturnType<typeof createSupabase
   const recentStartIso = new Date(nowMs - 7 * 24 * 60 * 60 * 1000).toISOString();
   const horizonEndIso = new Date(nowMs + 14 * 24 * 60 * 60 * 1000).toISOString();
 
-  const [recentRes, launchesRes, coverageRes, latestRunRes] = await Promise.all([
+  const [recentRes, launchesRes, latestRunRes] = await Promise.all([
     supabase
       .from('ws45_launch_forecasts')
       .select(
@@ -579,14 +584,6 @@ async function checkWs45ForecastJoins(supabase: ReturnType<typeof createSupabase
       .order('net', { ascending: true })
       .limit(25),
     supabase
-      .from('ws45_launch_forecasts')
-      .select('id,matched_launch_id,source_label,issued_at,valid_start,valid_end,match_status,match_confidence,publish_eligible,fetched_at,parse_version')
-      .eq('publish_eligible', true)
-      .eq('match_status', 'matched')
-      .order('issued_at', { ascending: false })
-      .order('fetched_at', { ascending: false })
-      .limit(100),
-    supabase
       .from('ingestion_runs')
       .select('started_at, ended_at, success, error, stats')
       .eq('job_name', 'ws45_forecasts_ingest')
@@ -597,18 +594,10 @@ async function checkWs45ForecastJoins(supabase: ReturnType<typeof createSupabase
 
   if (recentRes.error) throw recentRes.error;
   if (launchesRes.error) throw launchesRes.error;
-  if (coverageRes.error) throw coverageRes.error;
   if (latestRunRes.error) throw latestRunRes.error;
 
   const recent = ((recentRes.data as any[] | null) ?? []).filter((row) => String(row?.forecast_kind || '') !== 'faq');
   const upcomingLaunches = (launchesRes.data as any[] | null) ?? [];
-  const coverageRows = (coverageRes.data as any[] | null) ?? [];
-  const coverageByLaunch = new Map<string, any>();
-  for (const row of coverageRows) {
-    const launchId = typeof row?.matched_launch_id === 'string' ? row.matched_launch_id : '';
-    if (!launchId || coverageByLaunch.has(launchId)) continue;
-    coverageByLaunch.set(launchId, row);
-  }
 
   const missingIssued = recent.filter((row) => !row?.issued_at);
   const missingValidWindow = recent.filter((row) => !row?.valid_start || !row?.valid_end);
@@ -630,8 +619,6 @@ async function checkWs45ForecastJoins(supabase: ReturnType<typeof createSupabase
   const parseCompleteRate = recent.length ? parseCompleteCount / recent.length : 1;
   const publishEligibleRate = recent.length ? publishEligibleCount / recent.length : 1;
 
-  const coverageGaps = upcomingLaunches.filter((launch) => !coverageByLaunch.has(String((launch as any).id || '')));
-
   const latestRun = latestRunRes.data as Record<string, any> | null;
   const latestRunErrors = Array.isArray(latestRun?.stats?.errors) ? (latestRun?.stats?.errors as Array<Record<string, any>>) : [];
   const hasWs45FetchError =
@@ -641,6 +628,11 @@ async function checkWs45ForecastJoins(supabase: ReturnType<typeof createSupabase
   const pdfsFound = Number(latestRun?.stats?.pdfsFound || 0);
   const forecastPdfsFound = Number(latestRun?.stats?.forecastPdfsFound ?? pdfsFound);
   const faqPdfsFound = Number(latestRun?.stats?.faqPdfsFound || 0);
+  const coverageEligibleLaunches = upcomingLaunches.filter((launch) => isWs45CoverageEligibleLaunch(launch, nowMs));
+  const coverageRows = buildWs45CoverageRows(coverageEligibleLaunches, recent);
+  const coverageGaps = coverageRows.filter((row) => row.status === 'missing');
+  const coverageAttentionCount = coverageRows.filter((row) => row.status === 'attention' || row.status === 'quarantined').length;
+  const shouldEvaluateCoverageGap = !hasWs45FetchError && forecastPdfsFound > 0;
 
   if (hasWs45FetchError) {
     await upsertAlert(supabase, {
@@ -662,7 +654,7 @@ async function checkWs45ForecastJoins(supabase: ReturnType<typeof createSupabase
     await upsertAlert(supabase, {
       key: 'ws45_source_empty',
       severity: 'warning',
-      message: '45 WS source page returned no launch forecast PDFs.',
+      message: '45 WS source page has no launch forecast PDFs. Only FAQ or non-forecast PDFs may be present.',
       details: {
         started_at: latestRun?.started_at ?? null,
         ended_at: latestRun?.ended_at ?? null,
@@ -723,13 +715,17 @@ async function checkWs45ForecastJoins(supabase: ReturnType<typeof createSupabase
     rows: ambiguousUpcoming
   });
 
-  await upsertOrResolveCountAlert(supabase, {
-    key: 'ws45_florida_launch_coverage_gap',
-    severity: 'critical',
-    message: 'Upcoming Florida launch lacks a publish-eligible 45 WS forecast.',
-    count: coverageGaps.length,
-    rows: coverageGaps
-  });
+  if (shouldEvaluateCoverageGap) {
+    await upsertOrResolveCountAlert(supabase, {
+      key: 'ws45_florida_launch_coverage_gap',
+      severity: 'critical',
+      message: 'Upcoming Florida launch lacks a publish-eligible 45 WS forecast.',
+      count: coverageGaps.length,
+      rows: coverageGaps
+    });
+  } else {
+    await resolveAlert(supabase, 'ws45_florida_launch_coverage_gap');
+  }
 
   if (parseCompleteRate < 0.99 || publishEligibleRate < 0.98) {
     await upsertAlert(supabase, {
@@ -767,7 +763,11 @@ async function checkWs45ForecastJoins(supabase: ReturnType<typeof createSupabase
     unmatchedUpcomingCount: unmatchedUpcoming.length,
     ambiguousUpcomingCount: ambiguousUpcoming.length,
     upcomingFloridaLaunches: upcomingLaunches.length,
-    coverageGapCount: coverageGaps.length
+    coverageEligibleLaunches: coverageEligibleLaunches.length,
+    coverageAttentionCount,
+    coverageEvaluationSuppressed: !shouldEvaluateCoverageGap,
+    coverageExpectedWindowHours: WS45_MISSION_FORECAST_EXPECTED_WINDOW_HOURS,
+    coverageGapCount: shouldEvaluateCoverageGap ? coverageGaps.length : 0
   };
 }
 
@@ -795,20 +795,21 @@ async function upsertOrResolveCountAlert(
       details: {
         count,
         rows: rows.map((row) => ({
-          id: row?.id ?? null,
-          source_label: row?.source_label ?? null,
-          mission_name: row?.mission_name ?? row?.name ?? null,
+          id: row?.id ?? row?.launchId ?? row?.forecastId ?? null,
+          source_label: row?.source_label ?? row?.sourceLabel ?? null,
+          mission_name: row?.mission_name ?? row?.name ?? row?.launchName ?? null,
           fetched_at: row?.fetched_at ?? null,
-          issued_at: row?.issued_at ?? null,
-          valid_start: row?.valid_start ?? row?.window_start ?? null,
-          valid_end: row?.valid_end ?? row?.window_end ?? null,
-          match_status: row?.match_status ?? null,
+          issued_at: row?.issued_at ?? row?.issuedAt ?? null,
+          valid_start: row?.valid_start ?? row?.window_start ?? row?.validStart ?? row?.windowStart ?? null,
+          valid_end: row?.valid_end ?? row?.window_end ?? row?.validEnd ?? row?.windowEnd ?? null,
+          match_status: row?.match_status ?? row?.matchStatus ?? row?.status ?? null,
           match_confidence: row?.match_confidence ?? null,
-          parse_status: row?.parse_status ?? null,
+          parse_status: row?.parse_status ?? row?.parseStatus ?? null,
           publish_eligible: row?.publish_eligible ?? null,
-          document_family: row?.document_family ?? null,
-          parse_version: row?.parse_version ?? null,
-          pdf_url: row?.pdf_url ?? null
+          document_family: row?.document_family ?? row?.documentFamily ?? null,
+          parse_version: row?.parse_version ?? row?.parseVersion ?? null,
+          pdf_url: row?.pdf_url ?? null,
+          status_reason: row?.statusReason ?? null
         }))
       }
     });

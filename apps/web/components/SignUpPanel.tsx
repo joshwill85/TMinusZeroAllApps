@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
 import {
   buildAuthHref,
   readAuthIntent,
@@ -11,6 +10,7 @@ import {
 import type { PremiumClaimV1 } from '@tminuszero/api-client';
 import { AuthForm } from '@/components/AuthForm';
 import { browserApiClient } from '@/lib/api/client';
+import { useSafeSearchParams } from '@/lib/client/useSafeSearchParams';
 
 function appendClaimToken(href: string, claimToken: string | null) {
   if (!claimToken) {
@@ -22,7 +22,7 @@ function appendClaimToken(href: string, claimToken: string | null) {
 }
 
 export function SignUpPanel() {
-  const searchParams = useSearchParams();
+  const searchParams = useSafeSearchParams();
   const returnTo = readReturnTo(searchParams);
   const authIntent = readAuthIntent(searchParams);
   const claimToken =

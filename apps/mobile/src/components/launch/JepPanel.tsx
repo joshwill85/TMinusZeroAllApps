@@ -99,6 +99,7 @@ export function JepPanel({ launchId, hasJepScore, theme }: JepPanelProps) {
   const visibilityCall = buildJepVisibilityCallPresentation(score, observerContext);
   const confidenceLabel = buildJepConfidenceLabel(score);
   const scenarioTimeline = buildJepScenarioTimeline(score);
+  const hasTimingOutlook = Boolean(score.bestWindow) || scenarioTimeline.length > 0;
   const probability = clampProbability(score.probability);
   const isProbabilityMode = score.mode === 'probability';
   const primaryValue = isProbabilityMode && probability != null ? formatProbability(probability) : `${score.score}/100`;
@@ -236,7 +237,7 @@ export function JepPanel({ launchId, hasJepScore, theme }: JepPanelProps) {
             <Text style={bodyStyle(theme)}>{visibilityCall.detail}</Text>
           </View>
 
-          {scenarioTimeline.length > 0 ? (
+          {hasTimingOutlook ? (
             <View
               style={{
                 gap: 10,
@@ -254,32 +255,34 @@ export function JepPanel({ launchId, hasJepScore, theme }: JepPanelProps) {
                   Best window: <Text style={{ color: theme.foreground, fontWeight: '700' }}>{score.bestWindow.label}</Text>. {score.bestWindow.reason}
                 </Text>
               ) : null}
-              <View style={{ gap: 8 }}>
-                {scenarioTimeline.map((entry) => (
-                  <View
-                    key={entry.id}
-                    style={{
-                      gap: 8,
-                      borderRadius: 16,
-                      borderWidth: 1,
-                      borderColor: 'rgba(234, 240, 255, 0.1)',
-                      backgroundColor: 'rgba(255, 255, 255, 0.025)',
-                      paddingHorizontal: 12,
-                      paddingVertical: 12
-                    }}
-                  >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                      <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{entry.label}</Text>
-                      <Text style={{ color: theme.muted, fontSize: 13, fontWeight: '600' }}>{entry.score}/100</Text>
+              {scenarioTimeline.length > 0 ? (
+                <View style={{ gap: 8 }}>
+                  {scenarioTimeline.map((entry) => (
+                    <View
+                      key={entry.id}
+                      style={{
+                        gap: 8,
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        borderColor: 'rgba(234, 240, 255, 0.1)',
+                        backgroundColor: 'rgba(255, 255, 255, 0.025)',
+                        paddingHorizontal: 12,
+                        paddingVertical: 12
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                        <Text style={{ color: theme.foreground, fontSize: 15, fontWeight: '700' }}>{entry.label}</Text>
+                        <Text style={{ color: theme.muted, fontSize: 13, fontWeight: '600' }}>{entry.score}/100</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                        {entry.current ? <TonePill label="Current" tone="info" theme={theme} /> : null}
+                        <TonePill label={timelineTrendLabel(entry.delta, entry.trend)} tone={timelineTrendTone(entry.trend)} theme={theme} />
+                        <TonePill label={visibilityCallLabel(entry.visibilityCall)} tone={entry.tone} theme={theme} />
+                      </View>
                     </View>
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                      {entry.current ? <TonePill label="Current" tone="info" theme={theme} /> : null}
-                      <TonePill label={timelineTrendLabel(entry.delta, entry.trend)} tone={timelineTrendTone(entry.trend)} theme={theme} />
-                      <TonePill label={visibilityCallLabel(entry.visibilityCall)} tone={entry.tone} theme={theme} />
-                    </View>
-                  </View>
-                ))}
-              </View>
+                  ))}
+                </View>
+              ) : null}
             </View>
           ) : null}
 

@@ -1,32 +1,43 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Modal, Pressable, ScrollView, Share, Text, View } from 'react-native';
 import type { LaunchFeedV1, WatchlistRuleV1 } from '@tminuszero/api-client';
 import type { Href } from 'expo-router';
 import { useRouter } from 'expo-router';
 import {
+  areCalendarLaunchFilterValuesEqual,
   buildCalendarMonthDays,
   buildCountdownSnapshot,
+  buildFeedPresetFiltersFromCalendarFilters,
+  countActiveCalendarLaunchFilters,
+  DEFAULT_CALENDAR_LAUNCH_FILTERS,
+  formatLaunchFilterStatusLabel,
   formatLaunchCountdownClock,
   getCalendarDayTemporalState,
   getCalendarMonthBounds,
   getMobileViewerTier,
   groupItemsByLocalDate,
+  mergeFeedPresetFiltersWithCalendarFilters,
+  normalizeCalendarLaunchFilterValue,
   toLocalDateKey,
-  type CalendarDayTemporalState
+  type CalendarDayTemporalState,
+  type CalendarLaunchFilterValue,
+  type LaunchFilterOptions
 } from '@tminuszero/domain';
 import { buildLaunchHref } from '@tminuszero/navigation';
 import {
   useCalendarFeedsQuery,
   useCreateCalendarFeedMutation,
+  useCreateFilterPresetMutation,
   useDeleteCalendarFeedMutation,
   useFilterPresetsQuery,
   useLaunchFeedPageQuery,
   useRotateCalendarFeedMutation,
+  useUpdateFilterPresetMutation,
   useViewerEntitlementsQuery,
-  useWatchlistsQuery
 } from '@/src/api/queries';
 import { AppScreen } from '@/src/components/AppScreen';
 import { LaunchCalendarSheet } from '@/src/components/LaunchCalendarSheet';
+import { LaunchFilterSheet } from '@/src/components/LaunchFilterSheet';
 import { LaunchShareIconButton } from '@/src/components/LaunchShareIconButton';
 import { ErrorStateCard, LoadingStateCard, SectionCard } from '@/src/components/SectionCard';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
@@ -39,7 +50,7 @@ import { shareLaunch } from '@/src/utils/launchShare';
 import {
   formatWatchlistRuleCaption,
   formatWatchlistRuleLabel,
-  resolvePrimaryWatchlist
+  usePrimaryWatchlist
 } from '@/src/watchlists/usePrimaryWatchlist';
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
@@ -52,6 +63,12 @@ type CalendarFollowRule = WatchlistRuleV1 & {
 
 type CalendarLaunchItem = LaunchFeedV1['launches'][number];
 type CalendarGridDayItem = ReturnType<typeof buildCalendarMonthDays>[number];
+type CalendarPreset = {
+  id: string;
+  name: string;
+  filters: CalendarLaunchFilterValue;
+  isDefault: boolean;
+};
 
 function isCalendarFollowRule(rule: WatchlistRuleV1): rule is CalendarFollowRule {
   return rule.ruleType === 'launch' || rule.ruleType === 'provider' || rule.ruleType === 'pad';
@@ -65,24 +82,44 @@ export default function CalendarScreen() {
   const tier = getMobileViewerTier(entitlementsQuery.data?.tier ?? 'anon');
   const isAuthed = entitlementsQuery.data?.isAuthed ?? false;
   const canUseLaunchCalendar = entitlementsQuery.data?.capabilities.canUseLaunchCalendar === true;
+  const canManageFilterPresets = entitlementsQuery.data?.capabilities.canManageFilterPresets === true;
+  const canUseSavedItems = entitlementsQuery.data?.capabilities.canUseSavedItems === true;
   const canUseRecurringCalendarFeeds = entitlementsQuery.data?.capabilities.canUseRecurringCalendarFeeds === true;
+  const watchlistRuleLimit = entitlementsQuery.data?.limits.watchlistRuleLimit ?? null;
   const feedScope = entitlementsQuery.data?.mode === 'live' ? 'live' : 'public';
   const refreshIntervalMs = (entitlementsQuery.data?.refreshIntervalSeconds ?? 7200) * 1000;
   const calendarFeedsQuery = useCalendarFeedsQuery({ enabled: canUseRecurringCalendarFeeds });
   const filterPresetsQuery = useFilterPresetsQuery();
-  const watchlistsQuery = useWatchlistsQuery();
   const createCalendarFeedMutation = useCreateCalendarFeedMutation();
+  const createFilterPresetMutation = useCreateFilterPresetMutation();
   const deleteCalendarFeedMutation = useDeleteCalendarFeedMutation();
   const rotateCalendarFeedMutation = useRotateCalendarFeedMutation();
+  const updateFilterPresetMutation = useUpdateFilterPresetMutation();
+  const [calendarMode, setCalendarMode] = useState<'for-you' | 'following'>('for-you');
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filters, setFilters] = useState<CalendarLaunchFilterValue>({ ...DEFAULT_CALENDAR_LAUNCH_FILTERS });
+  const [activePresetId, setActivePresetId] = useState('');
   const [month, setMonth] = useState(() => {
     const today = new Date();
     return new Date(today.getFullYear(), today.getMonth(), 1);
   });
+  const didApplyInitialDefaultPresetRef = useRef(false);
   const monthKey = useMemo(() => formatMonthKey(month), [month]);
   const monthBounds = useMemo(() => getCalendarMonthBounds(month), [month]);
+  const primaryWatchlistState = usePrimaryWatchlist({
+    enabled: canUseSavedItems,
+    autoCreate: true,
+    ruleLimit: watchlistRuleLimit
+  });
+  const primaryWatchlist = primaryWatchlistState.primaryWatchlist;
+  const primaryWatchlistId = primaryWatchlistState.primaryWatchlistId;
+  const watchlistsLoading = canUseSavedItems && primaryWatchlistState.isLoading;
+  const watchlistsError = canUseSavedItems ? primaryWatchlistState.errorMessage : null;
+  const isFollowingCalendar = calendarMode === 'following';
   const calendarQuery = useLaunchFeedPageQuery(
     {
-      scope: feedScope,
+      scope: isFollowingCalendar ? 'watchlist' : feedScope,
+      watchlistId: isFollowingCalendar ? primaryWatchlistId : null,
       from: monthBounds.from.toISOString(),
       to: monthBounds.to.toISOString(),
       sort: 'soonest',
@@ -90,35 +127,70 @@ export default function CalendarScreen() {
       limit: 1000
     },
     {
-      enabled: canUseLaunchCalendar,
+      enabled: canUseLaunchCalendar && (!isFollowingCalendar || Boolean(primaryWatchlistId)),
       staleTimeMs: refreshIntervalMs
     }
   );
   const calendarDays = useMemo(() => buildCalendarMonthDays(month), [month]);
-  const launches = useMemo(() => calendarQuery.data?.launches ?? [], [calendarQuery.data?.launches]);
-  const groupedLaunches = useMemo(() => groupItemsByLocalDate(launches, (launch) => launch.net), [launches]);
+  const monthLaunches = useMemo(() => calendarQuery.data?.launches ?? [], [calendarQuery.data?.launches]);
+  const filterOptions = useMemo<LaunchFilterOptions>(() => buildCalendarFilterOptions(monthLaunches), [monthLaunches]);
+  const filteredLaunches = useMemo(
+    () => monthLaunches.filter((launch) => launchMatchesCalendarFilters(launch, filters)),
+    [filters, monthLaunches]
+  );
+  const groupedLaunches = useMemo(() => groupItemsByLocalDate(filteredLaunches, (launch) => launch.net), [filteredLaunches]);
   const launchDayKeys = useMemo(() => [...groupedLaunches.keys()].sort(), [groupedLaunches]);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [pendingSelectedDay, setPendingSelectedDay] = useState<string | null>(null);
   const [calendarSheetLaunch, setCalendarSheetLaunch] = useState<LaunchCalendarLaunch | null>(null);
   const [viewPickerOpen, setViewPickerOpen] = useState(false);
-  const [didInitializeSelection, setDidInitializeSelection] = useState(false);
   const selectedLaunches = selectedDay ? groupedLaunches.get(selectedDay) ?? [] : [];
   const launchDayCount = groupedLaunches.size;
-  const nextLaunch = launches[0] ?? null;
-  const hasMonthLaunches = launches.length > 0;
+  const nextLaunch = filteredLaunches[0] ?? null;
+  const hasMonthLaunches = filteredLaunches.length > 0;
   const calendarFeeds = useMemo(() => calendarFeedsQuery.data?.feeds ?? [], [calendarFeedsQuery.data?.feeds]);
-  const filterPresets = filterPresetsQuery.data?.presets ?? [];
-  const primaryWatchlist = useMemo(
-    () => resolvePrimaryWatchlist(watchlistsQuery.data?.watchlists ?? []),
-    [watchlistsQuery.data?.watchlists]
+  const filterPresets = useMemo(() => filterPresetsQuery.data?.presets ?? [], [filterPresetsQuery.data?.presets]);
+  const presetList = useMemo<CalendarPreset[]>(
+    () =>
+      (!canManageFilterPresets ? [] : filterPresets)
+        .map((preset) => {
+          const id = String(preset.id || '').trim();
+          if (!id) return null;
+          return {
+            id,
+            name: String(preset.name || '').trim() || 'Saved view',
+            filters: normalizeCalendarLaunchFilterValue(preset.filters),
+            isDefault: preset.isDefault === true
+          };
+        })
+        .filter((preset): preset is CalendarPreset => preset != null),
+    [canManageFilterPresets, filterPresets]
   );
+  const activePreset = useMemo(() => presetList.find((preset) => preset.id === activePresetId) ?? null, [activePresetId, presetList]);
   const followRules = useMemo(
     () => (primaryWatchlist?.rules ?? []).filter(isCalendarFollowRule),
     [primaryWatchlist?.rules]
   );
+  const activeFilterCount = countActiveCalendarLaunchFilters(filters);
   const localTimeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local time', []);
   const nearestLaunchDay = useMemo(() => getNearestLaunchDayKey(launchDayKeys, selectedDay), [launchDayKeys, selectedDay]);
+  const calendarLoading = calendarQuery.isPending || (isFollowingCalendar && watchlistsLoading && !primaryWatchlistId);
+  const calendarErrorMessage =
+    isFollowingCalendar && watchlistsError && !primaryWatchlistId
+      ? watchlistsError
+      : calendarQuery.isError
+        ? calendarQuery.error.message
+        : null;
+  const emptyCalendarMessage = useMemo(
+    () =>
+      buildCalendarEmptyStateMessage({
+        calendarMode,
+        activeFilterCount,
+        monthLaunchCount: monthLaunches.length,
+        followRuleCount: followRules.length
+      }),
+    [activeFilterCount, calendarMode, followRules.length, monthLaunches.length]
+  );
 
   const allLaunchesFeed = useMemo(
     () => calendarFeeds.find((feed) => feed.sourceKind === 'all_launches') ?? null,
@@ -126,41 +198,91 @@ export default function CalendarScreen() {
   );
 
   useEffect(() => {
-    setSelectedDay(null);
-    setDidInitializeSelection(false);
-  }, [monthKey]);
+    if (canUseSavedItems) {
+      return;
+    }
+    setCalendarMode('for-you');
+  }, [canUseSavedItems]);
 
   useEffect(() => {
-    if (didInitializeSelection || calendarQuery.isPending || calendarQuery.isError) {
+    setFilters((current) => sanitizeCalendarFilters(current, filterOptions));
+  }, [filterOptions]);
+
+  useEffect(() => {
+    if (canManageFilterPresets) {
+      return;
+    }
+    didApplyInitialDefaultPresetRef.current = false;
+    setActivePresetId('');
+  }, [canManageFilterPresets]);
+
+  useEffect(() => {
+    if (!canManageFilterPresets) {
+      return;
+    }
+
+    const defaultPreset = presetList.find((preset) => preset.isDefault) ?? null;
+    if (defaultPreset?.id) {
+      setActivePresetId(defaultPreset.id);
+    }
+    if (!didApplyInitialDefaultPresetRef.current && defaultPreset) {
+      setFilters((current) =>
+        areCalendarLaunchFilterValuesEqual(current, defaultPreset.filters) ? current : defaultPreset.filters
+      );
+      didApplyInitialDefaultPresetRef.current = true;
+    }
+  }, [canManageFilterPresets, presetList]);
+
+  useEffect(() => {
+    if (!activePresetId) {
+      return;
+    }
+
+    const preset = presetList.find((candidate) => candidate.id === activePresetId);
+    if (!preset) {
+      setActivePresetId('');
+      return;
+    }
+
+    if (!areCalendarLaunchFilterValuesEqual(filters, preset.filters)) {
+      setActivePresetId('');
+    }
+  }, [activePresetId, filters, presetList]);
+
+  useEffect(() => {
+    if (calendarLoading || Boolean(calendarErrorMessage)) {
       return;
     }
 
     if (pendingSelectedDay && pendingSelectedDay.startsWith(monthKey)) {
-      setSelectedDay(pendingSelectedDay);
+      if (selectedDay !== pendingSelectedDay) {
+        setSelectedDay(pendingSelectedDay);
+      }
       setPendingSelectedDay(null);
-      setDidInitializeSelection(true);
       return;
     }
 
     const currentTodayKey = toLocalDateKey(new Date());
     const todayInMonth = currentTodayKey && currentTodayKey.startsWith(monthKey) ? currentTodayKey : null;
-    const firstLaunchDay = launchDayKeys[0] ?? null;
-    const initialSelectedDay =
+    const nextSelectedDay =
+      (selectedDay && groupedLaunches.has(selectedDay) ? selectedDay : null) ||
+      getNearestLaunchDayKey(launchDayKeys, selectedDay || todayInMonth || `${monthKey}-01`) ||
       (todayInMonth && groupedLaunches.has(todayInMonth) ? todayInMonth : null) ||
-      firstLaunchDay ||
+      launchDayKeys[0] ||
       todayInMonth ||
       `${monthKey}-01`;
 
-    setSelectedDay(initialSelectedDay);
-    setDidInitializeSelection(true);
+    if (selectedDay !== nextSelectedDay) {
+      setSelectedDay(nextSelectedDay);
+    }
   }, [
-    calendarQuery.isError,
-    calendarQuery.isPending,
-    didInitializeSelection,
+    calendarErrorMessage,
+    calendarLoading,
     groupedLaunches,
     launchDayKeys,
     monthKey,
-    pendingSelectedDay
+    pendingSelectedDay,
+    selectedDay
   ]);
 
   function buildCalendarFeedUrl(token: string) {
@@ -196,7 +318,6 @@ export default function CalendarScreen() {
     }
 
     setSelectedDay(dayKey);
-    setDidInitializeSelection(true);
   }
 
   function setCalendarViewMonth(nextMonth: Date) {
@@ -211,6 +332,73 @@ export default function CalendarScreen() {
     }
 
     openSelectedDay(nextDayKey);
+  }
+
+  async function handleSavePreset(name: string) {
+    if (!canManageFilterPresets) return;
+
+    try {
+      const normalizedName = name.trim();
+      if (!normalizedName) {
+        return;
+      }
+
+      const presetFilters = buildFeedPresetFiltersFromCalendarFilters(filters);
+      const payload = activePresetId
+        ? await updateFilterPresetMutation.mutateAsync({
+            presetId: activePresetId,
+            payload: {
+              name: normalizedName,
+              filters: mergeFeedPresetFiltersWithCalendarFilters(
+                filterPresets.find((preset) => String(preset.id || '') === activePresetId)
+                  ?.filters,
+                filters
+              )
+            }
+          })
+        : await createFilterPresetMutation.mutateAsync({
+            name: normalizedName,
+            filters: presetFilters,
+            isDefault: false
+          });
+
+      if (payload.preset?.id) {
+        setActivePresetId(String(payload.preset.id));
+      }
+      showToast({
+        message: activePresetId ? 'Saved view updated.' : 'Saved view created.',
+        tone: 'info'
+      });
+    } catch (error) {
+      showToast({
+        message: error instanceof Error ? error.message : 'Unable to save this view.',
+        tone: 'warning'
+      });
+    }
+  }
+
+  async function handleSetDefaultPreset() {
+    if (!canManageFilterPresets || !activePresetId) return;
+
+    try {
+      await updateFilterPresetMutation.mutateAsync({
+        presetId: activePresetId,
+        payload: {
+          isDefault: true
+        }
+      });
+      showToast({ message: 'Default view updated.', tone: 'info' });
+    } catch (error) {
+      showToast({
+        message: error instanceof Error ? error.message : 'Unable to set the default view.',
+        tone: 'warning'
+      });
+    }
+  }
+
+  function clearFiltersToDefault() {
+    setActivePresetId('');
+    setFilters({ ...DEFAULT_CALENDAR_LAUNCH_FILTERS });
   }
 
   async function shareFeedUrl(token: string) {
@@ -316,12 +504,85 @@ export default function CalendarScreen() {
           <LoadingStateCard title="Loading calendar access" body="Checking your current membership." />
         ) : entitlementsQuery.isError ? (
           <ErrorStateCard title="Calendar unavailable" body={entitlementsQuery.error.message} />
-        ) : !canUseLaunchCalendar ? null : calendarQuery.isPending ? (
-          <LoadingStateCard title="Loading launches" body="Fetching this month’s launch calendar." />
-        ) : calendarQuery.isError ? (
-          <ErrorStateCard title="Calendar unavailable" body={calendarQuery.error.message} />
+        ) : !canUseLaunchCalendar ? null : calendarLoading ? (
+          <LoadingStateCard
+            title={isFollowingCalendar ? 'Loading Following' : 'Loading launches'}
+            body={
+              isFollowingCalendar
+                ? 'Preparing your followed launch calendar.'
+                : 'Fetching this month’s launch calendar.'
+            }
+          />
+        ) : calendarErrorMessage ? (
+          <ErrorStateCard title="Calendar unavailable" body={calendarErrorMessage} />
         ) : (
           <>
+            <SectionCard
+              title="Browse"
+              description="Switch between public browsing, your followed launches, and calendar-safe filters."
+            >
+              <View style={{ gap: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <CalendarModeButton
+                    label="For You"
+                    active={calendarMode === 'for-you'}
+                    onPress={() => setCalendarMode('for-you')}
+                  />
+                  <CalendarModeButton
+                    label="Following"
+                    active={calendarMode === 'following'}
+                    disabled={watchlistsLoading}
+                    onPress={() => {
+                      if (!canUseSavedItems) {
+                        router.push('/profile');
+                        return;
+                      }
+                      setCalendarMode('following');
+                    }}
+                  />
+                  <CalendarModeButton
+                    label={activeFilterCount > 0 ? `Filters (${activeFilterCount})` : 'Filters'}
+                    active={filtersOpen || activeFilterCount > 0}
+                    onPress={() => setFiltersOpen(true)}
+                  />
+                </View>
+
+                <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 19 }}>
+                  {canUseSavedItems
+                    ? calendarMode === 'following'
+                      ? followRules.length
+                        ? 'Following shows launch days that match the launches, providers, and pads you follow.'
+                        : 'Following is empty. Follow a launch, provider, or pad to populate this calendar.'
+                      : 'For You shows launch days matching your current calendar filters.'
+                    : 'Following is a Premium calendar driven by the launches, providers, and pads you follow.'}
+                </Text>
+
+                {watchlistsError ? (
+                  <Text style={{ color: '#ff9087', fontSize: 12, lineHeight: 18 }}>
+                    {watchlistsError}
+                  </Text>
+                ) : null}
+              </View>
+            </SectionCard>
+
+            {activeFilterCount > 0 ? (
+              <SectionCard
+                title="Active filters"
+                description={
+                  activePreset ? `${activePreset.name} · ${activeFilterCount} active` : `${activeFilterCount} active`
+                }
+              >
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {buildCalendarFilterChips(filters).map((label) => (
+                    <FilterSummaryChip key={label} label={label} />
+                  ))}
+                </View>
+                <View style={{ marginTop: 12 }}>
+                  <InlineActionButton label="Default view" onPress={clearFiltersToDefault} />
+                </View>
+              </SectionCard>
+            ) : null}
+
             <SectionCard title="Month view" description="Tap a day to reveal launch cards below.">
               <View style={{ gap: 12 }}>
                 <CalendarViewPickerCard month={month} today={new Date()} onPress={() => setViewPickerOpen(true)} embedded />
@@ -370,8 +631,8 @@ export default function CalendarScreen() {
               title="Month summary"
               description={
                 hasMonthLaunches
-                  ? `${launches.length} launch${launches.length === 1 ? '' : 'es'} across ${launchDayCount} active day${launchDayCount === 1 ? '' : 's'}.`
-                  : 'No launches are currently scheduled for this month.'
+                  ? `${filteredLaunches.length} launch${filteredLaunches.length === 1 ? '' : 'es'} across ${launchDayCount} active day${launchDayCount === 1 ? '' : 's'}.`
+                  : emptyCalendarMessage
               }
             >
               <View style={{ gap: 8 }}>
@@ -381,7 +642,7 @@ export default function CalendarScreen() {
                   </Text>
                 ) : (
                   <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
-                    Check another month to browse the next scheduled missions.
+                    {emptyCalendarMessage}
                   </Text>
                 )}
                 <Text style={{ color: theme.muted, fontSize: 13, lineHeight: 20 }}>Times are shown in {localTimeZone}.</Text>
@@ -410,7 +671,7 @@ export default function CalendarScreen() {
               description={
                 hasMonthLaunches
                   ? `${selectedLaunches.length} launch${selectedLaunches.length === 1 ? '' : 'es'} scheduled.`
-                  : 'No launches are currently scheduled this month.'
+                  : emptyCalendarMessage
               }
             >
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -422,7 +683,7 @@ export default function CalendarScreen() {
               </View>
 
               {!hasMonthLaunches ? (
-                <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>No launches scheduled this month.</Text>
+                <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>{emptyCalendarMessage}</Text>
               ) : selectedLaunches.length === 0 ? (
                 <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
                   No launches on this date. Keep stepping through past and future dates or jump to the nearest scheduled day.
@@ -458,8 +719,8 @@ export default function CalendarScreen() {
             </SectionCard>
 
             <SectionCard
-              title="Recurring calendar feeds"
-              description="Export dynamic feeds for all launches, saved presets, or individual follows. New matching launches appear automatically in subscribed calendars."
+              title="Calendar subscriptions"
+              description="Use these companion tools to subscribe to dynamic calendars for all launches, saved presets, or individual follows."
             >
               {canUseRecurringCalendarFeeds ? (
                 <View style={{ gap: 12 }}>
@@ -604,6 +865,35 @@ export default function CalendarScreen() {
         )}
       </AppScreen>
 
+      <LaunchFilterSheet
+        variant="calendar"
+        visible={filtersOpen}
+        isAuthed={isAuthed}
+        canUseLaunchFilters={canUseLaunchCalendar}
+        canManageFilterPresets={canManageFilterPresets}
+        filters={filters}
+        filterOptions={filterOptions}
+        filterOptionsLoading={calendarLoading}
+        filterOptionsError={calendarErrorMessage}
+        presets={presetList}
+        activePresetId={activePresetId}
+        presetSaving={createFilterPresetMutation.isPending || updateFilterPresetMutation.isPending}
+        presetDefaulting={updateFilterPresetMutation.isPending}
+        onClose={() => setFiltersOpen(false)}
+        onChange={setFilters}
+        onReset={clearFiltersToDefault}
+        onApplyPreset={(presetId) => {
+          const preset = presetList.find((candidate) => candidate.id === presetId);
+          if (!preset) return;
+          setActivePresetId(presetId);
+          setFilters(preset.filters);
+        }}
+        onSavePreset={handleSavePreset}
+        onSetDefaultPreset={handleSetDefaultPreset}
+        onOpenUpgrade={() => {
+          router.push('/profile');
+        }}
+      />
       <CalendarViewPickerSheet
         open={viewPickerOpen}
         month={month}
@@ -825,7 +1115,14 @@ function LaunchDateChip({
 function CalendarGridLegend() {
   return (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-      <CalendarLegendPill label="Launch days" marker={<CalendarDayMarker count={3} />} />
+      <CalendarLegendPill
+        label="Upcoming launch days"
+        marker={<CalendarDayMarker count={3} dayState="future" />}
+      />
+      <CalendarLegendPill
+        label="Past launch days"
+        marker={<CalendarDayMarker count={3} dayState="past" />}
+      />
     </View>
   );
 }
@@ -902,7 +1199,7 @@ function CalendarDayCell({
 
         <View style={{ flex: 1, justifyContent: 'flex-end', padding: 6 }}>
           <View style={{ minHeight: 18, alignItems: 'center', justifyContent: 'flex-end' }}>
-            {count > 0 ? <CalendarDayMarker count={count} /> : null}
+            {count > 0 ? <CalendarDayMarker count={count} dayState={dayState} /> : null}
           </View>
         </View>
       </Pressable>
@@ -911,15 +1208,28 @@ function CalendarDayCell({
 }
 
 function CalendarDayMarker({
-  count
+  count,
+  dayState = 'future'
 }: {
   count: number;
+  dayState?: CalendarDayTemporalState;
 }) {
   const { theme } = useMobileBootstrap();
+  const dotColor =
+    dayState === 'past' ? 'rgba(74, 222, 128, 0.52)' : theme.accent;
+
   return (
     <View style={{ minHeight: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
       {Array.from({ length: Math.min(Math.max(count, 1), 3) }).map((_, index) => (
-        <View key={`launch-dot-${index}`} style={{ width: 6, height: 6, borderRadius: 999, backgroundColor: theme.accent }} />
+        <View
+          key={`launch-dot-${index}`}
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: 999,
+            backgroundColor: dotColor
+          }}
+        />
       ))}
     </View>
   );
@@ -1079,6 +1389,56 @@ function CalendarFeedSourceRow({
   );
 }
 
+function CalendarModeButton({
+  label,
+  active,
+  onPress,
+  disabled = false
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
+  const { theme } = useMobileBootstrap();
+
+  return (
+    <Pressable
+      onPress={disabled ? undefined : onPress}
+      style={({ pressed }) => ({
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: active ? 'rgba(34, 211, 238, 0.28)' : theme.stroke,
+        backgroundColor: active ? 'rgba(34, 211, 238, 0.1)' : pressed ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.03)',
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        opacity: disabled ? 0.55 : pressed ? 0.88 : 1
+      })}
+    >
+      <Text style={{ color: active ? theme.accent : theme.foreground, fontSize: 13, fontWeight: '700' }}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function FilterSummaryChip({ label }: { label: string }) {
+  const { theme } = useMobileBootstrap();
+
+  return (
+    <View
+      style={{
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: theme.stroke,
+        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+        paddingHorizontal: 10,
+        paddingVertical: 6
+      }}
+    >
+      <Text style={{ color: theme.foreground, fontSize: 11, fontWeight: '700' }}>{label}</Text>
+    </View>
+  );
+}
+
 function InlineActionButton({
   label,
   onPress,
@@ -1138,6 +1498,129 @@ function CalendarRowButton({
       <Text style={{ color: primary ? theme.accent : theme.foreground, fontSize: 14, fontWeight: '700', textAlign: 'center' }}>{label}</Text>
     </Pressable>
   );
+}
+
+function buildCalendarFilterOptions(launches: CalendarLaunchItem[]): LaunchFilterOptions {
+  return {
+    providers: sortStrings(launches.map((launch) => launch.provider)),
+    locations: sortStrings(launches.map((launch) => launch.pad.locationName)),
+    states: sortStrings(launches.map((launch) => launch.pad.state)),
+    pads: sortStrings(launches.map((launch) => launch.pad.name)),
+    statuses: sortStrings(launches.map((launch) => launch.status))
+  };
+}
+
+function sortStrings(values: Array<string | null | undefined>) {
+  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))].sort((left, right) =>
+    left.localeCompare(right)
+  );
+}
+
+function sanitizeCalendarFilters(
+  filters: CalendarLaunchFilterValue,
+  filterOptions: LaunchFilterOptions
+) {
+  const normalized = normalizeCalendarLaunchFilterValue(filters);
+  const next: CalendarLaunchFilterValue = { ...normalized };
+  let changed = false;
+
+  if (next.location && !filterOptions.locations.includes(next.location)) {
+    next.location = undefined;
+    changed = true;
+  }
+  if (next.state && !filterOptions.states.includes(next.state)) {
+    next.state = undefined;
+    changed = true;
+  }
+  if (next.pad && !filterOptions.pads.includes(next.pad)) {
+    next.pad = undefined;
+    changed = true;
+  }
+  if (next.provider && !filterOptions.providers.includes(next.provider)) {
+    next.provider = undefined;
+    changed = true;
+  }
+  if (next.status && !filterOptions.statuses.includes(next.status)) {
+    next.status = undefined;
+    changed = true;
+  }
+
+  return changed ? next : normalized;
+}
+
+function launchMatchesCalendarFilters(
+  launch: CalendarLaunchItem,
+  filters: CalendarLaunchFilterValue
+) {
+  const normalized = normalizeCalendarLaunchFilterValue(filters);
+  const region = normalized.region ?? DEFAULT_CALENDAR_LAUNCH_FILTERS.region;
+
+  if (normalized.status && launch.status !== normalized.status) {
+    return false;
+  }
+  if (normalized.provider && launch.provider !== normalized.provider) {
+    return false;
+  }
+  if (normalized.location && launch.pad.locationName !== normalized.location) {
+    return false;
+  }
+  if (normalized.state && launch.pad.state !== normalized.state) {
+    return false;
+  }
+  if (normalized.pad && launch.pad.name !== normalized.pad) {
+    return false;
+  }
+  if (region === 'all') {
+    return true;
+  }
+
+  const countryCode = String(launch.pad.countryCode || '').trim().toUpperCase();
+  const isUs = countryCode === 'US' || countryCode === 'USA';
+  return region === 'us' ? isUs : !isUs;
+}
+
+function buildCalendarFilterChips(filters: CalendarLaunchFilterValue) {
+  const normalized = normalizeCalendarLaunchFilterValue(filters);
+  const labels: string[] = [];
+
+  if ((normalized.region ?? DEFAULT_CALENDAR_LAUNCH_FILTERS.region) !== DEFAULT_CALENDAR_LAUNCH_FILTERS.region) {
+    labels.push(normalized.region === 'all' ? 'All locations' : normalized.region === 'non-us' ? 'Non-US' : 'US only');
+  }
+  if (normalized.status) labels.push(formatLaunchFilterStatusLabel(normalized.status));
+  if (normalized.state) labels.push(normalized.state);
+  if (normalized.location) labels.push(normalized.location);
+  if (normalized.provider) labels.push(normalized.provider);
+  if (normalized.pad) labels.push(normalized.pad);
+
+  return labels;
+}
+
+function buildCalendarEmptyStateMessage({
+  calendarMode,
+  activeFilterCount,
+  monthLaunchCount,
+  followRuleCount
+}: {
+  calendarMode: 'for-you' | 'following';
+  activeFilterCount: number;
+  monthLaunchCount: number;
+  followRuleCount: number;
+}) {
+  if (calendarMode === 'following') {
+    if (followRuleCount === 0) {
+      return 'Following is empty. Follow a launch, provider, or pad to populate this calendar.';
+    }
+    if (activeFilterCount > 0 && monthLaunchCount > 0) {
+      return 'No matches in Following for this filter set.';
+    }
+    return 'No followed launches are scheduled for this month.';
+  }
+
+  if (activeFilterCount > 0 && monthLaunchCount > 0) {
+    return 'No matches in For You for this filter set.';
+  }
+
+  return 'No launches are currently scheduled for this month.';
 }
 
 function formatMonthKey(value: Date) {

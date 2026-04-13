@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useSafeSearchParams } from '@/lib/client/useSafeSearchParams';
 import { useQueryClient } from '@tanstack/react-query';
 import { isRecoveryOnlyViewer } from '@tminuszero/domain';
 import { buildAuthCallbackHref, buildAuthHref, buildProfileHref } from '@tminuszero/navigation';
@@ -20,7 +20,7 @@ import {
 import { getBrowserClient } from '@/lib/api/supabase';
 
 export default function AccountPage() {
-  const searchParams = useSearchParams();
+  const searchParams = useSafeSearchParams();
   const queryClient = useQueryClient();
   const viewerSessionQuery = useViewerSessionQuery();
   const entitlementsQuery = useViewerEntitlementsQuery();

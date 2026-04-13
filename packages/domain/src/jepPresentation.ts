@@ -217,7 +217,14 @@ export function buildJepScenarioTimeline(score: LaunchJepScoreV1): JepScenarioTi
     } satisfies JepScenarioTimelineEntry;
   });
 
-  return [currentEntry, ...shiftedEntries];
+  const meaningfulShiftedEntries = shiftedEntries.filter((entry, index, items) => {
+    const previousScore = index === 0 ? currentEntry.score : items[index - 1]?.score ?? currentEntry.score;
+    return entry.score !== previousScore;
+  });
+
+  if (meaningfulShiftedEntries.length === 0) return [];
+
+  return [currentEntry, ...meaningfulShiftedEntries];
 }
 
 function buildJepSummary(score: number, observerContext: JepObserverContext) {

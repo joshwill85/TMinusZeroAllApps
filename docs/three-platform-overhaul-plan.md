@@ -5,6 +5,7 @@ Last updated: 2026-04-10
 This is the living master checklist for moving T-Minus Zero from a web-only product to a maintainable, high-performance web + iOS + Android product line.
 
 Related implementation plans:
+- `docs/2026-04-12-calendar-feed-mode-integration-plan.md`
 - `docs/2026-04-11-news-info-native-excellence-plan.md`
 - `docs/2026-04-11-anon-premium-alignment-and-retirement-plan.md`
 - `docs/2026-04-11-follow-notifications-hardening-and-ux-unification-plan.md`
@@ -83,6 +84,10 @@ Related implementation plans:
 
 ## Current Slice Tracker
 
+- 2026-04-12: Calendar feed-mode integration implementation is in progress for `Web`, `iOS`, and `Android`, with `admin/internal impact: no` and `shared API/backend impact: no`.
+  - Source-of-truth plan: `docs/2026-04-12-calendar-feed-mode-integration-plan.md`
+  - Scope: bring the launch calendar into the same `For You / Following / Filters` model as the main feed, keep calendar state local to calendar, reuse shared saved presets and the primary `My Launches` watchlist, and keep recurring calendar-feed infrastructure unchanged.
+  - Guardrails: no `/api/v1` or Supabase changes, no watchlist-backed ICS or new recurring-feed source types in this slice, keep month-bounded browsing semantics, and preserve one-off add-to-calendar behavior.
 - 2026-04-12: Launch detail IA refactor implementation is in progress for `Web`, `iOS`, and `Android`, with `admin/internal impact: no` and `shared API/backend impact: no`.
   - Source-of-truth plan: `docs/2026-04-12-launch-detail-ia-refactor-plan.md`
   - Wireframes: `docs/2026-04-12-launch-detail-ia-wireframes.md`

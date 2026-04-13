@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
-import { usePathname } from 'next/navigation';
+import { useSafePathname } from '@/lib/client/useSafePathname';
 import type { ViewerTier } from '@tminuszero/domain';
 import { useProfileQuery, useViewerEntitlementsQuery } from '@/lib/api/queries';
 import { CommLinkHeader } from '@/components/CommLinkHeader';
@@ -28,7 +28,7 @@ const OPEN_LAUNCH_SEARCH_EVENT = 'tmz:open-launch-search';
 export function SiteChrome() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [tipJarOpen, setTipJarOpen] = useState(false);
-  const pathname = usePathname();
+  const pathname = useSafePathname();
   const { pushToast } = useToast();
   const entitlementsQuery = useViewerEntitlementsQuery();
   const profileQuery = useProfileQuery();

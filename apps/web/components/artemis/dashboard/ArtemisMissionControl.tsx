@@ -2,8 +2,10 @@
 
 import { useCallback } from 'react';
 import clsx from 'clsx';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import type { ArtemisDashboardView } from '@/lib/types/artemis';
+import { useSafePathname } from '@/lib/client/useSafePathname';
+import { useSafeSearchParams } from '@/lib/client/useSafeSearchParams';
 import { DashboardMobileViewNav } from './DashboardMobileViewNav';
 import { DashboardSidebar } from './DashboardSidebar';
 import { DashboardTopBar } from './DashboardTopBar';
@@ -49,8 +51,8 @@ const NAV_ITEMS: readonly ArtemisDashboardNavItem[] = [
 
 export function ArtemisMissionControl(props: ArtemisMissionControlProps) {
   const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const pathname = useSafePathname();
+  const searchParams = useSafeSearchParams();
 
   const activeView = resolveView(searchParams.get('view')) || props.initialView;
 

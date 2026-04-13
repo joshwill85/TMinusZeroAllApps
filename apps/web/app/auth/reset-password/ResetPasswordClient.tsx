@@ -1,10 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
 import { useEffect, useId, useState } from 'react';
 import { assertPasswordPolicy, PASSWORD_POLICY_HINT } from '@tminuszero/domain';
 import { browserApiClient } from '@/lib/api/client';
+import { useSafeSearchParams } from '@/lib/client/useSafeSearchParams';
 import { getBrowserClient } from '@/lib/api/supabase';
 import type { EmailOtpType } from '@supabase/supabase-js';
 
@@ -51,7 +51,7 @@ function clearRecoveryParams() {
 }
 
 export default function ResetPasswordClient() {
-  const searchParams = useSearchParams();
+  const searchParams = useSafeSearchParams();
   const searchParamString = searchParams.toString();
   const [recoveryState, setRecoveryState] = useState<RecoveryState>('checking');
   const [message, setMessage] = useState<Message | null>(null);

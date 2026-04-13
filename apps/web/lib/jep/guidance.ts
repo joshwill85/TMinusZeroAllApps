@@ -190,7 +190,6 @@ export function deriveJepGuidance({
   const visibleSamples = samples.filter((sample) => sample.visible);
   const sunlitSamples = samples.filter((sample) => sample.sunlit);
   const bandSamples = visibleSamples.length > 0 ? visibleSamples : sunlitSamples.length > 0 ? sunlitSamples : samples;
-  const bestWindow = deriveBestWindow(visibleSamples, samples);
   const directionBand = deriveDirectionBand(bandSamples);
   const elevationBand = deriveElevationBand(bandSamples);
   const scenarioWindows =
@@ -207,6 +206,8 @@ export function deriveJepGuidance({
             weatherFactor
           })
         );
+  const hasAnyModeledVisibility = currentScore > 0 || scenarioWindows.some((scenario) => scenario.score > 0);
+  const bestWindow = hasAnyModeledVisibility ? deriveBestWindow(visibleSamples, samples) : null;
 
   return {
     bestWindow,

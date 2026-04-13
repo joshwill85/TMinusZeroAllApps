@@ -3,11 +3,11 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
 import type { PremiumClaimV1 } from '@tminuszero/api-client';
 import { buildAuthHref, buildProfileHref } from '@tminuszero/navigation';
 import { sanitizeReturnToPath } from '@/lib/billing/shared';
 import { browserApiClient } from '@/lib/api/client';
+import { useSafeSearchParams } from '@/lib/client/useSafeSearchParams';
 import { WebBillingAdapterError } from '@/lib/api/webBillingAdapters';
 import {
   useBillingCatalogQuery,
@@ -165,7 +165,7 @@ function buildPremiumOnboardingLegalHref(
 }
 
 export function UpgradePageContent() {
-  const searchParams = useSearchParams();
+  const searchParams = useSafeSearchParams();
   const { data: viewerSession, isPending: viewerSessionPending } =
     useViewerSessionQuery();
   const {

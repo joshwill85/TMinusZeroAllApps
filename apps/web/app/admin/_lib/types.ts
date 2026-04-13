@@ -7,19 +7,31 @@ export type IngestionRun = {
   stats?: Record<string, unknown> | null;
 };
 
+export type AdminJobSchedulerKind = 'pg_cron' | 'managed' | 'bridge' | 'derived' | 'manual';
+
+export type AdminJobGroup = 'core' | 'secondary' | 'advanced';
+
 export type JobStatus = {
   id: string;
   label: string;
   schedule: string;
+  slug?: string | null;
   cronJobName?: string | null;
   cronSchedule?: string | null;
   cronActive?: boolean | null;
+  schedulerKind?: AdminJobSchedulerKind;
+  group?: AdminJobGroup;
   origin: 'server' | 'local';
   category: 'scheduled' | 'manual' | 'internal';
   status: 'operational' | 'degraded' | 'down' | 'paused' | 'running' | 'unknown';
   statusDetail?: string | null;
   enabled: boolean;
   enabledDetail?: string | null;
+  manualRunSupported?: boolean;
+  manualRunConfirmMessage?: string | null;
+  manualRunPrompt?: string | null;
+  manualRunPromptToken?: string | null;
+  telemetryJobName?: string | null;
   lastRunAt?: string | null;
   lastEndedAt?: string | null;
   lastSuccessAt?: string | null;
@@ -294,6 +306,7 @@ export type OpsAlert = {
   key: string;
   severity: string;
   message: string;
+  first_seen_at: string;
   last_seen_at: string;
   occurrences: number;
   details?: Record<string, unknown> | null;

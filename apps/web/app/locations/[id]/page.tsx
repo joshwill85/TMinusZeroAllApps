@@ -24,6 +24,15 @@ type LocationHubData = {
   canonicalId: string;
 };
 
+type CatalogCacheRow = {
+  entity_type: string;
+  entity_id: string;
+  name: string;
+  description?: string | null;
+  image_url?: string | null;
+  data?: Record<string, unknown> | null;
+};
+
 type LocationIdentifier =
   | { kind: 'id'; id: number; raw: string; label: string }
   | { kind: 'name'; name: string; raw: string; label: string };
@@ -80,8 +89,22 @@ const fetchLocationHub = cache(async (id: string): Promise<LocationHubData | nul
   const sample = upcoming[0] || recent[0];
   if (!sample) return null;
 
-  const locationName = sample.pad.locationName || sample.pad.name || identifier.label;
-  const canonicalId = sample.ll2PadId != null ? String(sample.ll2PadId) : identifier.raw;
+  const resolvedPadId =
+    sample.ll2PadId ??
+    (identifier.kind === 'id' && Number.isFinite(identifier.id)
+      ? identifier.id
+      : null);
+  const padCacheRow = resolvedPadId
+    ? await fetchPadCacheRow(resolvedPadId)
+    : null;
+
+  const locationName =
+    sample.pad.locationName ||
+    extractLocationCanonicalName(padCacheRow) ||
+    sample.pad.name ||
+    identifier.label;
+  const canonicalId =
+    resolvedPadId != null ? String(resolvedPadId) : identifier.raw;
 
   return {
     locationName,
@@ -91,6 +114,23 @@ const fetchLocationHub = cache(async (id: string): Promise<LocationHubData | nul
     launchesRecent: recent,
     canonicalId
   };
+});
+
+const fetchCatalogCacheRow = cache(async (entityType: string, entityId: string): Promise<CatalogCacheRow | null> => {
+  if (!isSupabaseConfigured()) return null;
+  const supabase = createSupabasePublicClient();
+  const { data, error } = await supabase
+    .from('ll2_catalog_public_cache')
+    .select('entity_type, entity_id, name, description, image_url, data')
+    .eq('entity_type', entityType)
+    .eq('entity_id', entityId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data as CatalogCacheRow;
+});
+
+const fetchPadCacheRow = cache(async (ll2PadId: number): Promise<CatalogCacheRow | null> => {
+  return fetchCatalogCacheRow('pads', String(ll2PadId));
 });
 
 export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
@@ -370,6 +410,20 @@ function safeDecode(value: string) {
   } catch {
     return value;
   }
+}
+
+function extractLocationCanonicalName(row: Pick<CatalogCacheRow, 'name' | 'data'> | null) {
+  if (!row) return null;
+  const data = row.data as Record<string, unknown> | null;
+  return (
+    normalizeLabel(data?.location_name) ||
+    normalizeLabel(data?.pad_location_name) ||
+    normalizeLabel(row.name)
+  );
+}
+
+function normalizeLabel(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
 function buildLocationCanonicalPath(locationName: string, canonicalId: string) {

@@ -2,9 +2,9 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { useSafePathname } from '@/lib/client/useSafePathname';
 import { useCallback, useEffect, useState } from 'react';
-import { buildCalendarHref } from '@tminuszero/navigation';
+import { buildCalendarHref, buildPreferencesHref } from '@tminuszero/navigation';
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 import { IosCalendarIcon } from './IosCalendarIcon';
 import { browserApiClient } from '@/lib/api/client';
@@ -14,8 +14,9 @@ import { BRAND_NAME } from '@/lib/brand';
 export function NavBar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [profile, setProfile] = useState<{ first_name?: string | null; last_name?: string | null } | null>(null);
-  const pathname = usePathname();
+  const pathname = useSafePathname();
   const menuId = 'primary-navigation';
+  const preferencesHref = buildPreferencesHref();
 
   const loadProfile = useCallback(() => {
     let cancelled = false;
@@ -104,7 +105,7 @@ export function NavBar() {
             <Link href="/docs/faq" className="hover:text-text1">
               FAQ
             </Link>
-            <Link href="/preferences" className="hover:text-text1">
+            <Link href={preferencesHref} className="hover:text-text1">
               Notifications
             </Link>
             <Link href="/artemis" className="hover:text-text1">
@@ -143,7 +144,7 @@ export function NavBar() {
             <Link href="/docs/faq" className="hover:text-text1" onClick={() => setMenuOpen(false)}>
               FAQ
             </Link>
-            <Link href="/preferences" className="hover:text-text1" onClick={() => setMenuOpen(false)}>
+            <Link href={preferencesHref} className="hover:text-text1" onClick={() => setMenuOpen(false)}>
               Notifications
             </Link>
             <Link href="/artemis" className="hover:text-text1" onClick={() => setMenuOpen(false)}>

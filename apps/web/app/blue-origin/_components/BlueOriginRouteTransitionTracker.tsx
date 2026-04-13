@@ -2,7 +2,7 @@
 
 import { type ComponentPropsWithoutRef, type MouseEvent, useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { useSafePathname } from '@/lib/client/useSafePathname';
 
 const BLUE_ORIGIN_NAV_TRACE_KEY = '__tmzBlueOriginRouteTrace';
 const MAX_SLOW_RESOURCE_MS = 150;
@@ -85,7 +85,7 @@ export function BlueOriginRouteTraceLink({
   href: string;
   traceLabel?: string;
 }) {
-  const sourcePath = usePathname();
+  const sourcePath = useSafePathname();
 
   return (
     <Link
@@ -118,7 +118,7 @@ export function BlueOriginRouteTraceLogger({
   expectedPath: string;
   serverTimings?: BlueOriginServerTiming[];
 }) {
-  const pathname = usePathname();
+  const pathname = useSafePathname();
 
   useEffect(() => {
     if (typeof performance === 'undefined' || typeof console === 'undefined') return;

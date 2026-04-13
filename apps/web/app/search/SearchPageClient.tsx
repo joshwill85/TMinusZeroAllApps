@@ -2,8 +2,10 @@
 
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import type { SearchResultV1 } from '@tminuszero/contracts';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useInfiniteSiteSearchQuery } from '@/lib/api/queries';
+import { useSafePathname } from '@/lib/client/useSafePathname';
+import { useSafeSearchParams } from '@/lib/client/useSafeSearchParams';
 import { SITE_SEARCH_MIN_QUERY_LENGTH } from '@/lib/search/client';
 import {
   formatSiteSearchLongDate,
@@ -19,9 +21,9 @@ const QUERY_URL_DEBOUNCE_MS = 150;
 type SearchStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 export default function SearchPageClient() {
-  const pathname = usePathname();
+  const pathname = useSafePathname();
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useSafeSearchParams();
   const searchParamQuery = searchParams.get('q') || '';
   const searchParamsString = searchParams.toString();
   const initialQuery = searchParamQuery;

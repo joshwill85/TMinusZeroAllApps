@@ -1,16 +1,17 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { PREMIUM_PRIVACY_LAST_UPDATED_LABEL, PREMIUM_PRIVACY_VERSION, PREMIUM_TERMS_LAST_UPDATED_LABEL, PREMIUM_TERMS_VERSION } from '@tminuszero/domain';
 import { buildAuthHref, readReturnTo } from '@tminuszero/navigation';
 import { browserApiClient } from '@/lib/api/client';
+import { useSafeSearchParams } from '@/lib/client/useSafeSearchParams';
 import { useViewerSessionQuery } from '@/lib/api/queries';
 
 export function PremiumOnboardingLegalClient() {
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useSafeSearchParams();
   const { data: viewerSession, isPending } = useViewerSessionQuery();
   const [accepted, setAccepted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -111,4 +112,3 @@ export function PremiumOnboardingLegalClient() {
     </div>
   );
 }
-

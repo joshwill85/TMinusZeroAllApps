@@ -10,6 +10,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   DEFAULT_LAUNCH_FILTERS,
+  DEFAULT_LAUNCH_FILTER_HELP_TEXT,
   LAUNCH_FILTER_RANGE_OPTIONS,
   LAUNCH_FILTER_REGION_OPTIONS,
   LAUNCH_FILTER_SORT_OPTIONS,
@@ -31,6 +32,7 @@ type SavedFilterPreset = {
 type DynamicFilterField = 'location' | 'state' | 'provider' | 'pad';
 
 type LaunchFilterSheetProps = {
+  variant?: 'feed' | 'calendar';
   visible: boolean;
   isAuthed: boolean;
   canUseLaunchFilters: boolean;
@@ -74,6 +76,7 @@ const REGION_LABELS: Record<NonNullable<LaunchFilterValue['region']>, string> = 
 };
 
 export function LaunchFilterSheet({
+  variant = 'feed',
   visible,
   isAuthed,
   canUseLaunchFilters,
@@ -100,6 +103,13 @@ export function LaunchFilterSheet({
   const [saveName, setSaveName] = useState('');
   const [selectingField, setSelectingField] = useState<DynamicFilterField | null>(null);
   const activePreset = presets.find((preset) => preset.id === activePresetId) ?? null;
+  const isCalendarVariant = variant === 'calendar';
+  const savedViewsHelpText = isCalendarVariant
+    ? 'Apply the same saved views you use in feed. Calendar ignores feed-only time settings here.'
+    : 'Save filter combinations here for quick reuse.';
+  const footerHelpText = isCalendarVariant
+    ? 'Calendar stays locked to the selected month. Default view resets to the standard US-only For You filters.'
+    : DEFAULT_LAUNCH_FILTER_HELP_TEXT;
 
   const dynamicFieldOptions = useMemo<Record<DynamicFilterField, string[]>>(
     () => ({
@@ -199,10 +209,10 @@ export function LaunchFilterSheet({
           >
             <View>
               <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase' }}>
-                Feed
+                {isCalendarVariant ? 'Calendar' : 'Feed'}
               </Text>
               <Text style={{ color: theme.foreground, fontSize: 22, fontWeight: '800', marginTop: 4 }}>
-                {selectingField ? selectedFieldLabel : 'Launch filters'}
+                {selectingField ? selectedFieldLabel : isCalendarVariant ? 'Calendar filters' : 'Launch filters'}
               </Text>
             </View>
             <Pressable
@@ -297,7 +307,7 @@ export function LaunchFilterSheet({
                       </View>
                     ) : (
                       <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 21 }}>
-                        Save filter combinations here for quick reuse.
+                        {savedViewsHelpText}
                       </Text>
                     )}
 
@@ -386,44 +396,67 @@ export function LaunchFilterSheet({
                 )}
               </View>
 
-              <View style={{ gap: 10 }}>
-                <SectionEyebrow label="Time" />
-                <ChipRow>
-                  {LAUNCH_FILTER_RANGE_OPTIONS.map((option) => (
+              {!isCalendarVariant ? (
+                <View style={{ gap: 10 }}>
+                  <SectionEyebrow label="Time" />
+                  <ChipRow>
+                    {LAUNCH_FILTER_RANGE_OPTIONS.map((option) => (
+                      <OptionChip
+                        key={option}
+                        label={RANGE_LABELS[option]}
+                        active={(filters.range ?? DEFAULT_LAUNCH_FILTERS.range) === option}
+                        onPress={() => onChange({ ...filters, range: option })}
+                      />
+                    ))}
+                  </ChipRow>
+                  <ChipRow>
                     <OptionChip
-                      key={option}
-                      label={RANGE_LABELS[option]}
-                      active={(filters.range ?? DEFAULT_LAUNCH_FILTERS.range) === option}
-                      onPress={() => onChange({ ...filters, range: option })}
+                      label="All status"
+                      active={(filters.status ?? 'all') === 'all'}
+                      onPress={() => onChange({ ...filters, status: 'all' })}
                     />
-                  ))}
-                </ChipRow>
-                <ChipRow>
-                  <OptionChip
-                    label="All status"
-                    active={(filters.status ?? 'all') === 'all'}
-                    onPress={() => onChange({ ...filters, status: 'all' })}
-                  />
-                  {filterOptions.statuses.map((status) => (
+                    {filterOptions.statuses.map((status) => (
+                      <OptionChip
+                        key={status}
+                        label={formatLaunchFilterStatusLabel(status)}
+                        active={(filters.status ?? 'all') === status}
+                        onPress={() => onChange({ ...filters, status: status as LaunchFilterValue['status'] })}
+                      />
+                    ))}
+                  </ChipRow>
+                  <ChipRow>
+                    {LAUNCH_FILTER_SORT_OPTIONS.map((option) => (
+                      <OptionChip
+                        key={option}
+                        label={SORT_LABELS[option]}
+                        active={(filters.sort ?? DEFAULT_LAUNCH_FILTERS.sort) === option}
+                        onPress={() => onChange({ ...filters, sort: option })}
+                      />
+                    ))}
+                  </ChipRow>
+                </View>
+              ) : null}
+
+              {isCalendarVariant ? (
+                <View style={{ gap: 10 }}>
+                  <SectionEyebrow label="Launches" />
+                  <ChipRow>
                     <OptionChip
-                      key={status}
-                      label={formatLaunchFilterStatusLabel(status)}
-                      active={(filters.status ?? 'all') === status}
-                      onPress={() => onChange({ ...filters, status: status as LaunchFilterValue['status'] })}
+                      label="All status"
+                      active={(filters.status ?? 'all') === 'all'}
+                      onPress={() => onChange({ ...filters, status: 'all' })}
                     />
-                  ))}
-                </ChipRow>
-                <ChipRow>
-                  {LAUNCH_FILTER_SORT_OPTIONS.map((option) => (
-                    <OptionChip
-                      key={option}
-                      label={SORT_LABELS[option]}
-                      active={(filters.sort ?? DEFAULT_LAUNCH_FILTERS.sort) === option}
-                      onPress={() => onChange({ ...filters, sort: option })}
-                    />
-                  ))}
-                </ChipRow>
-              </View>
+                    {filterOptions.statuses.map((status) => (
+                      <OptionChip
+                        key={status}
+                        label={formatLaunchFilterStatusLabel(status)}
+                        active={(filters.status ?? 'all') === status}
+                        onPress={() => onChange({ ...filters, status: status as LaunchFilterValue['status'] })}
+                      />
+                    ))}
+                  </ChipRow>
+                </View>
+              ) : null}
 
               <View style={{ gap: 10 }}>
                 <SectionEyebrow label="Location" />
@@ -438,15 +471,15 @@ export function LaunchFilterSheet({
                   ))}
                 </ChipRow>
                 <SelectorRow
-                  label="Launch site"
-                  value={filters.location ? formatLaunchFilterLocationOptionLabel(filters.location) : 'All launch sites'}
-                  onPress={() => setSelectingField('location')}
-                  disabled={filterOptionsLoading || Boolean(filterOptionsError)}
-                />
-                <SelectorRow
                   label="State"
                   value={filters.state ?? 'All states'}
                   onPress={() => setSelectingField('state')}
+                  disabled={filterOptionsLoading || Boolean(filterOptionsError)}
+                />
+                <SelectorRow
+                  label="Launch site"
+                  value={filters.location ? formatLaunchFilterLocationOptionLabel(filters.location) : 'All launch sites'}
+                  onPress={() => setSelectingField('location')}
                   disabled={filterOptionsLoading || Boolean(filterOptionsError)}
                 />
               </View>
@@ -473,8 +506,12 @@ export function LaunchFilterSheet({
                 <Text style={{ color: theme.muted, fontSize: 13 }}>Filter options unavailable: {filterOptionsError}</Text>
               ) : null}
 
+              <Text style={{ color: theme.muted, fontSize: 12, lineHeight: 18 }}>
+                {footerHelpText}
+              </Text>
+
               <View style={{ flexDirection: 'row', gap: 10 }}>
-                <SecondaryActionButton label="Reset" onPress={onReset} />
+                <SecondaryActionButton label="Default view" onPress={onReset} />
                 <PrimaryActionButton label="Done" onPress={onClose} />
               </View>
             </ScrollView>

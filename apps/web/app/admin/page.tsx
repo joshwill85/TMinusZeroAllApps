@@ -6,7 +6,7 @@ import { useMemo, useState } from 'react';
 import InfoCard from './_components/InfoCard';
 import SectionCard from './_components/SectionCard';
 import { useAdminResource } from './_hooks/useAdminResource';
-import { formatTimestamp } from './_lib/format';
+import { formatObservedCount, formatTimestamp, formatWs45SourceSnapshot } from './_lib/format';
 import { relatedJobIdFromAlertKey } from './_lib/jobs';
 import { FALLBACK_ADMIN_SUMMARY, parseAdminSummary } from './_lib/summary';
 
@@ -170,14 +170,17 @@ export default function AdminOverviewPage() {
               )}
               {topAlerts.map((alert) => {
                 const related = relatedJobIdFromAlertKey(alert.key);
+                const sourceSnapshot = formatWs45SourceSnapshot(alert.details);
                 return (
                   <div key={alert.key} className="rounded-lg border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-2">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="text-sm font-semibold text-text1">{alert.message}</div>
                         <div className="text-xs text-text3">
-                          {alert.key} • last seen {formatTimestamp(alert.last_seen_at)}
+                          {alert.key} • observed since {formatTimestamp(alert.first_seen_at)} • last seen {formatTimestamp(alert.last_seen_at)} •{' '}
+                          {formatObservedCount(alert.occurrences)}
                         </div>
+                        {sourceSnapshot ? <div className="mt-1 text-xs text-text2">{sourceSnapshot}</div> : null}
                       </div>
                       <div className="flex items-center gap-2">
                         {related && (

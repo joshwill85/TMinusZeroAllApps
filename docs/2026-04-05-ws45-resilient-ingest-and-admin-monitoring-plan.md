@@ -347,7 +347,7 @@ New WS45 alert keys:
   - trigger: ingest cannot fetch source page or PDF due to WAF, HTTP, or parseable-empty response
 - `ws45_source_empty`
   - severity: `warning`
-  - trigger: source page fetch succeeded but no PDFs were discovered
+  - trigger: source page fetch succeeded but no launch forecast PDFs were discovered
 - `ws45_shape_unknown_detected`
   - severity: `warning`
   - trigger: any new document classifies as `unknown_family`

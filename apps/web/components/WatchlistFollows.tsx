@@ -2,9 +2,10 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { ApiClientError, type WatchlistRuleV1 } from '@tminuszero/api-client';
 import { buildPreferencesHref, buildUpgradeHref } from '@tminuszero/navigation';
+import { useSafePathname } from '@/lib/client/useSafePathname';
 import {
   useBasicFollowsQuery,
   useCreateWatchlistMutation,
@@ -47,7 +48,7 @@ export function WatchlistFollows({
   launchSiteLabel,
   state
 }: WatchlistFollowsProps) {
-  const pathname = usePathname();
+  const pathname = useSafePathname();
   const router = useRouter();
   const { pushToast } = useToast();
   const entitlementsQuery = useViewerEntitlementsQuery();

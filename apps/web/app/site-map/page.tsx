@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { JsonLd } from '@/components/JsonLd';
 import { BRAND_NAME } from '@/lib/brand';
+import { LAUNCH_INTENT_LANDING_KEYS, getLaunchIntentLandingConfig } from '@/lib/server/launchIntentLandingConfig';
 import { fetchProviders } from '@/lib/server/providers';
 import { fetchSatelliteOwnerIndexBatch } from '@/lib/server/satellites';
 import {
@@ -103,6 +104,14 @@ export default async function SiteMapPage() {
       coverageHref: `/providers/${encodeURIComponent(provider.slug)}`
     }))
     .sort((left, right) => left.name.localeCompare(right.name));
+  const priorityLandingLinks = LAUNCH_INTENT_LANDING_KEYS.map((key) => {
+    const config = getLaunchIntentLandingConfig(key);
+    return {
+      href: config.path,
+      label: config.title,
+      detail: config.description
+    };
+  }).sort((left, right) => left.label.localeCompare(right.label));
 
   const satelliteOwnerLinks = ownerRows
     .map((row) => ({
@@ -197,6 +206,23 @@ export default async function SiteMapPage() {
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.4fr_1fr]">
+        <SiteMapSection title="Priority landing pages">
+          {priorityLandingLinks.map((link) => (
+            <li
+              key={link.href}
+              className="rounded-xl border border-stroke bg-surface-0 p-3"
+            >
+              <Link
+                href={link.href}
+                className="text-sm font-semibold text-text1 hover:text-primary"
+              >
+                {link.label}
+              </Link>
+              <p className="mt-1 text-xs text-text3">{link.detail}</p>
+            </li>
+          ))}
+        </SiteMapSection>
+
         <SiteMapSection title="Provider schedule pages">
           {providerLinks.map((provider) => (
             <li

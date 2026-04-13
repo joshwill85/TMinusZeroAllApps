@@ -27,10 +27,22 @@ export type LaunchFilterOptions = {
   statuses: string[];
 };
 
+export type CalendarLaunchFilterValue = Pick<
+  LaunchFilterValue,
+  'region' | 'location' | 'state' | 'pad' | 'provider' | 'status'
+>;
+
 export const DEFAULT_LAUNCH_FILTERS: LaunchFilterValue = {
   range: 'year',
   sort: 'soonest',
   region: 'us'
+};
+
+export const DEFAULT_LAUNCH_FILTER_HELP_TEXT =
+  'Default view keeps Next 12 months and US only selected.';
+
+export const DEFAULT_CALENDAR_LAUNCH_FILTERS: CalendarLaunchFilterValue = {
+  region: DEFAULT_LAUNCH_FILTERS.region
 };
 
 function readAllowedValue<T extends string>(value: unknown, allowed: readonly T[]): T | undefined {
@@ -61,6 +73,102 @@ export function normalizeLaunchFilterValue(value: unknown): LaunchFilterValue {
   if (provider) next.provider = provider;
 
   return next;
+}
+
+export function normalizeCalendarLaunchFilterValue(
+  value: unknown
+): CalendarLaunchFilterValue {
+  const normalized = normalizeLaunchFilterValue(value);
+  const next: CalendarLaunchFilterValue = {};
+
+  if (normalized.region) next.region = normalized.region;
+  if (normalized.location) next.location = normalized.location;
+  if (normalized.state) next.state = normalized.state;
+  if (normalized.pad) next.pad = normalized.pad;
+  if (normalized.provider) next.provider = normalized.provider;
+  if (normalized.status && normalized.status !== 'all') {
+    next.status = normalized.status;
+  }
+
+  return next;
+}
+
+export function areCalendarLaunchFilterValuesEqual(
+  a: CalendarLaunchFilterValue | LaunchFilterValue,
+  b: CalendarLaunchFilterValue | LaunchFilterValue
+) {
+  const left = normalizeCalendarLaunchFilterValue(a);
+  const right = normalizeCalendarLaunchFilterValue(b);
+
+  return (
+    (left.region ?? DEFAULT_LAUNCH_FILTERS.region) ===
+      (right.region ?? DEFAULT_LAUNCH_FILTERS.region) &&
+    (left.location ?? undefined) === (right.location ?? undefined) &&
+    (left.state ?? undefined) === (right.state ?? undefined) &&
+    (left.pad ?? undefined) === (right.pad ?? undefined) &&
+    (left.provider ?? undefined) === (right.provider ?? undefined) &&
+    (left.status ?? undefined) === (right.status ?? undefined)
+  );
+}
+
+export function countActiveCalendarLaunchFilters(
+  filters: CalendarLaunchFilterValue | LaunchFilterValue
+) {
+  const normalized = normalizeCalendarLaunchFilterValue(filters);
+  let count = 0;
+
+  if (
+    (normalized.region ?? DEFAULT_LAUNCH_FILTERS.region) !==
+    DEFAULT_LAUNCH_FILTERS.region
+  ) {
+    count += 1;
+  }
+  if (normalized.location) count += 1;
+  if (normalized.state) count += 1;
+  if (normalized.pad) count += 1;
+  if (normalized.provider) count += 1;
+  if (normalized.status) count += 1;
+
+  return count;
+}
+
+export function buildFeedPresetFiltersFromCalendarFilters(
+  filters: CalendarLaunchFilterValue | LaunchFilterValue
+): LaunchFilterValue {
+  const normalized = normalizeCalendarLaunchFilterValue(filters);
+
+  return {
+    range: DEFAULT_LAUNCH_FILTERS.range,
+    sort: DEFAULT_LAUNCH_FILTERS.sort,
+    region: normalized.region ?? DEFAULT_LAUNCH_FILTERS.region,
+    ...(normalized.location ? { location: normalized.location } : {}),
+    ...(normalized.state ? { state: normalized.state } : {}),
+    ...(normalized.pad ? { pad: normalized.pad } : {}),
+    ...(normalized.provider ? { provider: normalized.provider } : {}),
+    ...(normalized.status ? { status: normalized.status } : {})
+  };
+}
+
+export function mergeFeedPresetFiltersWithCalendarFilters(
+  existingFilters: unknown,
+  filters: CalendarLaunchFilterValue | LaunchFilterValue
+): LaunchFilterValue {
+  const existing = normalizeLaunchFilterValue(existingFilters);
+  const normalized = normalizeCalendarLaunchFilterValue(filters);
+
+  return {
+    range: existing.range ?? DEFAULT_LAUNCH_FILTERS.range,
+    sort: existing.sort ?? DEFAULT_LAUNCH_FILTERS.sort,
+    region:
+      normalized.region ??
+      existing.region ??
+      DEFAULT_LAUNCH_FILTERS.region,
+    ...(normalized.location ? { location: normalized.location } : {}),
+    ...(normalized.state ? { state: normalized.state } : {}),
+    ...(normalized.pad ? { pad: normalized.pad } : {}),
+    ...(normalized.provider ? { provider: normalized.provider } : {}),
+    ...(normalized.status ? { status: normalized.status } : {})
+  };
 }
 
 export function areLaunchFilterValuesEqual(a: LaunchFilterValue, b: LaunchFilterValue) {

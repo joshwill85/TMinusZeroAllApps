@@ -1,3 +1,4 @@
+import { CANONICAL_HOST, DEFAULT_SITE_URL } from '@/lib/brand';
 import { normalizeEnvText, normalizeEnvUrl } from '@/lib/env/normalize';
 
 function isPlaceholder(value: string | undefined, placeholders: string[]) {
@@ -25,13 +26,64 @@ function parseBooleanEnv(value: string | undefined) {
 }
 
 export function getSiteUrl() {
-  const explicit = normalizeEnvUrl(process.env.NEXT_PUBLIC_SITE_URL);
-  if (explicit) return explicit;
+  const explicit = resolveSiteUrlCandidate(process.env.NEXT_PUBLIC_SITE_URL);
+  const deploymentUrl = resolveSiteUrlCandidate(process.env.VERCEL_URL);
+  const productionUrl =
+    resolveProductionSiteUrl(process.env.VERCEL_PROJECT_PRODUCTION_URL) ||
+    DEFAULT_SITE_URL;
+  const vercelEnv = normalizeEnvText(process.env.VERCEL_ENV)?.toLowerCase();
 
-  const vercelUrl = normalizeEnvUrl(process.env.VERCEL_URL);
-  if (vercelUrl) return `https://${vercelUrl}`;
+  if (vercelEnv === 'production') {
+    return productionUrl;
+  }
 
-  return 'http://localhost:3000';
+  if (vercelEnv) {
+    return explicit || deploymentUrl || productionUrl;
+  }
+
+  const nodeEnv = normalizeEnvText(process.env.NODE_ENV)?.toLowerCase();
+  if (nodeEnv === 'production') {
+    if (explicit && !isNonCanonicalVercelSiteUrl(explicit)) {
+      return explicit;
+    }
+
+    if (deploymentUrl && !isNonCanonicalVercelSiteUrl(deploymentUrl)) {
+      return deploymentUrl;
+    }
+
+    return productionUrl;
+  }
+
+  return explicit || deploymentUrl || 'http://localhost:3000';
+}
+
+export function resolveSiteUrlCandidate(value: string | null | undefined) {
+  const normalized = normalizeEnvText(value);
+  if (!normalized) return null;
+
+  const trimmed = normalized.replace(/\/+$/, '');
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (trimmed.startsWith('//')) {
+    return `https:${trimmed}`;
+  }
+
+  if (isLocalHostValue(trimmed)) {
+    return `http://${trimmed}`;
+  }
+
+  return `https://${trimmed}`;
+}
+
+export function isNonCanonicalVercelSiteUrl(siteUrl: string) {
+  try {
+    const hostname = new URL(siteUrl).hostname.toLowerCase();
+    return hostname.endsWith('.vercel.app') && hostname !== CANONICAL_HOST;
+  } catch {
+    return false;
+  }
 }
 
 export function getOgImageVersion() {
@@ -42,6 +94,18 @@ export function getOgImageVersion() {
   const commitSha = normalizeEnvText(process.env.VERCEL_GIT_COMMIT_SHA);
   if (commitSha) return commitSha.slice(0, 12);
   return '2026-01-08-2';
+}
+
+function resolveProductionSiteUrl(value: string | null | undefined) {
+  const resolved = resolveSiteUrlCandidate(value);
+  if (!resolved || isNonCanonicalVercelSiteUrl(resolved)) {
+    return null;
+  }
+  return resolved;
+}
+
+function isLocalHostValue(value: string) {
+  return /^(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/i.test(value);
 }
 
 export function getGoogleSiteVerification() {

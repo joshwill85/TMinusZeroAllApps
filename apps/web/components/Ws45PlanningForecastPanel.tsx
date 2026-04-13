@@ -97,13 +97,13 @@ function Planning24hSection({ detail }: { detail: Ws45Planning24hStructuredPaylo
   return (
     <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-4">
       <div className="text-[11px] uppercase tracking-[0.08em] text-text3">24-hour periods</div>
-      <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      <div className="mt-3 grid gap-3 md:grid-cols-[repeat(auto-fit,minmax(16rem,1fr))]">
         {detail.periods.map((period) => (
-          <article key={period.label} className="rounded-xl border border-stroke bg-surface-0 p-4">
+          <article key={period.label} className="rounded-[1.15rem] border border-stroke bg-surface-0 p-4 md:p-5">
             <div className="text-[11px] uppercase tracking-[0.08em] text-text3">
               {[period.dayLabel, period.label].filter(Boolean).join(' • ')}
             </div>
-            {period.skyCondition ? <div className="mt-2 text-base font-semibold text-text1">{period.skyCondition}</div> : null}
+            {period.skyCondition ? <div className="mt-2 text-lg font-semibold text-text1">{period.skyCondition}</div> : null}
             <div className="mt-3 space-y-2">
               <MetricRow label="Precip" value={formatPercent(period.precipitationProbabilityPct)} />
               <MetricRow label="Lightning" value={formatPercent(period.lightningProbabilityPct)} />
@@ -125,23 +125,35 @@ function PlanningWeeklySection({ detail }: { detail: Ws45PlanningWeeklyStructure
   return (
     <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-4">
       <div className="text-[11px] uppercase tracking-[0.08em] text-text3">Week-ahead daily detail</div>
-      <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      <div className="mt-3 grid gap-3 md:grid-cols-[repeat(auto-fit,minmax(19rem,1fr))]">
         {detail.days.map((day) => (
-          <article key={day.dateLabel} className="rounded-xl border border-stroke bg-surface-0 p-4">
+          <article key={day.dateLabel} className="rounded-[1.15rem] border border-stroke bg-surface-0 p-4 md:p-5">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-[11px] uppercase tracking-[0.08em] text-text3">{day.dayLabel || 'Forecast day'}</div>
-                <div className="mt-1 text-base font-semibold text-text1">{day.dateLabel}</div>
+                <div className="mt-1 text-xl font-semibold leading-tight text-text1">{day.dateLabel}</div>
               </div>
-              <div className="text-right text-sm text-text2">{formatWeeklyTemps(day.minTempF, day.maxTempF)}</div>
+              <div className="text-right text-base font-medium text-text2">{formatWeeklyTemps(day.minTempF, day.maxTempF)}</div>
             </div>
 
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <DayPartCard label="AM" sky={day.am.skyCondition} precip={day.am.precipitationProbabilityPct} lightning={day.am.lightningProbabilityPct} wind={day.am.wind} />
-              <DayPartCard label="PM" sky={day.pm.skyCondition} precip={day.pm.precipitationProbabilityPct} lightning={day.pm.lightningProbabilityPct} wind={day.pm.wind} />
+            <div className="mt-4 space-y-3">
+              <DayPartCard
+                label="AM"
+                sky={day.am.skyCondition}
+                precip={day.am.precipitationProbabilityPct}
+                lightning={day.am.lightningProbabilityPct}
+                wind={day.am.wind}
+              />
+              <DayPartCard
+                label="PM"
+                sky={day.pm.skyCondition}
+                precip={day.pm.precipitationProbabilityPct}
+                lightning={day.pm.lightningProbabilityPct}
+                wind={day.pm.wind}
+              />
             </div>
 
-            <div className="mt-3 text-xs text-text3">
+            <div className="mt-4 text-sm text-text3">
               Severe weather potential: <span className="text-text2">{day.severeWeatherPotential || 'TBD'}</span>
             </div>
           </article>
@@ -165,10 +177,10 @@ function DayPartCard({
   wind: string | null;
 }) {
   return (
-    <div className="rounded-lg border border-stroke/70 bg-[rgba(255,255,255,0.02)] p-3">
+    <div className="rounded-xl border border-stroke/70 bg-[rgba(255,255,255,0.02)] p-3.5">
       <div className="text-[11px] uppercase tracking-[0.08em] text-text3">{label}</div>
-      {sky ? <div className="mt-2 text-sm font-semibold text-text1">{sky}</div> : null}
-      <div className="mt-2 space-y-1">
+      {sky ? <div className="mt-2 text-base font-semibold leading-snug text-text1">{sky}</div> : null}
+      <div className="mt-3 space-y-1.5">
         <MetricRow label="Precip" value={formatPercent(precip)} compact />
         <MetricRow label="Lightning" value={formatPercent(lightning)} compact />
         <MetricRow label="Wind" value={wind || 'TBD'} compact />

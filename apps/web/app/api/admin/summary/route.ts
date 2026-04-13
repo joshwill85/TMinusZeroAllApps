@@ -2,14 +2,12 @@ import { NextResponse } from 'next/server';
 import { startOfDay } from 'date-fns';
 import fs from 'node:fs';
 import path from 'node:path';
-import {
-  PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS,
-  PREMIUM_LAUNCH_HOT_REFRESH_SECONDS
-} from '@tminuszero/domain';
 import { summarizeArRuntimePolicies, type ArRuntimePolicySummary } from '@/lib/ar/runtimePolicyTelemetry';
 import { createSupabaseAdminClient, createSupabaseServerClient } from '@/lib/server/supabaseServer';
 import { isSupabaseAdminConfigured } from '@/lib/server/env';
 import { getWs45LiveCadenceMinutes } from '../../../../../../shared/ws45LiveBoard';
+import { ADMIN_JOB_REGISTRY, type AdminJobRegistryEntry } from '../../../admin/_lib/jobRegistry';
+import { buildOpsAlertExpiryCutoffIso } from '../../../admin/_lib/alerts';
 import { requireAdminRequest } from '../_lib/auth';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -27,15 +25,23 @@ type JobStatus = {
   id: string;
   label: string;
   schedule: string;
+  slug?: string | null;
   cronJobName?: string | null;
   cronSchedule?: string | null;
   cronActive?: boolean | null;
+  schedulerKind?: 'pg_cron' | 'managed' | 'bridge' | 'derived' | 'manual';
+  group?: 'core' | 'secondary' | 'advanced';
   origin: 'server' | 'local';
   category: 'scheduled' | 'manual' | 'internal';
   status: 'operational' | 'degraded' | 'down' | 'paused' | 'running' | 'unknown';
   statusDetail?: string | null;
   enabled: boolean;
   enabledDetail?: string | null;
+  manualRunSupported?: boolean;
+  manualRunConfirmMessage?: string | null;
+  manualRunPrompt?: string | null;
+  manualRunPromptToken?: string | null;
+  telemetryJobName?: string | null;
   lastRunAt?: string | null;
   lastEndedAt?: string | null;
   lastSuccessAt?: string | null;
@@ -250,20 +256,7 @@ type TrajectoryPipelineFreshness = {
   };
 };
 
-type JobDef = {
-  id: string;
-  label: string;
-  schedule: string;
-  cronJobName?: string | null;
-  category: 'scheduled' | 'internal' | 'manual';
-  origin: 'server' | 'local';
-  source: 'heartbeat' | 'ingestion_runs' | 'none';
-  thresholdMinutes: number | null;
-  ingestionJobName?: string | null;
-  enabledKey?: string;
-  newData?: (stats: unknown) => { count: number; detail: string | null };
-  command?: string | null;
-};
+type JobDef = AdminJobRegistryEntry;
 
 type Ws45LiveWindowStatus = {
   active: boolean;
@@ -273,749 +266,6 @@ type Ws45LiveWindowStatus = {
   launchName: string | null;
   launchAt: string | null;
 };
-
-const SERVER_JOB_DEFS: readonly JobDef[] = [
-  {
-    id: 'll2_incremental',
-    label: 'LL2 incremental',
-    schedule: `Adaptive: every ${Math.trunc(PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS / 60)} min, every ${PREMIUM_LAUNCH_HOT_REFRESH_SECONDS} sec in the hot window`,
-    cronJobName: null,
-    category: 'scheduled',
-    origin: 'server',
-    source: 'heartbeat',
-    thresholdMinutes: 5,
-    enabledKey: 'll2_incremental_job_enabled'
-  },
-  {
-    id: 'ingestion_cycle',
-    label: 'Ingestion cycle',
-    schedule: 'Every 15 min',
-    cronJobName: 'ingestion_cycle',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 60
-  },
-  {
-    id: 'snapi_ingest',
-    label: 'SNAPI ingest',
-    schedule: 'Via ingestion cycle (15 min)',
-    cronJobName: null,
-    category: 'internal',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 60,
-    newData: (stats) => {
-      const items = readNumber(stats, 'uniqueItems') ?? readNumber(stats, 'items') ?? 0;
-      return { count: items, detail: items ? `items=${items}` : null };
-    }
-  },
-  {
-    id: 'll2_event_ingest',
-    label: 'LL2 event ingest',
-    schedule: 'Via ingestion cycle (15 min)',
-    cronJobName: null,
-    category: 'internal',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 60,
-    enabledKey: 'll2_event_ingest_enabled',
-    newData: (stats) => {
-      const upserted = readNumber(stats, 'upserted') ?? 0;
-      return { count: upserted, detail: upserted ? `upserted=${upserted}` : null };
-    }
-  },
-  {
-    id: 'public_cache_refresh',
-    label: 'Public cache refresh',
-    schedule: 'Via ingestion cycle (15 min)',
-    cronJobName: null,
-    category: 'internal',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 60,
-    newData: (stats) => {
-      const refreshed = readNumber(stats, 'refreshed') ?? 0;
-      const removed = readNumber(stats, 'removed') ?? 0;
-      const total = refreshed + removed;
-      return { count: total, detail: total ? `refreshed=${refreshed}, removed=${removed}` : null };
-    }
-  },
-  {
-    id: 'll2_catalog',
-    label: 'LL2 catalog',
-    schedule: 'Every 2 hours (:37 UTC)',
-    cronJobName: 'll2_catalog',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 240,
-    enabledKey: 'll2_catalog_job_enabled',
-    newData: (stats) => {
-      const entities = typeof stats === 'object' && stats && Array.isArray((stats as any).entities) ? ((stats as any).entities as any[]) : [];
-      const total = entities.reduce((sum, row) => sum + (typeof row?.total === 'number' ? row.total : 0), 0);
-      return { count: total, detail: total ? `entities=${entities.length}, total=${total}` : null };
-    }
-  },
-  {
-    id: 'll2_catalog_agencies',
-    label: 'LL2 catalog agencies',
-    schedule: 'Every 72 hours (checked every 6 hours at :53 UTC)',
-    cronJobName: 'll2_catalog_agencies',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 96 * 60,
-    enabledKey: 'll2_catalog_agencies_job_enabled',
-    newData: (stats) => {
-      const fetched = readNumber(stats, 'fetched') ?? 0;
-      return { count: fetched, detail: fetched ? `fetched=${fetched}` : null };
-    }
-  },
-  {
-    id: 'll2_future_launch_sync',
-    label: 'LL2 future launch sync',
-    schedule: 'Every 12 hours (:30 UTC)',
-    cronJobName: 'll2_future_launch_sync',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 1440,
-    enabledKey: 'll2_future_launch_sync_job_enabled',
-    newData: (stats) => {
-      const launcherJoins = readNumber(stats, 'launcherJoinRowsUpserted') ?? 0;
-      const launchLandings = readNumber(stats, 'launchLandingRowsUpserted') ?? 0;
-      const total = launcherJoins + launchLandings;
-      return {
-        count: total,
-        detail: total ? `launcherJoins=${launcherJoins}, launchLandings=${launchLandings}` : null
-      };
-    }
-  },
-  {
-    id: 'nws_refresh',
-    label: 'NWS weather refresh',
-    schedule: 'Every 20 min',
-    cronJobName: 'nws_refresh',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 60,
-    newData: (stats) => {
-      const launchesUpdated = readNumber(stats, 'launchesUpdated') ?? 0;
-      const pointsUpserted = readNumber(stats, 'pointsUpserted') ?? 0;
-      const total = launchesUpdated + pointsUpserted;
-      return { count: total, detail: total ? `launchesUpdated=${launchesUpdated}, pointsUpserted=${pointsUpserted}` : null };
-    }
-  },
-  {
-    id: 'notifications_dispatch',
-    label: 'Notifications dispatch',
-    schedule: 'Every 2 min',
-    cronJobName: 'notifications_dispatch',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 10,
-    enabledKey: 'notifications_dispatch_job_enabled',
-    newData: (stats) => {
-      const queued = readNumber(stats, 'queued') ?? 0;
-      return { count: queued, detail: queued ? `queued=${queued}` : null };
-    }
-  },
-  {
-    id: 'notifications_send',
-    label: 'Notifications send',
-    schedule: 'Every 1 min',
-    cronJobName: 'notifications_send',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 5,
-    enabledKey: 'notifications_send_job_enabled',
-    newData: (stats) => {
-      const sent = readNumber(stats, 'sent') ?? 0;
-      const failed = readNumber(stats, 'failed') ?? 0;
-      const processed = readNumber(stats, 'processed') ?? 0;
-      const total = sent + failed;
-      return { count: total, detail: processed ? `processed=${processed}, sent=${sent}, failed=${failed}` : null };
-    }
-  },
-  {
-    id: 'artemis_bootstrap',
-    label: 'Artemis bootstrap',
-    schedule: 'Every 15 min',
-    cronJobName: 'artemis_bootstrap',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 90,
-    enabledKey: 'artemis_bootstrap_job_enabled'
-  },
-  {
-    id: 'artemis_nasa_ingest',
-    label: 'Artemis NASA ingest',
-    schedule: 'Hourly (:07 UTC)',
-    cronJobName: 'artemis_nasa_ingest',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 180,
-    enabledKey: 'artemis_nasa_job_enabled'
-  },
-  {
-    id: 'artemis_oversight_ingest',
-    label: 'Artemis oversight ingest',
-    schedule: 'Every 12 hours (:35)',
-    cronJobName: 'artemis_oversight_ingest',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 24 * 60,
-    enabledKey: 'artemis_oversight_job_enabled'
-  },
-  {
-    id: 'artemis_budget_ingest',
-    label: 'Artemis budget ingest',
-    schedule: 'Daily (02:50 UTC)',
-    cronJobName: 'artemis_budget_ingest',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 36 * 60,
-    enabledKey: 'artemis_budget_job_enabled'
-  },
-  {
-    id: 'artemis_procurement_ingest',
-    label: 'Artemis procurement ingest',
-    schedule: 'Daily (03:15 UTC)',
-    cronJobName: 'artemis_procurement_ingest',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 36 * 60,
-    enabledKey: 'artemis_procurement_job_enabled'
-  },
-  {
-    id: 'artemis_contracts_ingest',
-    label: 'Artemis contracts ingest',
-    schedule: 'Weekly (Monday 05:17 UTC)',
-    cronJobName: 'artemis_contracts_ingest',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 10 * 24 * 60,
-    enabledKey: 'artemis_contracts_job_enabled',
-    newData: (stats) => {
-      const contracts = readNumber(stats, 'normalizedContractsUpserted') ?? 0;
-      const actions = readNumber(stats, 'normalizedActionsUpserted') ?? 0;
-      const notices = readNumber(stats, 'samNoticesUpserted') ?? 0;
-      return {
-        count: contracts + actions + notices,
-        detail: `contracts=${contracts}, actions=${actions}, notices=${notices}`
-      };
-    }
-  },
-  {
-    id: 'program_contract_story_sync',
-    label: 'Program contract story sync',
-    schedule: 'Every 4 hours (:45 UTC)',
-    cronJobName: 'program_contract_story_sync',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 8 * 60,
-    enabledKey: 'contract_story_sync_job_enabled',
-    newData: (stats) => {
-      const totalStories = readNumber(stats, 'totalStories') ?? 0;
-      const totalUpserted = readNumber(stats, 'totalUpserted') ?? 0;
-      return {
-        count: totalUpserted,
-        detail:
-          totalStories || totalUpserted
-            ? `stories=${totalStories}, upserted=${totalUpserted}`
-            : null
-      };
-    }
-  },
-  {
-    id: 'artemis_snapshot_build',
-    label: 'Artemis snapshot build',
-    schedule: 'Hourly (:20 UTC)',
-    cronJobName: 'artemis_snapshot_build',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 180,
-    enabledKey: 'artemis_snapshot_job_enabled'
-  },
-  {
-    id: 'artemis_content_ingest',
-    label: 'Artemis content ingest',
-    schedule: 'Hourly (:32 UTC)',
-    cronJobName: 'artemis_content_ingest',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 180,
-    enabledKey: 'artemis_content_job_enabled',
-    newData: (stats) => {
-      const upserted = readNumber(stats, 'upserted') ?? 0;
-      const unchanged = readNumber(stats, 'unchangedSkipped') ?? 0;
-      return {
-        count: upserted,
-        detail: upserted || unchanged ? `upserted=${upserted}, unchanged=${unchanged}` : null
-      };
-    }
-  },
-  {
-    id: 'monitoring_check',
-    label: 'Monitoring check',
-    schedule: 'Every 5 min',
-    cronJobName: 'monitoring_check',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 15
-  },
-  {
-    id: 'll2_backfill',
-    label: 'LL2 backfill',
-    schedule: 'Every 1 min (when enabled)',
-    cronJobName: 'll2_backfill',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    ingestionJobName: 'll2_backfill_page',
-    thresholdMinutes: 10,
-    enabledKey: 'll2_backfill_job_enabled',
-    newData: (stats) => {
-      const upserted = readNumber(stats, 'upserted') ?? 0;
-      return { count: upserted, detail: upserted ? `upserted=${upserted}` : null };
-    }
-  },
-  {
-    id: 'll2_payload_backfill',
-    label: 'LL2 payload backfill',
-    schedule: 'Every 1 min (when enabled)',
-    cronJobName: 'll2_payload_backfill',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    ingestionJobName: 'll2_payload_backfill_page',
-    thresholdMinutes: 10,
-    enabledKey: 'll2_payload_backfill_job_enabled',
-    newData: (stats) => {
-      const spacecraftOnly = readBooleanSetting((stats as any)?.spacecraftOnly, false);
-      if (spacecraftOnly) {
-        const fetched = readNumber(stats, 'fetched') ?? 0;
-        const spacecraftFlights = readNumber(stats, 'spacecraftFlights') ?? 0;
-        const spacecrafts = readNumber(stats, 'spacecrafts') ?? 0;
-        return {
-          count: spacecraftFlights,
-          detail:
-            fetched || spacecraftFlights || spacecrafts
-              ? `spacecraftOnly=true, fetched=${fetched}, spacecraftFlights=${spacecraftFlights}, spacecrafts=${spacecrafts}`
-              : 'spacecraftOnly=true'
-        };
-      }
-
-      const upserted = readNumber(stats, 'upserted') ?? 0;
-      const payloadFlights = readNumber(stats, 'payloadFlights') ?? 0;
-      return {
-        count: upserted,
-        detail: upserted || payloadFlights ? `upserted=${upserted}, payloadFlights=${payloadFlights}` : null
-      };
-    }
-  },
-  {
-    id: 'rocket_media_backfill',
-    label: 'Rocket media backfill',
-    schedule: 'Every 6 hours',
-    cronJobName: 'rocket_media_backfill',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 60 * 12,
-    enabledKey: 'rocket_media_backfill_job_enabled',
-    newData: (stats) => {
-      const launchesUpdated = readNumber(stats, 'launchesUpdated') ?? 0;
-      const cacheUpdated = readNumber(stats, 'cacheUpdated') ?? 0;
-      const total = launchesUpdated + cacheUpdated;
-      return { count: total, detail: total ? `launchesUpdated=${launchesUpdated}, cacheUpdated=${cacheUpdated}` : null };
-    }
-  },
-  {
-    id: 'spacex_infographics_ingest',
-    label: 'SpaceX infographics ingest',
-    schedule: 'Daily (05:12 UTC)',
-    cronJobName: 'spacex_infographics_ingest',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 1560,
-    enabledKey: 'spacex_infographics_job_enabled',
-    newData: (stats) => {
-      const bundleInserted = readNumber(stats, 'bundleRowsInserted') ?? 0;
-      const bundleUpdated = readNumber(stats, 'bundleRowsUpdated') ?? 0;
-      const constraintInserted = readNumber(stats, 'constraintRowsInserted') ?? 0;
-      const constraintUpdated = readNumber(stats, 'constraintRowsUpdated') ?? 0;
-      const total = bundleInserted + bundleUpdated + constraintInserted + constraintUpdated;
-      return {
-        count: total,
-        detail: total
-          ? `bundle=${bundleInserted + bundleUpdated}, constraints=${constraintInserted + constraintUpdated}`
-          : null
-      };
-    }
-  },
-  {
-    id: 'spacex_x_post_snapshot',
-    label: 'SpaceX X post snapshot',
-    schedule: 'Every 15 min',
-    cronJobName: 'spacex_x_post_snapshot',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 60,
-    enabledKey: 'spacex_x_snapshot_enabled',
-    newData: (stats) => {
-      const updated = readNumber(stats, 'updated') ?? 0;
-      const matched = readNumber(stats, 'matched') ?? 0;
-      return { count: updated, detail: matched || updated ? `matched=${matched}, updated=${updated}` : null };
-    }
-  },
-  {
-    id: 'launch_social_refresh',
-    label: 'Launch social refresh',
-    schedule: 'Every 15 min',
-    cronJobName: 'launch_social_refresh',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 45,
-    enabledKey: 'launch_social_enabled',
-    newData: (stats) => {
-      const matched = readNumber(stats, 'matched') ?? 0;
-      const candidates = readNumber(stats, 'candidatesUpserted') ?? 0;
-      return { count: matched, detail: candidates ? `matched=${matched}, candidates=${candidates}` : null };
-    }
-  },
-  {
-    id: 'social_posts_dispatch',
-    label: 'Social posts dispatch',
-    schedule: 'Every 30 min (:08/:38 UTC)',
-    cronJobName: 'social_posts_dispatch',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 90,
-    newData: (stats) => {
-      const posted = readNumber(stats, 'posted') ?? 0;
-      const updatesSent = readNumber(stats, 'updatesSent') ?? 0;
-      const repliesSent = readNumber(stats, 'missionRepliesSent') ?? 0;
-      const total = posted + updatesSent + repliesSent;
-      return {
-        count: total,
-        detail:
-          total || readNumber(stats, 'coreBacklog')
-            ? `posted=${posted}, updates=${updatesSent}, replies=${repliesSent}, coreBacklog=${readNumber(stats, 'coreBacklog') ?? 0}`
-            : null
-      };
-    }
-  },
-  {
-    id: 'launch_social_link_backfill',
-    label: 'Launch social link backfill',
-    schedule: 'Every 4 hours (:27)',
-    cronJobName: 'launch_social_link_backfill',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 8 * 60,
-    enabledKey: 'launch_social_link_backfill_enabled',
-    newData: (stats) => {
-      const matchesUpserted = readNumber(stats, 'matchesUpserted') ?? 0;
-      const socialRowsInserted = readNumber(stats, 'socialRowsInserted') ?? 0;
-      return {
-        count: matchesUpserted,
-        detail:
-          matchesUpserted || socialRowsInserted
-            ? `matches=${matchesUpserted}, socialRows=${socialRowsInserted}`
-            : null
-      };
-    }
-  },
-  {
-    id: 'ws45_forecasts_ingest',
-    label: '45th Weather ingest',
-    schedule: 'Every 8 hours (managed scheduler)',
-    cronJobName: 'ws45_forecasts_ingest',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 600,
-    newData: (stats) => {
-      const inserted = readNumber(stats, 'rowsInserted') ?? 0;
-      const updated = readNumber(stats, 'rowsUpdated') ?? 0;
-      const total = inserted + updated;
-      return { count: total, detail: total ? `inserted=${inserted}, updated=${updated}` : null };
-    }
-  },
-  {
-    id: 'ws45_live_weather_ingest',
-    label: '5 WS live board ingest',
-    schedule: 'Adaptive within 24h (2h / 1h / 30m / 15m)',
-    cronJobName: 'ws45_live_weather_ingest',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 90,
-    enabledKey: 'ws45_live_weather_job_enabled',
-    newData: (stats) => {
-      const inserted = readNumber(stats, 'rowsInserted') ?? 0;
-      const updated = readNumber(stats, 'rowsUpdated') ?? 0;
-      const phase1 = readNumber(stats, 'activePhase1Count') ?? 0;
-      const phase2 = readNumber(stats, 'activePhase2Count') ?? 0;
-      const wind = readNumber(stats, 'activeWindCount') ?? 0;
-      return {
-        count: inserted,
-        detail:
-          inserted || updated || phase1 || phase2 || wind
-            ? `inserted=${inserted}, updated=${updated}, phase1=${phase1}, phase2=${phase2}, wind=${wind}`
-            : null
-      };
-    }
-  },
-  {
-    id: 'ws45_planning_forecast_ingest',
-    label: '45th Weather planning ingest',
-    schedule: 'Every 30 min (4h checks + weekly daily)',
-    cronJobName: 'ws45_planning_forecast_ingest',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 360,
-    enabledKey: 'ws45_planning_forecast_job_enabled',
-    newData: (stats) => {
-      const inserted = readNumber(stats, 'rowsInserted') ?? 0;
-      const updated = readNumber(stats, 'rowsUpdated') ?? 0;
-      const fetched = readNumber(stats, 'pdfsFetched') ?? 0;
-      const total = inserted + updated;
-      return { count: total, detail: total || fetched ? `inserted=${inserted}, updated=${updated}, fetched=${fetched}` : null };
-    }
-  },
-  {
-    id: 'ws45_weather_retention_cleanup',
-    label: 'WS45 weather retention cleanup',
-    schedule: 'Daily (managed scheduler)',
-    cronJobName: 'ws45_weather_retention_cleanup',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 36 * 60,
-    enabledKey: 'ws45_weather_retention_cleanup_enabled',
-    newData: (stats) => {
-      const liveDeleted = readNumber(stats, 'liveDeleted') ?? 0;
-      const planningDeleted = readNumber(stats, 'planningDeleted') ?? 0;
-      const total = liveDeleted + planningDeleted;
-      return {
-        count: total,
-        detail: total ? `liveDeleted=${liveDeleted}, planningDeleted=${planningDeleted}` : null
-      };
-    }
-  },
-  {
-    id: 'navcen_bnm_ingest',
-    label: 'NAVCEN BNM hazard ingest',
-    schedule: 'Hourly (:33 UTC)',
-    cronJobName: 'navcen_bnm_ingest',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 180,
-    enabledKey: 'navcen_bnm_job_enabled',
-    newData: (stats) => {
-      const constraints = readNumber(stats, 'constraintsUpserted') ?? 0;
-      return { count: constraints, detail: constraints ? `constraints=${constraints}` : null };
-    }
-  },
-  {
-    id: 'trajectory_orbit_ingest',
-    label: 'Trajectory orbit ingest',
-    schedule: 'Every 6 hours (:21 UTC)',
-    cronJobName: 'trajectory_orbit_ingest',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 720,
-    enabledKey: 'trajectory_orbit_job_enabled',
-    newData: (stats) => {
-      const constraints = readNumber(stats, 'constraintsUpserted') ?? 0;
-      return { count: constraints, detail: constraints ? `constraints=${constraints}` : null };
-    }
-  },
-  {
-    id: 'trajectory_constraints_ingest',
-    label: 'Trajectory constraints ingest',
-    schedule: 'Every 6 hours (:24 UTC)',
-    cronJobName: 'trajectory_constraints_ingest',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 720,
-    enabledKey: 'trajectory_constraints_job_enabled',
-    newData: (stats) => {
-      const upserted = readNumber(stats, 'rowsUpserted') ?? 0;
-      return { count: upserted, detail: upserted ? `upserted=${upserted}` : null };
-    }
-  },
-  {
-    id: 'trajectory_products_generate',
-    label: 'Trajectory products generate',
-    schedule: 'Every 6 hours (:27 UTC)',
-    cronJobName: 'trajectory_products_generate',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 720,
-    enabledKey: 'trajectory_products_job_enabled',
-    newData: (stats) => {
-      const upserted = readNumber(stats, 'upserted') ?? 0;
-      return { count: upserted, detail: upserted ? `upserted=${upserted}` : null };
-    }
-  },
-  {
-    id: 'jep_score_refresh',
-    label: 'JEP score refresh',
-    schedule: 'Every 5 min (managed scheduler)',
-    cronJobName: 'jep_score_refresh',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 15,
-    enabledKey: 'jep_score_job_enabled',
-    newData: (stats) => {
-      const upserted = readNumber(stats, 'launchesUpserted') ?? 0;
-      const computed = readNumber(stats, 'launchesComputed') ?? 0;
-      return {
-        count: upserted,
-        detail: upserted || computed ? `upserted=${upserted}, computed=${computed}` : null
-      };
-    }
-  },
-  {
-    id: 'jep_moon_ephemeris_refresh',
-    label: 'JEP moon ephemeris refresh',
-    schedule: 'Every 30 min (managed scheduler)',
-    cronJobName: 'jep_moon_ephemeris_refresh',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 90,
-    enabledKey: 'jep_moon_ephemeris_job_enabled',
-    newData: (stats) => {
-      const rowsUpserted = readNumber(stats, 'rowsUpserted') ?? 0;
-      const launchesComputed = readNumber(stats, 'launchesComputed') ?? 0;
-      return {
-        count: rowsUpserted,
-        detail: rowsUpserted || launchesComputed ? `rows=${rowsUpserted}, launches=${launchesComputed}` : null
-      };
-    }
-  },
-  {
-    id: 'jep_background_light_refresh',
-    label: 'JEP background light refresh',
-    schedule: 'Every 12 hours (managed scheduler)',
-    cronJobName: 'jep_background_light_refresh',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 1560,
-    enabledKey: 'jep_background_light_job_enabled',
-    newData: (stats) => {
-      const rowsUpserted = readNumber(stats, 'rowsUpserted') ?? 0;
-      const tilesMaterialized = readNumber(stats, 'tilesMaterialized') ?? 0;
-      return {
-        count: rowsUpserted,
-        detail: rowsUpserted || tilesMaterialized ? `rows=${rowsUpserted}, tiles=${tilesMaterialized}` : null
-      };
-    }
-  },
-  {
-    id: 'trajectory_templates_generate',
-    label: 'Trajectory templates generate',
-    schedule: 'Daily (03:15 UTC)',
-    cronJobName: 'trajectory_templates_generate',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 1560,
-    enabledKey: 'trajectory_templates_job_enabled',
-    newData: (stats) => {
-      const templates = readNumber(stats, 'templatesWritten') ?? 0;
-      const samples = readNumber(stats, 'samplesUsed') ?? 0;
-      return { count: templates, detail: templates ? `templates=${templates}, samples=${samples}` : null };
-    }
-  },
-  {
-    id: 'celestrak_gp_groups_sync',
-    label: 'CelesTrak GP groups sync',
-    schedule: 'Daily (~04:12 UTC)',
-    cronJobName: 'celestrak_gp_groups_sync',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 2160,
-    enabledKey: 'celestrak_gp_groups_sync_enabled',
-    newData: (stats) => {
-      const gpInserted = readNumber(stats, 'gpRowsInserted') ?? 0;
-      const satcatInserted = readNumber(stats, 'satcatRowsInserted') ?? 0;
-      const total = gpInserted + satcatInserted;
-      return { count: total, detail: total ? `gpInserted=${gpInserted}, satcatInserted=${satcatInserted}` : null };
-    }
-  },
-  {
-    id: 'celestrak_ingest',
-    label: 'CelesTrak ingest (orchestrated)',
-    schedule: 'Every 6 hours (:11 UTC)',
-    cronJobName: 'celestrak_ingest',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 420,
-    enabledKey: 'celestrak_ingest_job_enabled',
-    newData: (stats) => {
-      const gpOrbit = readNumber(stats, 'gp.orbitElementsUpserted') ?? 0;
-      const supgpOrbit = readNumber(stats, 'supgp.orbitElementsUpserted') ?? 0;
-      const satcatSat = readNumber(stats, 'satcat.satellitesUpserted') ?? 0;
-      const intdesSat = readNumber(stats, 'intdes.satellitesUpserted') ?? 0;
-      const totalOrbit = gpOrbit + supgpOrbit;
-      const totalSatellites = satcatSat + intdesSat;
-      const count = totalOrbit + totalSatellites;
-      const detailParts = [
-        totalOrbit ? `orbitElements=${totalOrbit}` : null,
-        totalSatellites ? `satellites=${totalSatellites}` : null
-      ].filter(Boolean);
-      return { count, detail: detailParts.length ? detailParts.join(', ') : null };
-    }
-  },
-  {
-    id: 'celestrak_retention_cleanup',
-    label: 'CelesTrak retention cleanup',
-    schedule: 'Daily (~04:42 UTC)',
-    cronJobName: 'celestrak_retention_cleanup',
-    category: 'scheduled',
-    origin: 'server',
-    source: 'ingestion_runs',
-    thresholdMinutes: 2160,
-    enabledKey: 'celestrak_retention_cleanup_enabled',
-    newData: (stats) => {
-      const deleted = readNumber(stats, 'deleted') ?? 0;
-      return { count: deleted, detail: deleted ? `deleted=${deleted}` : null };
-    }
-  }
-] as const;
 
 const TRAJECTORY_SOURCE_FRESHNESS_DEFAULTS = {
   alertsEnabled: true,
@@ -1039,6 +289,7 @@ const STUB_SUMMARY = {
     key: string;
     severity: string;
     message: string;
+    first_seen_at: string;
     last_seen_at: string;
     occurrences: number;
     details?: Record<string, unknown> | null;
@@ -1059,6 +310,7 @@ export async function GET() {
   const { supabase } = gate.context;
 
   const today = startOfDay(new Date()).toISOString();
+  const alertExpiryCutoffIso = buildOpsAlertExpiryCutoffIso();
 
   const jobSettingKeys = buildJobSettingKeys();
 
@@ -1074,8 +326,9 @@ export async function GET() {
     supabase.from('notifications_outbox').select('id', { count: 'exact', head: true }).eq('status', 'sent').gte('scheduled_for', today),
     supabase
       .from('ops_alerts')
-      .select('key, severity, message, last_seen_at, occurrences, details')
+      .select('key, severity, message, first_seen_at, last_seen_at, occurrences, details')
       .eq('resolved', false)
+      .gte('last_seen_at', alertExpiryCutoffIso)
       .order('last_seen_at', { ascending: false })
       .limit(20),
     supabase.rpc('get_all_cron_jobs')
@@ -1140,27 +393,12 @@ function buildJobSettingKeys() {
     'jobs_apikey',
     'jobs_auth_token',
 
-    'll2_incremental_job_enabled',
     'll2_incremental_last_success_at',
     'll2_incremental_last_error',
     'll2_incremental_last_new_data_at',
     'll2_incremental_last_new_data_count',
 
-    'll2_catalog_job_enabled',
-    'll2_catalog_agencies_job_enabled',
-    'll2_future_launch_sync_job_enabled',
-    'll2_event_ingest_enabled',
-
-    'll2_backfill_job_enabled',
-    'll2_payload_backfill_job_enabled',
     'll2_payload_backfill_spacecraft_only',
-    'rocket_media_backfill_job_enabled',
-    'spacex_infographics_job_enabled',
-    'spacex_x_snapshot_enabled',
-    'launch_social_enabled',
-    'launch_social_link_backfill_enabled',
-    'navcen_bnm_job_enabled',
-    'jep_score_job_enabled',
     'jep_public_enabled',
     'jep_validation_ready',
     'jep_model_card_published',
@@ -1183,30 +421,23 @@ function buildJobSettingKeys() {
     'trajectory_freshness_hazard_max_age_hours',
     'trajectory_accuracy_window_days',
     'trajectory_accuracy_sigma_good_deg',
-    'artemis_bootstrap_job_enabled',
-    'artemis_nasa_job_enabled',
-    'artemis_oversight_job_enabled',
-    'artemis_budget_job_enabled',
-    'artemis_procurement_job_enabled',
-    'contract_story_sync_job_enabled',
     'contract_story_enrichment_enabled',
     'contract_story_enrichment_artemis_enabled',
     'contract_story_enrichment_spacex_enabled',
     'contract_story_enrichment_blue_origin_enabled',
     'contract_story_sync_batch_limit',
-    'artemis_snapshot_job_enabled',
-    'artemis_content_job_enabled',
 
-    'celestrak_gp_groups_sync_enabled',
-    'celestrak_ingest_job_enabled',
     'celestrak_gp_job_enabled',
     'celestrak_satcat_job_enabled',
     'celestrak_intdes_job_enabled',
     'celestrak_supgp_job_enabled',
-    'celestrak_retention_cleanup_enabled',
 
     'trajectory_products_top3_ids'
   ]);
+
+  for (const job of ADMIN_JOB_REGISTRY) {
+    if (job.enabledKey) keys.add(job.enabledKey);
+  }
 
   return [...keys.values()];
 }
@@ -2369,6 +1600,34 @@ function mapSettingRows(rows: Array<{ key: string; value: unknown }> | null) {
   return merged;
 }
 
+function formatManagedCadenceLabel(intervalSeconds: number) {
+  if (intervalSeconds % (7 * 24 * 60 * 60) === 0) {
+    const weeks = intervalSeconds / (7 * 24 * 60 * 60);
+    return `Every ${weeks} week${weeks === 1 ? '' : 's'}`;
+  }
+  if (intervalSeconds % (24 * 60 * 60) === 0) {
+    const days = intervalSeconds / (24 * 60 * 60);
+    return `Every ${days} day${days === 1 ? '' : 's'}`;
+  }
+  if (intervalSeconds % (60 * 60) === 0) {
+    const hours = intervalSeconds / (60 * 60);
+    return `Every ${hours} hour${hours === 1 ? '' : 's'}`;
+  }
+  if (intervalSeconds % 60 === 0) {
+    const minutes = intervalSeconds / 60;
+    return `Every ${minutes} min`;
+  }
+  return `Every ${intervalSeconds} sec`;
+}
+
+function resolveJobSchedule(job: JobDef, cronSchedule: string | null) {
+  if (job.cadenceLabelPolicy !== 'managed' || !cronSchedule) return job.cadenceLabel;
+  const match = /^managed\/(\d+)s offset (\d+)s$/.exec(cronSchedule);
+  if (!match) return job.cadenceLabel;
+  const intervalSeconds = Number(match[1]);
+  return Number.isFinite(intervalSeconds) ? formatManagedCadenceLabel(intervalSeconds) : job.cadenceLabel;
+}
+
 async function loadJobStatuses(
   supabase: ReturnType<typeof createSupabaseServerClient>,
   settings: Record<string, unknown>,
@@ -2379,13 +1638,13 @@ async function loadJobStatuses(
   const cronByName = new Map(cronJobs.map((job) => [job.jobname, job]));
 
   const localDefs = loadLocalJobDefs();
-  const jobDefs = [...SERVER_JOB_DEFS, ...localDefs];
+  const jobDefs = [...ADMIN_JOB_REGISTRY, ...localDefs];
 
   const ingestionJobNames = Array.from(
     new Set(
       jobDefs
         .filter((job) => job.source === 'ingestion_runs')
-        .map((job) => job.ingestionJobName || job.id)
+        .map((job) => job.telemetryJobName || job.id)
         .filter(Boolean) as string[]
     )
   );
@@ -2412,6 +1671,7 @@ async function loadJobStatuses(
     const cronActive = cron ? Boolean(cron.active) : null;
     const cronSchedule = cron ? cron.schedule : null;
     const isManagedCron = Boolean(cron?.command && cron.command.includes('managed_scheduler_tick'));
+    const schedule = resolveJobSchedule(job, cronSchedule);
 
     const cronMismatchDetail = (() => {
       if (!cronJobName || !schedulerActive || isManagedCron) return null;
@@ -2472,16 +1732,24 @@ async function loadJobStatuses(
       return {
         id: job.id,
         label: job.label,
-        schedule: job.schedule,
+        schedule,
+        slug: job.slug ?? null,
         cronJobName,
         cronSchedule,
         cronActive,
+        schedulerKind: job.schedulerKind,
+        group: job.group,
         origin: job.origin,
         category: job.category,
         enabled: isEnabled,
         enabledDetail,
         status,
         statusDetail,
+        manualRunSupported: job.manualRunSupported,
+        manualRunConfirmMessage: job.manualRunConfirmMessage ?? null,
+        manualRunPrompt: job.manualRunPrompt ?? null,
+        manualRunPromptToken: job.manualRunPromptToken ?? null,
+        telemetryJobName: null,
         lastSuccessAt: lastSuccessAt || null,
         lastNewDataAt: lastNewDataAt || null,
         lastNewDataDetail: lastNewDataAt && lastNewDataCount ? `upserted=${lastNewDataCount}` : null,
@@ -2518,21 +1786,29 @@ async function loadJobStatuses(
       return {
         id: job.id,
         label: job.label,
-        schedule: job.schedule,
+        schedule,
+        slug: job.slug ?? null,
         cronJobName,
         cronSchedule,
         cronActive,
+        schedulerKind: job.schedulerKind,
+        group: job.group,
         origin: job.origin,
         category: job.category,
         enabled: isEnabled,
         enabledDetail,
         status,
         statusDetail,
+        manualRunSupported: job.manualRunSupported,
+        manualRunConfirmMessage: job.manualRunConfirmMessage ?? null,
+        manualRunPrompt: job.manualRunPrompt ?? null,
+        manualRunPromptToken: job.manualRunPromptToken ?? null,
+        telemetryJobName: null,
         command: job.command ?? null
       } satisfies JobStatus;
     }
 
-    const ingestionJobName = job.ingestionJobName || job.id;
+    const ingestionJobName = job.telemetryJobName || job.id;
     const runs = recentRunsByJobName[ingestionJobName] || [];
     const lastRun = runs[0] ?? null;
 
@@ -2608,16 +1884,24 @@ async function loadJobStatuses(
     return {
       id: job.id,
       label: job.label,
-      schedule: job.schedule,
+      schedule,
+      slug: job.slug ?? null,
       cronJobName,
       cronSchedule,
       cronActive,
+      schedulerKind: job.schedulerKind,
+      group: job.group,
       origin: job.origin,
       category: job.category,
       enabled: isEnabled,
       enabledDetail,
       status,
       statusDetail,
+      manualRunSupported: job.manualRunSupported,
+      manualRunConfirmMessage: job.manualRunConfirmMessage ?? null,
+      manualRunPrompt: job.manualRunPrompt ?? null,
+      manualRunPromptToken: job.manualRunPromptToken ?? null,
+      telemetryJobName: job.source === 'ingestion_runs' ? job.telemetryJobName || job.id : null,
       lastRunAt,
       lastEndedAt,
       lastSuccessAt,
@@ -2697,12 +1981,18 @@ function loadLocalJobDefs(): JobDef[] {
   return jobScriptNames.map((name) => ({
     id: `local:${name}`,
     label: formatLocalJobLabel(name),
-    schedule: 'Manual (local)',
+    cadenceLabel: 'Manual (local)',
+    cadenceLabelPolicy: 'static',
+    slug: null,
     cronJobName: null,
+    schedulerKind: 'manual',
+    group: 'advanced',
     category: 'manual',
     origin: 'local',
     source: 'none',
     thresholdMinutes: null,
+    dispatcherGate: 'ungated',
+    manualRunSupported: false,
     command: `npm run ${name}`
   }));
 }

@@ -7,8 +7,8 @@ import {
   fetchProviderBySlug,
   type ProviderSummary
 } from '@/lib/server/providers';
-import { createSupabaseServerClient } from '@/lib/server/supabaseServer';
-import { getSiteUrl, isSupabaseConfigured } from '@/lib/server/env';
+import { createSupabasePublicClient } from '@/lib/server/supabaseServer';
+import { isSupabaseConfigured } from '@/lib/server/env';
 import { SITE_META } from '@/lib/server/siteMeta';
 import {
   buildBreadcrumbJsonLd,
@@ -16,6 +16,7 @@ import {
   buildCollectionPageJsonLd,
   buildPageMetadata
 } from '@/lib/server/seo';
+import { buildIndexQualityNoIndexRobots } from '@/lib/server/indexing';
 import { normalizeImageUrl } from '@/lib/utils/imageUrl';
 import { buildLaunchHref } from '@/lib/utils/launchLinks';
 
@@ -63,15 +64,16 @@ export async function generateMetadata({
     };
   }
 
-  const siteUrl = getSiteUrl().replace(/\/$/, '');
-  const canonical = `/providers/${provider.slug}`;
+  const canonical = `/launch-providers/${provider.slug}`;
   const title = `${provider.name} Launch News & Mission Coverage | ${SITE_META.siteName}`;
   const description = `Latest launch news, mission coverage, and linked articles for ${provider.name}.`;
 
   return buildPageMetadata({
     title,
     description,
-    canonical
+    canonical,
+    // Keep the coverage surface accessible, but consolidate ranking to the provider hub.
+    robots: buildIndexQualityNoIndexRobots()
   });
 }
 
@@ -94,7 +96,6 @@ export default async function ProviderNewsPage({
     .filter(Boolean)
     .join(' - ');
   const items = data.items;
-  const siteUrl = getSiteUrl().replace(/\/$/, '');
   const pageUrl = `/providers/${provider.slug}`;
   const absolutePageUrl = buildCanonicalUrl(pageUrl);
   const itemListJsonLd = items.length
@@ -350,7 +351,7 @@ export default async function ProviderNewsPage({
 
 const fetchProviderNews = cache(
   async (providerName: string): Promise<ProviderNewsData> => {
-    const supabase = createSupabaseServerClient();
+    const supabase = createSupabasePublicClient();
     const launchIds: string[] = [];
     const launchById: Record<string, LaunchSummary> = {};
     let offset = 0;

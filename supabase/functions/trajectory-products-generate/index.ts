@@ -961,11 +961,17 @@ serve(async (req: Request) => {
       }, 0);
 
       const isSpaceX = isSpaceXLaunch(row);
+      const missionClass = classifyMission({
+        orbitName: row.mission_orbit,
+        missionName: row.mission_name,
+        vehicleName: row.vehicle
+      });
       const targetOrbitConstraints = launchConstraints.filter((constraint) => constraint.constraint_type === 'target_orbit');
       const hasMissionNumericOrbit = targetOrbitConstraints.some(
         (constraint) => hasTargetOrbitNumerics(constraint) && !isDerivedConstraint(constraint)
       );
       const hasSupgpConstraint = targetOrbitConstraints.some((constraint) => isSupgpConstraint(constraint));
+      let landingPick: LandingConstraintEvaluation | null = null;
       let product = buildPadOnlyProduct({
         lat: row.pad_latitude,
         lon: row.pad_longitude,
@@ -978,11 +984,6 @@ serve(async (req: Request) => {
           padLon: row.pad_longitude,
           padName: row.pad_name,
           locationName: row.location_name
-        });
-        const missionClass = classifyMission({
-          orbitName: row.mission_orbit,
-          missionName: row.mission_name,
-          vehicleName: row.vehicle
         });
 
         const rankedOrbitConstraints = targetOrbitConstraints
@@ -1011,7 +1012,7 @@ serve(async (req: Request) => {
           break;
         }
 
-        const landingPick = pickBestLandingConstraint({
+        landingPick = pickBestLandingConstraint({
           constraints: launchConstraints,
           padLat: row.pad_latitude,
           padLon: row.pad_longitude
@@ -1286,13 +1287,12 @@ serve(async (req: Request) => {
             ...(!landingPick && hazardAz ? ['Hazard-only directional corridor used.'] : [])
           ].filter(Boolean) as string[];
 
-          const canBuildLandingPrecision =
-            Boolean(landingPick?.hasCoordinates) &&
-            landingPick?.lat != null &&
-            landingPick?.lon != null &&
-            fusedDirection.landingCorroborated;
+          const landingPrecisionTarget =
+            landingPick?.hasCoordinates && landingPick.lat != null && landingPick.lon != null && fusedDirection.landingCorroborated
+              ? landingPick
+              : null;
 
-          if (canBuildLandingPrecision) {
+          if (landingPrecisionTarget) {
             const assumptions = [
               'Landing constraint used as downrange anchor; direction fused with corroborating signals',
               ...sharedAssumptions,
@@ -1302,8 +1302,8 @@ serve(async (req: Request) => {
             product = buildConstraintProduct({
               padLat: row.pad_latitude,
               padLon: row.pad_longitude,
-              targetLat: landingPick.lat as number,
-              targetLon: landingPick.lon as number,
+              targetLat: landingPrecisionTarget.lat!,
+              targetLon: landingPrecisionTarget.lon!,
               azDeg: fusedDirection.azDeg,
               sigmaDeg: fusedDirection.sigmaDeg,
               downrangeMaxM: fusedDirection.downrangeMaxM,
@@ -3063,7 +3063,7 @@ function buildTier2EstimateProduct({
       `Tier-2 sigma clamp: ${resolvedProfile.tier2.sigmaClampMinDeg.toFixed(1)}-${resolvedProfile.tier2.sigmaClampMaxDeg.toFixed(1)} deg`,
       `Altitude rise rate: ${resolvedProfile.tier2.altRiseRate.toFixed(2)} (family envelope)`,
       `Downrange exponent: ${resolvedProfile.tier2.downrangeExponent.toFixed(2)} (family envelope)`
-    ],
+    ].filter(Boolean) as string[],
     samples,
     events: [] as TrajectoryEvent[]
   };

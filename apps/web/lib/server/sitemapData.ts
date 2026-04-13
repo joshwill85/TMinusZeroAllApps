@@ -1,16 +1,21 @@
 import type { MetadataRoute } from 'next';
 
 import {
-  getSiteUrl,
   isSupabaseAdminConfigured,
   isSupabaseConfigured
 } from '@/lib/server/env';
+import {
+  getIndexingSiteUrl,
+  shouldAllowPublicIndexing
+} from '@/lib/server/indexing';
+import { LAUNCH_INTENT_SITEMAP_ENTRIES } from '@/lib/server/launchIntentLandingConfig';
 import { fetchArtemisAwardeeIndex } from '@/lib/server/artemisAwardees';
 import { fetchCanonicalContractsIndex } from '@/lib/server/contracts';
 import { fetchBlueOriginTravelerSlugs } from '@/lib/server/blueOriginTravelers';
+import { buildCatalogCanonicalAliasPath } from '@/lib/server/seoAliases';
 import { fetchSpaceXFlights } from '@/lib/server/spacexProgram';
 import { fetchStarshipFlightIndex } from '@/lib/server/starship';
-import { fetchProviders, type ProviderSummary } from '@/lib/server/providers';
+import { fetchProviders } from '@/lib/server/providers';
 import { US_PAD_COUNTRY_CODES } from '@/lib/server/us';
 import { buildLaunchHref, toProviderSlug } from '@/lib/utils/launchLinks';
 import { buildArtemisAwardeeHref } from '@/lib/utils/artemisAwardees';
@@ -201,25 +206,23 @@ const STATIC_PATHS: Array<{
   { path: '/contracts', changeFrequency: 'daily', priority: 0.72 },
   { path: '/catalog', changeFrequency: 'daily', priority: 0.7 },
   { path: '/site-map', changeFrequency: 'daily', priority: 0.66 },
+  ...LAUNCH_INTENT_SITEMAP_ENTRIES,
   { path: '/satellites', changeFrequency: 'daily', priority: 0.68 },
   { path: '/launch-providers', changeFrequency: 'weekly', priority: 0.6 },
   { path: '/about', changeFrequency: 'monthly', priority: 0.6 },
   { path: '/support', changeFrequency: 'monthly', priority: 0.6 },
-  { path: '/upgrade', changeFrequency: 'weekly', priority: 0.5 },
   { path: '/docs/about', changeFrequency: 'monthly', priority: 0.6 },
   { path: '/docs/faq', changeFrequency: 'monthly', priority: 0.6 },
   { path: '/docs/roadmap', changeFrequency: 'weekly', priority: 0.6 },
   { path: '/legal/privacy', changeFrequency: 'yearly', priority: 0.2 },
   { path: '/legal/terms', changeFrequency: 'yearly', priority: 0.2 },
-  { path: '/legal/data', changeFrequency: 'yearly', priority: 0.2 },
-  { path: '/legal/privacy-choices', changeFrequency: 'yearly', priority: 0.2 }
+  { path: '/legal/data', changeFrequency: 'yearly', priority: 0.2 }
 ];
 
 type PublicCacheScanResult = {
   coreLaunchEntries: MetadataRoute.Sitemap;
   longTailLaunchEntries: MetadataRoute.Sitemap;
   providerEntries: MetadataRoute.Sitemap;
-  providerNewsEntries: MetadataRoute.Sitemap;
   rocketEntries: MetadataRoute.Sitemap;
   locationEntries: MetadataRoute.Sitemap;
 };
@@ -259,6 +262,7 @@ type CatalogEntityType = (typeof CATALOG_ENTITY_TYPES)[number];
 type CatalogScanRow = {
   entity_type: CatalogEntityType | null;
   entity_id: string | null;
+  name: string | null;
   fetched_at: string | null;
 };
 
@@ -297,7 +301,18 @@ type ProgramFlightSitemapEntries = {
 };
 
 export async function getSitemapTiers(): Promise<SitemapTiers> {
-  const siteUrl = getSiteUrl();
+  const siteUrl = getIndexingSiteUrl();
+  if (!shouldAllowPublicIndexing()) {
+    return {
+      siteUrl,
+      coreEntries: [],
+      launchEntries: [],
+      entityEntries: [],
+      catalogEntries: []
+    };
+  }
+
+  const providersPromise = fetchProviders();
 
   const catalogCollectionEntries: MetadataRoute.Sitemap =
     catalogEntityOptions.map((option) => ({
@@ -315,24 +330,27 @@ export async function getSitemapTiers(): Promise<SitemapTiers> {
   ]);
 
   const [
+    providers,
     publicCacheEntries,
-    catalogEntries,
     awardeeEntries,
     programContractEntries,
     travelerEntries,
     blueOriginHistoricalLaunchEntries,
-    programFlightEntries,
-    providers
+    programFlightEntries
   ] = await Promise.all([
+    providersPromise,
     getPublicCacheDerivedSitemapEntries(siteUrl),
-    getCatalogSitemapEntries(siteUrl),
     getArtemisAwardeeSitemapEntries(siteUrl),
     getProgramContractSitemapEntries(siteUrl),
     getBlueOriginTravelerSitemapEntries(siteUrl),
     getBlueOriginHistoricalLaunchEntries(siteUrl),
-    getProgramFlightSitemapEntries(siteUrl),
-    fetchProviders()
+    getProgramFlightSitemapEntries(siteUrl)
   ]);
+  const providerSlugSet = new Set(providers.map((provider) => provider.slug));
+  const catalogEntries = await getCatalogSitemapEntries(
+    siteUrl,
+    providerSlugSet
+  );
 
   const coreEntries = dedupeEntries([
     ...staticEntries,
@@ -352,9 +370,6 @@ export async function getSitemapTiers(): Promise<SitemapTiers> {
     launchEntries,
     entityEntries: dedupeEntries([
       ...publicCacheEntries.providerEntries,
-      ...publicCacheEntries.providerNewsEntries,
-      ...buildProviderScheduleEntries(siteUrl, providers),
-      ...buildProviderCoverageEntries(siteUrl, providers),
       ...publicCacheEntries.rocketEntries,
       ...publicCacheEntries.locationEntries,
       ...awardeeEntries,
@@ -365,26 +380,123 @@ export async function getSitemapTiers(): Promise<SitemapTiers> {
   };
 }
 
-function buildProviderScheduleEntries(
-  siteUrl: string,
-  providers: ProviderSummary[]
-): MetadataRoute.Sitemap {
-  return providers.map((provider) => ({
-    url: `${siteUrl}/launch-providers/${encodeURIComponent(provider.slug)}`,
-    changeFrequency: 'daily',
-    priority: 0.6
-  }));
+// Phase 1 keeps the tier routes narrowly scoped so one sitemap request does not
+// fan out across every crawlable surface.
+export async function getCoreSitemapTier(): Promise<
+  Pick<SitemapTiers, 'siteUrl' | 'coreEntries'>
+> {
+  const siteUrl = getIndexingSiteUrl();
+  if (!shouldAllowPublicIndexing()) {
+    return {
+      siteUrl,
+      coreEntries: []
+    };
+  }
+
+  const staticEntries = getStaticCoreSitemapEntries(siteUrl);
+  const publicCacheEntries = await getPublicCacheDerivedSitemapEntries(siteUrl);
+
+  return {
+    siteUrl,
+    coreEntries: dedupeEntries([
+      ...staticEntries,
+      ...publicCacheEntries.coreLaunchEntries
+    ])
+  };
 }
 
-function buildProviderCoverageEntries(
-  siteUrl: string,
-  providers: ProviderSummary[]
-): MetadataRoute.Sitemap {
-  return providers.map((provider) => ({
-    url: `${siteUrl}/providers/${encodeURIComponent(provider.slug)}`,
-    changeFrequency: 'daily',
-    priority: 0.58
-  }));
+export async function getLaunchSitemapTier(): Promise<
+  Pick<SitemapTiers, 'siteUrl' | 'launchEntries'>
+> {
+  const siteUrl = getIndexingSiteUrl();
+  if (!shouldAllowPublicIndexing()) {
+    return {
+      siteUrl,
+      launchEntries: []
+    };
+  }
+
+  const [publicCacheEntries, blueOriginHistoricalLaunchEntries, programFlightEntries] =
+    await Promise.all([
+      getPublicCacheDerivedSitemapEntries(siteUrl),
+      getBlueOriginHistoricalLaunchEntries(siteUrl),
+      getProgramFlightSitemapEntries(siteUrl)
+    ]);
+
+  const coreEntryUrls = new Set(
+    dedupeEntries([
+      ...getStaticCoreSitemapEntries(siteUrl),
+      ...publicCacheEntries.coreLaunchEntries
+    ]).map((entry) => entry.url)
+  );
+
+  return {
+    siteUrl,
+    launchEntries: dedupeEntries([
+      ...publicCacheEntries.longTailLaunchEntries,
+      ...blueOriginHistoricalLaunchEntries,
+      ...programFlightEntries.spaceXFlightEntries,
+      ...programFlightEntries.starshipFlightEntries
+    ]).filter((entry) => !coreEntryUrls.has(entry.url))
+  };
+}
+
+export async function getEntitySitemapTier(): Promise<
+  Pick<SitemapTiers, 'siteUrl' | 'entityEntries'>
+> {
+  const siteUrl = getIndexingSiteUrl();
+  if (!shouldAllowPublicIndexing()) {
+    return {
+      siteUrl,
+      entityEntries: []
+    };
+  }
+
+  const [
+    publicCacheEntries,
+    awardeeEntries,
+    programContractEntries,
+    travelerEntries
+  ] = await Promise.all([
+    getPublicCacheDerivedSitemapEntries(siteUrl),
+    getArtemisAwardeeSitemapEntries(siteUrl),
+    getProgramContractSitemapEntries(siteUrl),
+    getBlueOriginTravelerSitemapEntries(siteUrl)
+  ]);
+
+  return {
+    siteUrl,
+    entityEntries: dedupeEntries([
+      ...publicCacheEntries.providerEntries,
+      ...publicCacheEntries.rocketEntries,
+      ...publicCacheEntries.locationEntries,
+      ...awardeeEntries,
+      ...programContractEntries,
+      ...travelerEntries
+    ])
+  };
+}
+
+export async function getCatalogSitemapTier(): Promise<
+  Pick<SitemapTiers, 'siteUrl' | 'catalogEntries'>
+> {
+  const siteUrl = getIndexingSiteUrl();
+  if (!shouldAllowPublicIndexing()) {
+    return {
+      siteUrl,
+      catalogEntries: []
+    };
+  }
+
+  const providers = await fetchProviders();
+  const providerSlugSet = new Set(providers.map((provider) => provider.slug));
+
+  return {
+    siteUrl,
+    catalogEntries: dedupeEntries(
+      await getCatalogSitemapEntries(siteUrl, providerSlugSet)
+    )
+  };
 }
 
 async function getArtemisAwardeeSitemapEntries(
@@ -493,7 +605,6 @@ async function getPublicCacheDerivedSitemapEntries(
       coreLaunchEntries,
       longTailLaunchEntries,
       providerEntries: [],
-      providerNewsEntries: [],
       rocketEntries: [],
       locationEntries: []
     };
@@ -601,17 +712,6 @@ async function getPublicCacheDerivedSitemapEntries(
       priority: 0.6
     }));
 
-  const providerNewsEntries: MetadataRoute.Sitemap = [
-    ...providerBySlug.entries()
-  ]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([slug, meta]) => ({
-      url: `${siteUrl}/providers/${encodeURIComponent(slug)}`,
-      lastModified: meta.lastModified,
-      changeFrequency: 'daily',
-      priority: 0.58
-    }));
-
   const rocketEntries: MetadataRoute.Sitemap = [...rocketById.entries()]
     .sort(([, a], [, b]) => a.name.localeCompare(b.name))
     .map(([rocketId, meta]) => {
@@ -640,7 +740,6 @@ async function getPublicCacheDerivedSitemapEntries(
     coreLaunchEntries,
     longTailLaunchEntries,
     providerEntries,
-    providerNewsEntries,
     rocketEntries,
     locationEntries
   };
@@ -794,7 +893,8 @@ async function getBlueOriginHistoricalLaunchEntries(
 }
 
 async function getCatalogSitemapEntries(
-  siteUrl: string
+  siteUrl: string,
+  providerSlugs: ReadonlySet<string>
 ): Promise<MetadataRoute.Sitemap> {
   if (!isSupabaseConfigured()) return [];
 
@@ -806,7 +906,7 @@ async function getCatalogSitemapEntries(
   while (true) {
     const { data, error } = await supabase
       .from('ll2_catalog_public_cache')
-      .select('entity_type, entity_id, fetched_at')
+      .select('entity_type, entity_id, name, fetched_at')
       .in('entity_type', [...CATALOG_ENTITY_TYPES])
       .order('entity_type', { ascending: true })
       .order('entity_id', { ascending: true })
@@ -815,10 +915,22 @@ async function getCatalogSitemapEntries(
     if (error || !data || data.length === 0) break;
 
     for (const row of data as CatalogScanRow[]) {
-      if (!row.entity_type || !row.entity_id) continue;
+      if (!row.entity_type || !row.entity_id || !row.name) continue;
       const key = `${row.entity_type}:${row.entity_id}`;
       if (seen.has(key)) continue;
       seen.add(key);
+      if (
+        buildCatalogCanonicalAliasPath(
+          {
+            entityType: row.entity_type,
+            entityId: row.entity_id,
+            name: row.name
+          },
+          providerSlugs
+        )
+      ) {
+        continue;
+      }
       entries.push({
         url: `${siteUrl}/catalog/${encodeURIComponent(row.entity_type)}/${encodeURIComponent(row.entity_id)}`,
         lastModified: row.fetched_at ? new Date(row.fetched_at) : undefined,
@@ -832,6 +944,24 @@ async function getCatalogSitemapEntries(
   }
 
   return entries;
+}
+
+function getStaticCoreSitemapEntries(siteUrl: string): MetadataRoute.Sitemap {
+  const catalogCollectionEntries: MetadataRoute.Sitemap =
+    catalogEntityOptions.map((option) => ({
+      url: `${siteUrl}${buildCatalogCollectionPath(option.value)}`,
+      changeFrequency: 'daily',
+      priority: 0.62
+    }));
+
+  return dedupeEntries([
+    ...STATIC_PATHS.map(({ path, changeFrequency, priority }) => ({
+      url: `${siteUrl}${path}`,
+      changeFrequency,
+      priority
+    })),
+    ...catalogCollectionEntries
+  ]);
 }
 
 function chunkArray<T>(items: T[], chunkSize: number) {

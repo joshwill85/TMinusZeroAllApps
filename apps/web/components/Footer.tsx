@@ -1,12 +1,14 @@
 'use client';
 
 import Image from 'next/image';
+import { buildPreferencesHref } from '@tminuszero/navigation';
 import { BRAND_NAME } from '@/lib/brand';
 import { getPublicSocialLinks } from '@/lib/env/public';
 import { FacebookIcon, XIcon } from '@/components/SocialIcons';
 
 export function Footer() {
   const { facebookUrl, xUrl } = getPublicSocialLinks();
+  const preferencesHref = buildPreferencesHref();
 
   return (
     <footer className="mt-12 border-t border-stroke bg-[rgba(5,6,10,0.9)] px-4 py-8 text-sm text-text3 md:px-8">
@@ -40,7 +42,7 @@ export function Footer() {
           <a className="hover:text-text1" href="/docs/faq">
             FAQ
           </a>
-          <a className="hover:text-text1" href="/preferences">
+          <a className="hover:text-text1" href={preferencesHref}>
             Notifications
           </a>
           <a className="hover:text-text1" href="/artemis">

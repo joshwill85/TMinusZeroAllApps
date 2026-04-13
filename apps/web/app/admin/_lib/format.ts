@@ -25,6 +25,36 @@ export function formatAlertDetails(details?: Record<string, unknown> | null) {
   }
 }
 
+export function formatObservedCount(count: number | null | undefined) {
+  const safeCount = Number.isFinite(count) ? Math.max(0, Math.trunc(Number(count))) : 0;
+  return `${safeCount} ${safeCount === 1 ? 'time observed' : 'times observed'}`;
+}
+
+function readAlertNumber(details: Record<string, unknown> | null | undefined, key: string) {
+  const value = details?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function formatAlertDetailValue(value: unknown): string {
+  if (value == null) return '—';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) return value.length ? value.map((item) => formatAlertDetailValue(item)).join(', ') : '—';
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+export function formatWs45SourceSnapshot(details?: Record<string, unknown> | null) {
+  const pdfsFound = readAlertNumber(details, 'pdfsFound');
+  const forecastPdfsFound = readAlertNumber(details, 'forecastPdfsFound');
+  const faqPdfsFound = readAlertNumber(details, 'faqPdfsFound');
+  if (pdfsFound == null && forecastPdfsFound == null && faqPdfsFound == null) return null;
+  const totalLabel = pdfsFound === 1 ? 'PDF' : 'PDFs';
+  return `Source snapshot: ${formatAlertDetailValue(pdfsFound)} total ${totalLabel} • ${formatAlertDetailValue(forecastPdfsFound)} forecast • ${formatAlertDetailValue(faqPdfsFound)} FAQ`;
+}
+
 export function formatRunDuration(startedAt?: string, endedAt?: string | null) {
   if (!startedAt || !endedAt) return null;
   const start = Date.parse(startedAt);
@@ -44,4 +74,3 @@ export function formatDurationSeconds(totalSeconds: number) {
   const minutesRemainder = minutes % 60;
   return `${hours}h ${minutesRemainder}m`;
 }
-

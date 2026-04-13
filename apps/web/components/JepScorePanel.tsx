@@ -107,6 +107,7 @@ export function JepScorePanel({
   const visibilityCall = buildJepVisibilityCallPresentation(score, observerContext);
   const confidenceLabel = buildJepConfidenceLabel(score);
   const scenarioTimeline = buildJepScenarioTimeline(score);
+  const hasTimingOutlook = Boolean(score.bestWindow) || scenarioTimeline.length > 0;
   const showViewpointToggle = Boolean(onLocationModeChange) && !viewpointPrompt?.visible;
 
   return (
@@ -219,7 +220,7 @@ export function JepScorePanel({
           </div>
         )}
 
-        {scenarioTimeline.length > 0 && (
+        {hasTimingOutlook && (
           <div className="mt-4 rounded-xl border border-stroke bg-surface-0 p-3">
             <div className="text-[11px] uppercase tracking-[0.08em] text-text3">Timing outlook</div>
             {score.bestWindow ? (
@@ -227,30 +228,32 @@ export function JepScorePanel({
                 Best window: <span className="font-semibold text-text1">{score.bestWindow.label}</span>. {score.bestWindow.reason}
               </p>
             ) : null}
-            <div className="mt-3 space-y-2">
-              {scenarioTimeline.map((entry) => (
-                <div
-                  key={entry.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-2"
-                >
-                  <div className="flex min-w-0 items-center gap-2">
-                    <div className="text-sm font-semibold text-text1">{entry.label}</div>
-                    {entry.current ? (
-                      <Badge tone="info" subtle>
-                        Current
+            {scenarioTimeline.length > 0 ? (
+              <div className="mt-3 space-y-2">
+                {scenarioTimeline.map((entry) => (
+                  <div
+                    key={entry.id}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-2"
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <div className="text-sm font-semibold text-text1">{entry.label}</div>
+                      {entry.current ? (
+                        <Badge tone="info" subtle>
+                          Current
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge tone={timelineTrendTone(entry.trend)} subtle>
+                        {timelineTrendLabel(entry.delta, entry.trend)}
                       </Badge>
-                    ) : null}
+                      <Badge tone={entry.tone}>{visibilityCallLabel(entry.visibilityCall)}</Badge>
+                      <div className="text-sm text-text2">{entry.score}/100</div>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge tone={timelineTrendTone(entry.trend)} subtle>
-                      {timelineTrendLabel(entry.delta, entry.trend)}
-                    </Badge>
-                    <Badge tone={entry.tone}>{visibilityCallLabel(entry.visibilityCall)}</Badge>
-                    <div className="text-sm text-text2">{entry.score}/100</div>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         )}
 

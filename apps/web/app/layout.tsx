@@ -1,6 +1,11 @@
 import type { Metadata, Viewport } from 'next';
 import { JetBrains_Mono, Space_Grotesk } from 'next/font/google';
-import { getGoogleSiteVerification, getSiteUrl } from '@/lib/server/env';
+import { getGoogleSiteVerification } from '@/lib/server/env';
+import {
+  buildDeploymentNoIndexRobots,
+  getIndexingSiteUrl,
+  shouldAllowPublicIndexing
+} from '@/lib/server/indexing';
 import { buildSiteMeta, SITE_META } from '@/lib/server/siteMeta';
 import { BRAND_TECHNICAL_NAME, SUPPORT_EMAIL } from '@/lib/brand';
 import { getPublicSocialLinks } from '@/lib/env/public';
@@ -18,62 +23,66 @@ const mono = JetBrains_Mono({
   variable: '--font-mono',
   display: 'swap'
 });
-const siteUrl = getSiteUrl();
-const siteMeta = buildSiteMeta();
-const googleSiteVerification = getGoogleSiteVerification();
-const publicSocialLinks = getPublicSocialLinks();
-const sameAs = [publicSocialLinks.xUrl, publicSocialLinks.facebookUrl].filter(
-  (value): value is string => Boolean(value)
-);
 
-export const metadata: Metadata = {
-  title: SITE_META.title,
-  description: SITE_META.description,
-  keywords: SITE_META.keywords,
-  metadataBase: new URL(siteUrl),
-  openGraph: {
+export function generateMetadata(): Metadata {
+  const siteUrl = getIndexingSiteUrl();
+  const siteMeta = buildSiteMeta();
+  const googleSiteVerification = getGoogleSiteVerification();
+
+  return {
     title: SITE_META.title,
     description: SITE_META.description,
-    siteName: SITE_META.siteName,
-    type: 'website',
-    images: [
-      {
-        url: siteMeta.ogImage,
-        width: 1200,
-        height: 630,
-        alt: SITE_META.ogImageAlt,
-        type: 'image/jpeg'
-      }
-    ]
-  },
-  twitter: {
-    card: 'summary_large_image',
-    title: SITE_META.title,
-    description: SITE_META.description,
-    images: [
-      {
-        url: siteMeta.ogImage,
-        alt: SITE_META.ogImageAlt
-      }
-    ]
-  },
-  icons: {
-    icon: [
-      { url: '/rocket.svg', type: 'image/svg+xml' },
-      { url: '/favicon-32x32.png', sizes: '32x32', type: 'image/png' },
-      { url: '/favicon-16x16.png', sizes: '16x16', type: 'image/png' }
-    ],
-    shortcut: '/favicon-32x32.png',
-    apple: '/apple-touch-icon.png'
-  },
-  ...(googleSiteVerification
-    ? {
-        verification: {
-          google: googleSiteVerification
+    keywords: SITE_META.keywords,
+    metadataBase: new URL(siteUrl),
+    openGraph: {
+      title: SITE_META.title,
+      description: SITE_META.description,
+      siteName: SITE_META.siteName,
+      type: 'website',
+      images: [
+        {
+          url: siteMeta.ogImage,
+          width: 1200,
+          height: 630,
+          alt: SITE_META.ogImageAlt,
+          type: 'image/jpeg'
         }
-      }
-    : {})
-};
+      ]
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: SITE_META.title,
+      description: SITE_META.description,
+      images: [
+        {
+          url: siteMeta.ogImage,
+          alt: SITE_META.ogImageAlt
+        }
+      ]
+    },
+    icons: {
+      icon: [
+        { url: '/rocket.svg', type: 'image/svg+xml' },
+        { url: '/favicon-32x32.png', sizes: '32x32', type: 'image/png' },
+        { url: '/favicon-16x16.png', sizes: '16x16', type: 'image/png' }
+      ],
+      shortcut: '/favicon-32x32.png',
+      apple: '/apple-touch-icon.png'
+    },
+    ...(googleSiteVerification
+      ? {
+          verification: {
+            google: googleSiteVerification
+          }
+        }
+      : {}),
+    ...(!shouldAllowPublicIndexing()
+      ? {
+          robots: buildDeploymentNoIndexRobots()
+        }
+      : {})
+  };
+}
 
 export const viewport: Viewport = {
   themeColor: '#05060A'
@@ -84,6 +93,11 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const siteUrl = getIndexingSiteUrl();
+  const publicSocialLinks = getPublicSocialLinks();
+  const sameAs = [publicSocialLinks.xUrl, publicSocialLinks.facebookUrl].filter(
+    (value): value is string => Boolean(value)
+  );
   const organizationId = `${siteUrl}#organization`;
   const websiteId = `${siteUrl}#website`;
   const structuredData = [

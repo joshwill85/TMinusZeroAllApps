@@ -25,9 +25,47 @@ const DEFAULTS = {
   lookbackHours: 24
 };
 
+// `launches` now exposes `pad_location_name`; alias it back to the matcher's
+// shared `location_name` field so the downstream scoring helpers stay stable.
+const FAA_MATCH_LAUNCH_SELECT = [
+  'id',
+  'name',
+  'mission_name',
+  'mission_orbit',
+  'provider',
+  'vehicle',
+  'net',
+  'window_start',
+  'window_end',
+  'pad_name',
+  'pad_short_code',
+  'pad_state',
+  'pad_country_code',
+  'pad_latitude',
+  'pad_longitude',
+  'location_name:pad_location_name'
+].join(', ');
+
 type DirtyLaunchRow = {
   launch_id: string;
 };
+
+function isLaunchRow(value: unknown): value is LaunchRow {
+  if (!value || typeof value !== 'object') return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.id === 'string';
+}
+
+function toLaunchRows(data: unknown): LaunchRow[] {
+  if (!Array.isArray(data)) return [];
+  return data.filter(isLaunchRow);
+}
+
+function compareLaunchNetAsc(a: LaunchRow, b: LaunchRow) {
+  const aa = a.net ? Date.parse(a.net) : Number.POSITIVE_INFINITY;
+  const bb = b.net ? Date.parse(b.net) : Number.POSITIVE_INFINITY;
+  return aa - bb;
+}
 
 serve(async (req) => {
   const supabase = createSupabaseAdminClient();
@@ -96,9 +134,7 @@ serve(async (req) => {
         .limit(candidateLimit),
       supabase
         .from('launches')
-        .select(
-          'id, name, mission_name, mission_orbit, provider, vehicle, net, window_start, window_end, pad_name, pad_short_code, pad_state, pad_country_code, pad_latitude, pad_longitude, location_name'
-        )
+        .select(FAA_MATCH_LAUNCH_SELECT)
         .eq('hidden', false)
         .gte('net', launchFromIso)
         .lte('net', launchToIso)
@@ -128,17 +164,11 @@ serve(async (req) => {
     if (dirtyLaunchIds.length > 0) {
       const { data, error } = await supabase
         .from('launches')
-        .select(
-          'id, name, mission_name, mission_orbit, provider, vehicle, net, window_start, window_end, pad_name, pad_short_code, pad_state, pad_country_code, pad_latitude, pad_longitude, location_name'
-        )
+        .select(FAA_MATCH_LAUNCH_SELECT)
         .eq('hidden', false)
         .in('id', dirtyLaunchIds);
       if (error) throw error;
-      dirtyLaunches = ((data || []) as LaunchRow[]).sort((a, b) => {
-        const aa = a.net ? Date.parse(a.net) : Number.POSITIVE_INFINITY;
-        const bb = b.net ? Date.parse(b.net) : Number.POSITIVE_INFINITY;
-        return aa - bb;
-      });
+      dirtyLaunches = toLaunchRows(data).sort(compareLaunchNetAsc);
     }
 
     const launchesById = new Map<string, LaunchRow>();
@@ -150,7 +180,7 @@ serve(async (req) => {
       if (launches.length >= candidateLimit) break;
     }
 
-    for (const launch of (horizonLaunchesRes.data || []) as LaunchRow[]) {
+    for (const launch of toLaunchRows(horizonLaunchesRes.data)) {
       if (launches.length >= candidateLimit) break;
       if (launchesById.has(launch.id)) continue;
       launchesById.set(launch.id, launch);

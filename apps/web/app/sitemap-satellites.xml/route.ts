@@ -1,5 +1,8 @@
 import type { MetadataRoute } from 'next';
-import { getSiteUrl } from '@/lib/server/env';
+import {
+  getIndexingSiteUrl,
+  shouldAllowPublicIndexing
+} from '@/lib/server/indexing';
 import { fetchSatelliteSitemapBatch } from '@/lib/server/satellites';
 import { buildSitemapIndexXml, buildSitemapXml, SITEMAP_CACHE_CONTROL, SITEMAP_REVALIDATE_SECONDS } from '@/lib/server/sitemapData';
 import { buildSatelliteHref } from '@/lib/utils/satelliteLinks';
@@ -11,9 +14,20 @@ const SATELLITE_SITEMAP_PAGE_SIZE = 5000;
 const SATELLITE_SITEMAP_MAX_PAGES = 200;
 
 export async function GET(request: Request) {
-  const siteUrl = getSiteUrl().replace(/\/+$/, '');
+  const siteUrl = getIndexingSiteUrl().replace(/\/+$/, '');
   const requestUrl = new URL(request.url);
   const page = parsePage(requestUrl.searchParams.get('page'));
+
+  if (!shouldAllowPublicIndexing()) {
+    const xml =
+      page != null ? buildSitemapXml([]) : buildSitemapIndexXml([]);
+    return new Response(xml, {
+      headers: {
+        'Content-Type': 'application/xml; charset=utf-8',
+        'Cache-Control': SITEMAP_CACHE_CONTROL
+      }
+    });
+  }
 
   if (page != null) {
     const entries = await getSatellitePageEntries(siteUrl, page);

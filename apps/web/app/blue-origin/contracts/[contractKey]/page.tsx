@@ -11,6 +11,7 @@ import {
 } from '@/lib/server/blueOriginContracts';
 import { buildCanonicalContractHrefForSeed } from '@/lib/server/contracts';
 import { getSiteUrl } from '@/lib/server/env';
+import { buildIndexQualityNoIndexRobots } from '@/lib/server/indexing';
 import { buildSiteMeta, SITE_META } from '@/lib/server/siteMeta';
 import { getBlueOriginMissionLabel } from '@/lib/server/blueOriginEntities';
 import { BlueOriginRouteTraceLink } from '@/app/blue-origin/_components/BlueOriginRouteTransitionTracker';
@@ -65,6 +66,7 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
     title,
     description,
     alternates: { canonical },
+    robots: buildIndexQualityNoIndexRobots(),
     openGraph: {
       title,
       description,

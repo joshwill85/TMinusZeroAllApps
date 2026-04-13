@@ -1,5 +1,8 @@
 import type { MetadataRoute } from 'next';
-import { getSiteUrl } from '@/lib/server/env';
+import {
+  getIndexingSiteUrl,
+  shouldAllowPublicIndexing
+} from '@/lib/server/indexing';
 import { fetchAllSatelliteOwners } from '@/lib/server/satellites';
 import { buildSitemapXml, SITEMAP_CACHE_CONTROL, SITEMAP_REVALIDATE_SECONDS } from '@/lib/server/sitemapData';
 import { buildSatelliteOwnerHref } from '@/lib/utils/satelliteLinks';
@@ -8,7 +11,15 @@ export const revalidate = SITEMAP_REVALIDATE_SECONDS;
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const siteUrl = getSiteUrl().replace(/\/+$/, '');
+  const siteUrl = getIndexingSiteUrl().replace(/\/+$/, '');
+  if (!shouldAllowPublicIndexing()) {
+    return new Response(buildSitemapXml([]), {
+      headers: {
+        'Content-Type': 'application/xml; charset=utf-8',
+        'Cache-Control': SITEMAP_CACHE_CONTROL
+      }
+    });
+  }
   const owners = await fetchAllSatelliteOwners();
 
   const entries: MetadataRoute.Sitemap = [

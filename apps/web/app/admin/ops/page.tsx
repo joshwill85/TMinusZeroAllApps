@@ -6,7 +6,15 @@ import { useMemo, useState } from 'react';
 import InfoCard from '../_components/InfoCard';
 import SectionCard from '../_components/SectionCard';
 import { useAdminResource } from '../_hooks/useAdminResource';
-import { formatAlertDetails, formatDurationSeconds, formatJson, formatRunDuration, formatTimestamp } from '../_lib/format';
+import {
+  formatAlertDetails,
+  formatDurationSeconds,
+  formatJson,
+  formatObservedCount,
+  formatRunDuration,
+  formatTimestamp,
+  formatWs45SourceSnapshot
+} from '../_lib/format';
 import {
   formatJobCategory,
   formatJobStatusLabel,
@@ -14,86 +22,26 @@ import {
   jobStatusDotClass,
   relatedJobIdFromAlertKey
 } from '../_lib/jobs';
+import { OPS_ALERT_EXPIRY_HOURS } from '../_lib/alerts';
 import { FALLBACK_ADMIN_SUMMARY, parseAdminSummary } from '../_lib/summary';
 import { formatSyncTriggerError } from '../_lib/sync';
 import type { IngestionRun, JobStatus } from '../_lib/types';
 
-type AdminSyncJob =
-  | 'sync_ll2'
-  | 'refresh_public_cache'
-  | 'dispatch_notifications'
-  | 'ws45_forecasts_ingest'
-  | 'ws45_live_weather_ingest'
-  | 'ws45_planning_forecast_ingest'
-  | 'ws45_weather_retention_cleanup'
-  | 'nws_refresh'
-  | 'billing_reconcile'
-  | 'celestrak_gp_groups_sync'
-  | 'celestrak_ingest'
-  | 'celestrak_retention_cleanup'
-  | 'spacex_infographics_ingest'
-  | 'spacex_x_post_snapshot'
-  | 'launch_social_refresh'
-  | 'social_posts_dispatch'
-  | 'launch_social_link_backfill'
-  | 'll2_backfill'
-  | 'll2_payload_backfill'
-  | 'll2_catalog_agencies'
-  | 'rocket_media_backfill'
-  | 'trajectory_orbit_ingest'
-  | 'trajectory_constraints_ingest'
-  | 'trajectory_products_generate'
-  | 'trajectory_templates_generate'
-  | 'artemis_bootstrap'
-  | 'artemis_nasa_ingest'
-  | 'artemis_oversight_ingest'
-  | 'artemis_budget_ingest'
-  | 'artemis_procurement_ingest'
-  | 'artemis_contracts_ingest'
-  | 'artemis_snapshot_build'
-  | 'artemis_content_ingest'
-  | 'notifications_send'
-  | 'monitoring_check';
+const JOB_GROUP_ORDER = ['core', 'secondary', 'advanced'] as const;
 
-const JOB_TRIGGER_BY_ID: Partial<Record<JobStatus['id'], AdminSyncJob>> = {
-  ll2_incremental: 'sync_ll2',
-  ingestion_cycle: 'refresh_public_cache',
-  notifications_dispatch: 'dispatch_notifications',
-  notifications_send: 'notifications_send',
-  nws_refresh: 'nws_refresh',
-  ws45_forecasts_ingest: 'ws45_forecasts_ingest',
-  ws45_live_weather_ingest: 'ws45_live_weather_ingest',
-  ws45_planning_forecast_ingest: 'ws45_planning_forecast_ingest',
-  ws45_weather_retention_cleanup: 'ws45_weather_retention_cleanup',
-  spacex_infographics_ingest: 'spacex_infographics_ingest',
-  spacex_x_post_snapshot: 'spacex_x_post_snapshot',
-  launch_social_refresh: 'launch_social_refresh',
-  social_posts_dispatch: 'social_posts_dispatch',
-  launch_social_link_backfill: 'launch_social_link_backfill',
-  celestrak_gp_groups_sync: 'celestrak_gp_groups_sync',
-  celestrak_ingest: 'celestrak_ingest',
-  celestrak_retention_cleanup: 'celestrak_retention_cleanup',
-  ll2_catalog_agencies: 'll2_catalog_agencies',
-  trajectory_orbit_ingest: 'trajectory_orbit_ingest',
-  trajectory_constraints_ingest: 'trajectory_constraints_ingest',
-  trajectory_products_generate: 'trajectory_products_generate',
-  trajectory_templates_generate: 'trajectory_templates_generate',
-  artemis_bootstrap: 'artemis_bootstrap',
-  artemis_nasa_ingest: 'artemis_nasa_ingest',
-  artemis_oversight_ingest: 'artemis_oversight_ingest',
-  artemis_budget_ingest: 'artemis_budget_ingest',
-  artemis_procurement_ingest: 'artemis_procurement_ingest',
-  artemis_contracts_ingest: 'artemis_contracts_ingest',
-  artemis_snapshot_build: 'artemis_snapshot_build',
-  artemis_content_ingest: 'artemis_content_ingest',
-  monitoring_check: 'monitoring_check'
-};
-
-const ADVANCED_JOB_IDS = new Set<JobStatus['id']>(['ll2_backfill', 'll2_payload_backfill', 'rocket_media_backfill']);
-
-const JOB_ID_TO_INGESTION_NAME: Record<string, string> = {
-  ll2_backfill: 'll2_backfill_page',
-  ll2_payload_backfill: 'll2_payload_backfill_page'
+const JOB_GROUP_META: Record<(typeof JOB_GROUP_ORDER)[number], { label: string; description: string }> = {
+  core: {
+    label: 'Core',
+    description: 'Primary production schedulers and live operational checks.'
+  },
+  secondary: {
+    label: 'Secondary',
+    description: 'Supporting ingest, enrichment, and program jobs tracked on the same control plane.'
+  },
+  advanced: {
+    label: 'Advanced',
+    description: 'Backfills, paused maintenance jobs, and force-run surfaces that need extra care.'
+  }
 };
 
 function statusRank(status: JobStatus['status']) {
@@ -126,6 +74,15 @@ function severityClass(severity: string) {
   return 'border-stroke text-text2';
 }
 
+function formatSchedulerKind(kind: JobStatus['schedulerKind']) {
+  if (kind === 'pg_cron') return 'pg_cron';
+  if (kind === 'managed') return 'Managed';
+  if (kind === 'bridge') return 'Bridge';
+  if (kind === 'derived') return 'Derived';
+  if (kind === 'manual') return 'Manual';
+  return '—';
+}
+
 export default function AdminOpsPage() {
   const { data: summary, status, error, refresh, lastRefreshedAt } = useAdminResource('/api/admin/summary', {
     initialData: FALLBACK_ADMIN_SUMMARY,
@@ -133,7 +90,7 @@ export default function AdminOpsPage() {
   });
 
   const [refreshing, setRefreshing] = useState(false);
-  const [triggering, setTriggering] = useState<AdminSyncJob | null>(null);
+  const [triggering, setTriggering] = useState<string | null>(null);
   const [updatingBackfills, setUpdatingBackfills] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -222,6 +179,15 @@ export default function AdminOpsPage() {
       });
   }, [jobSearch, showOperationalJobs, summary.jobs]);
 
+  const groupedJobs = useMemo(
+    () =>
+      JOB_GROUP_ORDER.map((group) => ({
+        group,
+        jobs: filteredJobs.filter((job) => (job.group || 'secondary') === group)
+      })).filter((entry) => entry.jobs.length > 0),
+    [filteredJobs]
+  );
+
   async function refreshSummary() {
     if (refreshing) return;
     setRefreshing(true);
@@ -234,7 +200,7 @@ export default function AdminOpsPage() {
     }
   }
 
-  async function triggerJob(job: AdminSyncJob) {
+  async function triggerJob(job: string) {
     if (triggering) return false;
     setTriggering(job);
     setActionError(null);
@@ -265,6 +231,19 @@ export default function AdminOpsPage() {
     const ok = await triggerJob('monitoring_check');
     if (!ok) return;
     await refreshSummary();
+  }
+
+  async function confirmAndTriggerJob(job: JobStatus) {
+    if (!job.manualRunSupported) return false;
+    if (job.manualRunConfirmMessage) {
+      const confirmed = window.confirm(job.manualRunConfirmMessage);
+      if (!confirmed) return false;
+    }
+    if (job.manualRunPromptToken) {
+      const typed = window.prompt(job.manualRunPrompt || `Type ${job.manualRunPromptToken} to confirm.`);
+      if (!typed || typed.trim().toUpperCase() !== job.manualRunPromptToken.trim().toUpperCase()) return false;
+    }
+    return triggerJob(job.id);
   }
 
   async function disableBackfills({
@@ -348,8 +327,7 @@ export default function AdminOpsPage() {
     window.setTimeout(() => setHighlightJobId((prev) => (prev === jobId ? null : prev)), 3500);
   }
 
-  async function loadJobRuns(jobId: string) {
-    const jobName = JOB_ID_TO_INGESTION_NAME[jobId] || jobId;
+  async function loadJobRuns(jobName: string) {
     if (loadingJobRunsFor) return;
     setLoadingJobRunsFor(jobName);
     setJobRunsErrorByName((prev) => {
@@ -464,7 +442,10 @@ export default function AdminOpsPage() {
           title="Ops alerts"
           description={
             <div>
-              <div>Unresolved scheduler and ingestion warnings from `ops_alerts`.</div>
+              <div>
+                Unresolved scheduler and ingestion warnings from `ops_alerts`. Rows auto-expire after{' '}
+                {OPS_ALERT_EXPIRY_HOURS} hours without a fresh sighting.
+              </div>
               {alertsFreshness ? (
                 <div className={clsx('mt-1 text-xs', alertsFreshness.isStale ? 'text-warning' : 'text-text3')}>
                   Latest alert seen: {formatTimestamp(alertsFreshness.latestIso)}
@@ -519,6 +500,7 @@ export default function AdminOpsPage() {
             )}
             {filteredAlerts.map((alert) => {
               const details = formatAlertDetails(alert.details);
+              const sourceSnapshot = formatWs45SourceSnapshot(alert.details);
               const related = relatedJobIdFromAlertKey(alert.key);
               const hasRelatedJob = related ? jobById.has(related) : false;
               return (
@@ -542,8 +524,10 @@ export default function AdminOpsPage() {
                     </div>
                   </div>
                   <div className="text-xs text-text3">Key: {alert.key}</div>
+                  <div className="text-xs text-text3">Observed since: {formatTimestamp(alert.first_seen_at)}</div>
                   <div className="text-xs text-text3">Last seen: {formatTimestamp(alert.last_seen_at)}</div>
-                  <div className="text-xs text-text3">Occurrences: {alert.occurrences}</div>
+                  <div className="text-xs text-text3">{formatObservedCount(alert.occurrences)}</div>
+                  {sourceSnapshot ? <div className="text-xs text-text2">{sourceSnapshot}</div> : null}
                   {details && (
                     <div className="mt-2 whitespace-pre-wrap break-words rounded-md border border-stroke bg-surface-0 px-2 py-1 text-[11px] font-mono text-text3">
                       {details}
@@ -605,179 +589,190 @@ export default function AdminOpsPage() {
             </label>
           </div>
 
-          <div className="mt-3 space-y-2">
+          <div className="mt-3 space-y-4">
             {filteredJobs.length === 0 && (
               <div className="rounded-lg border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-2 text-sm text-text3">
                 No job telemetry available yet.
               </div>
             )}
-            {filteredJobs.map((job) => {
-              const lastRunTimestamp = job.lastEndedAt || job.lastRunAt || null;
-              const durationLabel = job.lastDurationSeconds != null ? formatDurationSeconds(job.lastDurationSeconds) : null;
-              const statusDetails = [job.statusDetail, job.enabledDetail]
-                .map((value) => (typeof value === 'string' ? value.trim() : ''))
-                .filter((value) => value.length > 0);
-              const statusDetailLabel = statusDetails.length ? Array.from(new Set(statusDetails)).join(' • ') : '—';
-              const triggerName = JOB_TRIGGER_BY_ID[job.id];
-              const isAdvanced = ADVANCED_JOB_IDS.has(job.id);
-              const relatedAlerts = jobsWithRelatedAlerts.get(job.id) ?? 0;
-              return (
-                <div
-                  key={job.id}
-                  id={`job-${job.id}`}
-                  className={clsx(
-                    'rounded-lg border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-2 text-sm',
-                    highlightJobId === job.id && 'border-primary/60 shadow-glow'
-                  )}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex min-w-0 flex-wrap items-center gap-2">
-                      <div className="font-semibold text-text1">{job.label}</div>
-                      {job.origin === 'local' && (
-                        <span className="rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-warning">
-                          Local
-                        </span>
+            {groupedJobs.map(({ group, jobs }) => (
+              <div key={group} className="space-y-2">
+                <div className="rounded-lg border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-2">
+                  <div className="text-xs uppercase tracking-[0.08em] text-text3">{JOB_GROUP_META[group].label}</div>
+                  <div className="mt-1 text-sm text-text2">{JOB_GROUP_META[group].description}</div>
+                </div>
+                {jobs.map((job) => {
+                  const lastRunTimestamp = job.lastEndedAt || job.lastRunAt || null;
+                  const durationLabel = job.lastDurationSeconds != null ? formatDurationSeconds(job.lastDurationSeconds) : null;
+                  const statusDetails = [job.statusDetail, job.enabledDetail]
+                    .map((value) => (typeof value === 'string' ? value.trim() : ''))
+                    .filter((value) => value.length > 0);
+                  const statusDetailLabel = statusDetails.length ? Array.from(new Set(statusDetails)).join(' • ') : '—';
+                  const relatedAlerts = jobsWithRelatedAlerts.get(job.id) ?? 0;
+                  const runHistoryName = job.telemetryJobName;
+                  return (
+                    <div
+                      key={job.id}
+                      id={`job-${job.id}`}
+                      className={clsx(
+                        'rounded-lg border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-2 text-sm',
+                        highlightJobId === job.id && 'border-primary/60 shadow-glow'
                       )}
-                      {job.category !== 'scheduled' && (
-                        <span
-                          className={clsx(
-                            'rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.08em]',
-                            job.category === 'manual'
-                              ? 'border-warning/40 text-warning bg-warning/10'
-                              : 'border-stroke text-text3 bg-[rgba(255,255,255,0.02)]'
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <div className="font-semibold text-text1">{job.label}</div>
+                          {job.origin === 'local' && (
+                            <span className="rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-warning">
+                              Local
+                            </span>
                           )}
-                        >
-                          {formatJobCategory(job.category)}
-                        </span>
-                      )}
-                      {!job.enabled && (
-                        <span className="rounded-full border border-stroke bg-[rgba(255,255,255,0.02)] px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-text3">
-                          Disabled
-                        </span>
-                      )}
-                      {relatedAlerts > 0 && (
-                        <span className="rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-warning">
-                          {relatedAlerts} alert{relatedAlerts === 1 ? '' : 's'}
-                        </span>
-                      )}
-                      {isAdvanced && (
-                        <span className="rounded-full border border-stroke bg-[rgba(255,255,255,0.02)] px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-text3">
-                          Advanced
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {triggerName && !isAdvanced && (
-                        <button
-                          type="button"
-                          className="btn-secondary rounded-full px-2 py-0.5 text-[10px] uppercase tracking-[0.08em]"
-                          disabled={triggering != null || refreshing}
-                          onClick={() => triggerJob(triggerName)}
-                        >
-                          {triggering === triggerName ? 'Running…' : 'Run'}
-                        </button>
-                      )}
-                      {job.id !== 'll2_incremental' && (
-                        <button
-                          type="button"
-                          className="btn-secondary rounded-full px-2 py-0.5 text-[10px] uppercase tracking-[0.08em]"
-                          disabled={loadingJobRunsFor != null}
-                          onClick={() => loadJobRuns(job.id)}
-                        >
-                          {loadingJobRunsFor === (JOB_ID_TO_INGESTION_NAME[job.id] || job.id) ? 'Loading…' : 'Runs'}
-                        </button>
-                      )}
-                      <span
-                        className={clsx(
-                          'inline-flex items-center gap-2 rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.08em]',
-                          jobStatusBadgeClass(job.status)
-                        )}
-                      >
-                        <span className={clsx('h-2 w-2 rounded-full', jobStatusDotClass(job.status))} />
-                        {formatJobStatusLabel(job.status)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="mt-1 grid gap-1 text-xs text-text3 sm:grid-cols-2">
-                    <div>Cadence: {job.schedule}</div>
-                    <div>
-                      Cron:{' '}
-                      {job.cronSchedule ? `${job.cronSchedule}${job.cronActive === false ? ' (paused)' : ''}` : job.cronJobName ? 'Missing' : '—'}
-                    </div>
-                    <div>Last run: {formatTimestamp(lastRunTimestamp)}</div>
-                    <div>Last success: {formatTimestamp(job.lastSuccessAt)}</div>
-                    <div>
-                      Last new data: {formatTimestamp(job.lastNewDataAt)}
-                      {job.lastNewDataDetail ? ` • ${job.lastNewDataDetail}` : ''}
-                    </div>
-                    <div>Duration: {durationLabel || '—'}</div>
-                    <div>Status: {statusDetailLabel}</div>
-                    <div>Failures: {job.consecutiveFailures != null ? job.consecutiveFailures : '—'}</div>
-                    {job.command && (
-                      <div className="sm:col-span-2 break-words font-mono text-[11px] text-text3">Command: {job.command}</div>
-                    )}
-                  </div>
-
-                  {job.lastError && <div className="mt-2 break-words text-xs text-danger">Error: {job.lastError}</div>}
-
-                  {(() => {
-                    const jobName = JOB_ID_TO_INGESTION_NAME[job.id] || job.id;
-                    const runs = jobRunsByName[jobName];
-                    const runsError = jobRunsErrorByName[jobName];
-                    if (!runs && !runsError) return null;
-                    return (
-                      <div className="mt-3 rounded-lg border border-stroke bg-surface-0 p-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="text-xs uppercase tracking-[0.08em] text-text3">Recent runs ({jobName})</div>
-                          <button
-                            type="button"
-                            className="btn-secondary rounded-full px-2 py-0.5 text-[10px] uppercase tracking-[0.08em]"
-                            disabled={loadingJobRunsFor != null}
-                            onClick={() => loadJobRuns(job.id)}
-                          >
-                            Refresh runs
-                          </button>
+                          {job.category !== 'scheduled' && (
+                            <span
+                              className={clsx(
+                                'rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.08em]',
+                                job.category === 'manual'
+                                  ? 'border-warning/40 text-warning bg-warning/10'
+                                  : 'border-stroke text-text3 bg-[rgba(255,255,255,0.02)]'
+                              )}
+                            >
+                              {formatJobCategory(job.category)}
+                            </span>
+                          )}
+                          {!job.enabled && (
+                            <span className="rounded-full border border-stroke bg-[rgba(255,255,255,0.02)] px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-text3">
+                              Disabled
+                            </span>
+                          )}
+                          {job.group === 'advanced' && (
+                            <span className="rounded-full border border-stroke bg-[rgba(255,255,255,0.02)] px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-text3">
+                              Advanced
+                            </span>
+                          )}
+                          {relatedAlerts > 0 && (
+                            <span className="rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-warning">
+                              {relatedAlerts} alert{relatedAlerts === 1 ? '' : 's'}
+                            </span>
+                          )}
                         </div>
-                        {runsError && <div className="mt-2 text-xs text-warning">{runsError}</div>}
-                        {runs && runs.length === 0 && <div className="mt-2 text-xs text-text3">No runs found.</div>}
-                        {runs && runs.length > 0 && (
-                          <div className="mt-2 space-y-2">
-                            {runs.map((run) => {
-                              const duration = formatRunDuration(run.started_at, run.ended_at);
-                              return (
-                                <div
-                                  key={`${run.job_name}-${run.started_at}`}
-                                  className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-2 text-xs"
-                                >
-                                  <div className="min-w-0">
-                                    <div className="font-semibold text-text1">{run.job_name}</div>
-                                    <div className="text-text3">Started: {formatTimestamp(run.started_at)}</div>
-                                    <div className="text-text3">
-                                      Ended: {formatTimestamp(run.ended_at)}
-                                      {duration ? ` • ${duration}` : ''}
-                                    </div>
-                                    {run.error && <div className="break-words text-danger">Error: {run.error}</div>}
-                                  </div>
-                                  <span
-                                    className={clsx(
-                                      'text-[11px] uppercase tracking-[0.08em]',
-                                      run.success === false ? 'text-danger' : run.success === true ? 'text-success' : 'text-text3'
-                                    )}
-                                  >
-                                    {run.success === false ? 'Failed' : run.success === true ? 'OK' : 'Pending'}
-                                  </span>
-                                </div>
-                              );
-                            })}
-                          </div>
+                        <div className="flex items-center gap-2">
+                          {job.manualRunSupported && (
+                            <button
+                              type="button"
+                              className="btn-secondary rounded-full px-2 py-0.5 text-[10px] uppercase tracking-[0.08em]"
+                              disabled={triggering != null || refreshing}
+                              onClick={() => void confirmAndTriggerJob(job)}
+                            >
+                              {triggering === job.id ? 'Running…' : 'Run'}
+                            </button>
+                          )}
+                          {runHistoryName && (
+                            <button
+                              type="button"
+                              className="btn-secondary rounded-full px-2 py-0.5 text-[10px] uppercase tracking-[0.08em]"
+                              disabled={loadingJobRunsFor != null}
+                              onClick={() => loadJobRuns(runHistoryName)}
+                            >
+                              {loadingJobRunsFor === runHistoryName ? 'Loading…' : 'Runs'}
+                            </button>
+                          )}
+                          <span
+                            className={clsx(
+                              'inline-flex items-center gap-2 rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.08em]',
+                              jobStatusBadgeClass(job.status)
+                            )}
+                          >
+                            <span className={clsx('h-2 w-2 rounded-full', jobStatusDotClass(job.status))} />
+                            {formatJobStatusLabel(job.status)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="mt-1 grid gap-1 text-xs text-text3 sm:grid-cols-2">
+                        <div>Cadence: {job.schedule}</div>
+                        <div>Scheduler: {formatSchedulerKind(job.schedulerKind)}</div>
+                        <div>
+                          Cron:{' '}
+                          {job.cronSchedule
+                            ? `${job.cronSchedule}${job.cronActive === false ? ' (paused)' : ''}`
+                            : job.cronJobName
+                              ? 'Missing'
+                              : '—'}
+                        </div>
+                        <div>Last run: {formatTimestamp(lastRunTimestamp)}</div>
+                        <div>Last success: {formatTimestamp(job.lastSuccessAt)}</div>
+                        <div>
+                          Last new data: {formatTimestamp(job.lastNewDataAt)}
+                          {job.lastNewDataDetail ? ` • ${job.lastNewDataDetail}` : ''}
+                        </div>
+                        <div>Duration: {durationLabel || '—'}</div>
+                        <div>Status: {statusDetailLabel}</div>
+                        <div>Failures: {job.consecutiveFailures != null ? job.consecutiveFailures : '—'}</div>
+                        {job.command && (
+                          <div className="sm:col-span-2 break-words font-mono text-[11px] text-text3">Command: {job.command}</div>
                         )}
                       </div>
-                    );
-                  })()}
-                </div>
-              );
-            })}
+
+                      {job.lastError && <div className="mt-2 break-words text-xs text-danger">Error: {job.lastError}</div>}
+
+                      {runHistoryName && (() => {
+                        const runs = jobRunsByName[runHistoryName];
+                        const runsError = jobRunsErrorByName[runHistoryName];
+                        if (!runs && !runsError) return null;
+                        return (
+                          <div className="mt-3 rounded-lg border border-stroke bg-surface-0 p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-xs uppercase tracking-[0.08em] text-text3">Recent runs ({runHistoryName})</div>
+                              <button
+                                type="button"
+                                className="btn-secondary rounded-full px-2 py-0.5 text-[10px] uppercase tracking-[0.08em]"
+                                disabled={loadingJobRunsFor != null}
+                                onClick={() => loadJobRuns(runHistoryName)}
+                              >
+                                Refresh runs
+                              </button>
+                            </div>
+                            {runsError && <div className="mt-2 text-xs text-warning">{runsError}</div>}
+                            {runs && runs.length === 0 && <div className="mt-2 text-xs text-text3">No runs found.</div>}
+                            {runs && runs.length > 0 && (
+                              <div className="mt-2 space-y-2">
+                                {runs.map((run) => {
+                                  const duration = formatRunDuration(run.started_at, run.ended_at);
+                                  return (
+                                    <div
+                                      key={`${run.job_name}-${run.started_at}`}
+                                      className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-stroke bg-[rgba(255,255,255,0.02)] px-3 py-2 text-xs"
+                                    >
+                                      <div className="min-w-0">
+                                        <div className="font-semibold text-text1">{run.job_name}</div>
+                                        <div className="text-text3">Started: {formatTimestamp(run.started_at)}</div>
+                                        <div className="text-text3">
+                                          Ended: {formatTimestamp(run.ended_at)}
+                                          {duration ? ` • ${duration}` : ''}
+                                        </div>
+                                        {run.error && <div className="break-words text-danger">Error: {run.error}</div>}
+                                      </div>
+                                      <span
+                                        className={clsx(
+                                          'text-[11px] uppercase tracking-[0.08em]',
+                                          run.success === false ? 'text-danger' : run.success === true ? 'text-success' : 'text-text3'
+                                        )}
+                                      >
+                                        {run.success === false ? 'Failed' : run.success === true ? 'OK' : 'Pending'}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
           </div>
 
           <details className="mt-4 rounded-xl border border-stroke bg-[rgba(255,255,255,0.02)] p-3">

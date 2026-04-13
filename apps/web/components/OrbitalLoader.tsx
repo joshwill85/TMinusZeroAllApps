@@ -1,13 +1,19 @@
 type OrbitalLoaderProps = {
-  label?: string;
+  label?: string | null;
   className?: string;
 };
 
 export function OrbitalLoader({ label = 'Loading', className }: OrbitalLoaderProps) {
   const classes = className ? `orbital-loader ${className}` : 'orbital-loader';
+  const decorative = !label;
 
   return (
-    <div className={classes} role="status" aria-live="polite" aria-label={label}>
+    <div
+      className={classes}
+      {...(decorative
+        ? { 'aria-hidden': 'true' }
+        : { role: 'status', 'aria-live': 'polite', 'aria-label': label })}
+    >
       <div className="orbital-loader__tilt" aria-hidden="true">
         <div className="orbital-loader__ring" />
         <div className="orbital-loader__spin">
@@ -27,9 +33,11 @@ export function OrbitalLoader({ label = 'Loading', className }: OrbitalLoaderPro
         </div>
         <div className="orbital-loader__planet" />
       </div>
-      <span className="sr-only" data-nosnippet>
-        {label}
-      </span>
+      {label ? (
+        <span className="sr-only" data-nosnippet>
+          {label}
+        </span>
+      ) : null}
     </div>
   );
 }

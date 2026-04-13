@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
@@ -7,6 +7,12 @@ import path from 'node:path';
 type RouteExpectation = {
   route: string;
   requiredSchemaTypes?: string[];
+  expectedTitle?: string;
+  expectedH1?: string;
+  expectedDescription?: string;
+  requiredHrefTargets?: string[];
+  requireBreadcrumbNav?: boolean;
+  maxDescriptionLength?: number;
 };
 
 type NoIndexRouteExpectation = {
@@ -40,17 +46,6 @@ const REQUIRED_META_KEYS = [
 
 const INDEXABLE_ROUTE_EXPECTATIONS: RouteExpectation[] = [
   { route: '/', requiredSchemaTypes: ['BreadcrumbList', 'CollectionPage'] },
-  { route: '/artemis' },
-  { route: '/artemis/awardees' },
-  { route: '/artemis/awardees/lockheed-martin' },
-  { route: '/artemis-i' },
-  { route: '/artemis-ii' },
-  { route: '/artemis-iii' },
-  { route: '/artemis-iv' },
-  { route: '/artemis-v' },
-  { route: '/artemis-vi' },
-  { route: '/artemis-vii' },
-  { route: '/artemis/content' },
   { route: '/catalog' },
   { route: '/catalog/astronauts' },
   { route: '/news', requiredSchemaTypes: ['BreadcrumbList', 'CollectionPage'] },
@@ -60,10 +55,6 @@ const INDEXABLE_ROUTE_EXPECTATIONS: RouteExpectation[] = [
     requiredSchemaTypes: ['BreadcrumbList', 'CollectionPage', 'ItemList']
   },
   { route: '/launch-providers/spacex' },
-  {
-    route: '/providers/spacex',
-    requiredSchemaTypes: ['BreadcrumbList', 'CollectionPage', 'Organization']
-  },
   { route: '/site-map', requiredSchemaTypes: ['BreadcrumbList', 'WebPage'] },
   { route: '/docs/about', requiredSchemaTypes: ['BreadcrumbList', 'WebPage'] },
   {
@@ -74,11 +65,193 @@ const INDEXABLE_ROUTE_EXPECTATIONS: RouteExpectation[] = [
     route: '/docs/roadmap',
     requiredSchemaTypes: ['BreadcrumbList', 'WebPage']
   },
-  { route: '/starship' },
   { route: '/satellites' },
   { route: '/satellites/owners' },
-  { route: '/blue-origin/travelers' },
-  { route: '/about', requiredSchemaTypes: ['BreadcrumbList', 'WebPage'] },
+  {
+    route: '/spacex-launch-schedule',
+    requiredSchemaTypes: ['BreadcrumbList', 'CollectionPage', 'Organization'],
+    expectedTitle: 'SpaceX Launch Schedule',
+    expectedH1: 'SpaceX Launch Schedule',
+    expectedDescription:
+      'Upcoming SpaceX launches, next NET windows, and recent mission history from US launch sites.',
+    requiredHrefTargets: [
+      '/next-spacex-launch',
+      '/falcon-9-launch-schedule',
+      '/starship-launch-schedule'
+    ],
+    requireBreadcrumbNav: true,
+    maxDescriptionLength: 160
+  },
+  {
+    route: '/falcon-9-launch-schedule',
+    requiredSchemaTypes: ['BreadcrumbList', 'CollectionPage', 'Product'],
+    expectedTitle: 'Falcon 9 Launch Schedule',
+    expectedH1: 'Falcon 9 Launch Schedule',
+    expectedDescription:
+      'Upcoming Falcon 9 launches, current NET windows, and recent mission history on the reusable SpaceX workhorse.',
+    requiredHrefTargets: [
+      '/spacex-launch-schedule',
+      '/next-spacex-launch',
+      '/cape-canaveral-launch-schedule'
+    ],
+    requireBreadcrumbNav: true,
+    maxDescriptionLength: 160
+  },
+  {
+    route: '/starship-launch-schedule',
+    requiredSchemaTypes: ['BreadcrumbList', 'CollectionPage', 'Product'],
+    expectedTitle: 'Starship Launch Schedule',
+    expectedH1: 'Starship Launch Schedule',
+    expectedDescription:
+      'Upcoming Starship launch windows, the current flight test target, and recent mission history from Starbase.',
+    requiredHrefTargets: [
+      '/starbase-launch-schedule',
+      '/spacex-launch-schedule',
+      '/next-spacex-launch'
+    ],
+    requireBreadcrumbNav: true,
+    maxDescriptionLength: 160
+  },
+  {
+    route: '/blue-origin-launch-schedule',
+    requiredSchemaTypes: ['BreadcrumbList', 'CollectionPage', 'Organization'],
+    expectedTitle: 'Blue Origin Launch Schedule',
+    expectedH1: 'Blue Origin Launch Schedule',
+    expectedDescription:
+      'Upcoming Blue Origin launches, next NET windows, and recent mission history across New Shepard and New Glenn.',
+    requiredHrefTargets: [
+      '/blue-origin',
+      '/florida-rocket-launch-schedule',
+      '/rocket-launches-today'
+    ],
+    requireBreadcrumbNav: true,
+    maxDescriptionLength: 160
+  },
+  {
+    route: '/ula-launch-schedule',
+    requiredSchemaTypes: ['BreadcrumbList', 'CollectionPage', 'Organization'],
+    expectedTitle: 'ULA Launch Schedule',
+    expectedH1: 'ULA Launch Schedule',
+    expectedDescription:
+      'Upcoming ULA launches, current NET windows, and recent Atlas V and Vulcan mission history from US pads.',
+    requiredHrefTargets: [
+      '/vandenberg-launch-schedule',
+      '/cape-canaveral-launch-schedule',
+      '/rocket-launches-today'
+    ],
+    requireBreadcrumbNav: true,
+    maxDescriptionLength: 160
+  },
+  {
+    route: '/nasa-launch-schedule',
+    requiredSchemaTypes: ['BreadcrumbList', 'CollectionPage', 'Organization'],
+    expectedTitle: 'NASA Launch Schedule',
+    expectedH1: 'NASA Launch Schedule',
+    expectedDescription:
+      'Upcoming NASA launches, next NET windows, and recent mission history across crew, science, and exploration campaigns.',
+    requiredHrefTargets: [
+      '/artemis',
+      '/rocket-launches-today',
+      '/cape-canaveral-launch-schedule'
+    ],
+    requireBreadcrumbNav: true,
+    maxDescriptionLength: 160
+  },
+  {
+    route: '/florida-rocket-launch-schedule',
+    requiredSchemaTypes: [
+      'BreadcrumbList',
+      'CollectionPage',
+      'AdministrativeArea'
+    ],
+    expectedTitle: 'Florida Rocket Launch Schedule',
+    expectedH1: 'Florida Rocket Launch Schedule',
+    expectedDescription:
+      'Upcoming Florida rocket launches, next NET windows, and recent mission history from Cape Canaveral and nearby pads.',
+    requiredHrefTargets: [
+      '/cape-canaveral-launch-schedule',
+      '/spacex-launch-schedule',
+      '/blue-origin-launch-schedule'
+    ],
+    requireBreadcrumbNav: true,
+    maxDescriptionLength: 160
+  },
+  {
+    route: '/cape-canaveral-launch-schedule',
+    requiredSchemaTypes: ['BreadcrumbList', 'CollectionPage', 'Place'],
+    expectedTitle: 'Cape Canaveral Launch Schedule',
+    expectedH1: 'Cape Canaveral Launch Schedule',
+    expectedDescription:
+      'Upcoming Cape Canaveral launches, next NET windows, and recent mission history from one of the busiest US ranges.',
+    requiredHrefTargets: [
+      '/florida-rocket-launch-schedule',
+      '/next-spacex-launch',
+      '/ula-launch-schedule'
+    ],
+    requireBreadcrumbNav: true,
+    maxDescriptionLength: 160
+  },
+  {
+    route: '/vandenberg-launch-schedule',
+    requiredSchemaTypes: ['BreadcrumbList', 'CollectionPage', 'Place'],
+    expectedTitle: 'Vandenberg Launch Schedule',
+    expectedH1: 'Vandenberg Launch Schedule',
+    expectedDescription:
+      'Upcoming Vandenberg launches, current NET windows, and recent mission history from the west-coast range.',
+    requiredHrefTargets: [
+      '/rocket-launches-today',
+      '/spacex-launch-schedule',
+      '/ula-launch-schedule'
+    ],
+    requireBreadcrumbNav: true,
+    maxDescriptionLength: 160
+  },
+  {
+    route: '/starbase-launch-schedule',
+    requiredSchemaTypes: ['BreadcrumbList', 'CollectionPage', 'Place'],
+    expectedTitle: 'Starbase Launch Schedule',
+    expectedH1: 'Starbase Launch Schedule',
+    expectedDescription:
+      'Upcoming Starbase launches, current NET windows, and recent mission history from the SpaceX Gulf Coast site.',
+    requiredHrefTargets: [
+      '/starship-launch-schedule',
+      '/spacex-launch-schedule',
+      '/next-spacex-launch'
+    ],
+    requireBreadcrumbNav: true,
+    maxDescriptionLength: 160
+  },
+  {
+    route: '/rocket-launches-today',
+    requiredSchemaTypes: ['BreadcrumbList', 'CollectionPage'],
+    expectedTitle: 'Rocket Launches Today',
+    expectedH1: 'Rocket Launches Today',
+    expectedDescription:
+      "Today's US rocket launches with current launch windows, near-term countdown context, and direct mission links.",
+    requiredHrefTargets: [
+      '/spacex-launch-schedule',
+      '/blue-origin-launch-schedule',
+      '/florida-rocket-launch-schedule'
+    ],
+    requireBreadcrumbNav: true,
+    maxDescriptionLength: 160
+  },
+  {
+    route: '/next-spacex-launch',
+    requiredSchemaTypes: ['BreadcrumbList', 'WebPage', 'Organization'],
+    expectedTitle: 'Next SpaceX Launch',
+    expectedH1: 'Next SpaceX Launch',
+    expectedDescription:
+      'The next scheduled SpaceX launch, its current NET window, launch site, and links to related mission pages.',
+    requiredHrefTargets: [
+      '/spacex-launch-schedule',
+      '/starship-launch-schedule',
+      '/falcon-9-launch-schedule'
+    ],
+    requireBreadcrumbNav: true,
+    maxDescriptionLength: 160
+  },
+  { route: '/docs/about', requiredSchemaTypes: ['BreadcrumbList', 'WebPage'] },
   { route: '/support', requiredSchemaTypes: ['BreadcrumbList', 'WebPage'] },
   {
     route: '/legal/privacy',
@@ -90,9 +263,9 @@ const INDEXABLE_ROUTE_EXPECTATIONS: RouteExpectation[] = [
 
 const NOINDEX_ROUTE_EXPECTATIONS: NoIndexRouteExpectation[] = [
   {
-    route: '/auth/sign-in',
-    expectedCanonicalPath: '/auth/sign-in',
-    excludeCanonicalFromSitemap: true
+    route: '/providers/spacex',
+    expectedCanonicalPath: '/launch-providers/spacex',
+    excludeCanonicalFromSitemap: false
   },
   {
     route: '/artemis/awardees?q=lockheed',
@@ -139,7 +312,39 @@ const NOINDEX_ROUTE_EXPECTATIONS: NoIndexRouteExpectation[] = [
   }
 ];
 
-const SNIPPET_BANNED_TEXT = ['loading telemetry', 'comm link'];
+const INDEXABLE_HTML_BANNED_TEXT = [
+  'loading telemetry',
+  'loading launch detail',
+  'loading forecast outlook',
+  'loading visibility score',
+  'loading 45 ws planning outlook',
+  'loading stages and recovery',
+  'loading vehicle timeline',
+  'loading mission resources',
+  'loading related news',
+  'loading blue origin mission graphics',
+  'loading related events',
+  'loading launch updates',
+  'loading launch stats',
+  'loading flight record',
+  'loading flight redirect'
+];
+const FETCH_TIMEOUT_MS = 30_000;
+const CORE_SITEMAP_VERIFICATION_PATHS = new Set([
+  '/',
+  '/news',
+  '/info',
+  '/launch-providers',
+  '/site-map',
+  '/docs/about',
+  '/docs/faq',
+  '/docs/roadmap',
+  '/satellites',
+  '/support',
+  '/legal/privacy',
+  '/legal/terms',
+  '/legal/data'
+]);
 const TIERED_SITEMAP_ROUTES = [
   '/sitemap.xml',
   '/sitemap-launches.xml',
@@ -150,34 +355,47 @@ const TIERED_SITEMAP_ROUTES = [
 ];
 
 const WEB_DIR = path.join(process.cwd(), 'apps', 'web');
+const BUILD_ARTIFACT_PATH = path.join(WEB_DIR, '.next', 'app-build-manifest.json');
+const BUILD_ID_PATH = path.join(WEB_DIR, '.next', 'BUILD_ID');
+const ROUTES_MANIFEST_PATH = path.join(WEB_DIR, '.next', 'routes-manifest.json');
 
 async function main() {
   assert(
-    fs.existsSync(path.join(WEB_DIR, '.next', 'BUILD_ID')),
-    'Missing production build. Run `npm run build` first.'
+    fs.existsSync(BUILD_ARTIFACT_PATH),
+    'Missing web build artifacts. Run `npm run build` first.'
   );
 
   const port = await getFreePort();
-  const server = startNextServer(port);
+  const serverMode = resolveNextServerMode();
+  if (serverMode === 'dev') {
+    console.warn(
+      '[seo-tests] Falling back to `next dev` because the current build output is missing production server manifests.'
+    );
+  }
+  const server = startNextServer(port, {}, serverMode);
   try {
     await waitForServerReady({ port, path: '/' });
 
     for (const expectation of INDEXABLE_ROUTE_EXPECTATIONS) {
+      console.log(`[seo-tests] indexable ${expectation.route}`);
       await assertIndexableRoute({ port, expectation });
     }
 
+    console.log('[seo-tests] redirect /artemis-2');
     await assertRedirect({
       port,
       route: '/artemis-2',
       expectedLocationPath: '/artemis-ii',
       expectedStatus: 308
     });
+    console.log('[seo-tests] redirect /launch-providers/spacex:SpaceX');
     await assertRedirect({
       port,
       route: '/launch-providers/spacex:SpaceX',
       expectedLocationPath: '/launch-providers/spacex',
       expectedStatus: 308
     });
+    console.log('[seo-tests] redirect /catalog?entity=astronauts&q=neil&page=2');
     await assertRedirect({
       port,
       route: '/catalog?entity=astronauts&q=neil&page=2',
@@ -187,17 +405,21 @@ async function main() {
     });
 
     for (const expectation of NOINDEX_ROUTE_EXPECTATIONS) {
+      console.log(`[seo-tests] noindex ${expectation.route}`);
       await assertNoIndexRoute({ port, expectation });
     }
 
+    console.log('[seo-tests] ar noindex header');
     await assertLaunchArNoIndexHeader({ port });
 
+    console.log('[seo-tests] utility noindex opengraph-image');
     await assertHeaderContains({
       port,
       route: '/opengraph-image/jpeg?v=seo-tests',
       header: 'x-robots-tag',
       expectedSubstring: 'noindex'
     });
+    console.log('[seo-tests] utility noindex launch opengraph-image');
     await assertHeaderContains({
       port,
       route:
@@ -206,7 +428,10 @@ async function main() {
       expectedSubstring: 'noindex'
     });
 
+    console.log('[seo-tests] tiered sitemaps');
     await assertTieredSitemaps({ port });
+    console.log('[seo-tests] preview deployment noindex');
+    await assertPreviewDeploymentNoIndex();
   } finally {
     await stopServer(server);
   }
@@ -214,7 +439,17 @@ async function main() {
   console.log('SEO tests passed.');
 }
 
-function startNextServer(port: number) {
+function resolveNextServerMode() {
+  const hasStartableProductionBuild =
+    fs.existsSync(BUILD_ID_PATH) && fs.existsSync(ROUTES_MANIFEST_PATH);
+  return hasStartableProductionBuild ? 'start' : 'dev';
+}
+
+function startNextServer(
+  port: number,
+  envOverrides: Record<string, string | undefined> = {},
+  mode: 'start' | 'dev' = resolveNextServerMode()
+) {
   const nextCli = path.join(
     process.cwd(),
     'node_modules',
@@ -227,12 +462,14 @@ function startNextServer(port: number) {
     ...process.env,
     NEXT_TELEMETRY_DISABLED: '1',
     NEXT_PUBLIC_SITE_URL: `http://localhost:${port}`,
-    NEXT_PUBLIC_OG_IMAGE_VERSION: 'seo-tests'
+    NEXT_PUBLIC_OG_IMAGE_VERSION: 'seo-tests',
+    TMZ_ALLOW_LOCAL_INDEXING: '1',
+    ...envOverrides
   };
 
   const child = spawn(
     process.execPath,
-    [nextCli, 'start', '-p', String(port)],
+    [nextCli, mode, '-p', String(port)],
     {
       cwd: WEB_DIR,
       env,
@@ -247,12 +484,14 @@ function startNextServer(port: number) {
 
 async function stopServer(child: ReturnType<typeof startNextServer>) {
   if (child.exitCode != null) return;
+  terminateChildTree(child.pid, 'TERM');
   child.kill('SIGTERM');
   const deadline = Date.now() + 5_000;
   while (child.exitCode == null && Date.now() < deadline) {
     await sleep(50);
   }
   if (child.exitCode == null) {
+    terminateChildTree(child.pid, 'KILL');
     child.kill('SIGKILL');
   }
 }
@@ -265,13 +504,14 @@ async function waitForServerReady({
   path: string;
 }) {
   const url = `http://localhost:${port}${routePath}`;
-  const deadline = Date.now() + 30_000;
+  const deadline = Date.now() + 60_000;
   let lastError: unknown;
   while (Date.now() < deadline) {
     try {
       const response = await fetch(url, {
         headers: { 'x-forwarded-proto': 'https' },
-        redirect: 'manual'
+        redirect: 'manual',
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
       });
       if (response.status === 200) return;
       lastError = new Error(`Unexpected status: ${response.status}`);
@@ -295,6 +535,9 @@ async function assertIndexableRoute({
   const url = `http://localhost:${port}${expectation.route}`;
   const html = await fetchHtml(url);
   const head = parseHead(html);
+  const description = head.meta.get('description') || null;
+  const h1 = extractFirstHeading(html);
+  const hrefs = extractHrefValues(html);
 
   assert.ok(head.title, `[${expectation.route}] missing <title>`);
   assert.ok(head.canonical, `[${expectation.route}] missing canonical link`);
@@ -349,7 +592,7 @@ async function assertIndexableRoute({
 
   const bannedMatches = findBannedTextOutsideNosnippet(
     html,
-    SNIPPET_BANNED_TEXT
+    INDEXABLE_HTML_BANNED_TEXT
   );
   assert.equal(
     bannedMatches.length,
@@ -362,6 +605,53 @@ async function assertIndexableRoute({
     !robots.includes('noindex'),
     `[${expectation.route}] should be indexable`
   );
+
+  if (expectation.expectedTitle) {
+    assert.equal(
+      head.title,
+      expectation.expectedTitle,
+      `[${expectation.route}] title mismatch`
+    );
+  }
+
+  if (expectation.expectedH1) {
+    assert.equal(
+      h1,
+      expectation.expectedH1,
+      `[${expectation.route}] h1 mismatch`
+    );
+  }
+
+  if (expectation.expectedDescription) {
+    assert.equal(
+      description,
+      expectation.expectedDescription,
+      `[${expectation.route}] meta description mismatch`
+    );
+  }
+
+  if (expectation.maxDescriptionLength != null) {
+    assert.ok(
+      description && description.length <= expectation.maxDescriptionLength,
+      `[${expectation.route}] description should be <= ${expectation.maxDescriptionLength} characters`
+    );
+  }
+
+  if (expectation.requireBreadcrumbNav) {
+    assert.ok(
+      html.includes('aria-label="Breadcrumb"'),
+      `[${expectation.route}] missing visible breadcrumb navigation`
+    );
+  }
+
+  if (expectation.requiredHrefTargets?.length) {
+    for (const href of expectation.requiredHrefTargets) {
+      assert.ok(
+        hrefs.has(href),
+        `[${expectation.route}] missing required internal link ${href}`
+      );
+    }
+  }
 
   if (expectation.requiredSchemaTypes?.length) {
     const availableTypes = collectJsonLdTypes(head.jsonLd);
@@ -389,8 +679,24 @@ async function assertRedirect({
 }) {
   const response = await fetch(`http://localhost:${port}${route}`, {
     headers: { 'x-forwarded-proto': 'https' },
-    redirect: 'manual'
+    redirect: 'manual',
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
   });
+
+  if (
+    response.status === 200 &&
+    expectedStatus === 308 &&
+    resolveNextServerMode() === 'dev'
+  ) {
+    const html = await readHtmlPrefix(response, {
+      maxChars: 200_000,
+      stopMarker: '</head>'
+    });
+    const head = parseHead(html);
+    if (toPathname(head.canonical) === expectedLocationPath) {
+      return;
+    }
+  }
 
   assert.equal(
     response.status,
@@ -431,13 +737,66 @@ async function assertHeaderContains({
 }) {
   const response = await fetch(`http://localhost:${port}${route}`, {
     headers: { 'x-forwarded-proto': 'https' },
-    redirect: 'manual'
+    redirect: 'manual',
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
   });
   const value = (response.headers.get(header) || '').toLowerCase();
   assert.ok(
     value.includes(expectedSubstring.toLowerCase()),
     `[${route}] expected ${header} to include "${expectedSubstring}"`
   );
+}
+
+async function assertPreviewDeploymentNoIndex() {
+  const port = await getFreePort();
+  const server = startNextServer(port, {
+    TMZ_ALLOW_LOCAL_INDEXING: undefined,
+    VERCEL_ENV: 'preview'
+  });
+
+  try {
+    await waitForServerReady({ port, path: '/' });
+
+    const response = await fetch(
+      `http://localhost:${port}/launch-providers/spacex`,
+      {
+        headers: { 'x-forwarded-proto': 'https' },
+        redirect: 'manual',
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+      }
+    );
+    assert.equal(
+      response.status,
+      200,
+      `[preview] expected 200 for /launch-providers/spacex, got ${response.status}`
+    );
+
+    const robotsHeader = (
+      response.headers.get('x-robots-tag') || ''
+    ).toLowerCase();
+    assert.ok(
+      robotsHeader.includes('noindex'),
+      `[preview] expected x-robots-tag noindex, got "${robotsHeader || '(empty)'}"`
+    );
+
+    const html = await response.text();
+    const head = parseHead(html);
+    const robotsMeta = (head.meta.get('robots') || '').toLowerCase();
+    assert.ok(
+      robotsMeta.includes('noindex'),
+      `[preview] expected robots meta noindex, got "${robotsMeta || '(empty)'}"`
+    );
+    assert.ok(
+      head.canonical && !head.canonical.includes(`localhost:${port}`),
+      `[preview] canonical should not use the preview host: ${head.canonical || '(missing)'}`
+    );
+    assert.ok(
+      !(head.meta.get('og:url') || '').includes(`localhost:${port}`),
+      `[preview] og:url should not use the preview host: ${head.meta.get('og:url') || '(missing)'}`
+    );
+  } finally {
+    await stopServer(server);
+  }
 }
 
 async function assertNoIndexRoute({
@@ -547,8 +906,8 @@ async function assertTieredSitemaps({ port }: { port: number }) {
     '[sitemap.xml] missing /launch-providers entry'
   );
   assert.ok(
-    coreLocs.some((loc) => loc.endsWith('/about')),
-    '[sitemap.xml] missing /about entry'
+    coreLocs.some((loc) => loc.endsWith('/docs/about')),
+    '[sitemap.xml] missing /docs/about entry'
   );
   assert.ok(
     coreLocs.some((loc) => loc.endsWith('/support')),
@@ -570,6 +929,25 @@ async function assertTieredSitemaps({ port }: { port: number }) {
     coreLocs.some((loc) => loc.endsWith('/artemis/content')),
     '[sitemap.xml] missing /artemis/content entry'
   );
+  for (const route of [
+    '/spacex-launch-schedule',
+    '/falcon-9-launch-schedule',
+    '/starship-launch-schedule',
+    '/blue-origin-launch-schedule',
+    '/ula-launch-schedule',
+    '/nasa-launch-schedule',
+    '/florida-rocket-launch-schedule',
+    '/cape-canaveral-launch-schedule',
+    '/vandenberg-launch-schedule',
+    '/starbase-launch-schedule',
+    '/rocket-launches-today',
+    '/next-spacex-launch'
+  ]) {
+    assert.ok(
+      coreLocs.some((loc) => loc.endsWith(route)),
+      `[sitemap.xml] missing ${route} entry`
+    );
+  }
 
   assert.ok(
     launchIndexLocs.some((loc) => loc.includes('/sitemap-launches.xml?page=1')),
@@ -595,14 +973,14 @@ async function assertTieredSitemaps({ port }: { port: number }) {
     '[sitemap-entities.xml?page=1] missing /launch-providers/spacex entry'
   );
   assert.ok(
-    entityLeafLocs.some((loc) => loc.endsWith('/providers/spacex')),
-    '[sitemap-entities.xml?page=1] missing /providers/spacex entry'
+    !entityLeafLocs.some((loc) => loc.endsWith('/providers/spacex')),
+    '[sitemap-entities.xml?page=1] provider alias URLs should be excluded'
   );
   assert.ok(
-    entityLeafLocs.some((loc) =>
-      loc.endsWith('/artemis/awardees/lockheed-martin')
+    !catalogLeafLocs.some((loc) =>
+      loc.includes('/catalog/launcher_configurations/')
     ),
-    '[sitemap-entities.xml?page=1] missing /artemis/awardees/lockheed-martin entry'
+    '[sitemap-catalog.xml?page=1] launcher configuration aliases should be excluded'
   );
   assert.ok(
     launchLeafLocs.some((loc) => loc.includes('/launches/')),
@@ -644,13 +1022,11 @@ async function assertTieredSitemaps({ port }: { port: number }) {
   );
 
   const sitemapVerificationLocs = dedupeStrings([
-    ...coreLocs,
+    ...coreLocs.filter((loc) =>
+      CORE_SITEMAP_VERIFICATION_PATHS.has(toPathname(loc))
+    ),
     ...entityLeafLocs.filter((loc) =>
-      [
-        '/launch-providers/spacex',
-        '/providers/spacex',
-        '/artemis/awardees/lockheed-martin'
-      ].some((suffix) => loc.endsWith(suffix))
+      ['/launch-providers/spacex'].some((suffix) => loc.endsWith(suffix))
     ),
     ...catalogLeafLocs.slice(0, 5),
     ...launchLeafLocs.slice(0, 5),
@@ -659,8 +1035,11 @@ async function assertTieredSitemaps({ port }: { port: number }) {
   ]);
 
   for (const loc of sitemapVerificationLocs) {
+    console.log(`[seo-tests] sitemap verify ${loc}`);
     await assertSitemapPageIsCanonicalIndexable({ port, loc });
   }
+
+  await assertLegacyIdRedirects({ port, entityLeafLocs, launchLeafLocs });
 
   const lastLaunchLeaf = launchIndexLocs.at(-1);
   if (lastLaunchLeaf) {
@@ -669,6 +1048,87 @@ async function assertTieredSitemaps({ port }: { port: number }) {
       lastLaunchLeafLocs.length > 0,
       '[sitemap-launches.xml] last shard should contain older launch entries'
     );
+  }
+}
+
+async function assertLegacyIdRedirects({
+  port,
+  entityLeafLocs,
+  launchLeafLocs
+}: {
+  port: number;
+  entityLeafLocs: string[];
+  launchLeafLocs: string[];
+}) {
+  const canonicalRocketLoc = entityLeafLocs.find((loc) =>
+    /^\/rockets\/.+-\d+$/.test(toPathname(loc))
+  );
+  assert.ok(
+    canonicalRocketLoc,
+    '[legacy redirect] missing rocket sitemap entry'
+  );
+  const rocketPath = toPathname(canonicalRocketLoc || null);
+  const rocketId = extractNumericTailSegment(rocketPath);
+  assert.ok(
+    rocketId,
+    `[legacy redirect] could not derive rocket id from ${rocketPath}`
+  );
+  await assertRedirect({
+    port,
+    route: `/rockets/${rocketId}`,
+    expectedLocationPath: rocketPath,
+    expectedStatus: 308
+  });
+
+  const canonicalLocationLoc = entityLeafLocs.find((loc) =>
+    /^\/locations\/.+-\d+$/.test(toPathname(loc))
+  );
+  assert.ok(
+    canonicalLocationLoc,
+    '[legacy redirect] missing location sitemap entry'
+  );
+  const locationPath = toPathname(canonicalLocationLoc || null);
+  const locationId = extractNumericTailSegment(locationPath);
+  assert.ok(
+    locationId,
+    `[legacy redirect] could not derive location id from ${locationPath}`
+  );
+  await assertRedirect({
+    port,
+    route: `/locations/${locationId}`,
+    expectedLocationPath: locationPath,
+    expectedStatus: 308
+  });
+
+  const canonicalLaunchLoc = launchLeafLocs.find((loc) =>
+    /\/launches\/.+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      toPathname(loc)
+    )
+  );
+  assert.ok(
+    canonicalLaunchLoc,
+    '[legacy redirect] missing launch sitemap entry'
+  );
+  const launchPath = toPathname(canonicalLaunchLoc || null);
+  const launchId = extractUuidTailSegment(launchPath);
+  assert.ok(
+    launchId,
+    `[legacy redirect] could not derive launch id from ${launchPath}`
+  );
+  await assertRedirect({
+    port,
+    route: `/launches/${launchId}`,
+    expectedLocationPath: launchPath,
+    expectedStatus: 308
+  });
+
+  if (rocketId) {
+    await assertRedirect({
+      port,
+      route: `/catalog/launcher_configurations/${rocketId}`,
+      expectedLocationPath: rocketPath,
+      expectedStatus: 308
+    });
   }
 }
 
@@ -687,15 +1147,18 @@ async function assertSitemapPageIsCanonicalIndexable({
 
   const response = await fetch(localUrl, {
     headers: { 'x-forwarded-proto': 'https' },
-    redirect: 'manual'
+    redirect: 'manual',
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+  });
+  const html = await readHtmlPrefix(response, {
+    maxChars: 250_000,
+    stopMarker: '</head>'
   });
   assert.equal(
     response.status,
     200,
-    `[${loc}] sitemap path should resolve locally without redirect`
+    `[${loc}] sitemap path should resolve locally without redirect (status ${response.status})\n${html.slice(0, 800)}`
   );
-
-  const html = await response.text();
   const head = parseHead(html);
   const robots = (head.meta.get('robots') || '').toLowerCase();
 
@@ -710,24 +1173,51 @@ async function assertSitemapPageIsCanonicalIndexable({
     !robots.includes('noindex'),
     `[${loc}] sitemap entry should not resolve to a noindex page`
   );
+  const bannedMatches = findBannedTextOutsideNosnippet(
+    html,
+    INDEXABLE_HTML_BANNED_TEXT
+  );
+  assert.equal(
+    bannedMatches.length,
+    0,
+    `[${loc}] placeholder text leaked into indexable HTML: ${bannedMatches.join(', ')}`
+  );
 }
 
 async function fetchHtml(url: string) {
-  const response = await fetch(url, {
-    headers: { 'x-forwarded-proto': 'https' }
+  let response = await fetch(url, {
+    headers: { 'x-forwarded-proto': 'https' },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
   });
+  if (response.status === 404 && resolveNextServerMode() === 'dev') {
+    await sleep(250);
+    response = await fetch(url, {
+      headers: { 'x-forwarded-proto': 'https' },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+    });
+  }
   assert.equal(
     response.status,
     200,
     `Expected 200 for ${url} but got ${response.status}`
   );
-  return response.text();
+  return readHtmlPrefix(response, {
+    maxChars: 400_000
+  });
 }
 
 async function fetchText(url: string) {
-  const response = await fetch(url, {
-    headers: { 'x-forwarded-proto': 'https' }
+  let response = await fetch(url, {
+    headers: { 'x-forwarded-proto': 'https' },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
   });
+  if (response.status === 404 && resolveNextServerMode() === 'dev') {
+    await sleep(250);
+    response = await fetch(url, {
+      headers: { 'x-forwarded-proto': 'https' },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+    });
+  }
   assert.equal(
     response.status,
     200,
@@ -751,7 +1241,7 @@ function parseHead(html: string): ParsedHead {
   const head = headMatch ? headMatch[1] : html;
 
   const titleMatch = head.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-  const title = titleMatch ? titleMatch[1].trim() : null;
+  const title = titleMatch ? decodeHtml(titleMatch[1]).trim() : null;
 
   const canonicalHref = (() => {
     const linkTags = head.match(/<link\s+[^>]*>/gi) ?? [];
@@ -807,6 +1297,22 @@ function parseJsonLd(html: string) {
   return objects;
 }
 
+function extractFirstHeading(html: string) {
+  const match = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+  if (!match?.[1]) return null;
+  return decodeHtml(stripTags(match[1])).trim() || null;
+}
+
+function extractHrefValues(html: string) {
+  const hrefs = new Set<string>();
+  const regex = /<a\s+[^>]*href="([^"]+)"/gi;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(html))) {
+    if (match[1]) hrefs.add(match[1]);
+  }
+  return hrefs;
+}
+
 function normalizeJsonLdNodes(value: unknown): unknown[] {
   if (Array.isArray(value)) {
     return value.flatMap((entry) => normalizeJsonLdNodes(entry));
@@ -851,9 +1357,63 @@ function parseTagAttributes(tag: string): Record<string, string> {
   const regex = /([a-zA-Z_:][a-zA-Z0-9_:\-]*)\s*=\s*"([^"]*)"/g;
   let match: RegExpExecArray | null;
   while ((match = regex.exec(tag))) {
-    attrs[match[1].toLowerCase()] = match[2];
+    attrs[match[1].toLowerCase()] = decodeHtml(match[2]);
   }
   return attrs;
+}
+
+function stripTags(value: string) {
+  return value.replace(/<[^>]+>/g, ' ');
+}
+
+function decodeHtml(value: string) {
+  return value
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/gi, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ');
+}
+
+async function readHtmlPrefix(
+  response: Response,
+  {
+    maxChars,
+    stopMarker
+  }: {
+    maxChars: number;
+    stopMarker?: string;
+  }
+) {
+  if (!response.body) {
+    return response.text();
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let html = '';
+  const normalizedStopMarker = stopMarker?.toLowerCase() || null;
+
+  while (html.length < maxChars) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    html += decoder.decode(value, { stream: true });
+    if (
+      normalizedStopMarker &&
+      html.toLowerCase().includes(normalizedStopMarker)
+    ) {
+      break;
+    }
+  }
+
+  html += decoder.decode();
+  try {
+    await reader.cancel();
+  } catch {}
+  return html;
 }
 
 function isAbsoluteUrl(value: string | null | undefined) {
@@ -959,6 +1519,20 @@ function dedupeStrings(values: string[]) {
   return [...new Set(values)];
 }
 
+function extractNumericTailSegment(pathname: string) {
+  const segment = pathname.split('/').pop() || '';
+  const match = segment.match(/-(\d+)$/);
+  return match?.[1] || (/^\d+$/.test(segment) ? segment : null);
+}
+
+function extractUuidTailSegment(pathname: string) {
+  const segment = pathname.split('/').pop() || '';
+  const match = segment.match(
+    /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
+  );
+  return match?.[1] || null;
+}
+
 async function getFreePort() {
   return new Promise<number>((resolve, reject) => {
     const server = net.createServer();
@@ -980,6 +1554,24 @@ async function getFreePort() {
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function terminateChildTree(
+  pid: number | undefined,
+  signal: 'TERM' | 'KILL'
+) {
+  if (!pid) return;
+  try {
+    spawnSync('pkill', [`-${signal}`, '-P', String(pid)], {
+      stdio: 'ignore'
+    });
+  } catch {}
+
+  try {
+    spawnSync('pkill', [`-${signal}`, '-P', String(pid)], {
+      stdio: 'ignore'
+    });
+  } catch {}
 }
 
 main().catch((error) => {

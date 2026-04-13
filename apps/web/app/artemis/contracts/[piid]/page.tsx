@@ -12,6 +12,7 @@ import {
 import { buildCanonicalContractHrefForSeed } from '@/lib/server/contracts';
 import { getArtemisMissionProfileDefault } from '@/lib/server/artemisMissionProfiles';
 import { getSiteUrl } from '@/lib/server/env';
+import { buildIndexQualityNoIndexRobots } from '@/lib/server/indexing';
 import { buildSiteMeta, SITE_META } from '@/lib/server/siteMeta';
 import { ARTEMIS_MISSION_HUB_KEYS, type ArtemisMissionHubKey } from '@/lib/types/artemis';
 
@@ -57,6 +58,7 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
     title,
     description,
     alternates: { canonical },
+    robots: buildIndexQualityNoIndexRobots(),
     openGraph: {
       title,
       description,

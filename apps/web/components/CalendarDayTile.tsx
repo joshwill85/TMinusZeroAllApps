@@ -52,7 +52,13 @@ export function CalendarDayTile({
 
       <span className={clsx('relative flex h-full flex-col', compact ? 'p-2.5 sm:p-3' : 'p-3')}>
         <span className="mt-auto flex min-h-[20px] items-end justify-center">
-          {launchCount > 0 ? <CalendarDayMarker count={launchCount} compact={compact} /> : null}
+          {launchCount > 0 ? (
+            <CalendarDayMarker
+              count={launchCount}
+              compact={compact}
+              dayState={dayState}
+            />
+          ) : null}
         </span>
       </span>
     </button>
@@ -62,7 +68,14 @@ export function CalendarDayTile({
 export function CalendarStateLegend({ className }: { className?: string }) {
   return (
     <div className={clsx('flex flex-wrap items-center gap-3 text-[11px] font-medium text-text3', className)}>
-      <CalendarLegendItem label="Launch days" marker={<CalendarDayMarker count={3} compact />} />
+      <CalendarLegendItem
+        label="Upcoming launch days"
+        marker={<CalendarDayMarker count={3} compact dayState="future" />}
+      />
+      <CalendarLegendItem
+        label="Past launch days"
+        marker={<CalendarDayMarker count={3} compact dayState="past" />}
+      />
     </div>
   );
 }
@@ -78,10 +91,12 @@ function CalendarLegendItem({ marker, label }: { marker: ReactNode; label: strin
 
 function CalendarDayMarker({
   count,
-  compact = false
+  compact = false,
+  dayState = 'future'
 }: {
   count: number;
   compact?: boolean;
+  dayState?: CalendarDayTemporalState;
 }) {
   const dots = Math.min(Math.max(count, 1), 3);
   return (
@@ -89,7 +104,13 @@ function CalendarDayMarker({
       {Array.from({ length: dots }).map((_, index) => (
         <span
           key={`launch-dot-${index}`}
-          className={clsx('rounded-full bg-[rgba(34,211,238,0.92)] shadow-[0_0_10px_rgba(34,211,238,0.35)]', compact ? 'h-1.5 w-1.5' : 'h-2 w-2')}
+          className={clsx(
+            'rounded-full',
+            dayState === 'past'
+              ? 'bg-[rgba(74,222,128,0.52)] shadow-[0_0_8px_rgba(74,222,128,0.18)]'
+              : 'bg-[rgba(34,211,238,0.92)] shadow-[0_0_10px_rgba(34,211,238,0.35)]',
+            compact ? 'h-1.5 w-1.5' : 'h-2 w-2'
+          )}
         />
       ))}
     </span>

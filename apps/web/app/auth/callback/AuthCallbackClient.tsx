@@ -8,11 +8,11 @@ import { normalizeAuthSourceProvider } from '@tminuszero/domain';
 import { buildAuthHref, readAuthIntent, readReturnTo, sanitizeReturnTo } from '@tminuszero/navigation';
 import { sharedQueryKeys } from '@tminuszero/query';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
 import { browserApiClient } from '@/lib/api/client';
 import { getBrowserClient } from '@/lib/api/supabase';
 import type { EmailOtpType, Session, User, UserIdentity } from '@supabase/supabase-js';
 import { invalidateViewerScopedQueries } from '@/lib/api/queries';
+import { useSafeSearchParams } from '@/lib/client/useSafeSearchParams';
 import { getSharedProfile, updateSharedProfile } from '@/lib/api/webAccountAdapters';
 
 type Status = 'working' | 'error' | 'missing';
@@ -301,7 +301,7 @@ async function recordWebCallbackContext(type: string | null, session?: Session |
 }
 
 export default function AuthCallbackClient() {
-  const searchParams = useSearchParams();
+  const searchParams = useSafeSearchParams();
   const queryClient = useQueryClient();
   const queryString = searchParams.toString();
   const [status, setStatus] = useState<Status>('working');

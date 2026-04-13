@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { getSiteUrl } from '@/lib/server/env';
+import { getIndexingSiteUrl } from '@/lib/server/indexing';
 import { buildSiteMeta, SITE_META } from '@/lib/server/siteMeta';
 
 type SocialMetadataOptions = {
@@ -25,7 +25,7 @@ export function normalizeCanonicalPath(value: string) {
 }
 
 export function buildCanonicalUrl(canonicalPath: string) {
-  const siteUrl = getSiteUrl().replace(/\/$/, '');
+  const siteUrl = getIndexingSiteUrl().replace(/\/$/, '');
   return `${siteUrl}${normalizeCanonicalPath(canonicalPath)}`;
 }
 
@@ -113,7 +113,7 @@ export function buildWebPageJsonLd({
   description: string;
 }) {
   const pageUrl = buildCanonicalUrl(canonical);
-  const siteUrl = getSiteUrl().replace(/\/$/, '');
+  const siteUrl = getIndexingSiteUrl().replace(/\/$/, '');
   return {
     '@context': 'https://schema.org',
     '@type': 'WebPage',
@@ -138,7 +138,7 @@ export function buildCollectionPageJsonLd({
   mainEntityId?: string;
 }) {
   const pageUrl = buildCanonicalUrl(canonical);
-  const siteUrl = getSiteUrl().replace(/\/$/, '');
+  const siteUrl = getIndexingSiteUrl().replace(/\/$/, '');
   return {
     '@context': 'https://schema.org',
     '@type': 'CollectionPage',

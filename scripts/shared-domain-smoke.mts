@@ -44,7 +44,7 @@ import {
 import { deriveTrajectoryEvidenceView } from '../packages/domain/src/trajectory/evidence.ts';
 import { deriveTrajectoryFieldAuthorityProfile } from '../packages/domain/src/trajectory/fieldAuthority.ts';
 import { deriveTrajectoryPublishPolicy } from '../packages/domain/src/trajectory/publishPolicy.ts';
-import { buildJepObserverContext, buildJepPresentation } from '../packages/domain/src/jepPresentation.ts';
+import { buildJepObserverContext, buildJepPresentation, buildJepScenarioTimeline } from '../packages/domain/src/jepPresentation.ts';
 import {
   deriveArTelemetryTimeToUsableMs,
   inferMobileArReleaseProfile,
@@ -107,6 +107,63 @@ const fallbackJepPresentation = buildJepPresentation({
   }
 } as any);
 assert.match(fallbackJepPresentation.summary, /Launch-area conditions look favorable right now/);
+
+const flatScenarioTimeline = buildJepScenarioTimeline({
+  score: 0,
+  visibilityCall: 'not_expected',
+  factors: {
+    darkness: 0,
+    illumination: 0,
+    lineOfSight: 0,
+    weather: 0,
+    solarDepressionDeg: 0,
+    cloudCoverPct: 100,
+    cloudCoverLowPct: 100,
+    cloudCoverMidPct: 100,
+    cloudCoverHighPct: 100
+  },
+  scenarioWindows: [
+    { offsetMinutes: 15, score: 0, delta: 0, trend: 'similar', label: '+15 min' },
+    { offsetMinutes: 30, score: 0, delta: 0, trend: 'similar', label: '+30 min' },
+    { offsetMinutes: 45, score: 0, delta: 0, trend: 'similar', label: '+45 min' }
+  ],
+  observer: {
+    locationHash: 'pad',
+    personalized: false,
+    usingPadFallback: true
+  }
+} as any);
+assert.deepEqual(flatScenarioTimeline, []);
+
+const changingScenarioTimeline = buildJepScenarioTimeline({
+  score: 10,
+  visibilityCall: 'possible',
+  factors: {
+    darkness: 0.4,
+    illumination: 0.4,
+    lineOfSight: 0.5,
+    weather: 0.5,
+    solarDepressionDeg: 3,
+    cloudCoverPct: 60,
+    cloudCoverLowPct: 40,
+    cloudCoverMidPct: 30,
+    cloudCoverHighPct: 20
+  },
+  scenarioWindows: [
+    { offsetMinutes: 15, score: 10, delta: 0, trend: 'similar', label: '+15 min' },
+    { offsetMinutes: 30, score: 24, delta: 14, trend: 'better', label: '+30 min' },
+    { offsetMinutes: 45, score: 24, delta: 14, trend: 'better', label: '+45 min' }
+  ],
+  observer: {
+    locationHash: 'pad',
+    personalized: false,
+    usingPadFallback: true
+  }
+} as any);
+assert.deepEqual(
+  changingScenarioTimeline.map((entry) => entry.label),
+  ['NET', '+30 min']
+);
 
 const parsedSearch = parseSiteSearchInput('type:launch provider:SpaceX -status:scrubbed "Starlink 12"');
 assert.equal(parsedSearch.query, 'SpaceX -scrubbed "Starlink 12"');

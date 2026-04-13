@@ -18,6 +18,7 @@
   "scripts": {
     "preinstall": "node scripts/check-toolchain.cjs",
     "doctor": "node scripts/doctor-toolchain.cjs",
+    "db:schema:snapshot": "bash scripts/export-supabase-public-schema.sh --archive",
     "auth:apple:client-secret": "node scripts/generate-apple-client-secret.mjs",
     "check:three-platform:boundaries": "node scripts/three-platform-boundary-check.cjs && node scripts/browser-supabase-guard.cjs",
     "dev": "npm run dev --workspace @tminuszero/web",
@@ -68,6 +69,7 @@
     "test:mobile-query-guard": "TS_NODE_TRANSPILE_ONLY=1 node --loader ts-node/esm scripts/mobile-query-guard.mts",
     "test:review-findings-guard": "TS_NODE_TRANSPILE_ONLY=1 node --loader ts-node/esm scripts/review-findings-guard.mts",
     "test:admin-surface-guard": "TS_NODE_TRANSPILE_ONLY=1 node --loader ts-node/esm scripts/admin-surface-guard.mts",
+    "test:admin-job-control-plane": "tsx --tsconfig tsconfig.scripts.json scripts/admin-job-control-plane-guard.mts",
     "test:launch-refresh-guard": "TS_NODE_TRANSPILE_ONLY=1 node --experimental-specifier-resolution=node --loader ts-node/esm scripts/launch-refresh-guard.mts",
     "test:gating-alignment-guard": "TS_NODE_TRANSPILE_ONLY=1 node --loader ts-node/esm scripts/gating-alignment-guard.mts",
     "test:mobile-security-guard": "TS_NODE_TRANSPILE_ONLY=1 node --loader ts-node/esm scripts/mobile-security-guard.mts",
@@ -81,6 +83,7 @@
     "test:billing-regression": "ts-node --project tsconfig.scripts.json --transpile-only -r tsconfig-paths/register scripts/billing-regression-smoke.ts",
     "test:three-platform:hot-path": "TS_NODE_TRANSPILE_ONLY=1 node --loader ts-node/esm scripts/three-platform-hot-path-guard.mts",
     "test:rate-limit-smoke": "ts-node --project tsconfig.scripts.json --transpile-only -r tsconfig-paths/register scripts/rate-limit-smoke.ts",
+    "audit:seo:phase1": "ts-node --project tsconfig.scripts.json --transpile-only -r tsconfig-paths/register scripts/seo-phase1-audit.ts",
     "seed:three-platform:local": "ts-node --project tsconfig.scripts.json --transpile-only scripts/three-platform-local-acceptance-seed.ts",
     "baseline:three-platform": "ts-node --project tsconfig.scripts.json --transpile-only scripts/three-platform-baseline-capture.ts",
     "acceptance:preflight": "ts-node --project tsconfig.scripts.json --transpile-only scripts/three-platform-acceptance-preflight.ts",

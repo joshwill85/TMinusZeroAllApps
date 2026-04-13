@@ -1,4 +1,5 @@
-import { getOgImageVersion, getSiteUrl } from '@/lib/server/env';
+import { getOgImageVersion } from '@/lib/server/env';
+import { getIndexingSiteUrl } from '@/lib/server/indexing';
 import { BRAND_NAME, BRAND_TECHNICAL_NAME } from '@/lib/brand';
 
 export const SITE_META = {
@@ -27,13 +28,14 @@ export const SITE_META = {
     'artemis procurement awards'
   ],
   ogTitle: 'US Rocket Launch Schedule',
-  ogDescription: 'Upcoming US rocket launches with countdowns, launch windows, and live coverage links.',
+  ogDescription:
+    'Upcoming US rocket launches with countdowns, launch windows, and live coverage links.',
   siteName: BRAND_NAME,
   ogImageAlt: `${BRAND_TECHNICAL_NAME} orbit arc with a minimalist rocket`
 };
 
 export function buildSiteMeta(options?: { ogOverride?: string | null }) {
-  const siteUrl = getSiteUrl();
+  const siteUrl = getIndexingSiteUrl();
   const ogOverride = options?.ogOverride?.trim();
   const ogVersion = ogOverride || getOgImageVersion();
   const ogImage = `${siteUrl}/opengraph-image/jpeg?v=${encodeURIComponent(ogVersion)}`;

@@ -1,113 +1,13 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { normalizeEnvText, normalizeEnvUrl } from '@/lib/env/normalize';
-import { ingestWs45LaunchForecasts } from '@/lib/server/ws45ForecastIngest';
+import { getAdminJobRegistryEntry, normalizeAdminSyncJobId } from '../../../admin/_lib/jobRegistry';
 import { requireAdminRequest } from '../_lib/auth';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-const JOBS = {
-  sync_ll2: { slug: 'll2-incremental' },
-  refresh_public_cache: { slug: 'ingestion-cycle' },
-  dispatch_notifications: { slug: 'notifications-dispatch' },
-  ws45_forecasts_ingest: { slug: 'ws45-forecast-ingest' },
-  ws45_live_weather_ingest: { slug: 'ws45-live-weather-ingest' },
-  ws45_planning_forecast_ingest: { slug: 'ws45-planning-forecast-ingest' },
-  ws45_weather_retention_cleanup: { slug: 'ws45-weather-retention-cleanup' },
-  nws_refresh: { slug: 'nws-refresh' },
-  billing_reconcile: { slug: 'billing-reconcile' },
-
-  celestrak_gp_groups_sync: { slug: 'celestrak-gp-groups-sync' },
-  celestrak_supgp_sync: { slug: 'celestrak-supgp-sync' },
-  celestrak_supgp_ingest: { slug: 'celestrak-supgp-ingest' },
-  celestrak_ingest: { slug: 'celestrak-ingest' },
-  celestrak_retention_cleanup: { slug: 'celestrak-retention-cleanup' },
-
-  spacex_infographics_ingest: { slug: 'spacex-infographics-ingest' },
-  spacex_x_post_snapshot: { slug: 'spacex-x-post-snapshot' },
-  launch_social_refresh: { slug: 'launch-social-refresh' },
-  social_posts_dispatch: { slug: 'social-posts-dispatch' },
-  launch_social_link_backfill: { slug: 'launch-social-link-backfill' },
-
-  ll2_backfill: { slug: 'll2-backfill' },
-  ll2_payload_backfill: { slug: 'll2-payload-backfill' },
-  ll2_catalog_agencies: { slug: 'll2-catalog-agencies' },
-  rocket_media_backfill: { slug: 'rocket-media-backfill' },
-
-  trajectory_orbit_ingest: { slug: 'trajectory-orbit-ingest' },
-  trajectory_constraints_ingest: { slug: 'trajectory-constraints-ingest' },
-  trajectory_products_generate: { slug: 'trajectory-products-generate' },
-  jep_score_refresh: { slug: 'jep-score-refresh' },
-  jep_moon_ephemeris_refresh: { slug: 'jep-moon-ephemeris-refresh' },
-  jep_background_light_refresh: { slug: 'jep-background-light-refresh' },
-  trajectory_templates_generate: { slug: 'trajectory-templates-generate' },
-
-  artemis_bootstrap: { slug: 'artemis-bootstrap' },
-  artemis_nasa_ingest: { slug: 'artemis-nasa-ingest' },
-  artemis_oversight_ingest: { slug: 'artemis-oversight-ingest' },
-  artemis_budget_ingest: { slug: 'artemis-budget-ingest' },
-  artemis_procurement_ingest: { slug: 'artemis-procurement-ingest' },
-  artemis_contracts_ingest: { slug: 'artemis-contracts-ingest' },
-  program_contract_story_sync: { slug: 'program-contract-story-sync' },
-  artemis_snapshot_build: { slug: 'artemis-snapshot-build' },
-  artemis_content_ingest: { slug: 'artemis-content-ingest' },
-
-  notifications_send: { slug: 'notifications-send' },
-  monitoring_check: { slug: 'monitoring-check' }
-} as const;
-
-const FORCE_BODY_JOBS = new Set(['ll2_backfill', 'll2_payload_backfill', 'rocket_media_backfill', 'artemis_bootstrap']);
-
 const schema = z.object({
-  job: z.enum([
-    'sync_ll2',
-    'refresh_public_cache',
-    'dispatch_notifications',
-    'ws45_forecasts_ingest',
-    'ws45_live_weather_ingest',
-    'ws45_planning_forecast_ingest',
-    'ws45_weather_retention_cleanup',
-    'nws_refresh',
-    'billing_reconcile',
-
-    'celestrak_gp_groups_sync',
-    'celestrak_supgp_sync',
-    'celestrak_supgp_ingest',
-    'celestrak_ingest',
-    'celestrak_retention_cleanup',
-
-    'spacex_infographics_ingest',
-    'spacex_x_post_snapshot',
-    'launch_social_refresh',
-    'social_posts_dispatch',
-    'launch_social_link_backfill',
-
-    'll2_backfill',
-    'll2_payload_backfill',
-    'll2_catalog_agencies',
-    'rocket_media_backfill',
-
-    'trajectory_orbit_ingest',
-    'trajectory_constraints_ingest',
-    'trajectory_products_generate',
-    'jep_score_refresh',
-    'jep_moon_ephemeris_refresh',
-    'jep_background_light_refresh',
-    'trajectory_templates_generate',
-
-    'artemis_bootstrap',
-    'artemis_nasa_ingest',
-    'artemis_oversight_ingest',
-    'artemis_budget_ingest',
-    'artemis_procurement_ingest',
-    'artemis_contracts_ingest',
-    'program_contract_story_sync',
-    'artemis_snapshot_build',
-    'artemis_content_ingest',
-
-    'notifications_send',
-    'monitoring_check'
-  ])
+  job: z.string().trim().min(1)
 });
 
 export async function POST(request: Request) {
@@ -118,27 +18,13 @@ export async function POST(request: Request) {
   const parsed = schema.safeParse(await request.json().catch(() => undefined));
   if (!parsed.success) return NextResponse.json({ error: 'invalid_body' }, { status: 400 });
 
-  const jobName = parsed.data.job;
+  const jobId = normalizeAdminSyncJobId(parsed.data.job);
+  if (!jobId) return NextResponse.json({ error: 'unknown_job' }, { status: 400 });
 
-  if (jobName === 'ws45_forecasts_ingest') {
-    try {
-      const admin = gate.context.admin;
-      if (!admin) {
-        return NextResponse.json({ error: 'supabase_admin_not_configured' }, { status: 501 });
-      }
-      const result = await ingestWs45LaunchForecasts({ supabaseAdmin: admin });
-      if (!result.ok) {
-        return NextResponse.json({ error: 'ws45_ingest_failed', result }, { status: 502 });
-      }
-      return NextResponse.json({ triggered: jobName, result });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return NextResponse.json({ error: 'ws45_ingest_failed', message }, { status: 502 });
-    }
+  const job = getAdminJobRegistryEntry(jobId);
+  if (!job || !job.manualRunSupported || !job.slug) {
+    return NextResponse.json({ error: 'job_not_runnable' }, { status: 400 });
   }
-
-  const job = JOBS[jobName];
-  if (!job) return NextResponse.json({ error: 'unknown_job' }, { status: 400 });
 
   const { data: settingsRows, error: settingsError } = await supabase
     .from('system_settings')
@@ -166,7 +52,7 @@ export async function POST(request: Request) {
   if (!baseUrl) return NextResponse.json({ error: 'jobs_base_url_not_set' }, { status: 409 });
 
   const url = `${baseUrl.replace(/\/+$/, '')}/${job.slug}`;
-  const bodyPayload = FORCE_BODY_JOBS.has(jobName) ? { force: true } : {};
+  const bodyPayload = job.manualRunForceBody ? { force: true } : {};
   const res = await fetch(url, {
     method: 'POST',
     headers: {
@@ -186,7 +72,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'job_failed', status: res.status, body }, { status: 502 });
   }
 
-  return NextResponse.json({ triggered: jobName, job: job.slug, result: body });
+  return NextResponse.json({ triggered: jobId, job: job.slug, result: body });
 }
 
 function readStringSetting(value: unknown) {

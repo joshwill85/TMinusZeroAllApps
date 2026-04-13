@@ -6,6 +6,7 @@ import {
   getRecommendedLaunchRefreshIntervalSeconds,
   getTierRefreshSeconds,
   PREMIUM_LAUNCH_DEFAULT_REFRESH_SECONDS,
+  DEFAULT_LAUNCH_FILTER_HELP_TEXT,
   getVisibleFeedUpdatedAt,
   shouldPrimeVersionRefresh,
   tierToMode,
@@ -14,9 +15,10 @@ import {
 import { buildAuthHref, buildUpgradeHref } from '@tminuszero/navigation';
 import clsx from 'clsx';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { sharedQueryKeys } from '@tminuszero/query';
+import { useSafeSearchParams } from '@/lib/client/useSafeSearchParams';
 import {
   useCallback,
   useEffect,
@@ -57,6 +59,10 @@ import { isArtemisLaunch } from '@/lib/utils/launchArtemis';
 import { getArtemisVariantLabel } from '@/lib/utils/artemis';
 import { isStarshipLaunch } from '@/lib/utils/launchStarship';
 import { getStarshipVariantLabel } from '@/lib/utils/starship';
+import {
+  buildWatchlistRuleErrorMessage,
+  isWatchlistCreateLimitError
+} from '@/lib/watchlists/errorMessages';
 import { LaunchCard } from './LaunchCard';
 import { SkeletonLaunchCard } from './SkeletonLaunchCard';
 import { BulkCalendarExport } from './BulkCalendarExport';
@@ -67,6 +73,7 @@ import { RssFeeds } from './RssFeeds';
 import { useToast } from './ToastProvider';
 
 const PAGE_SIZE = LAUNCH_FEED_PAGE_SIZE;
+const FOLLOWING_RECENT_LIMIT = 5;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_LAUNCH_FILTERS: LaunchFilter = {
@@ -107,6 +114,8 @@ type ProgramTicker = {
   label: string;
   netMs: number;
 };
+
+type FollowingFeedView = 'upcoming' | 'last-5';
 
 type PendingFeedRefresh = {
   version: string;
@@ -255,7 +264,7 @@ export function LaunchFeed({
 }: LaunchFeedProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const searchParams = useSearchParams();
+  const searchParams = useSafeSearchParams();
   const filtersPanelId = useId();
   const { pushToast } = useToast();
   const debug = isLaunchFeedDebugEnabled(searchParams);
@@ -285,6 +294,8 @@ export function LaunchFeed({
   const [presetDefaulting, setPresetDefaulting] = useState(false);
   const [activePresetId, setActivePresetId] = useState<string>('');
   const [myLaunchesEnabled, setMyLaunchesEnabled] = useState(false);
+  const [followingView, setFollowingView] =
+    useState<FollowingFeedView>('upcoming');
   const [watchToggleBusy, setWatchToggleBusy] = useState<
     Record<string, boolean>
   >({});
@@ -435,6 +446,20 @@ export function LaunchFeed({
     () => modeOverride ?? tierToMode(viewerTier),
     [modeOverride, viewerTier]
   );
+  const isFollowingRecentView = myLaunchesEnabled && followingView === 'last-5';
+  const effectiveFilters = useMemo<LaunchFilter>(
+    () => ({
+      ...filters,
+      range: isFollowingRecentView
+        ? 'past'
+        : (filters.range ?? DEFAULT_LAUNCH_FILTERS.range),
+      sort: isFollowingRecentView
+        ? 'latest'
+        : (filters.sort ?? DEFAULT_LAUNCH_FILTERS.sort),
+      region: filters.region ?? DEFAULT_LAUNCH_FILTERS.region
+    }),
+    [filters, isFollowingRecentView]
+  );
   const arEligibleLaunchIdsQuery = useArEligibleLaunchIdsQuery({
     initialData: initialArEligibleLaunchIds
   });
@@ -445,13 +470,16 @@ export function LaunchFeed({
   const filterOptionsQuery = useFeedFilterOptionsQuery(
     {
       mode: mode === 'live' ? 'live' : 'public',
-      range: filters.range ?? 'year',
-      region: filters.region ?? 'us',
-      location: filters.location ?? null,
-      state: filters.state ?? null,
-      pad: filters.pad ?? null,
-      provider: filters.provider ?? null,
-      status: filters.status && filters.status !== 'all' ? filters.status : null
+      range: effectiveFilters.range ?? 'year',
+      region: effectiveFilters.region ?? 'us',
+      location: effectiveFilters.location ?? null,
+      state: effectiveFilters.state ?? null,
+      pad: effectiveFilters.pad ?? null,
+      provider: effectiveFilters.provider ?? null,
+      status:
+        effectiveFilters.status && effectiveFilters.status !== 'all'
+          ? effectiveFilters.status
+          : null
     },
     { enabled: canUseLaunchFilters }
   );
@@ -541,6 +569,7 @@ export function LaunchFeed({
         ? watchlistsQuery.error.message
         : 'failed_to_load'
       : null;
+  const refetchWatchlists = watchlistsQuery.refetch;
   const myWatchlistId = selectedWatchlist?.id
     ? String(selectedWatchlist.id)
     : null;
@@ -617,6 +646,8 @@ export function LaunchFeed({
       presetCount: presetList.length,
       activePresetId,
       myLaunchesEnabled,
+      followingView,
+      isFollowingRecentView,
       myWatchlistId,
       myLaunchRulesCount: Object.keys(myLaunchRulesByLaunchId).length,
       watchBusyCount: Object.values(watchToggleBusy).filter(Boolean).length,
@@ -699,8 +730,11 @@ export function LaunchFeed({
     query,
     mode,
     filters,
+    effectiveFilters,
     myLaunchesEnabled,
-    myWatchlistId
+    myWatchlistId,
+    followingView,
+    isFollowingRecentView
   });
 
   latestRef.current = {
@@ -714,8 +748,11 @@ export function LaunchFeed({
     query,
     mode,
     filters,
+    effectiveFilters,
     myLaunchesEnabled,
-    myWatchlistId
+    myWatchlistId,
+    followingView,
+    isFollowingRecentView
   };
   const lastLiveRefreshSignalAtRef = useRef(0);
 
@@ -833,7 +870,7 @@ export function LaunchFeed({
     lastSeenLiveVersionRef.current = null;
     setPendingRefresh(null);
     setChanged([]);
-  }, [filters, launchFeedWatchlistDependency, mode, viewerTier]);
+  }, [filters, followingView, launchFeedWatchlistDependency, mode, viewerTier]);
 
   useEffect(() => {
     setModeOverride(null);
@@ -914,10 +951,15 @@ export function LaunchFeed({
   useEffect(() => {
     if (!canUseSavedItems) {
       setMyLaunchesEnabled(false);
+      setFollowingView('upcoming');
       setFollowToggleBusy((prev) =>
         Object.keys(prev).length === 0 ? prev : {}
       );
       didRequestMyWatchlistRef.current = false;
+      return;
+    }
+
+    if (!watchlistsQuery.isSuccess) {
       return;
     }
 
@@ -927,24 +969,42 @@ export function LaunchFeed({
         !createWatchlistMutation.isPending
       ) {
         didRequestMyWatchlistRef.current = true;
-        createWatchlistMutation.mutate(
-          {},
-          {
-            onError: (error) => {
-              setNotice({
-                tone: 'warning',
-                message:
-                  error instanceof Error ? error.message : 'failed_to_create'
-              });
+        void createWatchlistMutation.mutateAsync({}).catch(async (error) => {
+          if (isWatchlistCreateLimitError(error)) {
+            const refreshed = await refetchWatchlists();
+            const recoveredWatchlist =
+              refreshed.data?.watchlists.find(
+                (watchlist) =>
+                  String(watchlist.name || '')
+                    .trim()
+                    .toLowerCase() === 'my launches'
+              ) ??
+              refreshed.data?.watchlists[0] ??
+              null;
+            if (recoveredWatchlist?.id) {
+              setNotice(null);
+              return;
             }
           }
-        );
+
+          setNotice({
+            tone: 'warning',
+            message: buildWatchlistRuleErrorMessage(error, 'My Launches')
+          });
+          didRequestMyWatchlistRef.current = false;
+        });
       }
       return;
     }
 
     didRequestMyWatchlistRef.current = false;
-  }, [canUseSavedItems, createWatchlistMutation, selectedWatchlist]);
+  }, [
+    canUseSavedItems,
+    createWatchlistMutation,
+    refetchWatchlists,
+    selectedWatchlist,
+    watchlistsQuery.isSuccess
+  ]);
 
   useEffect(() => {
     if (!canUseLaunchFilters) {
@@ -998,12 +1058,15 @@ export function LaunchFeed({
       fetchSeqRef.current += 1;
       const seq = fetchSeqRef.current;
       const snapshot = latestRef.current;
-      const filtersNow = snapshot.filters;
+      const filtersNow = snapshot.effectiveFilters;
       const modeNow = snapshot.mode;
       const watchlistId =
         snapshot.myLaunchesEnabled && snapshot.viewerTier !== 'anon'
           ? snapshot.myWatchlistId
           : null;
+      const requestLimit = snapshot.isFollowingRecentView
+        ? FOLLOWING_RECENT_LIMIT
+        : PAGE_SIZE;
       debugLog('fetchPage_start', {
         reason,
         offset,
@@ -1036,7 +1099,7 @@ export function LaunchFeed({
           range: filtersNow.range || '7d',
           sort: filtersNow.sort || 'soonest',
           region: filtersNow.region ?? 'us',
-          limit: PAGE_SIZE,
+          limit: requestLimit,
           offset,
           location: filtersNow.location ?? null,
           state: filtersNow.state ?? null,
@@ -1070,9 +1133,10 @@ export function LaunchFeed({
         });
         setNextOffset(offset + rows.length);
         const hasMoreValue =
-          typeof payload?.hasMore === 'boolean'
+          !snapshot.isFollowingRecentView &&
+          (typeof payload?.hasMore === 'boolean'
             ? payload.hasMore
-            : rows.length === PAGE_SIZE;
+            : rows.length === requestLimit);
         setHasMore(hasMoreValue);
         if (modeNow === 'live' || watchlistId) {
           setNotice(null);
@@ -1164,6 +1228,7 @@ export function LaunchFeed({
   }, [
     fetchPage,
     filters,
+    followingView,
     mode,
     myLaunchesEnabled,
     launchFeedWatchlistDependency,
@@ -1306,7 +1371,7 @@ export function LaunchFeed({
       }
 
       const snapshot = latestRef.current;
-      const versionFilters = snapshot.filters;
+      const versionFilters = snapshot.effectiveFilters;
       const versionRequest = {
         scope: snapshot.mode,
         range: versionFilters.range || '7d',
@@ -1681,8 +1746,9 @@ export function LaunchFeed({
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (
-      (filters.range ?? DEFAULT_LAUNCH_FILTERS.range) !==
-      DEFAULT_LAUNCH_FILTERS.range
+      (!isFollowingRecentView
+        ? (filters.range ?? DEFAULT_LAUNCH_FILTERS.range)
+        : DEFAULT_LAUNCH_FILTERS.range) !== DEFAULT_LAUNCH_FILTERS.range
     )
       count += 1;
     if (
@@ -1691,8 +1757,9 @@ export function LaunchFeed({
     )
       count += 1;
     if (
-      (filters.sort ?? DEFAULT_LAUNCH_FILTERS.sort) !==
-      DEFAULT_LAUNCH_FILTERS.sort
+      (!isFollowingRecentView
+        ? (filters.sort ?? DEFAULT_LAUNCH_FILTERS.sort)
+        : DEFAULT_LAUNCH_FILTERS.sort) !== DEFAULT_LAUNCH_FILTERS.sort
     )
       count += 1;
     if (filters.location) count += 1;
@@ -1701,7 +1768,7 @@ export function LaunchFeed({
     if (filters.pad) count += 1;
     if (filters.status && filters.status !== 'all') count += 1;
     return count;
-  }, [filters]);
+  }, [filters, isFollowingRecentView]);
   const hasActiveFilters = activeFilterCount > 0;
 
   const includeSeconds =
@@ -1943,10 +2010,22 @@ export function LaunchFeed({
 
   const toggleMyLaunches = useCallback(
     (nextEnabled: boolean) => {
+      if (nextEnabled) {
+        setFollowingView('upcoming');
+      }
       setMyLaunchesEnabled(nextEnabled);
       resetPageToFirst();
     },
     [resetPageToFirst]
+  );
+
+  const selectFollowingView = useCallback(
+    (nextView: FollowingFeedView) => {
+      if (followingView === nextView) return;
+      setFollowingView(nextView);
+      resetPageToFirst();
+    },
+    [followingView, resetPageToFirst]
   );
 
   const createWatchlistRule = useCallback(
@@ -3036,28 +3115,60 @@ export function LaunchFeed({
                   </button>
                 )}
                 {canUseSavedItems ? (
-                  <button
-                    type="button"
-                    className={clsx(
-                      'rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] transition',
-                      myLaunchesEnabled
-                        ? 'bg-primary text-black'
-                        : 'text-text2 hover:bg-[rgba(255,255,255,0.06)] hover:text-text1',
-                      (watchlistsLoading ||
+                  myLaunchesEnabled ? (
+                    <div className="inline-flex items-center gap-1 rounded-lg bg-primary p-1 text-black">
+                      <span className="px-2.5 py-1.5 text-xs font-semibold uppercase tracking-[0.08em]">
+                        Following
+                      </span>
+                      <button
+                        type="button"
+                        className={clsx(
+                          'rounded-md border px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] transition',
+                          followingView === 'upcoming'
+                            ? 'border-black/20 bg-black/15 text-black'
+                            : 'border-black/12 bg-black/5 text-black/80 hover:bg-black/10'
+                        )}
+                        onClick={() => selectFollowingView('upcoming')}
+                        aria-pressed={followingView === 'upcoming'}
+                      >
+                        Upcoming
+                      </button>
+                      <button
+                        type="button"
+                        className={clsx(
+                          'rounded-md border px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] transition',
+                          followingView === 'last-5'
+                            ? 'border-black/20 bg-black/15 text-black'
+                            : 'border-black/12 bg-black/5 text-black/80 hover:bg-black/10'
+                        )}
+                        onClick={() => selectFollowingView('last-5')}
+                        aria-pressed={followingView === 'last-5'}
+                      >
+                        Last 5
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className={clsx(
+                        'rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] transition',
+                        'text-text2 hover:bg-[rgba(255,255,255,0.06)] hover:text-text1',
+                        (watchlistsLoading ||
+                          Boolean(watchlistsError) ||
+                          !myWatchlistId) &&
+                          'cursor-not-allowed opacity-60'
+                      )}
+                      onClick={() => toggleMyLaunches(true)}
+                      disabled={
+                        watchlistsLoading ||
                         Boolean(watchlistsError) ||
-                        !myWatchlistId) &&
-                        'cursor-not-allowed opacity-60'
-                    )}
-                    onClick={() => toggleMyLaunches(true)}
-                    disabled={
-                      watchlistsLoading ||
-                      Boolean(watchlistsError) ||
-                      !myWatchlistId
-                    }
-                    aria-pressed={myLaunchesEnabled}
-                  >
-                    Following
-                  </button>
+                        !myWatchlistId
+                      }
+                      aria-pressed={myLaunchesEnabled}
+                    >
+                      Following
+                    </button>
+                  )
                 ) : (
                   <PremiumGateButton
                     isAuthed={isAuthed}
@@ -3090,7 +3201,9 @@ export function LaunchFeed({
               {canUseSavedItems
                 ? myLaunchesEnabled
                   ? hasAnyFollowRules
-                    ? 'Showing launches from what you follow.'
+                    ? isFollowingRecentView
+                      ? 'Showing the latest five launches from what you follow.'
+                      : 'Showing upcoming launches from what you follow.'
                     : 'Following is empty. Follow a launch, provider, or pad.'
                   : 'For You shows all launches matching your filters.'
                 : 'For You shows launches matching your filters. Following and saved items stay on Premium.'}
@@ -3107,7 +3220,7 @@ export function LaunchFeed({
                   className="text-xs text-text3 hover:text-text1"
                   onClick={clearFiltersToDefault}
                 >
-                  Reset
+                  Default view
                 </button>
               ) : null}
             </div>
@@ -3116,6 +3229,15 @@ export function LaunchFeed({
             id={filtersPanelId}
             className={clsx('mt-3 space-y-3', !filtersOpen && 'hidden')}
           >
+            <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.03)] px-3 py-2 text-xs text-text3">
+              {DEFAULT_LAUNCH_FILTER_HELP_TEXT}
+            </div>
+            {isFollowingRecentView ? (
+              <div className="rounded-xl border border-stroke bg-[rgba(255,255,255,0.03)] px-3 py-2 text-xs text-text3">
+                Last 5 locks Following to past launches sorted newest first.
+                Region, status, and mission filters still apply.
+              </div>
+            ) : null}
             <div className="grid gap-3 xl:grid-cols-3">
               <section className={FILTER_SECTION_CLASS}>
                 <div className={FILTER_GROUP_LABEL_CLASS}>Time</div>
@@ -3123,13 +3245,14 @@ export function LaunchFeed({
                   <select
                     aria-label="Date range"
                     className={FILTER_SELECT_CLASS}
-                    value={filters.range ?? 'year'}
+                    value={effectiveFilters.range ?? 'year'}
                     onChange={(e) =>
                       setFilters((f) => ({
                         ...f,
                         range: e.target.value as LaunchFilter['range']
                       }))
                     }
+                    disabled={isFollowingRecentView}
                   >
                     <option value="today">Today</option>
                     <option value="7d">Next 7 days</option>
@@ -3166,13 +3289,14 @@ export function LaunchFeed({
                   <select
                     aria-label="Sort"
                     className={FILTER_SELECT_CLASS}
-                    value={filters.sort ?? 'soonest'}
+                    value={effectiveFilters.sort ?? 'soonest'}
                     onChange={(e) =>
                       setFilters((f) => ({
                         ...f,
                         sort: e.target.value as LaunchFilter['sort']
                       }))
                     }
+                    disabled={isFollowingRecentView}
                   >
                     <option value="soonest">Soonest</option>
                     <option value="latest">Newest first</option>
@@ -3601,7 +3725,9 @@ export function LaunchFeed({
             <div className="rounded-2xl border border-stroke bg-[rgba(234,240,255,0.04)] p-4 text-sm text-text3">
               {myLaunchesEnabled
                 ? hasAnyFollowRules
-                  ? 'No matches in Following for this filter set.'
+                  ? isFollowingRecentView
+                    ? 'No recent launches in Last 5 match this filter set.'
+                    : 'No matches in Following for this filter set.'
                   : 'Following is empty. Follow a launch, provider, or pad to build your feed.'
                 : 'No matches in For You for this filter set.'}
             </div>
@@ -3623,7 +3749,7 @@ export function LaunchFeed({
               ))}
             </div>
           )}
-          {hasMore && !loading && !loadingMore && (
+          {hasMore && !isFollowingRecentView && !loading && !loadingMore && (
             <Link
               href={nextPageHref}
               className="btn w-full rounded-2xl px-4 py-3 text-sm"
@@ -3855,23 +3981,6 @@ function isUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     value
   );
-}
-
-function buildWatchlistRuleErrorMessage(error: unknown, label: string) {
-  if (error instanceof ApiClientError) {
-    if (error.code === 'limit_reached') {
-      return 'My Launches limit reached. Remove an older follow rule first.';
-    }
-    if (error.code) {
-      return `${label} error: ${error.code}`;
-    }
-  }
-
-  if (error instanceof Error && error.message) {
-    return error.message;
-  }
-
-  return `Unable to update ${label.toLowerCase()}.`;
 }
 
 function normalizeLaunchFilter(value: unknown): LaunchFilter {

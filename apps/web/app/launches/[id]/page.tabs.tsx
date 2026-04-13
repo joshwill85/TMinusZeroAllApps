@@ -9,10 +9,11 @@
 'use client';
 
 import { useState, useEffect, Suspense } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import type { LaunchDetailV1, LaunchFaaAirspaceMapV1 } from '@tminuszero/contracts';
 import type { LaunchTab } from '@tminuszero/launch-detail-ui';
 import type { LaunchFaaMapRenderMode } from '@/lib/maps/providerTypes';
+import { useSafeSearchParams } from '@/lib/client/useSafeSearchParams';
 import {
   computeTabVisibility,
   getVisibleTabs,
@@ -52,7 +53,7 @@ export default function LaunchDetailTabsPage({
   faaMapUnavailableMessage = 'FAA launch-day geometry is available for this launch, but the interactive map is not configured in this environment.'
 }: LaunchDetailTabsPageProps) {
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useSafeSearchParams();
   const hero = getLaunchHeroModel(detail);
 
   // Tab state

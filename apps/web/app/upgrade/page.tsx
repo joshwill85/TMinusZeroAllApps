@@ -2,12 +2,14 @@ import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import { UpgradePageContent } from '@/components/UpgradePageContent';
 import { BRAND_NAME } from '@/lib/brand';
+import { buildIndexQualityNoIndexRobots } from '@/lib/server/indexing';
 
 export const metadata: Metadata = {
   title: `Upgrade to Premium | Live Rocket Launch Tracking | ${BRAND_NAME}`,
   description:
     'See launch changes every 15 seconds with T-Minus Zero Premium. Get native mobile alerts, watchlists, widgets, and recurring calendar/RSS feeds for $3.99/mo. Cancel anytime.',
-  alternates: { canonical: '/upgrade' }
+  alternates: { canonical: '/upgrade' },
+  robots: buildIndexQualityNoIndexRobots()
 };
 
 export default function UpgradePage() {

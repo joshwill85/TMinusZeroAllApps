@@ -1,11 +1,13 @@
 import type { Metadata } from 'next';
 import { BRAND_NAME } from '@/lib/brand';
+import { buildIndexQualityNoIndexRobots } from '@/lib/server/indexing';
 import { PrivacyChoicesClient } from './privacy-choices-client';
 
 export const metadata: Metadata = {
   title: `Privacy Choices | ${BRAND_NAME}`,
   description: `Manage account export, account deletion, and media-loading preferences for ${BRAND_NAME}.`,
-  alternates: { canonical: '/legal/privacy-choices' }
+  alternates: { canonical: '/legal/privacy-choices' },
+  robots: buildIndexQualityNoIndexRobots()
 };
 
 export default function PrivacyChoicesPage() {

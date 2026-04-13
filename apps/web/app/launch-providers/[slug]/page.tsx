@@ -1,8 +1,13 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { cache } from 'react';
 import { notFound, permanentRedirect } from 'next/navigation';
 import { JsonLd } from '@/components/JsonLd';
-import { getSiteUrl, isSupabaseConfigured } from '@/lib/server/env';
+import { isSupabaseConfigured } from '@/lib/server/env';
+import {
+  buildIndexQualityNoIndexRobots,
+  getIndexingSiteUrl
+} from '@/lib/server/indexing';
 import { fetchProviderBySlug, type ProviderSummary } from '@/lib/server/providers';
 import { fetchProviderSchedule } from '@/lib/server/providerSchedule';
 import type { Launch } from '@/lib/types/launch';
@@ -29,6 +34,10 @@ type ProviderScheduleData = {
 type ProviderResolution = {
   provider: ProviderScheduleData['provider'];
 };
+
+const fetchCachedProviderSchedule = cache(async (providerName: string) =>
+  fetchProviderSchedule({ providerName })
+);
 
 async function resolveProviderBySlug(slug: string): Promise<ProviderScheduleData['provider'] | null> {
   const normalized = toProviderSlug(slug);
@@ -97,10 +106,11 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   }
 
   const { provider } = resolution;
-  const siteUrl = getSiteUrl().replace(/\/$/, '');
+  const siteUrl = getIndexingSiteUrl().replace(/\/$/, '');
   const siteMeta = buildSiteMeta();
   const canonical = `/launch-providers/${provider.slug}`;
   const pageUrl = `${siteUrl}${canonical}`;
+  const { upcoming, recent } = await fetchCachedProviderSchedule(provider.name);
   const title = `${provider.name} Launch Schedule (US) | ${SITE_META.siteName}`;
   const description = `Upcoming launches and recent history for ${provider.name} from US launch sites.`;
   const images = [
@@ -135,7 +145,12 @@ export async function generateMetadata({ params }: { params: { slug: string } })
           alt: SITE_META.ogImageAlt
         }
       ]
-    }
+    },
+    ...(upcoming.length + recent.length === 0
+      ? {
+          robots: buildIndexQualityNoIndexRobots()
+        }
+      : {})
   };
 }
 
@@ -147,9 +162,9 @@ export default async function ProviderSchedulePage({ params }: { params: { slug:
   const canonicalSlug = provider.slug;
   if (params.slug !== canonicalSlug) permanentRedirect(`/launch-providers/${canonicalSlug}`);
 
-  const { upcoming, recent } = await fetchProviderSchedule({ providerName: provider.name });
+  const { upcoming, recent } = await fetchCachedProviderSchedule(provider.name);
 
-  const siteUrl = getSiteUrl().replace(/\/$/, '');
+  const siteUrl = getIndexingSiteUrl().replace(/\/$/, '');
   const pageUrl = `${siteUrl}/launch-providers/${provider.slug}`;
   const organizationId = `${siteUrl}#organization`;
   const websiteId = `${siteUrl}#website`;

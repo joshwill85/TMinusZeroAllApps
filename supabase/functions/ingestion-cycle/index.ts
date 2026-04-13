@@ -30,7 +30,8 @@ const DEFAULTS = {
   snapiMaxPages: 20,
   publicCacheHistoryDays: 36500,
   publicCacheHorizonDays: 36500,
-  publicCachePageSize: 1000
+  publicCachePageSize: 250,
+  publicCacheWriteBatchSize: 100
 };
 
 serve(async (req) => {
@@ -802,7 +803,7 @@ async function runPublicCacheRefresh(supabase: ReturnType<typeof createSupabaseA
     const pageSize = clampInt(
       readNumberSetting(settings.public_cache_page_size, DEFAULTS.publicCachePageSize),
       1,
-      1000
+      250
     );
 
     const now = Date.now();
@@ -850,15 +851,19 @@ async function runPublicCacheRefresh(supabase: ReturnType<typeof createSupabaseA
       }
 
       if (cacheRows.length) {
-        const { error: upsertError } = await supabase
-          .from('launches_public_cache')
-          .upsert(cacheRows, { onConflict: 'launch_id' });
-        if (upsertError) throw upsertError;
+        for (const batch of chunkArray(cacheRows, DEFAULTS.publicCacheWriteBatchSize)) {
+          const { error: upsertError } = await supabase
+            .from('launches_public_cache')
+            .upsert(batch, { onConflict: 'launch_id' });
+          if (upsertError) throw upsertError;
+        }
       }
 
       if (toDelete.length) {
-        const { error: deleteError } = await supabase.from('launches_public_cache').delete().in('launch_id', toDelete);
-        if (deleteError) throw deleteError;
+        for (const batch of chunkArray(toDelete, DEFAULTS.publicCacheWriteBatchSize)) {
+          const { error: deleteError } = await supabase.from('launches_public_cache').delete().in('launch_id', batch);
+          if (deleteError) throw deleteError;
+        }
       }
 
       total += cacheRows.length;

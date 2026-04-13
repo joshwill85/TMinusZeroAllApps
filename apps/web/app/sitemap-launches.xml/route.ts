@@ -1,9 +1,9 @@
 import {
   buildSitemapIndexXml,
   buildSitemapXml,
+  getLaunchSitemapTier,
   getSitemapPageCount,
   getSitemapPageEntries,
-  getSitemapTiers,
   SITEMAP_CACHE_CONTROL,
   SITEMAP_REVALIDATE_SECONDS
 } from '@/lib/server/sitemapData';
@@ -12,7 +12,7 @@ export const revalidate = SITEMAP_REVALIDATE_SECONDS;
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
-  const tiers = await getSitemapTiers();
+  const tiers = await getLaunchSitemapTier();
   const requestUrl = new URL(request.url);
   const pageCount = getSitemapPageCount(tiers.launchEntries);
   const page = parsePage(requestUrl.searchParams.get('page'), pageCount);

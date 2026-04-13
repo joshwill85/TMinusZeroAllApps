@@ -11,6 +11,7 @@ import {
 } from '@/lib/server/spacexProgram';
 import { buildCanonicalContractHrefForSeed } from '@/lib/server/contracts';
 import { getSiteUrl } from '@/lib/server/env';
+import { buildIndexQualityNoIndexRobots } from '@/lib/server/indexing';
 import { buildSiteMeta, SITE_META } from '@/lib/server/siteMeta';
 import { getSpaceXMissionLabel } from '@/lib/utils/spacexProgram';
 
@@ -61,6 +62,7 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
     title,
     description,
     alternates: { canonical },
+    robots: buildIndexQualityNoIndexRobots(),
     openGraph: {
       title,
       description,

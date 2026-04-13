@@ -586,6 +586,9 @@ type WeatherRow = {
   data: Record<string, unknown> | null;
 };
 
+type SocialPlatformResult = Record<string, unknown>;
+type SocialPlatformResults = SocialPlatformResult | SocialPlatformResult[] | null;
+
 type SocialPostRow = {
   id: string;
   launch_id: string;
@@ -603,7 +606,7 @@ type SocialPostRow = {
   reply_to_social_post_id?: string | null;
   request_id: string | null;
   external_id: string | null;
-  platform_results?: Record<string, unknown> | null;
+  platform_results?: SocialPlatformResults;
   attempts: number | null;
   scheduled_for: string | null;
   posted_at: string | null;
@@ -2740,7 +2743,13 @@ async function processUpdateQueue({
   let deferred = 0;
   let failed = 0;
   let missingRootSkipped = 0;
-  const missingRootSamples: Array<{ id: string; launch_id: string; platform: string; scheduled_for: string | null }> = [];
+  const missingRootSamples: Array<{
+    id: string;
+    launch_id: string;
+    platform: string;
+    scheduled_for: string | null;
+    reason: 'missing_root_post' | 'missing_root_reply_id';
+  }> = [];
 
   while (hasRuntimeBudgetRemaining(deadlineMs)) {
     const rows = await claimDueSocialPosts({
@@ -2848,7 +2857,13 @@ async function processUpdateQueue({
             skipped += 1;
             missingRootSkipped += 1;
             if (missingRootSamples.length < 5) {
-              missingRootSamples.push({ id: row.id, launch_id: row.launch_id, platform, scheduled_for: row.scheduled_for ?? null });
+              missingRootSamples.push({
+                id: row.id,
+                launch_id: row.launch_id,
+                platform,
+                scheduled_for: row.scheduled_for ?? null,
+                reason: 'missing_root_post'
+              });
             }
           }
           continue;
@@ -2856,14 +2871,20 @@ async function processUpdateQueue({
         const resolvedRootId = platform === 'x' ? resolveReplyToId(root, platform) : null;
         if (platform === 'x' && !resolvedRootId) {
           if (windowOpen) {
-            await markPostDeferred(supabase, row.id, 'missing_root_post', { lockId });
+            await markPostDeferred(supabase, row.id, 'missing_root_reply_id', { lockId });
             deferred += 1;
           } else {
-            await markPostSkipped(supabase, row.id, 'missing_root_post', { lockId });
+            await markPostSkipped(supabase, row.id, 'missing_root_reply_id', { lockId });
             skipped += 1;
             missingRootSkipped += 1;
             if (missingRootSamples.length < 5) {
-              missingRootSamples.push({ id: row.id, launch_id: row.launch_id, platform, scheduled_for: row.scheduled_for ?? null });
+              missingRootSamples.push({
+                id: row.id,
+                launch_id: row.launch_id,
+                platform,
+                scheduled_for: row.scheduled_for ?? null,
+                reason: 'missing_root_reply_id'
+              });
             }
           }
           continue;
@@ -2935,7 +2956,7 @@ async function processUpdateQueue({
 	    await upsertOpsAlert(supabase, {
 	      key: 'social_posts_updates_blocked_missing_root',
 	      severity: 'warning',
-	      message: 'Social post updates skipped because the launch-day root post was missing.',
+	      message: 'Social post updates skipped because the launch-day root post or reply target was missing.',
 	      details: { count: missingRootSkipped, samples: missingRootSamples }
 	    });
 	  } else {
@@ -3732,18 +3753,13 @@ async function processThreadReplyQueue({
 }
 
 function resolveReplyToId(
-  root: SocialPostRow & { platform_results?: Record<string, unknown> | null },
+  root: SocialPostRow & { platform_results?: SocialPlatformResults },
   platform: SupportedPlatform
 ) {
   if (platform === 'x') {
     const candidates: Array<string | null | undefined> = [
       root.external_id,
-      (root.platform_results as any)?.x?.id,
-      (root.platform_results as any)?.x?.post_id,
-      (root.platform_results as any)?.x?.url,
-      (root.platform_results as any)?.twitter?.id,
-      (root.platform_results as any)?.twitter?.post_id,
-      (root.platform_results as any)?.twitter?.url
+      ...extractPlatformResultFieldValues(root.platform_results, platform, ['id', 'post_id', 'url'])
     ];
     for (const value of candidates) {
       const resolved = extractTweetId(value);
@@ -3755,10 +3771,7 @@ function resolveReplyToId(
   if (platform === 'facebook') {
     const candidates: Array<string | null | undefined> = [
       root.external_id,
-      (root.platform_results as any)?.facebook?.id,
-      (root.platform_results as any)?.facebook?.post_id,
-      (root.platform_results as any)?.facebook?.url,
-      (root.platform_results as any)?.url
+      ...extractPlatformResultFieldValues(root.platform_results, platform, ['id', 'post_id', 'url'])
     ];
     for (const value of candidates) {
       if (typeof value === 'string' && value.trim()) return value.trim();
@@ -3767,6 +3780,55 @@ function resolveReplyToId(
   }
 
   return null;
+}
+
+function isSocialPlatformResult(value: unknown): value is SocialPlatformResult {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function getPlatformResultCandidates(results: SocialPlatformResults | undefined, platform: SupportedPlatform) {
+  const candidates: SocialPlatformResult[] = [];
+  const pushCandidate = (value: unknown) => {
+    if (isSocialPlatformResult(value)) candidates.push(value);
+  };
+
+  if (Array.isArray(results)) {
+    for (const entry of results) pushCandidate(entry);
+  } else if (isSocialPlatformResult(results)) {
+    if (platform === 'x') {
+      pushCandidate(results.x);
+      pushCandidate(results.twitter);
+    } else if (platform === 'facebook') {
+      pushCandidate(results.facebook);
+    }
+    pushCandidate(results);
+  }
+
+  if (!candidates.length) return [] as SocialPlatformResult[];
+
+  const matches = candidates.filter((candidate) => {
+    const candidatePlatform = typeof candidate.platform === 'string' ? candidate.platform.trim().toLowerCase() : '';
+    if (!candidatePlatform) return false;
+    if (platform === 'x') return candidatePlatform === 'x' || candidatePlatform === 'twitter';
+    return candidatePlatform === platform;
+  });
+
+  return matches.length ? matches : candidates;
+}
+
+function extractPlatformResultFieldValues(
+  results: SocialPlatformResults | undefined,
+  platform: SupportedPlatform,
+  fields: string[]
+) {
+  const values: string[] = [];
+  for (const candidate of getPlatformResultCandidates(results, platform)) {
+    for (const field of fields) {
+      const value = candidate[field];
+      if (typeof value === 'string' && value.trim()) values.push(value.trim());
+    }
+  }
+  return values;
 }
 
 function extractTweetId(value: string | null | undefined) {
@@ -4068,7 +4130,7 @@ async function processRetryPosts({
       }
 
       let sendResult:
-        | { status: 'success'; externalId: string | null; results: Record<string, unknown> | null }
+        | { status: 'success'; externalId: string | null; results: SocialPlatformResults }
         | { status: 'async'; requestId: string }
         | { status: 'error'; errorMessage: string }
         | null = null;
@@ -4293,7 +4355,7 @@ async function sendUploadPost({
   firstComment?: string;
   replyToId?: string;
 }): Promise<
-  | { status: 'success'; externalId: string | null; results: Record<string, unknown> | null }
+  | { status: 'success'; externalId: string | null; results: SocialPlatformResults }
   | { status: 'async'; requestId: string }
   | { status: 'error'; errorMessage: string }
 > {
@@ -4333,7 +4395,7 @@ async function sendUploadPost({
       return { status: 'error', errorMessage: data?.message || 'upload-post error' };
     }
 
-    const results = (data?.results as Record<string, unknown>) || null;
+    const results = (data?.results as SocialPlatformResults) || null;
     const externalId = extractExternalId(results, platform);
     return { status: 'success', externalId, results };
   } catch (err) {
@@ -4484,7 +4546,7 @@ async function sendUploadPostWithImage({
   firstComment?: string;
   replyToId?: string;
 }): Promise<
-  | { status: 'success'; externalId: string | null; results: Record<string, unknown> | null }
+  | { status: 'success'; externalId: string | null; results: SocialPlatformResults }
   | { status: 'async'; requestId: string }
   | { status: 'error'; errorMessage: string }
 > {
@@ -4530,9 +4592,13 @@ async function sendUploadPostWithImage({
       return { status: 'error', errorMessage: data?.message || 'upload-post error' };
     }
 
-    const results = (data?.results as Record<string, unknown>) || null;
+    const results = (data?.results as SocialPlatformResults) || null;
     const externalId = extractExternalId(results, platform);
-    const augmentedResults = results ? { ...results, tmn: { ogImageUrl: image.sourceUrl } } : { tmn: { ogImageUrl: image.sourceUrl } };
+    const augmentedResults = Array.isArray(results)
+      ? results
+      : results
+        ? { ...results, tmn: { ogImageUrl: image.sourceUrl } }
+        : { tmn: { ogImageUrl: image.sourceUrl } };
     return { status: 'success', externalId, results: augmentedResults };
   } catch (err) {
     return { status: 'error', errorMessage: stringifyError(err) };
@@ -4627,7 +4693,7 @@ function stripUrlsFromText(text: string) {
 
 async function fetchUploadStatus(apiKey: string, requestId: string, platform: SupportedPlatform): Promise<
   | { status: 'in_progress' }
-  | { status: 'completed'; results: Record<string, unknown> | null; externalId: string | null }
+  | { status: 'completed'; results: SocialPlatformResults; externalId: string | null }
   | { status: 'failed'; errorMessage: string }
 > {
   try {
@@ -4641,7 +4707,7 @@ async function fetchUploadStatus(apiKey: string, requestId: string, platform: Su
     const status = String(data?.status || '').toLowerCase();
     if (status === 'pending' || status === 'in_progress') return { status: 'in_progress' };
     if (status === 'completed') {
-      const results = (data?.results as Record<string, unknown>) || null;
+      const results = (data?.results as SocialPlatformResults) || null;
       const externalId = extractExternalId(results, platform);
       return { status: 'completed', results, externalId };
     }
@@ -4651,24 +4717,21 @@ async function fetchUploadStatus(apiKey: string, requestId: string, platform: Su
   }
 }
 
-function extractExternalId(results: Record<string, unknown> | null, platform: SupportedPlatform) {
+function extractExternalId(results: SocialPlatformResults, platform: SupportedPlatform) {
   if (!results) return null;
 
   if (platform === 'x') {
-    const xResult = (results as any).x || (results as any).twitter || null;
-    if (xResult && typeof xResult.id === 'string') return xResult.id;
-    if (xResult && typeof xResult.post_id === 'string') return xResult.post_id;
-    if (xResult && typeof xResult.url === 'string') return extractTweetId(xResult.url) || xResult.url;
-    if (typeof (results as any).url === 'string') return extractTweetId((results as any).url) || (results as any).url;
+    for (const value of extractPlatformResultFieldValues(results, platform, ['id', 'post_id', 'url'])) {
+      const resolved = extractTweetId(value);
+      if (resolved) return resolved;
+    }
     return null;
   }
 
   if (platform === 'facebook') {
-    const fbResult = (results as any).facebook || null;
-    if (fbResult && typeof fbResult.id === 'string') return fbResult.id;
-    if (fbResult && typeof fbResult.post_id === 'string') return fbResult.post_id;
-    if (fbResult && typeof fbResult.url === 'string') return fbResult.url;
-    if (typeof (results as any).url === 'string') return String((results as any).url);
+    for (const value of extractPlatformResultFieldValues(results, platform, ['id', 'post_id', 'url'])) {
+      if (value.trim()) return value.trim();
+    }
     return null;
   }
 
@@ -4687,7 +4750,7 @@ async function markPostSent(
   supabase: ReturnType<typeof createSupabaseAdminClient>,
   id: string,
   externalId: string | null,
-  results: Record<string, unknown> | null,
+  results: SocialPlatformResults,
   { lockId }: { lockId?: string } = {}
 ) {
   let query = supabase

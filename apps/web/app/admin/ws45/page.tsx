@@ -2,17 +2,20 @@
 
 import clsx from 'clsx';
 import Link from 'next/link';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import InfoCard from '../_components/InfoCard';
 import SectionCard from '../_components/SectionCard';
 import { useAdminResource } from '../_hooks/useAdminResource';
-import { formatTimestamp } from '../_lib/format';
+import { formatObservedCount, formatTimestamp, formatWs45SourceSnapshot } from '../_lib/format';
+import { useSafePathname } from '@/lib/client/useSafePathname';
+import { useSafeSearchParams } from '@/lib/client/useSafeSearchParams';
 
 type Ws45Alert = {
   key: string;
   severity: string;
   message: string;
+  first_seen_at: string;
   last_seen_at: string;
   occurrences: number;
   details?: Record<string, unknown> | null;
@@ -257,10 +260,15 @@ function formatDetailValue(value: unknown): string {
   }
 }
 
+function renderWs45SourceSummary(alert: Ws45Alert) {
+  const sourceSummary = formatWs45SourceSnapshot(alert.details);
+  return sourceSummary ? <div className="mt-1 text-xs text-text2">{sourceSummary}</div> : null;
+}
+
 export default function AdminWs45Page() {
   const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const pathname = useSafePathname();
+  const searchParams = useSafeSearchParams();
   const { data: summary, status, error, refresh, lastRefreshedAt } = useAdminResource('/api/admin/ws45/summary', {
     initialData: FALLBACK_SUMMARY,
     parse: parseWs45Summary
@@ -580,8 +588,10 @@ export default function AdminWs45Page() {
                     <div className="min-w-0">
                       <div className="text-sm font-semibold text-text1">{alert.message}</div>
                       <div className="text-xs text-text3">
-                        {alert.key} • last seen {formatTimestamp(alert.last_seen_at)} • {alert.occurrences} occurrences
+                        {alert.key} • observed since {formatTimestamp(alert.first_seen_at)} • last seen {formatTimestamp(alert.last_seen_at)} •{' '}
+                        {formatObservedCount(alert.occurrences)}
                       </div>
+                      {renderWs45SourceSummary(alert)}
                     </div>
                     <div className="flex items-center gap-2">
                       {alert.affectedForecastIds && alert.affectedForecastIds.length > 0 ? (
@@ -694,8 +704,10 @@ export default function AdminWs45Page() {
                     <div className="min-w-0">
                       <div className="text-sm font-semibold text-text1">{alert.message}</div>
                       <div className="text-xs text-text3">
-                        {alert.key} • resolved {formatTimestamp(alert.resolved_at)} • last seen {formatTimestamp(alert.last_seen_at)} • {alert.occurrences} occurrences
+                        {alert.key} • observed since {formatTimestamp(alert.first_seen_at)} • resolved {formatTimestamp(alert.resolved_at)} • last seen{' '}
+                        {formatTimestamp(alert.last_seen_at)} • {formatObservedCount(alert.occurrences)}
                       </div>
+                      {renderWs45SourceSummary(alert)}
                       {alert.affectedRows && alert.affectedRows.length > 0 ? (
                         <div className="mt-1 text-xs text-text2">Affected items retained: {alert.affectedRows.length}</div>
                       ) : null}

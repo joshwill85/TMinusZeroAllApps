@@ -9,6 +9,10 @@ import {
   isSupabaseConfigured
 } from '@/lib/server/env';
 import {
+  isNonProductionDeployment,
+  shouldAllowPublicIndexing
+} from '@/lib/server/indexing';
+import {
   APP_CLIENT_HEADER_NAME,
   APP_GUEST_TOKEN_HEADER_NAME,
   PUBLIC_VIEW_COOKIE_NAME,
@@ -20,6 +24,7 @@ import {
 } from '@/lib/security/firstPartyAccess';
 import { buildLegacyCatalogRedirectHref } from '@/lib/utils/catalog';
 import { toProviderSlug } from '@/lib/utils/launchLinks';
+import { buildSlugId } from '@/lib/utils/slug';
 
 const SUPABASE_URL = normalizeEnvUrl(
   process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL
@@ -41,6 +46,11 @@ type MiddlewareRateLimitRule = {
 type InMemoryRateLimitWindow = {
   count: number;
   resetAt: number;
+};
+
+type LegacyCanonicalRedirectCacheEntry = {
+  expiresAt: number;
+  path: string | null;
 };
 
 const LEGACY_RATE_LIMIT_RULES: Array<{
@@ -68,6 +78,9 @@ const LEGACY_RATE_LIMIT_RULES: Array<{
 ];
 
 const RATE_LIMIT_STORE_KEY = '__tmz_legacy_middleware_rate_limit__';
+const LEGACY_CANONICAL_REDIRECT_CACHE_KEY =
+  '__tmz_legacy_middleware_canonical_redirect__';
+const LEGACY_CANONICAL_REDIRECT_TTL_MS = 60 * 60 * 1000;
 const PROTECTED_PUBLIC_API_PREFIXES = ['/api/public', '/api/search/index'];
 const PROTECTED_V1_PREFIXES = [
   '/api/v1/artemis',
@@ -106,14 +119,56 @@ const inMemoryRateLimitStore: Map<string, InMemoryRateLimitWindow> = (() => {
   return store;
 })();
 
+const legacyCanonicalRedirectCache: Map<
+  string,
+  LegacyCanonicalRedirectCacheEntry
+> = (() => {
+  const globalScope = globalThis as unknown as Record<string, unknown>;
+  const existing = globalScope[LEGACY_CANONICAL_REDIRECT_CACHE_KEY];
+  if (existing instanceof Map) {
+    return existing as Map<string, LegacyCanonicalRedirectCacheEntry>;
+  }
+
+  const store = new Map<string, LegacyCanonicalRedirectCacheEntry>();
+  globalScope[LEGACY_CANONICAL_REDIRECT_CACHE_KEY] = store;
+  return store;
+})();
+
 export async function middleware(request: NextRequest) {
   if (process.env.NODE_ENV !== 'production') {
-    return NextResponse.next();
+    const legacyProviderRedirect = buildLegacyProviderAliasRedirect(
+      request,
+      request.nextUrl.pathname
+    );
+    if (legacyProviderRedirect) {
+      return legacyProviderRedirect;
+    }
+    const legacyCatalogRedirect = buildLegacyCatalogRedirect(request);
+    if (legacyCatalogRedirect) {
+      return legacyCatalogRedirect;
+    }
+    const legacyCanonicalRedirect = await buildLegacyCanonicalEntityRedirect(
+      request,
+      request.nextUrl.pathname
+    );
+    if (legacyCanonicalRedirect) {
+      return legacyCanonicalRedirect;
+    }
+    let response = NextResponse.next();
+    response = applyDeploymentNoIndexHeader(request.nextUrl.pathname, response);
+    return applyUtilityNoIndexHeaders(request.nextUrl.pathname, response);
   }
 
   const hostHeader = request.headers.get('host') || '';
   const host = hostHeader.split(':')[0]?.trim().toLowerCase();
   const pathname = request.nextUrl.pathname;
+  const legacyProviderRedirect = buildLegacyProviderAliasRedirect(
+    request,
+    pathname
+  );
+  if (legacyProviderRedirect) {
+    return legacyProviderRedirect;
+  }
   const isApiPath = pathname === '/api' || pathname.startsWith('/api/');
   const isLegacyHost = LEGACY_HOSTS.has(host);
   if (isLegacyHost) {
@@ -157,6 +212,14 @@ export async function middleware(request: NextRequest) {
     url.pathname = target.pathname;
     url.search = target.search;
     return NextResponse.redirect(url, 308);
+  }
+
+  const legacyCanonicalRedirect = await buildLegacyCanonicalEntityRedirect(
+    request,
+    pathname
+  );
+  if (legacyCanonicalRedirect) {
+    return legacyCanonicalRedirect;
   }
 
   if (
@@ -225,6 +288,7 @@ export async function middleware(request: NextRequest) {
     );
   }
 
+  response = applyDeploymentNoIndexHeader(pathname, response);
   response = applyUtilityNoIndexHeaders(pathname, response);
   return applyApiHardeningHeaders(pathname, response);
 }
@@ -253,6 +317,19 @@ function resolveLegacyCatalogHref(request: NextRequest) {
     q: request.nextUrl.searchParams.get('q'),
     page: request.nextUrl.searchParams.get('page')
   });
+}
+
+function buildLegacyCatalogRedirect(request: NextRequest) {
+  const legacyCatalogHref = resolveLegacyCatalogHref(request);
+  if (!legacyCatalogHref) {
+    return null;
+  }
+
+  const target = new URL(legacyCatalogHref, request.nextUrl.origin);
+  const url = request.nextUrl.clone();
+  url.pathname = target.pathname;
+  url.search = target.search;
+  return NextResponse.redirect(url, 308);
 }
 
 function safeDecodeURIComponent(value: string) {
@@ -541,6 +618,264 @@ function applyUtilityNoIndexHeaders(pathname: string, response: NextResponse) {
   if (!parts.includes('nofollow')) parts.push('nofollow');
   response.headers.set('X-Robots-Tag', parts.join(', '));
   return response;
+}
+
+function applyDeploymentNoIndexHeader(
+  pathname: string,
+  response: NextResponse
+) {
+  if (
+    shouldAllowPublicIndexing() ||
+    !isNonProductionDeployment() ||
+    !shouldApplyDeploymentNoIndexHeader(pathname)
+  ) {
+    return response;
+  }
+
+  const existingRobots = response.headers.get('X-Robots-Tag');
+  if (!existingRobots) {
+    response.headers.set('X-Robots-Tag', 'noindex, nofollow');
+    return response;
+  }
+
+  const parts = existingRobots
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (!parts.includes('noindex')) parts.push('noindex');
+  if (!parts.includes('nofollow')) parts.push('nofollow');
+  response.headers.set('X-Robots-Tag', parts.join(', '));
+  return response;
+}
+
+function shouldApplyDeploymentNoIndexHeader(pathname: string) {
+  if (!pathname || pathname.startsWith('/_next')) {
+    return false;
+  }
+
+  return !/\.(?:avif|css|gif|ico|jpe?g|js|map|png|svg|txt|webmanifest|webp|woff2?)$/i.test(
+    pathname
+  );
+}
+
+function buildLegacyProviderAliasRedirect(
+  request: NextRequest,
+  pathname: string
+) {
+  if (!pathname.startsWith('/launch-providers/')) {
+    return null;
+  }
+
+  const encodedSlug = pathname.slice('/launch-providers/'.length);
+  if (!encodedSlug || encodedSlug.includes('/')) {
+    return null;
+  }
+
+  const rawSlug = safeDecodePathSegment(encodedSlug).trim();
+  if (!rawSlug.includes(':')) {
+    return null;
+  }
+
+  const [leftSegment] = rawSlug.split(':', 1);
+  const normalizedSlug = toProviderSlug(leftSegment || rawSlug);
+  if (!normalizedSlug) {
+    return null;
+  }
+
+  const redirectUrl = request.nextUrl.clone();
+  redirectUrl.pathname = `/launch-providers/${encodeURIComponent(
+    normalizedSlug
+  )}`;
+  return NextResponse.redirect(redirectUrl, 308);
+}
+
+async function buildLegacyCanonicalEntityRedirect(
+  request: NextRequest,
+  pathname: string
+) {
+  const legacyCatalogLauncherMatch = pathname.match(
+    /^\/catalog\/launcher_configurations\/(\d+)$/
+  );
+  if (legacyCatalogLauncherMatch?.[1]) {
+    const rocketConfigId = legacyCatalogLauncherMatch[1];
+    const path = await resolveLegacyCanonicalPath({
+      cacheKey: `catalog-launcher:${rocketConfigId}`,
+      loader: async () => {
+        const row = await fetchSupabasePublicRow<{
+          name?: string | null;
+        }>('ll2_catalog_public_cache', {
+          select: 'name',
+          limit: '1',
+          entity_type: 'eq.launcher_configurations',
+          entity_id: `eq.${rocketConfigId}`
+        });
+        const label = normalizeLegacyLabel(row?.name || null);
+        return label
+          ? `/rockets/${encodeURIComponent(buildSlugId(label, rocketConfigId))}`
+          : null;
+      }
+    });
+    if (path && path !== pathname) {
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = path;
+      return NextResponse.redirect(redirectUrl, 308);
+    }
+    return null;
+  }
+
+  const rocketMatch = pathname.match(/^\/rockets\/(\d+)$/);
+  if (rocketMatch?.[1]) {
+    const path = await resolveLegacyCanonicalPath({
+      cacheKey: `rocket:${rocketMatch[1]}`,
+      loader: async () => {
+        const row = await fetchSupabasePublicRow<{
+          rocket_full_name?: string | null;
+          vehicle?: string | null;
+        }>('launches_public_cache', {
+          select: 'rocket_full_name,vehicle',
+          order: 'net.desc.nullslast',
+          limit: '1',
+          ll2_rocket_config_id: `eq.${rocketMatch[1]}`
+        });
+        const label = normalizeLegacyLabel(
+          row?.rocket_full_name || row?.vehicle || null
+        );
+        return label
+          ? `/rockets/${encodeURIComponent(buildSlugId(label, rocketMatch[1]))}`
+          : null;
+      }
+    });
+    if (path && path !== pathname) {
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = path;
+      return NextResponse.redirect(redirectUrl, 308);
+    }
+    return null;
+  }
+
+  const locationMatch = pathname.match(/^\/locations\/(\d+)$/);
+  if (locationMatch?.[1]) {
+    const path = await resolveLegacyCanonicalPath({
+      cacheKey: `location:${locationMatch[1]}`,
+      loader: async () => {
+        const row = await fetchSupabasePublicRow<{
+          pad_location_name?: string | null;
+          pad_name?: string | null;
+        }>('launches_public_cache', {
+          select: 'pad_location_name,pad_name',
+          order: 'net.desc.nullslast',
+          limit: '1',
+          ll2_pad_id: `eq.${locationMatch[1]}`
+        });
+        const label = normalizeLegacyLabel(
+          row?.pad_location_name || row?.pad_name || null
+        );
+        return label
+          ? `/locations/${encodeURIComponent(
+              buildSlugId(label, locationMatch[1])
+            )}`
+          : null;
+      }
+    });
+    if (path && path !== pathname) {
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = path;
+      return NextResponse.redirect(redirectUrl, 308);
+    }
+    return null;
+  }
+
+  const launchMatch = pathname.match(
+    /^\/launches\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
+  );
+  if (launchMatch?.[1]) {
+    const launchId = launchMatch[1];
+    const path = await resolveLegacyCanonicalPath({
+      cacheKey: `launch:${launchId}`,
+      loader: async () => {
+        const row = await fetchSupabasePublicRow<{
+          name?: string | null;
+          slug?: string | null;
+        }>('launches_public_cache', {
+          select: 'name,slug',
+          limit: '1',
+          launch_id: `eq.${launchId}`
+        });
+        const label = normalizeLegacyLabel(row?.slug || row?.name || null);
+        return label
+          ? `/launches/${encodeURIComponent(buildSlugId(label, launchId))}`
+          : null;
+      }
+    });
+    if (path && path !== pathname) {
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = path;
+      return NextResponse.redirect(redirectUrl, 308);
+    }
+  }
+
+  return null;
+}
+
+async function resolveLegacyCanonicalPath({
+  cacheKey,
+  loader
+}: {
+  cacheKey: string;
+  loader: () => Promise<string | null>;
+}) {
+  const now = Date.now();
+  const cached = legacyCanonicalRedirectCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    return cached.path;
+  }
+
+  const path = await loader();
+  legacyCanonicalRedirectCache.set(cacheKey, {
+    path,
+    expiresAt: now + LEGACY_CANONICAL_REDIRECT_TTL_MS
+  });
+  return path;
+}
+
+async function fetchSupabasePublicRow<T>(
+  table: string,
+  filters: Record<string, string>
+): Promise<T | null> {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    return null;
+  }
+
+  const params = new URLSearchParams(filters);
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${params}`, {
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      Accept: 'application/json'
+    }
+  });
+  if (!response.ok) {
+    return null;
+  }
+
+  const rows = (await response.json()) as T[];
+  return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+}
+
+function normalizeLegacyLabel(value: string | null | undefined) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function safeDecodePathSegment(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 function shouldApplyUtilityNoIndexHeader(pathname: string) {

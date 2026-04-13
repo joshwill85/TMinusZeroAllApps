@@ -184,6 +184,7 @@ export async function isBootstrapComplete(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from('artemis_ingest_checkpoints')
     .select('status')
+    .in('source_key', [...ARTEMIS_SOURCE_KEYS])
     .neq('status', 'complete')
     .limit(1);
   if (error) throw error;

@@ -4,9 +4,10 @@ import Image from 'next/image';
 import Link from 'next/link';
 import clsx from 'clsx';
 import { buildPreferencesHref } from '@tminuszero/navigation';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Launch } from '@/lib/types/launch';
+import { useSafeSearchParams } from '@/lib/client/useSafeSearchParams';
 import { useSharedNow } from '@/lib/client/useSharedNow';
 import { LIFTOFF_VISIBILITY_SECONDS, NEXT_LAUNCH_RETENTION_MS } from '@/lib/constants/launchTimeline';
 import { computeCountdown, formatDateOnly, formatNetLabel, isCountdownEligible, isDateOnlyNet } from '@/lib/time';
@@ -60,7 +61,7 @@ export function LaunchCard({
   followMenuOptions?: FollowMenuOption[];
 }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useSafeSearchParams();
   const debugToken = String(searchParams.get('debug') || '').trim().toLowerCase();
   const debugLaunchId = String(searchParams.get('debugLaunchId') || '').trim();
   const debugEnabled = debugToken === '1' || debugToken === 'true' || debugToken === 'card' || debugToken === 'launchcard';

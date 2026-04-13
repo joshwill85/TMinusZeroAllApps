@@ -1,11 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ApiClientError, type WatchlistRuleV1, type WatchlistV1 } from '@tminuszero/api-client';
+import type { WatchlistRuleV1, WatchlistV1 } from '@tminuszero/api-client';
 import {
   useCreateWatchlistMutation,
   useCreateWatchlistRuleMutation,
   useDeleteWatchlistRuleMutation,
   useWatchlistsQuery
 } from '@/src/api/queries';
+import {
+  buildWatchlistRuleErrorMessage as describeWatchlistRuleError,
+  isWatchlistCreateLimitError
+} from '@/src/watchlists/errorMessages';
+
+export {
+  buildWatchlistRuleErrorMessage,
+  isWatchlistCreateLimitError
+} from '@/src/watchlists/errorMessages';
 
 type WatchlistActionNotice = {
   tone: 'info' | 'success';
@@ -18,7 +27,13 @@ type UsePrimaryWatchlistOptions = {
   ruleLimit?: number | null;
 };
 
-type ToggleRuleKind = 'launch' | 'provider' | 'pad' | 'rocket' | 'launch_site' | 'state';
+type ToggleRuleKind =
+  | 'launch'
+  | 'provider'
+  | 'pad'
+  | 'rocket'
+  | 'launch_site'
+  | 'state';
 
 type ToggleRuleResult = {
   notice: WatchlistActionNotice;
@@ -49,15 +64,31 @@ type PrimaryWatchlistState = {
   isRocketTracked: (ruleValue: string | null | undefined) => boolean;
   isLaunchSiteTracked: (ruleValue: string | null | undefined) => boolean;
   isStateTracked: (ruleValue: string | null | undefined) => boolean;
-  isTracked: (kind: ToggleRuleKind, ruleValue: string | null | undefined) => boolean;
+  isTracked: (
+    kind: ToggleRuleKind,
+    ruleValue: string | null | undefined
+  ) => boolean;
   ensurePrimaryWatchlist: () => Promise<string | null>;
   toggleLaunch: (launchId: string) => Promise<ToggleRuleResult | null>;
   toggleProvider: (provider: string) => Promise<ToggleRuleResult | null>;
   togglePad: (ruleValue: string) => Promise<ToggleRuleResult | null>;
-  toggleRocket: (ruleValue: string, label?: string) => Promise<ToggleRuleResult | null>;
-  toggleLaunchSite: (ruleValue: string, label?: string) => Promise<ToggleRuleResult | null>;
-  toggleState: (ruleValue: string, label?: string) => Promise<ToggleRuleResult | null>;
-  toggleRule: (args: { kind: ToggleRuleKind; ruleValue: string; label: string }) => Promise<ToggleRuleResult | null>;
+  toggleRocket: (
+    ruleValue: string,
+    label?: string
+  ) => Promise<ToggleRuleResult | null>;
+  toggleLaunchSite: (
+    ruleValue: string,
+    label?: string
+  ) => Promise<ToggleRuleResult | null>;
+  toggleState: (
+    ruleValue: string,
+    label?: string
+  ) => Promise<ToggleRuleResult | null>;
+  toggleRule: (args: {
+    kind: ToggleRuleKind;
+    ruleValue: string;
+    label: string;
+  }) => Promise<ToggleRuleResult | null>;
 };
 
 export function buildPadRuleValue({
@@ -67,7 +98,11 @@ export function buildPadRuleValue({
   ll2PadId?: number | null;
   padShortCode?: string | null;
 }) {
-  if (typeof ll2PadId === 'number' && Number.isFinite(ll2PadId) && ll2PadId > 0) {
+  if (
+    typeof ll2PadId === 'number' &&
+    Number.isFinite(ll2PadId) &&
+    ll2PadId > 0
+  ) {
     return `ll2:${String(Math.trunc(ll2PadId))}`;
   }
 
@@ -88,7 +123,11 @@ export function buildRocketRuleValue({
   rocketName?: string | null;
   vehicle?: string | null;
 }) {
-  if (typeof ll2RocketConfigId === 'number' && Number.isFinite(ll2RocketConfigId) && ll2RocketConfigId > 0) {
+  if (
+    typeof ll2RocketConfigId === 'number' &&
+    Number.isFinite(ll2RocketConfigId) &&
+    ll2RocketConfigId > 0
+  ) {
     return `ll2:${String(Math.trunc(ll2RocketConfigId))}`;
   }
 
@@ -98,12 +137,21 @@ export function buildRocketRuleValue({
 
 export function buildLaunchSiteRuleValue(value: string | null | undefined) {
   const normalized = String(value || '').trim();
-  return normalized && normalized.toLowerCase() !== 'unknown' ? normalized : null;
+  return normalized && normalized.toLowerCase() !== 'unknown'
+    ? normalized
+    : null;
 }
 
 export function buildStateRuleValue(value: string | null | undefined) {
-  const normalized = String(value || '').trim().toUpperCase();
-  if (!normalized || normalized === 'NA' || normalized === 'N/A' || normalized === 'UNKNOWN') {
+  const normalized = String(value || '')
+    .trim()
+    .toUpperCase();
+  if (
+    !normalized ||
+    normalized === 'NA' ||
+    normalized === 'N/A' ||
+    normalized === 'UNKNOWN'
+  ) {
     return null;
   }
   return normalized;
@@ -129,7 +177,9 @@ export function formatRocketRuleLabel(value: string) {
   if (!normalized) {
     return 'Rocket';
   }
-  return normalized.startsWith('ll2:') ? `Rocket ${normalized.slice(4)}` : normalized;
+  return normalized.startsWith('ll2:')
+    ? `Rocket ${normalized.slice(4)}`
+    : normalized;
 }
 
 export function formatLaunchSiteRuleLabel(value: string) {
@@ -137,10 +187,16 @@ export function formatLaunchSiteRuleLabel(value: string) {
 }
 
 export function formatStateRuleLabel(value: string) {
-  return String(value || '').trim().toUpperCase() || 'State';
+  return (
+    String(value || '')
+      .trim()
+      .toUpperCase() || 'State'
+  );
 }
 
-export function formatWatchlistRuleLabel(rule: Pick<WatchlistRuleV1, 'ruleType' | 'ruleValue'>) {
+export function formatWatchlistRuleLabel(
+  rule: Pick<WatchlistRuleV1, 'ruleType' | 'ruleValue'>
+) {
   if (rule.ruleType === 'provider') {
     return String(rule.ruleValue || 'Provider').trim() || 'Provider';
   }
@@ -158,14 +214,20 @@ export function formatWatchlistRuleLabel(rule: Pick<WatchlistRuleV1, 'ruleType' 
   }
   if (rule.ruleType === 'tier') {
     const normalizedTier = String(rule.ruleValue || '').trim();
-    return normalizedTier ? `${normalizedTier.toUpperCase()} tier` : 'Tier follow';
+    return normalizedTier
+      ? `${normalizedTier.toUpperCase()} tier`
+      : 'Tier follow';
   }
 
   const normalizedLaunchId = String(rule.ruleValue || '').trim();
-  return normalizedLaunchId ? `Launch ${normalizedLaunchId.slice(0, 8)}` : 'Saved launch';
+  return normalizedLaunchId
+    ? `Launch ${normalizedLaunchId.slice(0, 8)}`
+    : 'Saved launch';
 }
 
-export function formatWatchlistRuleCaption(rule: Pick<WatchlistRuleV1, 'ruleType' | 'ruleValue'>) {
+export function formatWatchlistRuleCaption(
+  rule: Pick<WatchlistRuleV1, 'ruleType' | 'ruleValue'>
+) {
   if (rule.ruleType === 'provider') {
     return 'Provider follow';
   }
@@ -188,12 +250,23 @@ export function formatWatchlistRuleCaption(rule: Pick<WatchlistRuleV1, 'ruleType
 }
 
 export function buildFollowAlertRuleKey(ruleType: string, ruleValue: string) {
-  return `${String(ruleType || '').trim().toLowerCase()}:${String(ruleValue || '').trim().toLowerCase()}`;
+  return `${String(ruleType || '')
+    .trim()
+    .toLowerCase()}:${String(ruleValue || '')
+    .trim()
+    .toLowerCase()}`;
 }
 
 export function resolvePrimaryWatchlist(watchlists: WatchlistV1[]) {
   return (
-    watchlists.find((watchlist) => String(watchlist.name || '').trim().toLowerCase() === 'my launches') ?? watchlists[0] ?? null
+    watchlists.find(
+      (watchlist) =>
+        String(watchlist.name || '')
+          .trim()
+          .toLowerCase() === 'my launches'
+    ) ??
+    watchlists[0] ??
+    null
   );
 }
 
@@ -208,7 +281,11 @@ export function findWatchlistRuleId(
   }
 
   const match = rules.find(
-    (rule) => rule.ruleType === ruleType && String(rule.ruleValue || '').trim().toLowerCase() === normalizedRuleValue.toLowerCase()
+    (rule) =>
+      rule.ruleType === ruleType &&
+      String(rule.ruleValue || '')
+        .trim()
+        .toLowerCase() === normalizedRuleValue.toLowerCase()
   );
   return match?.id ?? null;
 }
@@ -262,27 +339,6 @@ function buildWatchlistRuleMaps(watchlist: WatchlistV1 | null) {
   };
 }
 
-function buildRuleLimitMessage(ruleLimit: number | null | undefined) {
-  return ruleLimit ? `My Launches limit reached (${ruleLimit} rules).` : 'My Launches limit reached.';
-}
-
-export function buildWatchlistRuleErrorMessage(error: unknown, label: string, ruleLimit?: number | null) {
-  if (error instanceof ApiClientError) {
-    if (error.code === 'limit_reached') {
-      return buildRuleLimitMessage(ruleLimit);
-    }
-    if (error.code) {
-      return `${label} error: ${error.code}`;
-    }
-  }
-
-  if (error instanceof Error && error.message) {
-    return error.message;
-  }
-
-  return `Unable to update ${label.toLowerCase()}.`;
-}
-
 export function usePrimaryWatchlist({
   enabled,
   autoCreate = true,
@@ -295,10 +351,27 @@ export function usePrimaryWatchlist({
   const [busyKeys, setBusyKeys] = useState<Record<string, boolean>>({});
   const [didAttemptAutoCreate, setDidAttemptAutoCreate] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
-  const watchlists = useMemo(() => watchlistsQuery.data?.watchlists ?? [], [watchlistsQuery.data?.watchlists]);
-  const primaryWatchlist = useMemo(() => resolvePrimaryWatchlist(watchlists), [watchlists]);
+  const watchlists = useMemo(
+    () => watchlistsQuery.data?.watchlists ?? [],
+    [watchlistsQuery.data?.watchlists]
+  );
+  const primaryWatchlist = useMemo(
+    () => resolvePrimaryWatchlist(watchlists),
+    [watchlists]
+  );
   const primaryWatchlistId = primaryWatchlist?.id ?? null;
-  const ruleMaps = useMemo(() => buildWatchlistRuleMaps(primaryWatchlist), [primaryWatchlist]);
+  const ruleMaps = useMemo(
+    () => buildWatchlistRuleMaps(primaryWatchlist),
+    [primaryWatchlist]
+  );
+  const refetchWatchlists = watchlistsQuery.refetch;
+
+  const recoverPrimaryWatchlistId = useCallback(async () => {
+    const refreshed = await refetchWatchlists();
+    return (
+      resolvePrimaryWatchlist(refreshed.data?.watchlists ?? [])?.id ?? null
+    );
+  }, [refetchWatchlists]);
 
   useEffect(() => {
     if (!enabled) {
@@ -314,20 +387,34 @@ export function usePrimaryWatchlist({
     if (!enabled || !autoCreate) {
       return;
     }
-    if (!watchlistsQuery.isSuccess || watchlists.length > 0 || didAttemptAutoCreate || createWatchlistMutation.isPending) {
+    if (
+      !watchlistsQuery.isSuccess ||
+      watchlists.length > 0 ||
+      didAttemptAutoCreate ||
+      createWatchlistMutation.isPending
+    ) {
       return;
     }
 
     setDidAttemptAutoCreate(true);
     setLastError(null);
-    void createWatchlistMutation.mutateAsync({}).catch((error) => {
-      setLastError(buildWatchlistRuleErrorMessage(error, 'My Launches', ruleLimit));
+    void createWatchlistMutation.mutateAsync({}).catch(async (error) => {
+      if (isWatchlistCreateLimitError(error)) {
+        const recoveredWatchlistId = await recoverPrimaryWatchlistId();
+        if (recoveredWatchlistId) {
+          setLastError(null);
+          return;
+        }
+      }
+
+      setLastError(describeWatchlistRuleError(error, 'My Launches', ruleLimit));
     });
   }, [
     autoCreate,
     createWatchlistMutation,
     didAttemptAutoCreate,
     enabled,
+    recoverPrimaryWatchlistId,
     ruleLimit,
     watchlists.length,
     watchlistsQuery.isSuccess
@@ -342,9 +429,24 @@ export function usePrimaryWatchlist({
     }
 
     setLastError(null);
-    const payload = await createWatchlistMutation.mutateAsync({});
-    return payload.watchlist.id ?? null;
-  }, [createWatchlistMutation, enabled, primaryWatchlistId]);
+    try {
+      const payload = await createWatchlistMutation.mutateAsync({});
+      return payload.watchlist.id ?? null;
+    } catch (error) {
+      if (isWatchlistCreateLimitError(error)) {
+        const recoveredWatchlistId = await recoverPrimaryWatchlistId();
+        if (recoveredWatchlistId) {
+          return recoveredWatchlistId;
+        }
+      }
+      throw error;
+    }
+  }, [
+    createWatchlistMutation,
+    enabled,
+    primaryWatchlistId,
+    recoverPrimaryWatchlistId
+  ]);
 
   const toggleRule = useCallback(
     async ({
@@ -373,16 +475,26 @@ export function usePrimaryWatchlist({
 
       const existingRuleId =
         kind === 'launch'
-          ? ruleMaps.launchRuleIdsByLaunchId[normalizedRuleValue] ?? null
+          ? (ruleMaps.launchRuleIdsByLaunchId[normalizedRuleValue] ?? null)
           : kind === 'provider'
-            ? ruleMaps.providerRuleIdsByValue[normalizedRuleValue.toLowerCase()] ?? null
+            ? (ruleMaps.providerRuleIdsByValue[
+                normalizedRuleValue.toLowerCase()
+              ] ?? null)
             : kind === 'pad'
-              ? ruleMaps.padRuleIdsByValue[normalizedRuleValue.toLowerCase()] ?? null
+              ? (ruleMaps.padRuleIdsByValue[
+                  normalizedRuleValue.toLowerCase()
+                ] ?? null)
               : kind === 'rocket'
-                ? ruleMaps.rocketRuleIdsByValue[normalizedRuleValue.toLowerCase()] ?? null
+                ? (ruleMaps.rocketRuleIdsByValue[
+                    normalizedRuleValue.toLowerCase()
+                  ] ?? null)
                 : kind === 'launch_site'
-                  ? ruleMaps.launchSiteRuleIdsByValue[normalizedRuleValue.toLowerCase()] ?? null
-                  : ruleMaps.stateRuleIdsByValue[normalizedRuleValue.toLowerCase()] ?? null;
+                  ? (ruleMaps.launchSiteRuleIdsByValue[
+                      normalizedRuleValue.toLowerCase()
+                    ] ?? null)
+                  : (ruleMaps.stateRuleIdsByValue[
+                      normalizedRuleValue.toLowerCase()
+                    ] ?? null);
 
       setBusyKeys((current) => ({ ...current, [busyKey]: true }));
       setLastError(null);
@@ -401,7 +513,10 @@ export function usePrimaryWatchlist({
             label,
             notice: {
               tone: 'info',
-              message: kind === 'launch' ? 'Removed from My Launches.' : `Unfollowed ${label}.`
+              message:
+                kind === 'launch'
+                  ? 'Removed from My Launches.'
+                  : `Unfollowed ${label}.`
             }
           };
         }
@@ -422,23 +537,37 @@ export function usePrimaryWatchlist({
           label,
           notice: {
             tone: 'success',
-            message: kind === 'launch' ? 'Added to My Launches.' : `Following ${label}.`
+            message:
+              kind === 'launch'
+                ? 'Added to My Launches.'
+                : `Following ${label}.`
           }
         };
       } catch (error) {
-        const message = buildWatchlistRuleErrorMessage(error, label, ruleLimit);
+        const message = describeWatchlistRuleError(error, label, ruleLimit);
         setLastError(message);
         throw error;
       } finally {
         setBusyKeys((current) => ({ ...current, [busyKey]: false }));
       }
     },
-    [busyKeys, createWatchlistRuleMutation, deleteWatchlistRuleMutation, ensurePrimaryWatchlist, ruleLimit, ruleMaps]
+    [
+      busyKeys,
+      createWatchlistRuleMutation,
+      deleteWatchlistRuleMutation,
+      ensurePrimaryWatchlist,
+      ruleLimit,
+      ruleMaps
+    ]
   );
 
   const errorMessage =
     lastError ??
-    (watchlistsQuery.error instanceof Error ? watchlistsQuery.error.message : watchlistsQuery.error ? 'Unable to load saved items.' : null);
+    (watchlistsQuery.error instanceof Error
+      ? watchlistsQuery.error.message
+      : watchlistsQuery.error
+        ? 'Unable to load saved items.'
+        : null);
 
   return {
     watchlists,
@@ -455,39 +584,74 @@ export function usePrimaryWatchlist({
     stateRuleIdsByValue: ruleMaps.stateRuleIdsByValue,
     isLaunchTracked: (launchId) => {
       const normalizedLaunchId = String(launchId || '').trim();
-      return Boolean(normalizedLaunchId && ruleMaps.launchRuleIdsByLaunchId[normalizedLaunchId]);
+      return Boolean(
+        normalizedLaunchId &&
+        ruleMaps.launchRuleIdsByLaunchId[normalizedLaunchId]
+      );
     },
     isProviderTracked: (provider) => {
-      const normalizedProvider = String(provider || '').trim().toLowerCase();
-      return Boolean(normalizedProvider && ruleMaps.providerRuleIdsByValue[normalizedProvider]);
+      const normalizedProvider = String(provider || '')
+        .trim()
+        .toLowerCase();
+      return Boolean(
+        normalizedProvider &&
+        ruleMaps.providerRuleIdsByValue[normalizedProvider]
+      );
     },
     isPadTracked: (ruleValue) => {
-      const normalizedRuleValue = String(ruleValue || '').trim().toLowerCase();
-      return Boolean(normalizedRuleValue && ruleMaps.padRuleIdsByValue[normalizedRuleValue]);
+      const normalizedRuleValue = String(ruleValue || '')
+        .trim()
+        .toLowerCase();
+      return Boolean(
+        normalizedRuleValue && ruleMaps.padRuleIdsByValue[normalizedRuleValue]
+      );
     },
     isRocketTracked: (ruleValue) => {
-      const normalizedRuleValue = String(ruleValue || '').trim().toLowerCase();
-      return Boolean(normalizedRuleValue && ruleMaps.rocketRuleIdsByValue[normalizedRuleValue]);
+      const normalizedRuleValue = String(ruleValue || '')
+        .trim()
+        .toLowerCase();
+      return Boolean(
+        normalizedRuleValue &&
+        ruleMaps.rocketRuleIdsByValue[normalizedRuleValue]
+      );
     },
     isLaunchSiteTracked: (ruleValue) => {
-      const normalizedRuleValue = String(ruleValue || '').trim().toLowerCase();
-      return Boolean(normalizedRuleValue && ruleMaps.launchSiteRuleIdsByValue[normalizedRuleValue]);
+      const normalizedRuleValue = String(ruleValue || '')
+        .trim()
+        .toLowerCase();
+      return Boolean(
+        normalizedRuleValue &&
+        ruleMaps.launchSiteRuleIdsByValue[normalizedRuleValue]
+      );
     },
     isStateTracked: (ruleValue) => {
-      const normalizedRuleValue = String(ruleValue || '').trim().toLowerCase();
-      return Boolean(normalizedRuleValue && ruleMaps.stateRuleIdsByValue[normalizedRuleValue]);
+      const normalizedRuleValue = String(ruleValue || '')
+        .trim()
+        .toLowerCase();
+      return Boolean(
+        normalizedRuleValue && ruleMaps.stateRuleIdsByValue[normalizedRuleValue]
+      );
     },
     isTracked: (kind, ruleValue) => {
       if (kind === 'launch') {
         const normalizedLaunchId = String(ruleValue || '').trim();
-        return Boolean(normalizedLaunchId && ruleMaps.launchRuleIdsByLaunchId[normalizedLaunchId]);
+        return Boolean(
+          normalizedLaunchId &&
+          ruleMaps.launchRuleIdsByLaunchId[normalizedLaunchId]
+        );
       }
-      const normalizedRuleValue = String(ruleValue || '').trim().toLowerCase();
+      const normalizedRuleValue = String(ruleValue || '')
+        .trim()
+        .toLowerCase();
       if (!normalizedRuleValue) return false;
-      if (kind === 'provider') return Boolean(ruleMaps.providerRuleIdsByValue[normalizedRuleValue]);
-      if (kind === 'pad') return Boolean(ruleMaps.padRuleIdsByValue[normalizedRuleValue]);
-      if (kind === 'rocket') return Boolean(ruleMaps.rocketRuleIdsByValue[normalizedRuleValue]);
-      if (kind === 'launch_site') return Boolean(ruleMaps.launchSiteRuleIdsByValue[normalizedRuleValue]);
+      if (kind === 'provider')
+        return Boolean(ruleMaps.providerRuleIdsByValue[normalizedRuleValue]);
+      if (kind === 'pad')
+        return Boolean(ruleMaps.padRuleIdsByValue[normalizedRuleValue]);
+      if (kind === 'rocket')
+        return Boolean(ruleMaps.rocketRuleIdsByValue[normalizedRuleValue]);
+      if (kind === 'launch_site')
+        return Boolean(ruleMaps.launchSiteRuleIdsByValue[normalizedRuleValue]);
       return Boolean(ruleMaps.stateRuleIdsByValue[normalizedRuleValue]);
     },
     ensurePrimaryWatchlist,
@@ -520,13 +684,17 @@ export function usePrimaryWatchlist({
       toggleRule({
         kind: 'launch_site',
         ruleValue,
-        label: String(label || ruleValue || 'Launch site').trim() || 'Launch site'
+        label:
+          String(label || ruleValue || 'Launch site').trim() || 'Launch site'
       }),
     toggleState: (ruleValue, label) =>
       toggleRule({
         kind: 'state',
         ruleValue,
-        label: String(label || ruleValue || 'State').trim().toUpperCase() || 'State'
+        label:
+          String(label || ruleValue || 'State')
+            .trim()
+            .toUpperCase() || 'State'
       })
   };
 }

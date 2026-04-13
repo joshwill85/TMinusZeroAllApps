@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
 import { buildAuthCallbackHref } from '@tminuszero/navigation';
+import { useSafeSearchParams } from '@/lib/client/useSafeSearchParams';
 
 function hasAuthTokensInHash(hash: string) {
   const trimmed = hash.startsWith('#') ? hash.slice(1) : hash;
@@ -17,7 +17,7 @@ function hasAuthErrorInHash(hash: string) {
 }
 
 export function AuthReturnRedirect() {
-  const searchParams = useSearchParams();
+  const searchParams = useSafeSearchParams();
   const searchParamString = searchParams.toString();
 
   useEffect(() => {

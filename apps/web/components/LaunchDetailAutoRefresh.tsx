@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   buildDetailVersionToken,
@@ -15,6 +15,8 @@ import {
 } from '@tminuszero/domain';
 import { subscribeToBrowserLaunchRefreshSignal } from '@/lib/api/supabase';
 import { fetchLaunchDetailVersion } from '@/lib/api/queries';
+import { useSafePathname } from '@/lib/client/useSafePathname';
+import { useSafeSearchParams } from '@/lib/client/useSafeSearchParams';
 
 const LAUNCH_ROUTE_TRACE_KEY = '__tmzBlueOriginRouteTrace';
 const LAUNCH_PERF_SLOW_RESOURCE_MS = 150;
@@ -109,8 +111,8 @@ export function LaunchDetailAutoRefresh({
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const pathname = useSafePathname();
+  const searchParams = useSafeSearchParams();
   const debugToken = String(searchParams.get('debug') || '').trim().toLowerCase();
   const debugEnabled =
     debugToken === '1' ||

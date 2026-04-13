@@ -65,6 +65,19 @@ const sharedPackages = [
   '@tminuszero/query'
 ];
 
+const legacyAliasRedirects = [
+  ['/artemis-2', '/artemis-ii'],
+  ['/artemis-4', '/artemis-iv'],
+  ['/artemis-5', '/artemis-v'],
+  ['/artemis-6', '/artemis-vi'],
+  ['/artemis-7', '/artemis-vii'],
+  ['/new-glenn', '/blue-origin/missions/new-glenn'],
+  ['/new-shepard', '/blue-origin/missions/new-shepard'],
+  ['/blue-moon', '/blue-origin/missions/blue-moon'],
+  ['/blue-ring', '/blue-origin/missions/blue-ring'],
+  ['/be-4', '/blue-origin/missions/be-4']
+];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   transpilePackages: sharedPackages,
@@ -98,16 +111,18 @@ const nextConfig = {
   },
   async redirects() {
     return [
-      {
-        source: '/artemis-2',
-        destination: '/artemis-ii',
-        permanent: true
-      },
-      {
-        source: '/artemis-2/',
-        destination: '/artemis-ii',
-        permanent: true
-      },
+      ...legacyAliasRedirects.flatMap(([source, destination]) => [
+        {
+          source,
+          destination,
+          permanent: true
+        },
+        {
+          source: `${source}/`,
+          destination,
+          permanent: true
+        }
+      ]),
       {
         source: '/spacex/jellyfish-effect',
         destination: '/jellyfish-effect',

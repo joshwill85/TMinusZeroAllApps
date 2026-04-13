@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react';
 import clsx from 'clsx';
-import { usePathname } from 'next/navigation';
+import { useSafePathname } from '@/lib/client/useSafePathname';
 import { RecoveryRedirect } from '@/components/RecoveryRedirect';
 import { PrivacySignals } from '@/components/PrivacySignals';
 import { SiteChrome } from '@/components/SiteChrome';
@@ -11,7 +11,7 @@ import { ToastProvider } from '@/components/ToastProvider';
 import { WebQueryProvider } from '@/components/WebQueryProvider';
 
 export function RootFrame({ children }: { children: ReactNode }) {
-  const pathname = usePathname();
+  const pathname = useSafePathname();
   const isEmbed = pathname ? pathname.startsWith('/embed') : false;
   const isCameraGuide = pathname
     ? /^\/launches\/[^/]+\/ar(?:\/|$)/.test(pathname)

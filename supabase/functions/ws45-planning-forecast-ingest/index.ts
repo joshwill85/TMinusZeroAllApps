@@ -697,6 +697,16 @@ async function finishIngestionRun(
 
 function stringifyError(err: unknown) {
   if (err instanceof Error) return err.message;
+  if (typeof err === 'object' && err !== null) {
+    const record = err as Record<string, unknown>;
+    const message = typeof record.message === 'string' ? record.message.trim() : '';
+    if (message) return message;
+    try {
+      return JSON.stringify(record, (_key, value) => (typeof value === 'bigint' ? value.toString() : value));
+    } catch {
+      return '[unserializable object error]';
+    }
+  }
   return String(err);
 }
 

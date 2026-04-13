@@ -24,6 +24,8 @@ const SETTINGS_KEYS = [
   'll2_rate_limit_per_hour'
 ];
 
+const FUTURE_LAUNCH_MAP_PAGE_SIZE = 250;
+
 type LaunchMapRow = {
   launch_id: string;
   ll2_launch_uuid: string;
@@ -279,7 +281,7 @@ async function loadFutureLaunchMap(
   }
 ) {
   const launchMap = new Map<string, string>();
-  const pageSize = 1000;
+  const pageSize = FUTURE_LAUNCH_MAP_PAGE_SIZE;
   let offset = 0;
 
   while (true) {

@@ -2,12 +2,13 @@
 
 import { ApiClientError } from '@tminuszero/api-client';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { assertPasswordPolicy, PASSWORD_POLICY_HINT } from '@tminuszero/domain';
 import { buildAuthCallbackHref, readAuthIntent, readReturnTo } from '@tminuszero/navigation';
 import { browserApiClient } from '@/lib/api/client';
 import { getBrowserClient } from '@/lib/api/supabase';
+import { useSafeSearchParams } from '@/lib/client/useSafeSearchParams';
 import { normalizeEnvText, normalizeEnvUrl } from '@/lib/env/normalize';
 import { CaptchaWidget } from './CaptchaWidget';
 
@@ -23,7 +24,7 @@ export function AuthForm({
   claimEmail?: string | null;
 }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useSafeSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');

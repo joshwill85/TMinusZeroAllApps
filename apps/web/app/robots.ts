@@ -2,14 +2,34 @@ import type { MetadataRoute } from 'next';
 
 import { getSiteUrl } from '@/lib/server/env';
 
-function shouldAllowIndexing(siteUrl: string) {
+function parseBooleanEnv(value: string | undefined) {
+  const normalized = value?.trim().toLowerCase();
+  return (
+    normalized === '1' ||
+    normalized === 'true' ||
+    normalized === 'yes' ||
+    normalized === 'on'
+  );
+}
+
+function shouldAllowRobotsIndexing(siteUrl: string) {
+  const normalizedSiteUrl = siteUrl.trim().toLowerCase();
+  const isLocalhost = normalizedSiteUrl.includes('localhost');
+  if (isLocalhost) {
+    return parseBooleanEnv(process.env.TMZ_ALLOW_LOCAL_INDEXING);
+  }
+
   const vercelEnv = process.env.VERCEL_ENV?.trim().toLowerCase();
-  if (vercelEnv && vercelEnv !== 'production') return false;
+  if (vercelEnv) {
+    return vercelEnv === 'production';
+  }
 
   const nodeEnv = process.env.NODE_ENV?.trim().toLowerCase();
-  if (nodeEnv && nodeEnv !== 'production') return false;
+  if (nodeEnv) {
+    return nodeEnv === 'production';
+  }
 
-  return !siteUrl.toLowerCase().includes('localhost');
+  return true;
 }
 
 function getHost(siteUrl: string) {
@@ -32,7 +52,7 @@ export default function robots(): MetadataRoute.Robots {
     `${siteUrl}/sitemap-satellite-owners.xml`
   ];
 
-  if (!shouldAllowIndexing(siteUrl)) {
+  if (!shouldAllowRobotsIndexing(siteUrl)) {
     return {
       rules: { userAgent: '*', disallow: '/' }
     };

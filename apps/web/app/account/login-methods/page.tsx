@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import type { AuthMethodV1 } from '@tminuszero/api-client';
 import { isRecoveryOnlyViewer, normalizeAuthSourceProvider } from '@tminuszero/domain';
@@ -11,6 +10,7 @@ import { buildAuthHref, buildProfileHref } from '@tminuszero/navigation';
 import { AccountRecoveryOnlyNotice } from '@/components/AccountRecoveryOnlyNotice';
 import { invalidateViewerScopedQueries, useAuthMethodsQuery, useViewerEntitlementsQuery, useViewerSessionQuery } from '@/lib/api/queries';
 import { browserApiClient } from '@/lib/api/client';
+import { useSafeSearchParams } from '@/lib/client/useSafeSearchParams';
 import { getBrowserClient } from '@/lib/api/supabase';
 
 type NoticeTone = 'success' | 'warning' | 'error';
@@ -34,7 +34,7 @@ function getErrorMessage(error: unknown, fallback: string) {
 }
 
 export default function LoginMethodsPage() {
-  const searchParams = useSearchParams();
+  const searchParams = useSafeSearchParams();
   const queryClient = useQueryClient();
   const viewerSessionQuery = useViewerSessionQuery();
   const entitlementsQuery = useViewerEntitlementsQuery();

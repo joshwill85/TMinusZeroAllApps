@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, permanentRedirect } from 'next/navigation';
 import { cache, type ReactNode } from 'react';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { JsonLd } from '@/components/JsonLd';
@@ -10,6 +10,8 @@ import type { Launch } from '@/lib/types/launch';
 import { createSupabaseServerClient } from '@/lib/server/supabaseServer';
 import { mapPublicCacheRow } from '@/lib/server/transformers';
 import { getSiteUrl, isSupabaseConfigured } from '@/lib/server/env';
+import { fetchProviderBySlug } from '@/lib/server/providers';
+import { buildCatalogCanonicalAliasPath } from '@/lib/server/seoAliases';
 import { buildSiteMeta, SITE_META } from '@/lib/server/siteMeta';
 import { buildLaunchHref, buildLocationHref, buildRocketHref } from '@/lib/utils/launchLinks';
 import { normalizeImageUrl } from '@/lib/utils/imageUrl';
@@ -161,6 +163,11 @@ export default async function CatalogEntityPage({ params }: { params: { entity: 
   const item = await fetchCatalogItem(entity, params.id);
   if (!item) return notFound();
 
+  const canonicalAliasPath = await resolveCatalogCanonicalAliasPath(item);
+  if (canonicalAliasPath) {
+    permanentRedirect(canonicalAliasPath);
+  }
+
   const details = buildDetailFacts(entity, item.data || {});
   const externalLinks = buildExternalLinks(entity, item.data || {});
   const relatedLaunches = await fetchRelatedLaunches(entity, item.entity_id, item.name, item.data || {});
@@ -280,6 +287,30 @@ export default async function CatalogEntityPage({ params }: { params: { entity: 
 function resolveEntity(raw: string): EntityType | null {
   const value = (raw || '').trim();
   return (ENTITY_TYPES.find((entity) => entity === value) || null) as EntityType | null;
+}
+
+async function resolveCatalogCanonicalAliasPath(item: CatalogDetailRow) {
+  if (item.entity_type === 'agencies') {
+    const provider = await fetchProviderBySlug(item.name);
+    if (!provider) {
+      return null;
+    }
+
+    return buildCatalogCanonicalAliasPath(
+      {
+        entityType: item.entity_type,
+        entityId: item.entity_id,
+        name: item.name
+      },
+      new Set([provider.slug])
+    );
+  }
+
+  return buildCatalogCanonicalAliasPath({
+    entityType: item.entity_type,
+    entityId: item.entity_id,
+    name: item.name
+  });
 }
 
 function Fact({ label, value }: { label: string; value: ReactNode }) {

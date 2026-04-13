@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { useSafePathname } from '@/lib/client/useSafePathname';
 import clsx from 'clsx';
 import {
   useCallback,
@@ -14,6 +14,7 @@ import {
 import {
   buildAuthHref,
   buildCalendarHref,
+  buildPreferencesHref,
   buildPrivacyChoicesHref,
   buildProfileHref,
   buildUpgradeHref
@@ -40,7 +41,7 @@ export function DockingBay({
   onOpenSearch,
   onOpenTipJar
 }: DockingBayProps) {
-  const pathname = usePathname();
+  const pathname = useSafePathname();
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
   const closeTimeoutRef = useRef<number | null>(null);
@@ -50,6 +51,7 @@ export function DockingBay({
   const accountHref = profile ? buildProfileHref() : buildAuthHref('sign-in');
   const accountLabel = profile?.first_name?.trim() || 'Account';
   const accountInitials = profileInitials(profile);
+  const preferencesHref = buildPreferencesHref();
 
   const sitemapLinks = useMemo(
     () =>
@@ -63,14 +65,14 @@ export function DockingBay({
         { label: 'About', href: '/about' },
         { label: 'FAQ', href: '/docs/faq' },
         { label: 'Support', href: '/support' },
-        { label: 'Notifications', href: '/preferences' },
+        { label: 'Notifications', href: preferencesHref },
         isAdmin ? { label: 'Admin', href: '/admin' } : null,
         viewerTier && viewerTier !== 'premium'
           ? { label: 'Premium · $3.99/mo', href: buildUpgradeHref() }
           : null,
         { label: accountLabel, href: accountHref }
       ].filter(Boolean) as Array<{ label: string; href: string }>,
-    [accountHref, accountLabel, isAdmin, viewerTier]
+    [accountHref, accountLabel, isAdmin, preferencesHref, viewerTier]
   );
 
   const legalLinks = useMemo(

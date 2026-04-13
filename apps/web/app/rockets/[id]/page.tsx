@@ -181,20 +181,38 @@ const fetchRocketHub = cache(async (id: string): Promise<RocketHubData | null> =
   const upcoming = (upcomingRes.data || []).map(mapPublicCacheRow);
   const recent = (recentRes.data || []).map(mapPublicCacheRow);
   const sample = pickRocketSample({ upcoming, recent, identifier });
-  if (!sample) return null;
+  const resolvedRocketConfigId =
+    sample?.ll2RocketConfigId ??
+    (identifier.kind === 'id' && Number.isFinite(identifier.id)
+      ? identifier.id
+      : null);
+  const rocketConfigRow = resolvedRocketConfigId
+    ? await fetchRocketConfigCacheRow(resolvedRocketConfigId)
+    : null;
+  if (!sample && !rocketConfigRow) return null;
 
-  const rocketName = sample.rocket?.fullName || sample.vehicle || identifier.label;
-  const canonicalId = sample.ll2RocketConfigId != null ? String(sample.ll2RocketConfigId) : identifier.raw;
+  const rocketName =
+    sample?.rocket?.fullName ||
+    extractRocketCanonicalName(rocketConfigRow) ||
+    sample?.vehicle ||
+    identifier.label;
+  const canonicalId =
+    resolvedRocketConfigId != null
+      ? String(resolvedRocketConfigId)
+      : identifier.raw;
 
   return {
     rocketName,
-    rocketDescription: sample.rocket?.description,
-    rocketFamily: sample.rocket?.family,
-    rocketManufacturer: sample.rocket?.manufacturer,
-    rocketInfoUrl: sample.rocket?.infoUrl,
-    rocketWikiUrl: sample.rocket?.wikiUrl,
-    rocketImageUrl: sample.rocket?.imageUrl,
-    ll2RocketConfigId: sample.ll2RocketConfigId ?? null,
+    rocketDescription:
+      sample?.rocket?.description ||
+      extractCatalogDescription(rocketConfigRow),
+    rocketFamily: sample?.rocket?.family,
+    rocketManufacturer: sample?.rocket?.manufacturer,
+    rocketInfoUrl: sample?.rocket?.infoUrl,
+    rocketWikiUrl: sample?.rocket?.wikiUrl,
+    rocketImageUrl:
+      sample?.rocket?.imageUrl || rocketConfigRow?.image_url || undefined,
+    ll2RocketConfigId: resolvedRocketConfigId ?? null,
     launchesUpcoming: upcoming,
     launchesRecent: recent,
     canonicalId
@@ -244,6 +262,28 @@ function extractRocketNameHints(row: Pick<CatalogCacheRow, 'name' | 'data'> | nu
   }
 
   return [...hints];
+}
+
+function extractRocketCanonicalName(row: Pick<CatalogCacheRow, 'name' | 'data'> | null) {
+  if (!row) return null;
+  const data = row.data as Record<string, unknown> | null;
+  return (
+    normalizeLabel(data?.full_name) ||
+    normalizeLabel(data?.name) ||
+    normalizeLabel(row.name)
+  );
+}
+
+function extractCatalogDescription(
+  row: Pick<CatalogCacheRow, 'description' | 'data'> | null
+) {
+  if (!row) return undefined;
+  const data = row.data as Record<string, unknown> | null;
+  return (
+    normalizeLabel(row.description) ||
+    normalizeLabel(data?.description) ||
+    undefined
+  );
 }
 
 function pickRocketSample({

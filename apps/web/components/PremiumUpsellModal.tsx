@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect } from 'react';
-import { usePathname } from 'next/navigation';
+import { useSafePathname } from '@/lib/client/useSafePathname';
 import { buildAuthHref, buildUpgradeHref } from '@tminuszero/navigation';
 import { BRAND_NAME } from '@/lib/brand';
 
@@ -25,7 +25,7 @@ export function PremiumUpsellModal({
   isAuthed: boolean;
   featureLabel?: string;
 }) {
-  const pathname = usePathname();
+  const pathname = useSafePathname();
 
   useEffect(() => {
     if (!open) return;

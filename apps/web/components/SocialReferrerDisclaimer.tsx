@@ -2,7 +2,7 @@
 
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { useSafePathname } from '@/lib/client/useSafePathname';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getBrowserClient } from '@/lib/api/supabase';
 
@@ -87,7 +87,7 @@ function readSearchSnapshot() {
 }
 
 export function SocialReferrerDisclaimer() {
-  const pathname = usePathname();
+  const pathname = useSafePathname();
   const [utmSource, setUtmSource] = useState('');
   const [open, setOpen] = useState(false);
   const [resolvedSource, setResolvedSource] = useState<SocialSource | null>(

@@ -80,27 +80,32 @@ export function FollowMenuButton({
     const updateMenuStyle = () => {
       if (!buttonRef.current) return;
 
-      const triggerRect = buttonRef.current.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
       const horizontalMargin = 16;
       const verticalMargin = 16;
       const menuGap = 8;
-      const menuWidth = Math.min(384, Math.max(240, viewportWidth - horizontalMargin * 2));
-      const menuHeight = panelRef.current?.offsetHeight ?? 0;
-      const alignedLeft = clamp(triggerRect.right - menuWidth, horizontalMargin, viewportWidth - menuWidth - horizontalMargin);
+      const viewportMetrics = getViewportMetrics({ horizontalMargin, verticalMargin });
+      const triggerRect = buttonRef.current.getBoundingClientRect();
+      const menuContentHeight = panelRef.current?.scrollHeight ?? 0;
+      const menuHeight = Math.min(menuContentHeight || viewportMetrics.usableHeight, viewportMetrics.usableHeight);
+      const menuWidth = Math.min(384, Math.max(240, viewportMetrics.width));
+      const alignedLeft = clamp(
+        triggerRect.right - menuWidth,
+        viewportMetrics.left,
+        viewportMetrics.right - menuWidth
+      );
       const canPlaceBelow =
-        menuHeight === 0 || triggerRect.bottom + menuGap + menuHeight <= viewportHeight - verticalMargin;
+        menuHeight === 0 || triggerRect.bottom + menuGap + menuHeight <= viewportMetrics.bottom;
       const top = canPlaceBelow
-        ? Math.min(triggerRect.bottom + menuGap, viewportHeight - verticalMargin)
-        : Math.max(verticalMargin, triggerRect.top - menuGap - menuHeight);
+        ? clamp(triggerRect.bottom + menuGap, viewportMetrics.top, viewportMetrics.bottom - menuHeight)
+        : clamp(triggerRect.top - menuGap - menuHeight, viewportMetrics.top, viewportMetrics.bottom - menuHeight);
 
       setMenuStyle((previous) => {
         if (
           previous &&
           previous.top === top &&
           previous.left === alignedLeft &&
-          previous.width === menuWidth
+          previous.width === menuWidth &&
+          previous.maxHeight === viewportMetrics.usableHeight
         ) {
           return previous;
         }
@@ -108,7 +113,8 @@ export function FollowMenuButton({
           position: 'fixed',
           top,
           left: alignedLeft,
-          width: menuWidth
+          width: menuWidth,
+          maxHeight: viewportMetrics.usableHeight
         } satisfies CSSProperties;
       });
     };
@@ -116,9 +122,13 @@ export function FollowMenuButton({
     updateMenuStyle();
     window.addEventListener('resize', updateMenuStyle);
     window.addEventListener('scroll', updateMenuStyle, true);
+    window.visualViewport?.addEventListener('resize', updateMenuStyle);
+    window.visualViewport?.addEventListener('scroll', updateMenuStyle);
     return () => {
       window.removeEventListener('resize', updateMenuStyle);
       window.removeEventListener('scroll', updateMenuStyle, true);
+      window.visualViewport?.removeEventListener('resize', updateMenuStyle);
+      window.visualViewport?.removeEventListener('scroll', updateMenuStyle);
     };
   }, [activeCount, capacityLabel, open, options.length, view]);
 
@@ -173,7 +183,7 @@ export function FollowMenuButton({
             role="dialog"
             aria-modal="false"
             aria-label="Follow and alerts"
-            className="z-[95] max-h-[calc(100vh-2rem)] overflow-y-auto rounded-2xl border border-stroke bg-[rgba(10,14,26,0.97)] p-2 shadow-[0_18px_60px_rgba(0,0,0,0.4)] backdrop-blur"
+            className="z-[95] overflow-y-auto overscroll-contain rounded-2xl border border-stroke bg-[rgba(10,14,26,0.97)] p-2 shadow-[0_18px_60px_rgba(0,0,0,0.4)] backdrop-blur"
             style={menuStyle}
             data-no-card-nav="true"
           >
@@ -255,6 +265,41 @@ export function FollowMenuButton({
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function getViewportMetrics({
+  horizontalMargin,
+  verticalMargin
+}: {
+  horizontalMargin: number;
+  verticalMargin: number;
+}) {
+  const visualViewport = window.visualViewport;
+  const viewportWidth = visualViewport?.width ?? window.innerWidth;
+  const viewportHeight = visualViewport?.height ?? window.innerHeight;
+  const viewportLeft = visualViewport?.offsetLeft ?? 0;
+  const viewportTop = visualViewport?.offsetTop ?? 0;
+  const bodyPaddingBottom = getBodyPaddingBottom();
+  const left = viewportLeft + horizontalMargin;
+  const top = viewportTop + verticalMargin;
+  const right = viewportLeft + viewportWidth - horizontalMargin;
+  const bottom = Math.max(top, viewportTop + viewportHeight - bodyPaddingBottom - verticalMargin);
+  return {
+    left,
+    top,
+    right,
+    bottom,
+    width: Math.max(240, right - left),
+    usableHeight: Math.max(160, bottom - top)
+  };
+}
+
+function getBodyPaddingBottom() {
+  if (typeof document === 'undefined') return 0;
+  const body = document.body;
+  if (!body) return 0;
+  const paddingBottom = Number.parseFloat(window.getComputedStyle(body).paddingBottom || '0');
+  return Number.isFinite(paddingBottom) ? paddingBottom : 0;
 }
 
 function TabButton({

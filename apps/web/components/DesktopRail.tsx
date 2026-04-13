@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { buildAuthHref, buildPrivacyChoicesHref, buildProfileHref } from '@tminuszero/navigation';
-import { usePathname } from 'next/navigation';
+import { useSafePathname } from '@/lib/client/useSafePathname';
 import clsx from 'clsx';
 import { BRAND_NAME } from '@/lib/brand';
 
@@ -14,7 +14,7 @@ export type RailProfile = {
 } | null;
 
 export function DesktopRail({ profile }: { profile: RailProfile }) {
-  const pathname = usePathname();
+  const pathname = useSafePathname();
   const accountHref = profile ? buildProfileHref() : buildAuthHref('sign-in');
   const initials = profileInitials(profile);
 
